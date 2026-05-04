@@ -37,7 +37,7 @@ def track_logs():
                     time.sleep(0.5)
                     continue
 
-                if "committed suicide" in line:
+                if "died" in line:
                     print("DEATH EVENT:", line)
 
     except Exception as e:
