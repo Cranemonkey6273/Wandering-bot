@@ -34,6 +34,7 @@ def track_logs():
             while True:
                 line = f.readline()
                 if not line:
+                    time.sleep(0.5)
                     continue
 
                 if "committed suicide" in line:
@@ -52,14 +53,5 @@ async def on_ready():
     print("STARTING TRACKER...")  # 👈 ADD THIS
     threading.Thread(target=track_logs, daemon=True).start()
 
-    # ===== ECONOMY =====
-    elif message.content.startswith("!balance"):
-        bal = get_balance(user_id)
-        await message.channel.send(f"💰 Balance: {bal}")
-
-    # ===== HEATMAP =====
-    elif message.content.startswith("!heatmap"):
-        data = get_hotspots()
-        await message.channel.send(f"🔥 PvP Hotspots:\n{data}")
 
 client.run(os.getenv("DISCORD_TOKEN"))
