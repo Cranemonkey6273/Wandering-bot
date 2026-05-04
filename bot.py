@@ -32,15 +32,11 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-print(f"Message received: {message.content}")
-    
-    
+    print(f"Message received: {message.content}")  # ✅ FIXED
+
     if message.author == client.user:
         return
 
-    user_id = str(message.author.id)
-
-    # ===== AI CHAT =====
     if message.content.startswith("!ask"):
         prompt = message.content[5:]
 
