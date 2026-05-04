@@ -23,12 +23,38 @@ Custom loadouts
 Vehicles enabled
 Active PvP zones
 """
+import time
+
+def track_logs():
+    try:
+        with open("server.ADM", "r") as f:
+            f.seek(0, 2)
+
+            while True:
+                line = f.readline()
+                if not line:
+                    time.sleep(1)
+                    continue
+
+                data = parse_line(line)
+
+                if data:
+                    player = data["player"]
+                    x, y, z = data["coords"]
+
+                    print(f"DEATH EVENT: {player} at {x}, {y}")
+
+    except Exception as e:
+        print("Log tracking error:", e)
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
     print("Wandering Bot is live.")
-    process_logs()
+
+    import threading
+    threading.Thread(target=track_logs, daemon=True).start()
+
 
 @client.event
 async def on_message(message):
