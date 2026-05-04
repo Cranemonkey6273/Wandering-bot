@@ -1,6 +1,5 @@
 import discord, os
 from openai import OpenAI
-from log_parser import parse_logs
 from economy import get_balance, add_money
 from heatmap import record_kill, get_hotspots
 
@@ -26,23 +25,19 @@ Active PvP zones
 import time
 
 def track_logs():
+    print("TRACKER STARTED")
+
     try:
         with open("server.ADM", "r") as f:
-            f.seek(0)
+            f.seek(0, 2)
 
             while True:
                 line = f.readline()
                 if not line:
-                    time.sleep(1)
                     continue
 
-                data = parse_line(line)
-
-                if data:
-                    player = data["player"]
-                    x, y, z = data["coords"]
-
-                    print(f"DEATH EVENT: {player} at {x}, {y}")
+                if "committed suicide" in line:
+                    print("DEATH EVENT:", line)
 
     except Exception as e:
         print("Log tracking error:", e)
