@@ -28,7 +28,7 @@ import time
 def track_logs():
     try:
         with open("server.ADM", "r") as f:
-            f.seek(0, 2)
+            f.seek(0)
 
             while True:
                 line = f.readline()
