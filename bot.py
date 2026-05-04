@@ -53,29 +53,9 @@ async def on_ready():
     print("Wandering Bot is live.")
 
     import threading
+
+    print("STARTING TRACKER...")  # 👈 ADD THIS
     threading.Thread(target=track_logs, daemon=True).start()
-
-
-@client.event
-async def on_message(message):
-    print(f"Message received: {message.content}")  # ✅ FIXED
-
-    if message.author == client.user:
-        return
-
-    if message.content.startswith("!ask"):
-        prompt = message.content[5:]
-
-        response = ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt}
-            ]
-        )
-
-        reply = response.choices[0].message.content
-        await message.channel.send(reply)
 
     # ===== ECONOMY =====
     elif message.content.startswith("!balance"):
