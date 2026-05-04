@@ -28,7 +28,7 @@ def track_logs():
     print("TRACKER STARTED")
 
     try:
-        with open("server.ADM", "r") as f:
+        with open("DayZServer_X1_x64_2026-05-04_22-18-27.ADM", "r") as f:
             f.seek(0, 2)
 
             while True:
