@@ -26,6 +26,9 @@ import time
 
 def track_logs():
     print("TRACKER STARTED")
+    
+import os
+print("FILES:", os.listdir())
 
     try:
         with open("DayZServer_X1_x64_2026-05-04_22-18-27.ADM", "r") as f:
