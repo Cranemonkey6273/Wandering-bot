@@ -29,7 +29,7 @@ def track_logs():
 
     try:
         with open("DayZServer_X1_x64_2026-05-04_22-18-27.ADM", "r") as f:
-            f.seek(0, 2)
+            f.seek(0, 0)
 
             while True:
                 line = f.readline()
