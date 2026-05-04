@@ -1,6 +1,6 @@
 import discord, os
 from openai import OpenAI
-from log_parser import process_logs
+from log_parser import parse_line
 from economy import get_balance, add_money
 from heatmap import record_kill, get_hotspots
 
