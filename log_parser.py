@@ -1,30 +1,20 @@
-import time
-from heatmap import record_kill
-from economy import add_money
+import re
 
-LOG_FILE = "server.log"
+def parse_line(line):
+    death_pattern = r'Player "(.+?)".pos=<([\d.]+), ([\d.]+), ([\d.]+)>.died'
 
-def process_logs():
-    print("Tracking logs...")
+    match = re.search(death_pattern, line)
 
-    try:
-        with open(LOG_FILE, "r") as f:
-            f.seek(0, 2)
+    if match:
+        player = match.group(1)
+        x = float(match.group(2))
+        y = float(match.group(3))
+        z = float(match.group(4))
 
-            while True:
-                line = f.readline()
-                if not line:
-                    time.sleep(1)
-                    continue
+        return {
+            "type": "death",
+            "player": player,
+            "coords": (x, y, z)
+        }
 
-                if "killed" in line:
-                    parts = line.split()
-
-                    killer = parts[0]
-                    location = parts[-1]
-
-                    record_kill(location)
-                    add_money(killer, 200)
-
-    except FileNotFoundError:
-        print("No log file found yet (this is normal for now)")
+    return None
