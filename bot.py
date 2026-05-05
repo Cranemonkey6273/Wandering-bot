@@ -27,7 +27,7 @@ def track_logs():
 
     try:
         with open(log_file, "r") as f:
-            f.seek(0)  # go to end of file
+            f.seek(0.2)  # go to end of file
 
             while True:
                 line = f.readline()
