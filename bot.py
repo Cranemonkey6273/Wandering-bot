@@ -31,7 +31,7 @@ last_size = 0
 # ================== DOWNLOAD LOG ==================
 def download_log():
     try:
-    files = res["data"]["entries"]
+        files = res["data"]["entries"]
 
     adm_files = [f for f in files if f["path"].endswith(".ADM")]
 
