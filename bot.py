@@ -29,16 +29,27 @@ last_size = 0
 # ================= DOWNLOAD LOG =================
 def download_log():
     try:
-        # STEP 1: GET FILE LIST (correct folder)
-res = requests.get(
-    f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
-    headers=headers)
-).json()
-files = res["data"]["entries"]
+        # STEP 1: LIST ROOT DIRECTORY
+        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
+
+        response = requests.get(url, headers=headers)
+        res = response.json()
 
         if "data" not in res:
             print("❌ FILE LIST ERROR:", res)
             return False
+
+        files = res["data"]["entries"]
+
+        print("ROOT FILES:")
+        for f in files:
+            print(f["name"], "-", f["type"])
+
+        return False  # stop here for now (debug only)
+
+    except Exception as e:
+        print("❌ ERROR:", e)
+        return False
 
         files = res["data"]["entries"]
 
