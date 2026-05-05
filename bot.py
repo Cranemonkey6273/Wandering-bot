@@ -29,9 +29,9 @@ last_size = 0
 # ================= DOWNLOAD LOG =================
 def download_log():
     try:
-        # STEP 1: GET FILE LIST
+        # STEP 1: GET FILE LIST (correct folder)
         res = requests.get(
-            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/dayzxb/profiles",
             headers=headers
         ).json()
 
@@ -40,6 +40,8 @@ def download_log():
             return False
 
         files = res["data"]["entries"]
+
+        print("FILES:", files)  # 👈 DEBUG (IMPORTANT)
 
         # STEP 2: FIND ADM FILES
         adm_files = []
@@ -78,8 +80,6 @@ def download_log():
     except Exception as e:
         print("❌ LOG DOWNLOAD ERROR:", e)
         return False
-
-
 # ================= PARSER =================
 def parse_log():
     global last_size
