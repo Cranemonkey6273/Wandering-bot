@@ -6,9 +6,16 @@ import asyncio
 import re
 import json
 import math
+from supabase import create_client
 
+# ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1501126258140909580
+
+SUPABASE_URL = "https://bqqeorqzezcgzqflqoms.supabase.co"
+SUPABASE_KEY = "sb_publishable_fTUe0hG1Amm3cZ13155ljQ_EQYxmYPz"
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 client = discord.Client(intents=discord.Intents.default())
 
@@ -84,6 +91,18 @@ def format_time(seconds):
     seconds = int(seconds % 60)
     return f"{minutes}m {seconds}s"
 
+# ===== DATABASE =====
+def save_kill_to_db(killer, victim, weapon, distance):
+    try:
+        supabase.table("kills").insert({
+            "killer": killer,
+            "victim": victim,
+            "weapon": weapon,
+            "distance": float(distance.replace("m","")) if distance != "Unknown" else None
+        }).execute()
+    except Exception as e:
+        print("DB ERROR:", e)
+
 # ===== DISCORD =====
 async def send_kill(victim, killer, weapon, coords, distance, survival):
     ch = client.get_channel(CHANNEL_ID)
@@ -99,35 +118,11 @@ async def send_kill(victim, killer, weapon, coords, distance, survival):
     embed.add_field(name="⏱ Survival", value=survival, inline=True)
 
     if coords:
-        embed.add_field(name="📍 Location", value=f"{coords}", inline=False)
-
-    # stats
-    for p in players.values():
-        if p["name"] == killer:
-            kd = round(p["kills"] / max(1, p["deaths"]), 2)
-            embed.add_field(
-                name=f"{killer}",
-                value=f"Kills: {p['kills']} | KD: {kd} | Streak: {p['streak']}",
-                inline=True
-            )
-        if p["name"] == victim:
-            embed.add_field(
-                name=f"{victim}",
-                value=f"Deaths: {p['deaths']}",
-                inline=True
-            )
+        embed.add_field(name="📍 Location", value=str(coords), inline=False)
 
     embed.set_footer(text="🔥 Wandering Elite Survival System")
 
     await ch.send(embed=embed)
-
-async def send_uncon(player):
-    ch = client.get_channel(CHANNEL_ID)
-    await ch.send(f"🧍 **{player} is unconscious!**")
-
-async def send_environment(player, cause):
-    ch = client.get_channel(CHANNEL_ID)
-    await ch.send(f"⚠️ **{player} died from {cause}**")
 
 # ===== TRACKER =====
 def track_logs():
@@ -163,7 +158,7 @@ def track_logs():
             if pid and coords:
                 players[pid]["coords"] = coords
 
-            # ===== HIT =====
+            # HIT
             if "hit" in line.lower():
                 attacker, _ = parse_player(line)
                 weapon = parse_weapon(line)
@@ -172,43 +167,19 @@ def track_logs():
                     players[pid]["last_attacker"] = attacker
                     players[pid]["weapon"] = weapon
 
-            # ===== UNCON =====
-            if "unconscious" in line.lower():
-                asyncio.run_coroutine_threadsafe(
-                    send_uncon(name),
-                    client.loop
-                )
-
-            # ===== SUICIDE =====
-            if "suicide" in line.lower():
-                asyncio.run_coroutine_threadsafe(
-                    send_environment(name, "suicide"),
-                    client.loop
-                )
-
-            # ===== DEATH =====
+            # DEATH
             if "died" in line.lower():
                 if pid and pid in players:
                     victim_data = players[pid]
 
                     victim = victim_data["name"]
-                    killer = victim_data["last_attacker"]
-                    weapon = victim_data["weapon"]
+                    killer = victim_data["last_attacker"] or "Unknown"
+                    weapon = victim_data["weapon"] or "Unknown"
                     coords = victim_data["coords"]
 
-                    # environment deaths
-                    if not killer:
-                        asyncio.run_coroutine_threadsafe(
-                            send_environment(victim, "unknown causes"),
-                            client.loop
-                        )
-                        continue
-
-                    # survival
                     survival_seconds = time.time() - victim_data["last_seen"]
                     survival = format_time(survival_seconds)
 
-                    # distance calc
                     killer_coords = None
                     for p in players.values():
                         if p["name"] == killer:
@@ -216,7 +187,6 @@ def track_logs():
 
                     distance = calculate_distance(coords, killer_coords)
 
-                    # stats update
                     victim_data["deaths"] += 1
                     victim_data["streak"] = 0
                     victim_data["last_seen"] = time.time()
@@ -227,6 +197,7 @@ def track_logs():
                             p["streak"] += 1
 
                     save_data()
+                    save_kill_to_db(killer, victim, weapon, distance)
 
                     asyncio.run_coroutine_threadsafe(
                         send_kill(victim, killer, weapon, coords, distance, survival),
