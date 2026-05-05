@@ -1,11 +1,16 @@
-DISCORD_TOKEN = "MTUwMDgxOTAzNjAyNjQzNzY2Mg.GgmJkR.I16QGjEuMjGNM_u1hqFIJcCNYEx5ZwWKHrikUE"
-CHANNEL_ID = 1501126258140909580
+import os
 
-NITRADO_TOKEN = "6PwN1sFZVytzeQXlxeZoB4NKtyMomdFrYVExlJf96rnTCAKQNbz83Q3juiqlN5La2ujvHguOn2A5BOTch_S6fbgQA_fX3yhwvOo6"
-SERVICE_ID = "19165400"
+# Discord
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-FTP_HOST = "sftp.nitrado.net"
-FTP_USER = "ni12248929_1"
-FTP_PASS = "Mo9yKffW"
+# Nitrado
+NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
+SERVICE_ID = os.getenv("SERVICE_ID")
 
-FTP_LOG_PATH = "/games/ni12248929_1/ftpRoot/dayzxb"
+# FTP
+FTP_HOST = os.getenv("FTP_HOST")
+FTP_USER = os.getenv("FTP_USER")
+FTP_PASS = os.getenv("FTP_PASS")
+
+FTP_LOG_PATH = os.getenv("FTP_LOG_PATH")
