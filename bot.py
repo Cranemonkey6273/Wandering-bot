@@ -12,8 +12,8 @@ from supabase import create_client
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1501126258140909580
 
-SUPABASE_URL = "PASTE_URL_HERE"
-SUPABASE_KEY = "PASTE_KEY_HERE"
+SUPABASE_URL = "https://bqqeorqzezcgzqflqoms.supabase.co"
+SUPABASE_KEY = "sb_publishable_fTUe0hG1Amm3cZ13155ljQ_EQYxmYPz"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
