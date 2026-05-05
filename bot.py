@@ -9,6 +9,10 @@ import re
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1501126258140909580
 
+# ===== MEMORY =====
+players = {}  # id -> {name, last_hit_by, last_weapon}
+
+# ===== GET LOG =====
 def get_log_file():
     files = [f for f in os.listdir() if f.endswith(".ADM")]
     return sorted(files)[-1] if files else None
@@ -18,119 +22,90 @@ LOG_FILE = get_log_file()
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
-print("FILES:", os.listdir())
 print("USING LOG:", LOG_FILE)
 
 # ===== PARSERS =====
 
-def extract_player(line):
-    match = re.search(r'Player "(.+?)"', line)
-    return match.group(1) if match else "Unknown"
+def get_player_info(line):
+    name_match = re.search(r'Player "(.+?)"', line)
+    id_match = re.search(r'id=([A-Z0-9]+)', line)
 
-def extract_coords(line):
+    name = name_match.group(1) if name_match else "Unknown"
+    pid = id_match.group(1) if id_match else None
+
+    return name, pid
+
+def get_coords(line):
     match = re.search(r'pos=<(.+?)>', line)
     return match.group(1) if match else None
 
-def extract_object(line):
-    match = re.search(r'(built|placed) ([^ ]+)', line.lower())
-    return match.group(2) if match else "Unknown"
-
-def extract_tool(line):
-    tools = ["hatchet", "shovel", "hammer", "sledgehammer"]
-    for tool in tools:
-        if tool in line.lower():
-            return tool.title()
+def get_weapon(line):
+    weapons = ["m4", "ak", "mosin", "sk", "shotgun", "pistol"]
+    for w in weapons:
+        if w in line.lower():
+            return w.upper()
     return "Unknown"
 
-# ===== EVENT DETECTION =====
+# ===== DETECTION =====
+
 def detect_event(line):
     l = line.lower()
 
-    if "suicide" in l:
-        return "suicide"
+    if "hit" in l:
+        return "hit"
 
     if "died" in l:
         return "death"
 
-    if "unconscious" in l:
-        return "uncon"
+    if "suicide" in l:
+        return "suicide"
 
-    if "consciousness" in l:
-        return "wake"
-
-    if any(w in l for w in ["infected", "zombie"]):
-        return "zombie"
-
-    if any(w in l for w in ["bear", "wolf", "animal"]):
-        return "animal"
-
-    if any(w in l for w in ["hit by player", "killed by player"]):
-        return "pvp"
-
-    if any(w in l for w in ["built", "placed", "constructed"]):
+    if "built" in l or "placed" in l:
         return "build"
-
-    if any(w in l for w in ["damage", "hit", "bleed", "fall"]):
-        return "damage"
 
     return None
 
-# ===== EMBEDS =====
+# ===== DISCORD =====
 
-async def send_build(line):
+async def send_kill(victim, killer, weapon):
     channel = client.get_channel(CHANNEL_ID)
 
-    player = extract_player(line)
-    coords = extract_coords(line)
-    obj = extract_object(line)
-    tool = extract_tool(line)
+    embed = discord.Embed(
+        title="💀 KILL EVENT",
+        description=f"**{killer} killed {victim}**",
+        color=0xff0000
+    )
+
+    embed.add_field(name="🔫 Weapon", value=weapon, inline=True)
+    embed.set_footer(text="Wandering Survival System")
+
+    await channel.send(embed=embed)
+
+
+async def send_build(player, line):
+    channel = client.get_channel(CHANNEL_ID)
 
     embed = discord.Embed(
-        title="🧱 BUILD EVENT",
-        description=f"**{player} is building {obj}**",
+        title="🧱 BUILD",
+        description=f"**{player} built something**",
         color=0x00ff88
     )
 
-    embed.add_field(name="🛠 Tool", value=tool, inline=True)
-
-    if coords:
-        embed.add_field(name="📍 Location", value=coords, inline=False)
-
-    embed.set_footer(text="Wandering Survival System")
+    embed.add_field(name="📋", value=f"```{line[:200]}```", inline=False)
 
     await channel.send(embed=embed)
 
-
-async def send_damage(title, emoji, color, line):
-    channel = client.get_channel(CHANNEL_ID)
-    player = extract_player(line)
-
-    embed = discord.Embed(
-        title=f"{emoji} {title}",
-        description=f"**{player}**",
-        color=color
-    )
-
-    embed.add_field(name="📋 Log", value=f"```{line[:200]}```", inline=False)
-
-    embed.set_footer(text="Wandering Survival System")
-
-    await channel.send(embed=embed)
-
-
-# ===== LOG TRACKER =====
+# ===== TRACKER =====
 
 def track_logs():
     global LOG_FILE
 
-    print("TRACKER STARTED")
-
     while not LOG_FILE:
-        print("Waiting for log file...")
+        print("Waiting for log...")
         time.sleep(2)
         LOG_FILE = get_log_file()
 
-    print("Log file found:", LOG_FILE)
+    print("Tracking:", LOG_FILE)
 
     with open(LOG_FILE, "r") as f:
         f.seek(0, 2)
@@ -146,74 +121,51 @@ def track_logs():
             print("RAW:", line)
 
             event = detect_event(line)
+            name, pid = get_player_info(line)
 
-            if not event:
-                continue
+            if pid and pid not in players:
+                players[pid] = {
+                    "name": name,
+                    "last_hit_by": None,
+                    "weapon": None
+                }
 
-            if event == "build":
-                asyncio.run_coroutine_threadsafe(
-                    send_build(line),
-                    client.loop
-                )
+            # ===== HIT TRACKING =====
+            if event == "hit":
+                attacker_match = re.search(r'Player "(.+?)"', line)
+                weapon = get_weapon(line)
 
+                if pid:
+                    players[pid]["last_hit_by"] = attacker_match.group(1) if attacker_match else "Unknown"
+                    players[pid]["weapon"] = weapon
+
+            # ===== DEATH =====
             elif event == "death":
+                if pid and pid in players:
+                    victim = players[pid]["name"]
+                    killer = players[pid]["last_hit_by"] or "Unknown"
+                    weapon = players[pid]["weapon"] or "Unknown"
+
+                    asyncio.run_coroutine_threadsafe(
+                        send_kill(victim, killer, weapon),
+                        client.loop
+                    )
+
+            # ===== BUILD =====
+            elif event == "build":
                 asyncio.run_coroutine_threadsafe(
-                    send_damage("Player Died", "💀", 0xff0000, line),
+                    send_build(name, line),
                     client.loop
                 )
-
-            elif event == "suicide":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Suicide", "☠️", 0x550000, line),
-                    client.loop
-                )
-
-            elif event == "uncon":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Unconscious", "🧍", 0xffa500, line),
-                    client.loop
-                )
-
-            elif event == "wake":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Regained Consciousness", "💓", 0x00ff00, line),
-                    client.loop
-                )
-
-            elif event == "zombie":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Hit by Zombie", "🧟", 0x228B22, line),
-                    client.loop
-                )
-
-            elif event == "animal":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Hit by Animal", "🐻", 0x8B0000, line),
-                    client.loop
-                )
-
-            elif event == "pvp":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Player Combat", "🔫", 0x800080, line),
-                    client.loop
-                )
-
-            elif event == "damage":
-                asyncio.run_coroutine_threadsafe(
-                    send_damage("Damage Event", "👊", 0xffa500, line),
-                    client.loop
-                )
-
 
 # ===== READY =====
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
-    print("Bot is live")
 
     threading.Thread(target=track_logs, daemon=True).start()
 
-
 # ===== RUN =====
+
 client.run(TOKEN)
