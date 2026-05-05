@@ -4,15 +4,29 @@ import time
 import threading
 import asyncio
 import re
+import json
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1501126258140909580
 
 client = discord.Client(intents=discord.Intents.default())
 
-# ===== PLAYER DATA =====
-players = {}
+DATA_FILE = "players.json"
 
+# ===== LOAD / SAVE =====
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump(players, f, indent=2)
+
+players = load_data()
+
+# ===== PLAYER =====
 def get_player(pid):
     if pid not in players:
         players[pid] = {
@@ -22,7 +36,8 @@ def get_player(pid):
             "streak": 0,
             "last_attacker": None,
             "weapon": None,
-            "coords": None
+            "coords": None,
+            "last_seen": time.time()
         }
     return players[pid]
 
@@ -34,11 +49,9 @@ def get_log_file():
 LOG_FILE = get_log_file()
 
 # ===== PARSERS =====
-
 def parse_player(line):
     name = re.search(r'Player "(.+?)"', line)
     pid = re.search(r'id=([A-Z0-9]+)', line)
-
     return (
         name.group(1) if name else "Unknown",
         pid.group(1) if pid else None
@@ -55,52 +68,48 @@ def parse_weapon(line):
             return w.upper()
     return "Unknown"
 
-# ===== DISCORD OUTPUT =====
+# ===== TIME FORMAT =====
+def format_time(seconds):
+    minutes = int(seconds // 60)
+    seconds = int(seconds % 60)
+    return f"{minutes}m {seconds}s"
 
-async def send_kill(victim, killer, weapon, coords):
+# ===== DISCORD =====
+async def send_kill(victim, killer, weapon, coords, survival):
     ch = client.get_channel(CHANNEL_ID)
 
-    killer_data = None
-    victim_data = None
-
-    # find players by name
-    for pid, data in players.items():
-        if data["name"] == killer:
-            killer_data = data
-        if data["name"] == victim:
-            victim_data = data
-
     embed = discord.Embed(
-        title="💀 KILLFEED",
-        description=f"**{killer} killed {victim}**",
-        color=0xff0000
+        title="☠️ KILLFEED",
+        description=f"**{killer} eliminated {victim}**",
+        color=0x8B0000
     )
 
+    embed.add_field(name="⏱ Survival Time", value=survival, inline=True)
     embed.add_field(name="🔫 Weapon", value=weapon, inline=True)
 
     if coords:
         embed.add_field(name="📍 Location", value=coords, inline=False)
 
-    if killer_data:
-        embed.add_field(
-            name=f"{killer} Stats",
-            value=f"Kills: {killer_data['kills']}\nStreak: {killer_data['streak']}",
-            inline=True
-        )
-
-    if victim_data:
-        embed.add_field(
-            name=f"{victim} Stats",
-            value=f"Deaths: {victim_data['deaths']}",
-            inline=True
-        )
+    # stats
+    for pid, p in players.items():
+        if p["name"] == killer:
+            embed.add_field(
+                name=f"{killer}",
+                value=f"Kills: {p['kills']} | Streak: {p['streak']}",
+                inline=True
+            )
+        if p["name"] == victim:
+            embed.add_field(
+                name=f"{victim}",
+                value=f"Deaths: {p['deaths']}",
+                inline=True
+            )
 
     embed.set_footer(text="Wandering Survival System")
 
     await ch.send(embed=embed)
 
 # ===== TRACKER =====
-
 def track_logs():
     global LOG_FILE
 
@@ -153,28 +162,33 @@ def track_logs():
                     weapon = victim_data["weapon"] or "Unknown"
                     coords = victim_data["coords"]
 
-                    # update stats
+                    # survival time
+                    survival_seconds = time.time() - victim_data["last_seen"]
+                    survival = format_time(survival_seconds)
+
+                    # update victim
                     victim_data["deaths"] += 1
                     victim_data["streak"] = 0
+                    victim_data["last_seen"] = time.time()
 
-                    # update killer stats
+                    # update killer
                     for p in players.values():
                         if p["name"] == killer:
                             p["kills"] += 1
                             p["streak"] += 1
 
+                    save_data()
+
                     asyncio.run_coroutine_threadsafe(
-                        send_kill(victim, killer, weapon, coords),
+                        send_kill(victim, killer, weapon, coords, survival),
                         client.loop
                     )
 
 # ===== READY =====
-
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
     threading.Thread(target=track_logs, daemon=True).start()
 
 # ===== RUN =====
-
 client.run(TOKEN)
