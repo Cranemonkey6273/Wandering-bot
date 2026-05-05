@@ -19,7 +19,7 @@ headers = {
 
 test = requests.get("https://api.nitrado.net/services", headers=headers)
 
-print("TEST SERVICES RESPONSE:", test.text
+print("TEST SERVICES RESPONSE:", test.text)
 
 LOG_FILE = "server.ADM"
 
