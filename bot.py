@@ -31,7 +31,7 @@ last_size = 0
 
 # ================= DOWNLOAD LOG =================
 def download_log():
-    try:
+
         headers = {
             "Authorization": f"Bearer {NITRADO_TOKEN}"
         }
@@ -93,7 +93,7 @@ latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
 def parse_log():
     global last_size
 
-    try:
+
         if not os.path.exists(LOG_FILE):
             return
 
