@@ -36,26 +36,27 @@ def download_log():
             "Authorization": f"Bearer {NITRADO_TOKEN}"
         }
 
-        # STEP 1: GET FILE LIST
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
+try:
+    # STEP 1: GET FILE LIST
+    files = response["data"]["entries"]
 
-        res = requests.get(url, headers=headers).json()
-        print("DEBUG RESPONSE:", res)
+    # STEP 2: FIND ADM FILES
+    adm_files = [
+        f for f in files
+        if f["path"].endswith(".ADM") and "DayZServer" in f["name"]
+    ]
 
-        if "data" not in res:
-            print("❌ API ERROR:", res)
-            return False
+    if not adm_files:
+        print("❌ No ADM logs found")
+        return False
 
-        files = res["data"]["entries"]
+    # STEP 3: GET LATEST FILE
+    latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
 
-       # STEP 2: FIND ADM FILE
-adm_files = [
-    f for f in files
-    if f["path"].endswith(".ADM") and "DayZServer" in f["name"]
-]
+    print(f"✅ Latest ADM log found: {latest}")
 
-if not adm_files:
-    print("❌ No ADM logs found")
+except Exception as e:
+    print(f"❌ Error finding ADM logs: {e}")
     return False
 
 latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
