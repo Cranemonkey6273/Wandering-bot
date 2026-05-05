@@ -12,6 +12,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
 SERVICE_ID = os.getenv("SERVICE_ID")
+print("SERVICE_ID:", SERVICE_ID)
 
 LOG_FILE = "server.ADM"
 
