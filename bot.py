@@ -35,7 +35,7 @@ def download_log():
 
 download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
 
-        res = requests.get(url, headers=headers).json()
+        res = requests.get(download_url, headers=headers).json()
 
         print("DEBUG RESPONSE:", res)
 
@@ -43,30 +43,33 @@ download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_
             print("❌ API ERROR:", res)
             return
 
-        files = res["data"]["entries"]
+        download_url = f"https://api.nitrado.net/services/%7BSERVICE_ID%7D/gameservers/file_server/download?file={latest}"
+res = requests.get(download_url, headers=headers).json()
+files = res["data"]["entries"]
 
-        adm_files = [f for f in files if f["path"].endswith(".ADM")]
+adm_files = [f for f in files if f["path"].endswith(".ADM")]
 
-        if not adm_files:
-            print("❌ No ADM logs found")
-            return
+if not adm_files:
+    print("❌ No ADM logs found")
+    return
 
-        latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
+latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
 
-        download_url = f"url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
-        res = requests.get(download_url, headers=headers).json()
+download_url = f"https://api.nitrado.net/services/%7BSERVICE_ID%7D/gameservers/file_server/download?file={latest}"
 
-        if "data" not in res:
-            print("❌ DOWNLOAD ERROR:", res)
-            return
+res = requests.get(download_url, headers=headers).json()
 
-        file_url = res["data"]["token"]["url"]
-        file_data = requests.get(file_url).text
+if "data" not in res:
+    print("❌ DOWNLOAD ERROR:", res)
+    return
 
-        with open(LOG_FILE, "w") as f:
-            f.write(file_data)
+file_url = res["data"]["token"]["url"]
+file_data = requests.get(file_url).text
 
-        print("✅ Log downloaded:", latest)
+with open(LOG_FILE, "w") as f:
+    f.write(file_data)
+
+print("✅ Log downloaded:", latest)
 
     except Exception as e:
         print("❌ LOG DOWNLOAD ERROR:", e)
