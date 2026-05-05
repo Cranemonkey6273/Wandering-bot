@@ -5,14 +5,12 @@ import os
 from supabase import create_client
 
 # ================= CONFIG =================
-import os
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")"
 
-SUPABASE_URL = "https://bqqeorqzezcgzqflqoms.supabase.co"
-SUPABASE_KEY = "sb_publishable_fTUe0hG1Amm3cZ13155ljQ_EQYxmYPz"
-
-NITRADO_TOKEN = "hoAZfsBJmKrY1kOGykAusZ309VDRVxINNhNAG5NlqWOC5r63-45tH6Ws2OM7h9FC7oPjUgiDO6-g8-BCKfwJ96FH-uMVgqEayY"
-SERVICE_ID = "ni12248929_1"
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
+SERVICE_ID = os.getenv("SERVICE_ID")
 
 LOG_FILE = "server.ADM"
 
