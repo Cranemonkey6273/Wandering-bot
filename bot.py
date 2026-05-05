@@ -10,10 +10,23 @@ CHANNEL_ID = 1501126258140909580
 
 client = discord.Client(intents=discord.Intents.default())
 
-# ===== PLAYER MEMORY =====
+# ===== PLAYER DATA =====
 players = {}
 
-# ===== GET LOG =====
+def get_player(pid):
+    if pid not in players:
+        players[pid] = {
+            "name": "Unknown",
+            "kills": 0,
+            "deaths": 0,
+            "streak": 0,
+            "last_attacker": None,
+            "weapon": None,
+            "coords": None
+        }
+    return players[pid]
+
+# ===== LOG FILE =====
 def get_log_file():
     files = [f for f in os.listdir() if f.endswith(".ADM")]
     return sorted(files)[-1] if files else None
@@ -36,16 +49,26 @@ def parse_coords(line):
     return m.group(1) if m else None
 
 def parse_weapon(line):
-    weapons = ["m4", "ak", "mosin", "sk", "pistol", "shotgun"]
+    weapons = ["m4", "ak", "mosin", "sk", "pistol", "shotgun", "rifle"]
     for w in weapons:
         if w in line.lower():
             return w.upper()
     return "Unknown"
 
-# ===== DISCORD =====
+# ===== DISCORD OUTPUT =====
 
 async def send_kill(victim, killer, weapon, coords):
     ch = client.get_channel(CHANNEL_ID)
+
+    killer_data = None
+    victim_data = None
+
+    # find players by name
+    for pid, data in players.items():
+        if data["name"] == killer:
+            killer_data = data
+        if data["name"] == victim:
+            victim_data = data
 
     embed = discord.Embed(
         title="💀 KILLFEED",
@@ -58,37 +81,25 @@ async def send_kill(victim, killer, weapon, coords):
     if coords:
         embed.add_field(name="📍 Location", value=coords, inline=False)
 
+    if killer_data:
+        embed.add_field(
+            name=f"{killer} Stats",
+            value=f"Kills: {killer_data['kills']}\nStreak: {killer_data['streak']}",
+            inline=True
+        )
+
+    if victim_data:
+        embed.add_field(
+            name=f"{victim} Stats",
+            value=f"Deaths: {victim_data['deaths']}",
+            inline=True
+        )
+
     embed.set_footer(text="Wandering Survival System")
 
     await ch.send(embed=embed)
 
-
-async def send_uncon(player):
-    ch = client.get_channel(CHANNEL_ID)
-
-    embed = discord.Embed(
-        title="🧍 UNCONSCIOUS",
-        description=f"**{player} is unconscious**",
-        color=0xffa500
-    )
-
-    await ch.send(embed=embed)
-
-
-async def send_hit(attacker, victim, weapon):
-    ch = client.get_channel(CHANNEL_ID)
-
-    embed = discord.Embed(
-        title="🔫 HIT EVENT",
-        description=f"**{attacker} hit {victim}**",
-        color=0x800080
-    )
-
-    embed.add_field(name="Weapon", value=weapon, inline=True)
-
-    await ch.send(embed=embed)
-
-# ===== CORE TRACKER =====
+# ===== TRACKER =====
 
 def track_logs():
     global LOG_FILE
@@ -115,13 +126,9 @@ def track_logs():
 
             name, pid = parse_player(line)
 
-            if pid and pid not in players:
-                players[pid] = {
-                    "name": name,
-                    "last_attacker": None,
-                    "weapon": None,
-                    "coords": None
-                }
+            if pid:
+                p = get_player(pid)
+                p["name"] = name
 
             coords = parse_coords(line)
             if pid and coords:
@@ -136,25 +143,25 @@ def track_logs():
                     players[pid]["last_attacker"] = attacker
                     players[pid]["weapon"] = weapon
 
-                    asyncio.run_coroutine_threadsafe(
-                        send_hit(attacker, name, weapon),
-                        client.loop
-                    )
-
-            # ===== UNCON =====
-            if "unconscious" in line.lower():
-                asyncio.run_coroutine_threadsafe(
-                    send_uncon(name),
-                    client.loop
-                )
-
             # ===== DEATH =====
             if "died" in line.lower():
                 if pid and pid in players:
-                    victim = players[pid]["name"]
-                    killer = players[pid]["last_attacker"] or "Unknown"
-                    weapon = players[pid]["weapon"] or "Unknown"
-                    coords = players[pid]["coords"]
+                    victim_data = players[pid]
+
+                    victim = victim_data["name"]
+                    killer = victim_data["last_attacker"] or "Unknown"
+                    weapon = victim_data["weapon"] or "Unknown"
+                    coords = victim_data["coords"]
+
+                    # update stats
+                    victim_data["deaths"] += 1
+                    victim_data["streak"] = 0
+
+                    # update killer stats
+                    for p in players.values():
+                        if p["name"] == killer:
+                            p["kills"] += 1
+                            p["streak"] += 1
 
                     asyncio.run_coroutine_threadsafe(
                         send_kill(victim, killer, weapon, coords),
@@ -169,4 +176,5 @@ async def on_ready():
     threading.Thread(target=track_logs, daemon=True).start()
 
 # ===== RUN =====
+
 client.run(TOKEN)
