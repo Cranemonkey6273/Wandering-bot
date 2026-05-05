@@ -57,19 +57,22 @@ def download_log():
 
         # STEP 2: FIND ADM FILES
         adm_files = []
-        for f in files:
-            if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
-                adm_files.append(f)
+adm_files = [
+    f for f in files
+    if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", "")
+]
 
-        if len(adm_files) == 0:
-            print("❌ No ADM logs found")
-            return False
+if not adm_files:
+    print("❌ No ADM logs found")
+    return False
 
-        # STEP 3: GET LATEST FILE
-        latest_file = sorted(adm_files, key=lambda x: x.get("modified_at", 0))[-1]
-        latest_path = latest_file["path"]
+# Sort by filename (newest timestamp in name)
+adm_files.sort(key=lambda x: x["name"], reverse=True)
 
-        print("✅ Latest ADM log found:", latest_path)
+latest_file = adm_files[0]
+latest_path = latest_file["path"]
+
+print("✅ Latest ADM log found:", latest_path))
 
         # STEP 4: DOWNLOAD FILE
         download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest_path}"
