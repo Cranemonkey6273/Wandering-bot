@@ -32,7 +32,7 @@ def download_log():
         # STEP 1: GET FILE LIST (correct folder)
 res = requests.get(
     f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
-    headers=headers
+    headers=headers)
 ).json()
 files = res["data"]["entries"]
 
