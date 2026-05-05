@@ -4,13 +4,13 @@ import time
 import threading
 import asyncio
 import re
-import json
 import math
 import requests
 from supabase import create_client
 
-# ================= CONFIG =================
-TOKEN = os.getenv("DISCORD_TOKEN")
+# ================== CONFIG ==================
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
 CHANNEL_ID = 1501126258140909580
 
 SUPABASE_URL = "https://bqqeorqzezcgzqflqoms.supabase.co"
@@ -21,25 +21,34 @@ SERVICE_ID = "ni12248929_1"
 
 LOG_FILE = "server.ADM"
 
-# ================= INIT =================
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ================== INIT ==================
 client = discord.Client(intents=discord.Intents.default())
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 players = {}
+last_size = 0
 
-# ================= NITRADO LOG DOWNLOAD =================
+# ================== DOWNLOAD LOG ==================
 def download_log():
     try:
         headers = {"Authorization": f"Bearer {NITRADO_TOKEN}"}
 
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
+        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/gameserver/profiles"
+
         res = requests.get(url, headers=headers).json()
 
+        print("DEBUG RESPONSE:", res)
+
+        if "data" not in res:
+            print("❌ API ERROR:", res)
+            return
+
         files = res["data"]["entries"]
+
         adm_files = [f for f in files if f["path"].endswith(".ADM")]
 
         if not adm_files:
-            print("❌ No ADM files found")
+            print("❌ No ADM logs found")
             return
 
         latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
@@ -47,25 +56,29 @@ def download_log():
         download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
         res = requests.get(download_url, headers=headers).json()
 
+        if "data" not in res:
+            print("❌ DOWNLOAD ERROR:", res)
+            return
+
         file_url = res["data"]["token"]["url"]
         file_data = requests.get(file_url).text
 
         with open(LOG_FILE, "w") as f:
             f.write(file_data)
 
-        print("✅ Log updated")
+        print("✅ Log downloaded:", latest)
 
     except Exception as e:
         print("❌ LOG DOWNLOAD ERROR:", e)
 
-# ================= AUTO UPDATE =================
+# ================== AUTO UPDATE ==================
 def log_updater():
     while True:
         download_log()
         time.sleep(5)
 
-# ================= PARSING =================
-def parse_player(line):
+# ================== PARSING ==================
+def get_player(line):
     name = re.search(r'Player "(.+?)"', line)
     pid = re.search(r'id=([A-Z0-9]+)', line)
     return (
@@ -73,109 +86,109 @@ def parse_player(line):
         pid.group(1) if pid else None
     )
 
-def parse_coords(line):
+def get_coords(line):
     m = re.search(r'pos=<(.+?)>', line)
     if m:
         return tuple(map(float, m.group(1).split(",")))
     return None
 
-def parse_weapon(line):
-    weapons = ["m4", "ak", "mosin", "sk", "pistol", "shotgun"]
-    for w in weapons:
-        if w in line.lower():
-            return w.upper()
-    return "Unknown"
-
-def calculate_distance(c1, c2):
-    if not c1 or not c2:
+def distance(a, b):
+    if not a or not b:
         return "Unknown"
-    return f"{round(math.dist(c1, c2), 2)}m"
+    return f"{round(math.dist(a, b), 2)}m"
 
-# ================= DATABASE =================
-def save_kill(killer, victim, weapon, distance):
+# ================== DATABASE ==================
+def save_kill(killer, victim, dist):
     try:
-        print("🔥 SAVING:", killer, victim)
         supabase.table("kills").insert({
             "killer": killer,
             "victim": victim,
-            "weapon": weapon,
-            "distance": float(distance.replace("m","")) if distance != "Unknown" else None
+            "distance": float(dist.replace("m","")) if dist != "Unknown" else None
         }).execute()
+        print("💾 Saved to DB")
     except Exception as e:
         print("❌ DB ERROR:", e)
 
-# ================= DISCORD =================
-async def send_kill(victim, killer, weapon, distance):
+# ================== DISCORD ==================
+async def send_kill(victim, killer, dist):
     ch = client.get_channel(CHANNEL_ID)
 
     embed = discord.Embed(
-        title="☠️ KILLFEED",
-        description=f"**{killer} killed {victim}**",
-        color=0x8B0000
+        title="☠️ Killfeed",
+        description=f"{killer} killed {victim}",
+        color=0xff0000
     )
 
-    embed.add_field(name="🔫 Weapon", value=weapon, inline=True)
-    embed.add_field(name="📏 Distance", value=distance, inline=True)
-
-    embed.set_footer(text="🔥 Wandering Survival System")
+    embed.add_field(name="Distance", value=dist)
+    embed.set_footer(text="Wandering System")
 
     await ch.send(embed=embed)
 
-# ================= TRACKER =================
+# ================== TRACK LOG ==================
 def track_logs():
-    print("📡 TRACKING LOG:", LOG_FILE)
+    global last_size
 
-    with open(LOG_FILE, "r") as f:
-        f.seek(0, 2)
+    print("📡 Tracking log...")
 
-        while True:
-            line = f.readline()
+    while True:
+        if not os.path.exists(LOG_FILE):
+            time.sleep(1)
+            continue
 
-            if not line:
-                time.sleep(0.5)
-                continue
+        size = os.path.getsize(LOG_FILE)
 
-            line = line.strip()
-            print("RAW:", line)
+        if size < last_size:
+            last_size = 0
 
-            name, pid = parse_player(line)
+        if size > last_size:
+            with open(LOG_FILE, "r") as f:
+                f.seek(last_size)
 
-            if pid not in players:
-                players[pid] = {}
+                new_lines = f.readlines()
+                last_size = f.tell()
 
-            players[pid]["name"] = name
+                for line in new_lines:
+                    line = line.strip()
+                    print("RAW:", line)
 
-            coords = parse_coords(line)
-            if coords:
-                players[pid]["coords"] = coords
+                    name, pid = get_player(line)
 
-            if "hit" in line.lower():
-                attacker, _ = parse_player(line)
-                players[pid]["attacker"] = attacker
-                players[pid]["weapon"] = parse_weapon(line)
+                    if pid:
+                        if pid not in players:
+                            players[pid] = {}
 
-            if "died" in line.lower():
-                victim = players[pid].get("name", "Unknown")
-                killer = players[pid].get("attacker", "Unknown")
-                weapon = players[pid].get("weapon", "Unknown")
+                        players[pid]["name"] = name
 
-                victim_coords = players[pid].get("coords")
+                        coords = get_coords(line)
+                        if coords:
+                            players[pid]["coords"] = coords
 
-                killer_coords = None
-                for p in players.values():
-                    if p.get("name") == killer:
-                        killer_coords = p.get("coords")
+                        if "hit" in line.lower():
+                            players[pid]["attacker"] = name
 
-                distance = calculate_distance(victim_coords, killer_coords)
+                        if "died" in line.lower():
+                            victim = players[pid].get("name", "Unknown")
+                            killer = players[pid].get("attacker", "Unknown")
 
-                save_kill(killer, victim, weapon, distance)
+                            v_coords = players[pid].get("coords")
+                            k_coords = None
 
-                asyncio.run_coroutine_threadsafe(
-                    send_kill(victim, killer, weapon, distance),
-                    client.loop
-                )
+                            for p in players.values():
+                                if p.get("name") == killer:
+                                    k_coords = p.get("coords")
 
-# ================= READY =================
+                            dist = distance(v_coords, k_coords)
+
+                            save_kill(killer, victim, dist)
+
+                            asyncio.run_coroutine_threadsafe(
+                                send_kill(victim, killer, dist),
+                                client.loop
+                            )
+
+        time.sleep(1)
+
+# ================== START ==================
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
@@ -183,5 +196,4 @@ async def on_ready():
     threading.Thread(target=log_updater, daemon=True).start()
     threading.Thread(target=track_logs, daemon=True).start()
 
-# ================= RUN =================
-client.run(TOKEN)
+client.run(DISCORD_TOKEN)
