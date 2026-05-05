@@ -31,48 +31,34 @@ last_size = 0
 # ================== DOWNLOAD LOG ==================
 def download_log():
     try:
-        headers = {"Authorization": f"Bearer {NITRADO_TOKEN}"}
+    files = res["data"]["entries"]
 
-download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
+    adm_files = [f for f in files if f["path"].endswith(".ADM")]
 
-        res = requests.get(download_url, headers=headers).json()
+    if not adm_files:
+        print("❌ No ADM logs found")
+        return
 
-        print("DEBUG RESPONSE:", res)
+    latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
 
-        if "data" not in res:
-            print("❌ API ERROR:", res)
-            return
+    download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
 
-        download_url = f"https://api.nitrado.net/services/%7BSERVICE_ID%7D/gameservers/file_server/download?file={latest}"
-res = requests.get(download_url, headers=headers).json()
-files = res["data"]["entries"]
+    res = requests.get(download_url, headers=headers).json()
 
-adm_files = [f for f in files if f["path"].endswith(".ADM")]
+    if "data" not in res:
+        print("❌ DOWNLOAD ERROR:", res)
+        return
 
-if not adm_files:
-    print("❌ No ADM logs found")
-    return
+    file_url = res["data"]["token"]["url"]
+    file_data = requests.get(file_url).text
 
-latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
+    with open(LOG_FILE, "w") as f:
+        f.write(file_data)
 
-download_url = f"https://api.nitrado.net/services/%7BSERVICE_ID%7D/gameservers/file_server/download?file={latest}"
+    print("✅ Log downloaded:", latest)
 
-res = requests.get(download_url, headers=headers).json()
-
-if "data" not in res:
-    print("❌ DOWNLOAD ERROR:", res)
-    return
-
-file_url = res["data"]["token"]["url"]
-file_data = requests.get(file_url).text
-
-with open(LOG_FILE, "w") as f:
-    f.write(file_data)
-
-print("✅ Log downloaded:", latest)
-
-    except Exception as e:
-        print("❌ LOG DOWNLOAD ERROR:", e)
+except Exception as e:
+    print("❌ LOG DOWNLOAD ERROR:", e)
 
 # ================== AUTO UPDATE ==================
 def log_updater():
