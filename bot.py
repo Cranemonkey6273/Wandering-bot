@@ -1,6 +1,5 @@
 import discord
 import requests
-import time
 import os
 from supabase import create_client
 from datetime import timedelta
@@ -12,14 +11,12 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
 SERVICE_ID = os.getenv("SERVICE_ID")
+
 print("SERVICE_ID:", SERVICE_ID)
+
 headers = {
     "Authorization": f"Bearer {NITRADO_TOKEN}"
 }
-
-test = requests.get("https://api.nitrado.net/services", headers=headers)
-
-print("TEST SERVICES RESPONSE:", test.text)
 
 LOG_FILE = "server.ADM"
 
@@ -31,44 +28,37 @@ last_size = 0
 
 # ================= DOWNLOAD LOG =================
 def download_log():
+    try:
+        # STEP 1: GET FILE LIST
+        res = requests.get(
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
+            headers=headers
+        ).json()
 
-        headers = {
-            "Authorization": f"Bearer {NITRADO_TOKEN}"
-        }
-        
-    # STEP 1: GET FILE LIST
-files = response["data"]["entries"]
+        if "data" not in res:
+            print("❌ FILE LIST ERROR:", res)
+            return False
 
-adm_files = []
-for f in files:
-    if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
-        adm_files.append(f)
+        files = res["data"]["entries"]
 
-if len(adm_files) == 0:
-    print("❌ No ADM logs found")
-    return False
+        # STEP 2: FIND ADM FILES
+        adm_files = []
+        for f in files:
+            if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
+                adm_files.append(f)
 
-latest_file = sorted(adm_files, key=lambda x: x.get("modified_at", 0))[-1]
-latest_path = latest_file["path"]
+        if len(adm_files) == 0:
+            print("❌ No ADM logs found")
+            return False
 
-print("✅ Latest ADM log found:", latest_path)
-except Exception as e:
-    print(f"❌ Error: {e}")
-    return False
+        # STEP 3: GET LATEST FILE
+        latest_file = sorted(adm_files, key=lambda x: x.get("modified_at", 0))[-1]
+        latest_path = latest_file["path"]
 
-    # STEP 3: GET LATEST FILE
-    latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
+        print("✅ Latest ADM log found:", latest_path)
 
-    print(f"✅ Latest ADM log found: {latest}")
-
-except Exception as e:
-    print(f"❌ Error finding ADM logs: {e}")
-    return False
-
-latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
-
-        # STEP 3: DOWNLOAD FILE
-        download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
+        # STEP 4: DOWNLOAD FILE
+        download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest_path}"
 
         res = requests.get(download_url, headers=headers).json()
 
@@ -82,7 +72,7 @@ latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
         with open(LOG_FILE, "w") as f:
             f.write(file_data)
 
-        print("✅ Log downloaded:", latest)
+        print("✅ Log downloaded:", latest_path)
         return True
 
     except Exception as e:
@@ -94,7 +84,7 @@ latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
 def parse_log():
     global last_size
 
-
+    try:
         if not os.path.exists(LOG_FILE):
             return
 
@@ -104,18 +94,17 @@ def parse_log():
             last_size = f.tell()
 
         for line in lines:
-            print("📜", line.strip())
-
-            # SIMPLE EXAMPLES (you will expand later)
+            line = line.strip()
+            print("📜", line)
 
             if "killed" in line:
-                print("💀 Kill detected:", line.strip())
+                print("💀 Kill detected:", line)
 
             if "unconscious" in line:
-                print("🧠 Unconscious event:", line.strip())
+                print("🧠 Unconscious event:", line)
 
             if "hit by" in line:
-                print("⚔️ Hit event:", line.strip())
+                print("⚔️ Hit event:", line)
 
     except Exception as e:
         print("❌ PARSE ERROR:", e)
