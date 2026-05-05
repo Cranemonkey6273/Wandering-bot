@@ -6,30 +6,37 @@ import asyncio
 
 # ===== CONFIG =====
 TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = 1501126258140909580  # YOUR CHANNEL ID
-LOG_FILE = "DayZServer_X1_x64_2026-05-04_22-18-27.ADM"  # YOUR LOG FILE NAME
+CHANNEL_ID = 1501126258140909580  # your channel
+LOG_FILE = "DayZServer_X1_x64_2026-05-04_22-18-27.ADM"  # update if name changes
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
+
+print("FILES:", os.listdir())  # debug: confirm log exists
 
 # ===== EVENT DETECTION =====
 def detect_event(line):
     line_lower = line.lower()
 
-    if any(word in line_lower for word in ["died", "suicide", "killed"]):
+    if any(w in line_lower for w in ["died", "suicide", "killed"]):
         return "death"
 
-    if any(word in line_lower for word in ["placed", "built", "constructed"]):
+    if any(w in line_lower for w in ["placed", "built", "constructed"]):
         return "build"
+
+    if any(w in line_lower for w in ["unconscious", "consciousness", "fell", "hit", "damage"]):
+        return "damage"
 
     return None
 
 
-# ===== EMBED SENDERS =====
+# ===== DISCORD SENDERS =====
 async def send_killfeed(line):
     channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        print("Channel not found")
+        return
 
-    # Extract player name (basic)
     victim = "Unknown"
     try:
         parts = line.split('"')
@@ -38,12 +45,9 @@ async def send_killfeed(line):
     except:
         pass
 
-    is_suicide = "suicide" in line.lower()
-
-    if is_suicide:
-        title = f"💀 {victim} died (Suicide)"
-    else:
-        title = f"💀 {victim} died"
+    title = f"💀 {victim} died"
+    if "suicide" in line.lower():
+        title += " (Suicide)"
 
     embed = discord.Embed(
         title=title,
@@ -64,6 +68,8 @@ async def send_killfeed(line):
 
 async def send_buildfeed(line):
     channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        return
 
     player = "Unknown"
     try:
@@ -74,22 +80,40 @@ async def send_buildfeed(line):
         pass
 
     embed = discord.Embed(
-        title=f"🧱 Construction Event",
+        title="🧱 Construction Event",
         description="━━━━━━━━━━━━━━━━━━",
         color=0x8B4513
     )
 
-    embed.add_field(
-        name="🏗️ Builder",
-        value=player,
-        inline=True
+    embed.add_field(name="🏗️ Builder", value=player, inline=True)
+    embed.add_field(name="📍 Details", value=f"```{line[:200]}```", inline=False)
+
+    embed.set_footer(text="Wandering Survival Feed")
+
+    await channel.send(embed=embed)
+
+
+async def send_damagefeed(line):
+    channel = client.get_channel(CHANNEL_ID)
+    if not channel:
+        return
+
+    player = "Unknown"
+    try:
+        parts = line.split('"')
+        if len(parts) >= 2:
+            player = parts[1]
+    except:
+        pass
+
+    embed = discord.Embed(
+        title="👊 Damage Event",
+        description="━━━━━━━━━━━━━━━━━━",
+        color=0xffa500
     )
 
-    embed.add_field(
-        name="📍 Details",
-        value=f"```{line[:200]}```",
-        inline=False
-    )
+    embed.add_field(name="🧍 Player", value=player, inline=True)
+    embed.add_field(name="📍 Details", value=f"```{line[:200]}```", inline=False)
 
     embed.set_footer(text="Wandering Survival Feed")
 
@@ -100,9 +124,16 @@ async def send_buildfeed(line):
 def track_logs():
     print("TRACKER STARTED")
 
+    # Wait for file (prevents crash/restart loop)
+    while not os.path.exists(LOG_FILE):
+        print("Waiting for log file...")
+        time.sleep(2)
+
+    print("Log file found!")
+
     try:
         with open(LOG_FILE, "r") as f:
-            f.seek(0, 2)  # START AT END (LIVE MODE)
+            f.seek(0, 2)  # live mode
 
             while True:
                 line = f.readline()
@@ -117,16 +148,23 @@ def track_logs():
                 event = detect_event(line)
 
                 if event == "death":
-                    print("DEATH EVENT:", line)
+                    print("💀 DEATH:", line)
                     asyncio.run_coroutine_threadsafe(
                         send_killfeed(line),
                         client.loop
                     )
 
                 elif event == "build":
-                    print("BUILD EVENT:", line)
+                    print("🧱 BUILD:", line)
                     asyncio.run_coroutine_threadsafe(
                         send_buildfeed(line),
+                        client.loop
+                    )
+
+                elif event == "damage":
+                    print("👊 DAMAGE:", line)
+                    asyncio.run_coroutine_threadsafe(
+                        send_damagefeed(line),
                         client.loop
                     )
 
@@ -134,7 +172,7 @@ def track_logs():
         print("Log tracking error:", e)
 
 
-# ===== DISCORD EVENTS =====
+# ===== DISCORD READY =====
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
