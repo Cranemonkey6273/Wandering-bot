@@ -29,8 +29,8 @@ last_size = 0
 # ================= DOWNLOAD LOG =================
 def download_log():
     try:
-        # STEP 1: GET FILE LIST (CORRECT PATH)
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/games/{SERVICE_ID}/ftproot/dayzxb/config"
+        # ✅ FINAL CORRECT PATH (FROM YOUR SERVER)
+        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/games/ni12248929_2/ftproot/dayzxb/config"
 
         response = requests.get(url, headers=headers)
         res = response.json()
@@ -41,24 +41,25 @@ def download_log():
 
         files = res["data"]["entries"]
 
-        # STEP 2: FIND ADM FILES
-        adm_files = [
-            f for f in files
-            if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", "")
-        ]
+        # ✅ FIND ADM FILES
+        adm_files = []
+        for f in files:
+            if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
+                adm_files.append(f)
 
-        if not adm_files:
+        if len(adm_files) == 0:
             print("❌ No ADM logs found")
             return False
 
-        # STEP 3: GET NEWEST FILE (by name timestamp)
+        # ✅ SORT BY FILENAME (MOST RELIABLE)
         adm_files.sort(key=lambda x: x["name"], reverse=True)
+
         latest_file = adm_files[0]
         latest_path = latest_file["path"]
 
         print("✅ Latest ADM log found:", latest_path)
 
-        # STEP 4: DOWNLOAD FILE
+        # ✅ DOWNLOAD FILE
         download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest_path}"
 
         res = requests.get(download_url, headers=headers).json()
@@ -97,7 +98,7 @@ def parse_log():
         for line in lines:
             line = line.strip()
 
-            # 🔽 FILTER SPAM (important)
+            # 🚫 FILTER SPAM
             if "Mounted BarbedWire" in line:
                 continue
 
