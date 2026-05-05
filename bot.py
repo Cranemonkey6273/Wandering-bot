@@ -13,6 +13,13 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
 SERVICE_ID = os.getenv("SERVICE_ID")
 print("SERVICE_ID:", SERVICE_ID)
+headers = {
+    "Authorization": f"Bearer {NITRADO_TOKEN}"
+}
+
+test = requests.get("https://api.nitrado.net/services", headers=headers)
+
+print("TEST SERVICES RESPONSE:", test.text
 
 LOG_FILE = "server.ADM"
 
