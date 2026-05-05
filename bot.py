@@ -30,10 +30,11 @@ last_size = 0
 def download_log():
     try:
         # STEP 1: GET FILE LIST (correct folder)
-        res = requests.get(
-            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/dayzxb/profiles",
-            headers=headers
-        ).json()
+res = requests.get(
+    f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
+    headers=headers
+).json()
+files = res["data"]["entries"]
 
         if "data" not in res:
             print("❌ FILE LIST ERROR:", res)
