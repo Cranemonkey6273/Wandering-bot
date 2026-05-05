@@ -41,7 +41,7 @@ def download_log():
 
     latest = sorted(adm_files, key=lambda x: x["modified"])[-1]["path"]
 
-    download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
+    download_url = f"https://api.nitrado.net/services/%7BSERVICE_ID%7D/gameservers/file_server/download?file={latest}"
 
     res = requests.get(download_url, headers=headers).json()
 
