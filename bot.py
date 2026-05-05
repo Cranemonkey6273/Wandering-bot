@@ -30,7 +30,7 @@ last_size = 0
 def download_log():
     try:
         # STEP 1: LIST ROOT DIRECTORY
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/dayzxb"
+        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/games/ni12248929_2/ftproot/dayzxb"
 
         response = requests.get(url, headers=headers)
         res = response.json()
