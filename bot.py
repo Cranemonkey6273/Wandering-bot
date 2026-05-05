@@ -12,8 +12,8 @@ from supabase import create_client
 TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = 1501126258140909580
 
-SUPABASE_URL = "https://bqqeorqzezcgzqflqoms.supabase.co"
-SUPABASE_KEY = "sb_publishable_fTUe0hG1Amm3cZ13155ljQ_EQYxmYPz"
+SUPABASE_URL = "PASTE_URL_HERE"
+SUPABASE_KEY = "PASTE_KEY_HERE"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -34,25 +34,15 @@ def save_data():
 
 players = load_data()
 
-# ===== PLAYER =====
-def get_player(pid):
-    if pid not in players:
-        players[pid] = {
-            "name": "Unknown",
-            "kills": 0,
-            "deaths": 0,
-            "streak": 0,
-            "last_attacker": None,
-            "weapon": None,
-            "coords": None,
-            "last_seen": time.time()
-        }
-    return players[pid]
-
-# ===== LOG FILE =====
+# ===== GET LOG FILE =====
 def get_log_file():
     files = [f for f in os.listdir() if f.endswith(".ADM")]
-    return sorted(files)[-1] if files else None
+    if not files:
+        print("❌ NO ADM FILE FOUND")
+        return None
+    latest = sorted(files)[-1]
+    print("✅ USING LOG FILE:", latest)
+    return latest
 
 LOG_FILE = get_log_file()
 
@@ -94,6 +84,7 @@ def format_time(seconds):
 # ===== DATABASE =====
 def save_kill_to_db(killer, victim, weapon, distance):
     try:
+        print("🔥 SAVING TO DATABASE:", killer, victim)
         supabase.table("kills").insert({
             "killer": killer,
             "victim": victim,
@@ -101,7 +92,7 @@ def save_kill_to_db(killer, victim, weapon, distance):
             "distance": float(distance.replace("m","")) if distance != "Unknown" else None
         }).execute()
     except Exception as e:
-        print("DB ERROR:", e)
+        print("❌ DB ERROR:", e)
 
 # ===== DISCORD =====
 async def send_kill(victim, killer, weapon, coords, distance, survival):
@@ -124,16 +115,16 @@ async def send_kill(victim, killer, weapon, coords, distance, survival):
 
     await ch.send(embed=embed)
 
-# ===== TRACKER =====
+# ===== TRACK LOGS =====
 def track_logs():
     global LOG_FILE
 
     while not LOG_FILE:
-        print("Waiting for log...")
+        print("⏳ WAITING FOR LOG FILE...")
         time.sleep(2)
         LOG_FILE = get_log_file()
 
-    print("Tracking:", LOG_FILE)
+    print("📡 TRACKING:", LOG_FILE)
 
     with open(LOG_FILE, "r") as f:
         f.seek(0, 2)
@@ -146,12 +137,12 @@ def track_logs():
                 continue
 
             line = line.strip()
-            print("RAW:", line)
+            print("RAW:", line)  # 🔥 IMPORTANT DEBUG
 
             name, pid = parse_player(line)
 
             if pid:
-                p = get_player(pid)
+                p = players.setdefault(pid, {})
                 p["name"] = name
 
             coords = parse_coords(line)
@@ -169,34 +160,23 @@ def track_logs():
 
             # DEATH
             if "died" in line.lower():
-                if pid and pid in players:
+                if pid in players:
                     victim_data = players[pid]
 
-                    victim = victim_data["name"]
-                    killer = victim_data["last_attacker"] or "Unknown"
-                    weapon = victim_data["weapon"] or "Unknown"
-                    coords = victim_data["coords"]
+                    victim = victim_data.get("name", "Unknown")
+                    killer = victim_data.get("last_attacker", "Unknown")
+                    weapon = victim_data.get("weapon", "Unknown")
+                    coords = victim_data.get("coords")
 
-                    survival_seconds = time.time() - victim_data["last_seen"]
-                    survival = format_time(survival_seconds)
+                    survival = "Unknown"
 
                     killer_coords = None
                     for p in players.values():
-                        if p["name"] == killer:
-                            killer_coords = p["coords"]
+                        if p.get("name") == killer:
+                            killer_coords = p.get("coords")
 
                     distance = calculate_distance(coords, killer_coords)
 
-                    victim_data["deaths"] += 1
-                    victim_data["streak"] = 0
-                    victim_data["last_seen"] = time.time()
-
-                    for p in players.values():
-                        if p["name"] == killer:
-                            p["kills"] += 1
-                            p["streak"] += 1
-
-                    save_data()
                     save_kill_to_db(killer, victim, weapon, distance)
 
                     asyncio.run_coroutine_threadsafe(
@@ -207,7 +187,7 @@ def track_logs():
 # ===== READY =====
 @client.event
 async def on_ready():
-    print(f"Logged in as {client.user}")
+    print(f"✅ Logged in as {client.user}")
     threading.Thread(target=track_logs, daemon=True).start()
 
 # ===== RUN =====
