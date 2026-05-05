@@ -37,20 +37,24 @@ def download_log():
         }
         
     # STEP 1: GET FILE LIST
-    files = response["data"]["entries"]
+files = response["data"]["entries"]
 
-adm_files = [
-    f for f in files
-    if f["path"].endswith(".ADM") and "DayZServer" in f["name"]
-]
+# Find ADM files
+adm_files = []
+for f in files:
+    if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
+        adm_files.append(f)
 
+# No logs found
 if not adm_files:
     print("❌ No ADM logs found")
     return False
 
-latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
+# Get latest ADM file
+latest_file = sorted(adm_files, key=lambda x: x.get("modified_at", 0))[-1]
+latest_path = latest_file["path"]
 
-print(f"✅ Latest ADM log found: {latest}")
+print(f"✅ Latest ADM log found: {latest_path}")
 except Exception as e:
     print(f"❌ Error: {e}")
     return False
