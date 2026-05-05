@@ -40,7 +40,7 @@ def track_logs():
 
     try:
         with open(LOG_FILE, "r") as f:
-            f.seek(0, 2)  # LIVE MODE
+            f.seek(0)  # LIVE MODE
 
             while True:
                 line = f.readline()
