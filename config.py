@@ -1,0 +1,11 @@
+DISCORD_TOKEN = "NzI3...your_real_token_here"
+CHANNEL_ID = 1501126258140909580
+
+NITRADO_TOKEN = "6PwN1sFZVytzeQXlxeZoB4NKtyMomdFrYVExlJf96rnTCAKQNbz83Q3juiqlN5La2ujvHguOn2A5BOTch_S6fbgQA_fX3yhwvOo6"
+SERVICE_ID = "19165400"
+
+FTP_HOST = "sftp.nitrado.net"
+FTP_USER = "ni12248929_1"
+FTP_PASS = "Mo9yKffW"
+
+FTP_LOG_PATH = "/games/ni12248929_1/ftpRoot/dayzxb"
