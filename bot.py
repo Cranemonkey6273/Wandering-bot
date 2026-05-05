@@ -62,7 +62,10 @@ def download_log():
         # STEP 4: DOWNLOAD FILE
         download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest_path}"
 
-        res = requests.get(download_url, headers=headers).json()
+        res = requests.get(
+    f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/dayzxb/config",
+    headers=headers
+).json()
 
         if "data" not in res:
             print("❌ DOWNLOAD ERROR:", res)
