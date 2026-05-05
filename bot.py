@@ -36,7 +36,6 @@ def download_log():
             "Authorization": f"Bearer {NITRADO_TOKEN}"
         }
 
-try:
     # STEP 1: GET FILE LIST
     files = response["data"]["entries"]
 
