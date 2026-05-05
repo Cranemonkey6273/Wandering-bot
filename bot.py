@@ -35,7 +35,7 @@ def download_log():
         headers = {
             "Authorization": f"Bearer {NITRADO_TOKEN}"
         }
-
+try:
     # STEP 1: GET FILE LIST
     files = response["data"]["entries"]
 
@@ -48,6 +48,15 @@ def download_log():
     if not adm_files:
         print("❌ No ADM logs found")
         return False
+
+    # STEP 3: GET LATEST FILE
+    latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
+
+    print(f"✅ Latest ADM log found: {latest}")
+
+except Exception as e:
+    print(f"❌ Error: {e}")
+    return False
 
     # STEP 3: GET LATEST FILE
     latest = sorted(adm_files, key=lambda x: x["modified_at"])[-1]["path"]
