@@ -33,7 +33,7 @@ def download_log():
     try:
         headers = {"Authorization": f"Bearer {NITRADO_TOKEN}"}
 
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/gameserver/profiles"
+download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest}"
 
         res = requests.get(url, headers=headers).json()
 
