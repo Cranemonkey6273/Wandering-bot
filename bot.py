@@ -3,6 +3,7 @@ import requests
 import time
 import os
 from supabase import create_client
+from datetime import timedelta
 
 # ================= CONFIG =================
 
@@ -114,7 +115,7 @@ async def tracker_loop():
             parse_log()
 
         await discord.utils.sleep_until(
-            discord.utils.utcnow() + discord.utils.timedelta(seconds=15)
+            discord.utils.utcnow() + timedelta(seconds=15)
         )
 
 
