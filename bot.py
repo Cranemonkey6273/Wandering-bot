@@ -106,7 +106,7 @@ def get_files(directory):
 
 def find_latest_adm():
 
-    directory = "dayzxb/config"
+    directory = "/games/ni12248929_2/ftproot/dayzxb/config"
 
     print(f"🔍 Searching: {directory}")
 
