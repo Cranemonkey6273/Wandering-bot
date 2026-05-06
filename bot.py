@@ -24,7 +24,6 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
 
-# CORRECT FTP PATH
 LOG_DIRECTORY = "/dayzxb/config"
 
 # ================= DISCORD =================
@@ -245,7 +244,20 @@ async def parse_new_lines():
             if not line:
                 continue
 
-            print("NEW:", line)
+            # ================= TIMESTAMP =================
+
+            timestamp_match = re.match(
+                r'(\d{2}:\d{2}:\d{2})',
+                line
+            )
+
+            timestamp = (
+                timestamp_match.group(1)
+                if timestamp_match
+                else "Unknown"
+            )
+
+            print(f"[{timestamp}] {line}")
 
             # ================= PLAYER NAME =================
 
@@ -291,6 +303,12 @@ async def parse_new_lines():
                     inline=False
                 )
 
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
                 await channel.send(embed=embed)
 
             # ================= PLAYER CONNECTED =================
@@ -314,6 +332,12 @@ async def parse_new_lines():
                     inline=False
                 )
 
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
                 await channel.send(embed=embed)
 
             # ================= PLAYER DISCONNECTED =================
@@ -334,6 +358,128 @@ async def parse_new_lines():
                 embed.add_field(
                     name="📍 Last Location",
                     value=location,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= ITEM PLACED =================
+
+            elif "placed" in line.lower():
+
+                embed = discord.Embed(
+                    title="🛠️ ITEM PLACED",
+                    color=0xff9900
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📜 Event",
+                    value=line,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= BUILDING =================
+
+            elif "built" in line.lower():
+
+                embed = discord.Embed(
+                    title="🔨 BUILDING",
+                    color=0x9966ff
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📜 Event",
+                    value=line,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= ITEM FOLDED =================
+
+            elif "folded" in line.lower():
+
+                embed = discord.Embed(
+                    title="📦 ITEM FOLDED",
+                    color=0x00ccff
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📜 Event",
+                    value=line,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= ITEM PACKED =================
+
+            elif "packed" in line.lower():
+
+                embed = discord.Embed(
+                    title="🎒 ITEM PACKED",
+                    color=0xcc6600
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📜 Event",
+                    value=line,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="⏰ Time",
+                    value=timestamp,
                     inline=False
                 )
 
