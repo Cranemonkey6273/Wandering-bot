@@ -1,3 +1,6 @@
+# Fixed `bot.py`
+
+````python
 import os
 import re
 import asyncio
@@ -52,9 +55,7 @@ if SUPABASE_URL and SUPABASE_KEY:
 # ================= POSITION TRACKING =================
 
 def load_last_position():
-
     if os.path.exists(POSITION_FILE):
-
         with open(POSITION_FILE, "r") as f:
             return int(f.read())
 
@@ -62,7 +63,6 @@ def load_last_position():
 
 
 def save_last_position(position):
-
     with open(POSITION_FILE, "w") as f:
         f.write(str(position))
 
@@ -74,7 +74,6 @@ current_log_file = None
 # ================= DATE EXTRACTION =================
 
 def extract_date(file_name):
-
     match = re.search(
         r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
         file_name
@@ -94,7 +93,6 @@ def extract_date(file_name):
 # ================= CLEAN BUILD TEXT =================
 
 def clean_build_action(action):
-
     replacements = {
         "wall_metal_up": "Metal Upper Wall Built",
         "wall_metal_down": "Metal Lower Wall Built",
@@ -113,7 +111,6 @@ def clean_build_action(action):
 # ================= IZURVIVE LINK =================
 
 def create_map_link(x, y):
-
     return (
         f"https://www.izurvive.com/chernarusplussatmap/"
         f"#location={x};{y}"
@@ -122,7 +119,6 @@ def create_map_link(x, y):
 # ================= LOCATION DISPLAY =================
 
 def create_location_display(location, map_link):
-
     if map_link:
         return f"🗺️ [{location}]({map_link})"
 
@@ -131,27 +127,19 @@ def create_location_display(location, map_link):
 # ================= FTP CONNECTION =================
 
 def connect_ftp():
-
     ftp = FTP_TLS()
-
     ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
-
     ftp.login(FTP_USER, FTP_PASS)
-
     ftp.prot_p()
-
     return ftp
 
 # ================= FIND NEWEST ADM =================
 
 def find_latest_adm():
-
     try:
-
         print(f"🔍 FTP Searching: {LOG_DIRECTORY}")
 
         ftp = connect_ftp()
-
         ftp.cwd(LOG_DIRECTORY)
 
         files = ftp.nlst()
@@ -159,11 +147,8 @@ def find_latest_adm():
         adm_files = []
 
         for file in files:
-
             if file.endswith(".ADM"):
-
                 print(f"📄 Found ADM: {file}")
-
                 adm_files.append(file)
 
         ftp.quit()
@@ -179,41 +164,34 @@ def find_latest_adm():
         return f"{LOG_DIRECTORY}/{newest_file}"
 
     except Exception as e:
-
         print("❌ FTP SEARCH ERROR:", e)
         return None
 
 # ================= DOWNLOAD LOG =================
 
 def download_latest_log():
-
     global current_log_file
     global last_size
 
     try:
-
         log_path = find_latest_adm()
 
         if not log_path:
-
             print("❌ No ADM logs found")
             return False
 
         print(f"✅ Latest ADM log found: {log_path}")
 
         if current_log_file != log_path:
-
             print(f"🆕 New ADM detected: {log_path}")
 
             current_log_file = log_path
-
             last_size = 0
             save_last_position(0)
 
         ftp = connect_ftp()
 
         with open(LOG_FILE, "wb") as f:
-
             ftp.retrbinary(
                 f"RETR {log_path}",
                 f.write
@@ -222,22 +200,18 @@ def download_latest_log():
         ftp.quit()
 
         print(f"✅ Log downloaded: {log_path}")
-
         print(f"📦 Downloaded file size: {os.path.getsize(LOG_FILE)} bytes")
 
         return True
 
     except Exception as e:
-
         print("❌ DOWNLOAD ERROR:", e)
         return False
 
 # ================= EMBED STYLE =================
 
 def style_embed(embed):
-
     if os.path.exists(BOT_IMAGE):
-
         embed.set_author(
             name="☣️ Wandering Bot Intelligence",
             icon_url="attachment://wanderingbot.png"
@@ -248,7 +222,6 @@ def style_embed(embed):
         )
 
     else:
-
         embed.set_author(
             name="☣️ Wandering Bot Intelligence"
         )
@@ -264,15 +237,12 @@ def style_embed(embed):
 # ================= SEND EMBED =================
 
 async def send_embed(channel, embed):
-
     if not channel:
         print("❌ Channel not found")
         return
 
     try:
-
         if os.path.exists(BOT_IMAGE):
-
             file = discord.File(
                 BOT_IMAGE,
                 filename="wanderingbot.png"
@@ -284,17 +254,14 @@ async def send_embed(channel, embed):
             )
 
         else:
-
             await channel.send(embed=embed)
 
     except Exception as e:
-
         print(f"❌ SEND EMBED ERROR: {e}")
 
 # ================= PARSE LOG =================
 
 async def parse_new_lines():
-
     global last_size
 
     connection_channel = client.get_channel(CONNECTION_CHANNEL_ID)
@@ -306,18 +273,14 @@ async def parse_new_lines():
     damage_channel = client.get_channel(DAMAGE_CHANNEL_ID)
 
     try:
-
         if not os.path.exists(LOG_FILE):
-
             print("❌ Local log file missing")
             return
 
         current_file_size = os.path.getsize(LOG_FILE)
 
         if current_file_size < last_size:
-
             print("♻️ LOG RESET DETECTED")
-
             last_size = 0
             save_last_position(0)
 
@@ -337,12 +300,10 @@ async def parse_new_lines():
             save_last_position(last_size)
 
         if not new_lines:
-
             print("⏳ No new log lines")
             return
 
         for line in new_lines:
-
             line = line.strip()
 
             if not line:
@@ -391,12 +352,10 @@ async def parse_new_lines():
             location_display = "`Unknown`"
 
             if pos_match:
-
                 x = round(float(pos_match.group(1)), 1)
                 y = round(float(pos_match.group(2)), 1)
 
                 location = f"{x}, {y}"
-
                 map_link = create_map_link(x, y)
 
                 location_display = create_location_display(
@@ -404,64 +363,63 @@ async def parse_new_lines():
                     map_link
                 )
 
-        # ================= DAMAGE FEED =================
-        if (
-            "hit by" in line.lower()
-            or "attacked by" in line.lower()
-            or "bled" in line.lower()
-            or "unconscious" in line.lower()
-        ):
+            # ================= DAMAGE FEED =================
 
-            damage_clean = re.sub(
-                r'pos=<[\d., ]+>',
-                '',
-                line
-            )
+            if (
+                "hit by" in line.lower()
+                or "attacked by" in line.lower()
+                or "bled" in line.lower()
+                or "unconscious" in line.lower()
+            ):
 
-            damage_clean = re.sub(
-                r'\(id=[^)]+\)',
-                '',
-                damage_clean
-            )
+                damage_clean = re.sub(
+                    r'pos=<[\d., ]+>',
+                    '',
+                    line
+                )
 
-            damage_clean = re.sub(
-                r'\s+',
-                ' ',
-                damage_clean
-            ).strip()
+                damage_clean = re.sub(
+                    r'\(id=[^)]+\)',
+                    '',
+                    damage_clean
+                )
 
-            embed = discord.Embed(
-                color=0xFF4500
-            )
+                damage_clean = re.sub(
+                    r'\s+',
+                    ' ',
+                    damage_clean
+                ).strip()
 
-            embed.description = (
-                "```fix\n"
-                "🩸 SURVIVOR INJURED 🩸\n"
-                "\n"
-                f"👤 Survivor\n"
-                f"> {player}\n\n"
-                f"⚠️ Incident Report\n"
-                f"> {damage_clean}\n\n"
-                f"🕒 Event Time\n"
-                f"> {timestamp}\n"
-                "```"
-            )
+                embed = discord.Embed(
+                    color=0xFF4500
+                )
 
-            embed = style_embed(embed)
+                embed.description = (
+                    "```fix\n"
+                    "🩸 SURVIVOR INJURED 🩸\n"
+                    "\n"
+                    f"👤 Survivor\n"
+                    f"> {player}\n\n"
+                    f"⚠️ Incident Report\n"
+                    f"> {damage_clean}\n\n"
+                    f"🕒 Event Time\n"
+                    f"> {timestamp}\n"
+                    "```"
+                )
 
-            await send_embed(damage_channel, embed)
+                embed = style_embed(embed)
+
+                await send_embed(damage_channel, embed)
 
             # ================= KILL FEED =================
 
             if " killed by Player " in line:
-
                 killer_match = re.search(
                     r'Player "([^"]+)" .* killed by Player "([^"]+)"',
                     line
                 )
 
                 if killer_match:
-
                     victim = killer_match.group(1)
                     killer = killer_match.group(2)
 
@@ -484,14 +442,11 @@ async def parse_new_lines():
                     )
 
                     embed = style_embed(embed)
-
                     await send_embed(killfeed_channel, embed)
-
-                    continue
 
             # ================= RAID ALERT =================
 
-            if (
+            elif (
                 "destroyed" in line.lower()
                 or "dismantled" in line.lower()
                 or "damaged" in line.lower()
@@ -516,14 +471,11 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(raid_channel, embed)
-
-                continue
 
             # ================= PLAYER CONNECTING =================
 
-            if " is connecting" in line:
+            elif " is connecting" in line:
 
                 embed = discord.Embed(
                     color=0x8B8000
@@ -540,7 +492,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(connection_channel, embed)
 
             # ================= PLAYER CONNECTED =================
@@ -564,7 +515,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(connection_channel, embed)
 
             # ================= PLAYER DISCONNECTED =================
@@ -588,7 +538,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(connection_channel, embed)
 
             # ================= ITEM PLACED =================
@@ -626,7 +575,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(deploy_channel, embed)
 
             # ================= BUILD EVENT =================
@@ -665,7 +613,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(build_channel, embed)
 
             # ================= ITEM FOLDED =================
@@ -703,7 +650,6 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(packing_channel, embed)
 
             # ================= ITEM PACKED =================
@@ -741,27 +687,22 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-
                 await send_embed(packing_channel, embed)
 
     except Exception as e:
-
         print("❌ PARSE ERROR:", e)
 
 # ================= LOOP =================
 
 async def tracker_loop():
-
     await client.wait_until_ready()
 
     print("🚀 Wandering Bot Tracker Started")
 
     while not client.is_closed():
-
         success = download_latest_log()
 
         if success:
-
             await parse_new_lines()
 
         await asyncio.sleep(30)
@@ -770,11 +711,10 @@ async def tracker_loop():
 
 @client.event
 async def on_ready():
-
     print(f"✅ Logged in as {client.user}")
-
     client.loop.create_task(tracker_loop())
 
 # ================= START =================
 
 client.run(DISCORD_TOKEN)
+````
