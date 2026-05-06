@@ -23,6 +23,7 @@ headers = {
 }
 
 LOG_FILE = "server.ADM"
+POSITION_FILE = "last_position.txt"
 
 # ================= DISCORD =================
 
@@ -36,9 +37,23 @@ supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ================= TRACKING =================
+# ================= POSITION TRACKING =================
 
-last_size = 0
+def load_last_position():
+
+    if os.path.exists(POSITION_FILE):
+
+        with open(POSITION_FILE, "r") as f:
+            return int(f.read())
+
+    return 0
+
+def save_last_position(position):
+
+    with open(POSITION_FILE, "w") as f:
+        f.write(str(position))
+
+last_size = load_last_position()
 
 # ================= DOWNLOAD LOG =================
 
@@ -66,8 +81,6 @@ def download_latest_log():
         if not adm_files:
             print("❌ No ADM logs found")
             return False
-
-        # ================= FORCE NEWEST FILE =================
 
         latest = max(
             adm_files,
@@ -124,6 +137,8 @@ async def parse_new_lines():
             new_lines = f.readlines()
 
             last_size = f.tell()
+
+            save_last_position(last_size)
 
         for line in new_lines:
 
