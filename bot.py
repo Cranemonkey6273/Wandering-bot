@@ -67,9 +67,11 @@ def download_latest_log():
             print("❌ No ADM logs found")
             return False
 
+        # ================= FORCE NEWEST FILE =================
+
         latest = max(
             adm_files,
-            key=lambda x: x["name"]
+            key=lambda x: x.get("modified_at", "")
         )
 
         log_path = latest["path"]
