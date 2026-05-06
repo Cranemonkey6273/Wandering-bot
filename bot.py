@@ -24,6 +24,7 @@ headers = {
 
 LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
+LAST_LOG_FILE = "last_log.txt"
 
 # ================= DISCORD =================
 
@@ -78,16 +79,33 @@ def download_latest_log():
             if f["name"].endswith(".ADM")
         ]
 
+        # ================= FALLBACK IF API FAILS =================
+
         if not adm_files:
-            print("❌ No ADM logs found")
-            return False
 
-        latest = max(
-            adm_files,
-            key=lambda x: x.get("modified_at", "")
-        )
+            print("⚠️ No ADM logs found from API")
 
-        log_path = latest["path"]
+            if os.path.exists(LAST_LOG_FILE):
+
+                with open(LAST_LOG_FILE, "r") as f:
+                    log_path = f.read().strip()
+
+                print(f"♻️ Reusing previous ADM: {log_path}")
+
+            else:
+                return False
+
+        else:
+
+            latest = max(
+                adm_files,
+                key=lambda x: x.get("modified_at", "")
+            )
+
+            log_path = latest["path"]
+
+            with open(LAST_LOG_FILE, "w") as f:
+                f.write(log_path)
 
         print(f"✅ Latest ADM log found: {log_path}")
 
