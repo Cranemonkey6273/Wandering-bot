@@ -1,8 +1,8 @@
 import os
 import re
 import asyncio
-import requests
 import discord
+from ftplib import FTP
 from datetime import datetime
 from supabase import create_client
 
@@ -14,20 +14,16 @@ CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
-SERVICE_ID = os.getenv("SERVICE_ID")
-
-headers = {
-    "Authorization": f"Bearer {NITRADO_TOKEN}"
-}
+FTP_HOST = os.getenv("FTP_HOST")
+FTP_USER = os.getenv("FTP_USER")
+FTP_PASS = os.getenv("FTP_PASS")
+FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 # ================= FILE SETTINGS =================
 
 LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
 
-# IMPORTANT:
-# Change this if your ADM files are elsewhere
 LOG_DIRECTORY = "/games/ni12248929_2/ftproot/dayzxb/config"
 
 # ================= DISCORD =================
@@ -84,60 +80,60 @@ def extract_date(file_name):
         "%Y-%m-%d %H:%M:%S"
     )
 
-# ================= GET FILE LIST =================
+# ================= FTP CONNECTION =================
 
-def get_files(directory):
+def connect_ftp():
 
-    try:
+    ftp = FTP()
 
-        response = requests.get(
-            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
-            headers=headers,
-            params={"dir": directory}
-        )
+    ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
 
-        data = response.json()
+    ftp.login(FTP_USER, FTP_PASS)
 
-        if "data" not in data:
-
-            print("❌ API ERROR:", data)
-            return []
-
-        return data["data"]["entries"]
-
-    except Exception as e:
-
-        print("❌ DIRECTORY ERROR:", e)
-        return []
+    return ftp
 
 # ================= FIND NEWEST ADM =================
 
 def find_latest_adm():
 
-    print(f"🔍 Searching: {LOG_DIRECTORY}")
+    try:
 
-    files = get_files(LOG_DIRECTORY)
+        ftp = connect_ftp()
 
-    newest_file = None
-    newest_date = datetime.min
+        print(f"🔍 FTP Searching: {LOG_DIRECTORY}")
 
-    for file in files:
+        ftp.cwd(LOG_DIRECTORY)
 
-        name = file.get("name", "")
+        files = ftp.nlst()
 
-        if not name.endswith(".ADM"):
-            continue
+        adm_files = []
 
-        print(f"📄 Found ADM: {name}")
+        for file in files:
 
-        file_date = extract_date(name)
+            if file.endswith(".ADM"):
 
-        if file_date > newest_date:
+                print(f"📄 Found ADM: {file}")
 
-            newest_date = file_date
-            newest_file = file["path"]
+                adm_files.append(file)
 
-    return newest_file
+        if not adm_files:
+
+            ftp.quit()
+            return None
+
+        newest_file = max(
+            adm_files,
+            key=lambda x: extract_date(x)
+        )
+
+        ftp.quit()
+
+        return f"{LOG_DIRECTORY}/{newest_file}"
+
+    except Exception as e:
+
+        print("❌ FTP SEARCH ERROR:", e)
+        return None
 
 # ================= DOWNLOAD LOG =================
 
@@ -168,50 +164,30 @@ def download_latest_log():
             last_size = 0
             save_last_position(0)
 
-        # ================= GET DOWNLOAD URL =================
+        ftp = connect_ftp()
 
-        download_response = requests.get(
-            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download",
-            headers=headers,
-            params={"file": log_path}
-        )
+        filename = os.path.basename(log_path)
 
-        download_data = download_response.json()
-
-        if "data" not in download_data:
-
-            print("❌ DOWNLOAD ERROR:", download_data)
-            return False
-
-        download_url = download_data["data"]["token"]["url"]
-
-        # ================= DOWNLOAD FILE =================
-
-        file_response = requests.get(
-            download_url,
-            headers={
-                "Cache-Control": "no-cache"
-            }
-        )
-
-        if file_response.status_code != 200:
-
-            print("❌ FILE DOWNLOAD FAILED")
-            return False
-
-        print(f"📦 Downloaded file size: {len(file_response.content)} bytes")
+        ftp.cwd(LOG_DIRECTORY)
 
         with open(LOG_FILE, "wb") as f:
 
-            f.write(file_response.content)
+            ftp.retrbinary(
+                f"RETR {filename}",
+                f.write
+            )
+
+        ftp.quit()
 
         print(f"✅ Log downloaded: {log_path}")
+
+        print(f"📦 Downloaded file size: {os.path.getsize(LOG_FILE)} bytes")
 
         return True
 
     except Exception as e:
 
-        print("❌ DOWNLOAD EXCEPTION:", e)
+        print("❌ DOWNLOAD ERROR:", e)
         return False
 
 # ================= PARSE LOG =================
