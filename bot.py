@@ -2,7 +2,7 @@ import os
 import re
 import asyncio
 import discord
-from ftplib import FTP
+import paramiko
 from datetime import datetime
 from supabase import create_client
 
@@ -80,17 +80,20 @@ def extract_date(file_name):
         "%Y-%m-%d %H:%M:%S"
     )
 
-# ================= FTP CONNECTION =================
+# ================= SFTP CONNECTION =================
 
-def connect_ftp():
+def connect_sftp():
 
-    ftp = FTP()
+    transport = paramiko.Transport((FTP_HOST, FTP_PORT))
 
-    ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
+    transport.connect(
+        username=FTP_USER,
+        password=FTP_PASS
+    )
 
-    ftp.login(FTP_USER, FTP_PASS)
+    sftp = paramiko.SFTPClient.from_transport(transport)
 
-    return ftp
+    return sftp, transport
 
 # ================= FIND NEWEST ADM =================
 
@@ -98,13 +101,11 @@ def find_latest_adm():
 
     try:
 
-        ftp = connect_ftp()
+        print(f"🔍 SFTP Searching: {LOG_DIRECTORY}")
 
-        print(f"🔍 FTP Searching: {LOG_DIRECTORY}")
+        sftp, transport = connect_sftp()
 
-        ftp.cwd(LOG_DIRECTORY)
-
-        files = ftp.nlst()
+        files = sftp.listdir(LOG_DIRECTORY)
 
         adm_files = []
 
@@ -118,7 +119,9 @@ def find_latest_adm():
 
         if not adm_files:
 
-            ftp.quit()
+            sftp.close()
+            transport.close()
+
             return None
 
         newest_file = max(
@@ -126,13 +129,14 @@ def find_latest_adm():
             key=lambda x: extract_date(x)
         )
 
-        ftp.quit()
+        sftp.close()
+        transport.close()
 
         return f"{LOG_DIRECTORY}/{newest_file}"
 
     except Exception as e:
 
-        print("❌ FTP SEARCH ERROR:", e)
+        print("❌ SFTP SEARCH ERROR:", e)
         return None
 
 # ================= DOWNLOAD LOG =================
@@ -164,20 +168,12 @@ def download_latest_log():
             last_size = 0
             save_last_position(0)
 
-        ftp = connect_ftp()
+        sftp, transport = connect_sftp()
 
-        filename = os.path.basename(log_path)
+        sftp.get(log_path, LOG_FILE)
 
-        ftp.cwd(LOG_DIRECTORY)
-
-        with open(LOG_FILE, "wb") as f:
-
-            ftp.retrbinary(
-                f"RETR {filename}",
-                f.write
-            )
-
-        ftp.quit()
+        sftp.close()
+        transport.close()
 
         print(f"✅ Log downloaded: {log_path}")
 
