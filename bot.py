@@ -451,7 +451,6 @@ async def parse_new_lines():
 
             await send_embed(damage_channel, embed)
 
-            continue
             # ================= KILL FEED =================
 
             if " killed by Player " in line:
