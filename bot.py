@@ -9,7 +9,15 @@ from supabase import create_client
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+
+# ================= FEED CHANNELS =================
+
+CONNECTION_CHANNEL_ID = int(os.getenv("CONNECTION_CHANNEL_ID"))
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID"))
+RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID"))
+BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID"))
+DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID"))
+PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -248,6 +256,10 @@ def style_embed(embed):
 
 async def send_embed(channel, embed):
 
+    if not channel:
+        print("❌ Channel not found")
+        return
+
     if os.path.exists(BOT_IMAGE):
 
         file = discord.File(
@@ -270,12 +282,14 @@ async def parse_new_lines():
 
     global last_size
 
-    channel = client.get_channel(CHANNEL_ID)
+    # ================= CHANNELS =================
 
-    if not channel:
-
-        print("❌ Discord channel not found")
-        return
+    connection_channel = client.get_channel(CONNECTION_CHANNEL_ID)
+    killfeed_channel = client.get_channel(KILLFEED_CHANNEL_ID)
+    raid_channel = client.get_channel(RAID_CHANNEL_ID)
+    build_channel = client.get_channel(BUILD_CHANNEL_ID)
+    deploy_channel = client.get_channel(DEPLOY_CHANNEL_ID)
+    packing_channel = client.get_channel(PACKING_CHANNEL_ID)
 
     try:
 
@@ -416,7 +430,7 @@ async def parse_new_lines():
 
                     embed = style_embed(embed)
 
-                    await send_embed(channel, embed)
+                    await send_embed(killfeed_channel, embed)
 
                     continue
 
@@ -444,11 +458,11 @@ async def parse_new_lines():
                     f"> {location_display}\n\n"
                     f"🕒 **Alert Time**\n"
                     f"> `{timestamp}`"
-                )
+                    )
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(raid_channel, embed)
 
                 continue
 
@@ -472,7 +486,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(connection_channel, embed)
 
             # ================= PLAYER CONNECTED =================
 
@@ -496,7 +510,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(connection_channel, embed)
 
             # ================= PLAYER DISCONNECTED =================
 
@@ -520,7 +534,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(connection_channel, embed)
 
             # ================= ITEM PLACED =================
 
@@ -558,7 +572,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(deploy_channel, embed)
 
             # ================= BUILD EVENT =================
 
@@ -597,7 +611,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(build_channel, embed)
 
             # ================= ITEM FOLDED =================
 
@@ -635,7 +649,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(packing_channel, embed)
 
             # ================= ITEM PACKED =================
 
@@ -673,7 +687,7 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(channel, embed)
+                await send_embed(packing_channel, embed)
 
     except Exception as e:
 
