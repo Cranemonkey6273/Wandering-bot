@@ -101,6 +101,15 @@ def clean_build_action(action):
 
     return action
 
+# ================= IZURVIVE LINK =================
+
+def create_map_link(x, y):
+
+    return (
+        f"https://www.izurvive.com/chernarusplussatmap/"
+        f"#location={x};{y}"
+    )
+
 # ================= FTP CONNECTION =================
 
 def connect_ftp():
@@ -230,15 +239,21 @@ def style_embed(embed):
 
 async def send_embed(channel, embed):
 
-    file = discord.File(
-        BOT_IMAGE,
-        filename="wanderingbot.png"
-    )
+    if os.path.exists(BOT_IMAGE):
 
-    await channel.send(
-        embed=embed,
-        file=file
-    )
+        file = discord.File(
+            BOT_IMAGE,
+            filename="wanderingbot.png"
+        )
+
+        await channel.send(
+            embed=embed,
+            file=file
+        )
+
+    else:
+
+        await channel.send(embed=embed)
 
 # ================= PARSE LOG =================
 
@@ -341,6 +356,7 @@ async def parse_new_lines():
             )
 
             location = "Unknown"
+            map_link = None
 
             if pos_match:
 
@@ -348,6 +364,8 @@ async def parse_new_lines():
                 y = round(float(pos_match.group(2)), 1)
 
                 location = f"{x}, {y}"
+
+                map_link = create_map_link(x, y)
 
             # ================= KILL FEED =================
 
@@ -377,6 +395,8 @@ async def parse_new_lines():
                         f"> `{victim}`\n\n"
                         f"📍 **Combat Zone**\n"
                         f"> `{location}`\n\n"
+                        f"🗺️ **iZurvive Map**\n"
+                        f"> [Open Map]({map_link})\n\n"
                         f"🕒 **Time Of Death**\n"
                         f"> `{timestamp}`"
                     )
@@ -409,6 +429,8 @@ async def parse_new_lines():
                     f"> `{line}`\n\n"
                     f"📍 **Raid Location**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Alert Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -457,6 +479,8 @@ async def parse_new_lines():
                     f"> `{player}`\n\n"
                     f"📍 **Spawn Coordinates**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Arrival Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -481,6 +505,8 @@ async def parse_new_lines():
                     f"> `{player}`\n\n"
                     f"📍 **Last Known Position**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Disconnect Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -519,6 +545,8 @@ async def parse_new_lines():
                     f"> `{placed_item}`\n\n"
                     f"📍 **Deployment Zone**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Event Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -558,6 +586,8 @@ async def parse_new_lines():
                     f"> `{build_action}`\n\n"
                     f"📍 **Build Coordinates**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Construction Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -596,6 +626,8 @@ async def parse_new_lines():
                     f"> `{folded_item}`\n\n"
                     f"📍 **Recovery Position**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Recovery Time**\n"
                     f"> `{timestamp}`"
                 )
@@ -634,6 +666,8 @@ async def parse_new_lines():
                     f"> `{packed_item}`\n\n"
                     f"📍 **Pack-Up Location**\n"
                     f"> `{location}`\n\n"
+                    f"🗺️ **iZurvive Map**\n"
+                    f"> [Open Map]({map_link})\n\n"
                     f"🕒 **Event Time**\n"
                     f"> `{timestamp}`"
                 )
