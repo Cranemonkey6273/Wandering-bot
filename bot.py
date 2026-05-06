@@ -186,6 +186,20 @@ def download_latest_log():
         print("❌ DOWNLOAD ERROR:", e)
         return False
 
+# ================= EMBED STYLE =================
+
+def style_embed(embed):
+
+    embed.set_thumbnail(
+        url="https://i.imgur.com/8B7QFQF.png"
+    )
+
+    embed.set_footer(
+        text="☣️ Wandering Bot • Live DayZ Intelligence"
+    )
+
+    return embed
+
 # ================= PARSE LOG =================
 
 async def parse_new_lines():
@@ -207,8 +221,6 @@ async def parse_new_lines():
             return
 
         current_file_size = os.path.getsize(LOG_FILE)
-
-        # ================= FILE RESET DETECTION =================
 
         if current_file_size < last_size:
 
@@ -244,8 +256,6 @@ async def parse_new_lines():
             if not line:
                 continue
 
-            # ================= IGNORE SPAM =================
-
             ignored_phrases = [
                 "PlayerList log",
                 "#####",
@@ -254,8 +264,6 @@ async def parse_new_lines():
 
             if any(x in line for x in ignored_phrases):
                 continue
-
-            # ================= TIMESTAMP =================
 
             timestamp_match = re.match(
                 r'(\d{2}:\d{2}:\d{2})',
@@ -270,8 +278,6 @@ async def parse_new_lines():
 
             print(f"[{timestamp}] {line}")
 
-            # ================= PLAYER NAME =================
-
             player_match = re.search(
                 r'Player "([^"]+)"',
                 line
@@ -282,8 +288,6 @@ async def parse_new_lines():
                 if player_match
                 else "Unknown"
             )
-
-            # ================= COORDS =================
 
             pos_match = re.search(
                 r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
@@ -299,13 +303,7 @@ async def parse_new_lines():
 
                 location = f"{x}, {y}"
 
-            # ================= EMBED TEMPLATE =================
-
             embed = discord.Embed()
-
-            embed.set_footer(
-                text="☣️ Wandering Bot • DayZ Server Feed"
-            )
 
             # ================= CONNECTING =================
 
@@ -314,10 +312,16 @@ async def parse_new_lines():
                 embed.color = 0xffcc00
 
                 embed.description = (
-                    f"🟡 **PLAYER CONNECTING**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;33m🟡 PLAYER CONNECTING 🟡\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -328,11 +332,18 @@ async def parse_new_lines():
                 embed.color = 0x00ff66
 
                 embed.description = (
-                    f"🟢 **PLAYER CONNECTED**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"📍 **Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;32m🟢 PLAYER CONNECTED 🟢\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"📍 **Spawn Location**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -343,11 +354,18 @@ async def parse_new_lines():
                 embed.color = 0xff3333
 
                 embed.description = (
-                    f"🔴 **PLAYER DISCONNECTED**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"📍 **Last Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;31m🔴 PLAYER DISCONNECTED 🔴\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"📍 **Last Seen**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -370,12 +388,20 @@ async def parse_new_lines():
                 embed.color = 0xff9900
 
                 embed.description = (
-                    f"🛠️ **ITEM PLACED**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"📦 **Item:** `{placed_item}`\n"
-                    f"📍 **Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;33m🛠 ITEM PLACED 🛠\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"📦 **Placed Item**\n"
+                    f"> `{placed_item}`\n\n"
+                    f"📍 **Location**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -397,12 +423,20 @@ async def parse_new_lines():
                 embed.color = 0x9966ff
 
                 embed.description = (
-                    f"🔨 **BUILD EVENT**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"🏗️ **Action:** `{build_action}`\n"
-                    f"📍 **Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;35m⚒ BUILD EVENT ⚒\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"🏗️ **Action**\n"
+                    f"> `{build_action}`\n\n"
+                    f"📍 **Location**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -425,12 +459,20 @@ async def parse_new_lines():
                 embed.color = 0x00ccff
 
                 embed.description = (
-                    f"📦 **ITEM FOLDED**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"📁 **Item:** `{folded_item}`\n"
-                    f"📍 **Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;36m📦 ITEM FOLDED 📦\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"📁 **Item**\n"
+                    f"> `{folded_item}`\n\n"
+                    f"📍 **Location**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
@@ -453,12 +495,20 @@ async def parse_new_lines():
                 embed.color = 0xcc6600
 
                 embed.description = (
-                    f"🎒 **ITEM PACKED**\n\n"
-                    f"👤 **Player:** `{player}`\n"
-                    f"📦 **Item:** `{packed_item}`\n"
-                    f"📍 **Location:** `{location}`\n"
-                    f"⏰ **Time:** `{timestamp}`"
+                    "```ansi\n"
+                    "\u001b[1;33m🎒 ITEM PACKED 🎒\u001b[0m\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"📦 **Item**\n"
+                    f"> `{packed_item}`\n\n"
+                    f"📍 **Location**\n"
+                    f"> `{location}`\n\n"
+                    f"⏰ **Time**\n"
+                    f"> `{timestamp}`"
                 )
+
+                embed = style_embed(embed)
 
                 await channel.send(embed=embed)
 
