@@ -279,4 +279,3 @@ async def on_ready():
 # ================= START =================
 
 client.run(DISCORD_TOKEN)
-``
