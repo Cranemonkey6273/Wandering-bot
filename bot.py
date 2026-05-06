@@ -90,34 +90,34 @@ def download_latest_log():
             params={"dir": FTP_LOG_PATH}
         ).json()
 
+        # ================= API FAILURE FALLBACK =================
+
         if "data" not in res:
+
             print("❌ FILE LIST ERROR:", res)
-            return False
-
-        files = res["data"]["entries"]
-
-        adm_files = [
-            f for f in files
-            if f["name"].endswith(".ADM")
-        ]
-
-        # ================= FALLBACK IF API FAILS =================
-
-        if not adm_files:
-
-            print("⚠️ No ADM logs found from API")
 
             if os.path.exists(LAST_LOG_FILE):
 
                 with open(LAST_LOG_FILE, "r") as f:
                     log_path = f.read().strip()
 
-                print(f"♻️ Reusing previous ADM: {log_path}")
+                print(f"♻️ Using cached ADM: {log_path}")
 
             else:
                 return False
 
         else:
+
+            files = res["data"]["entries"]
+
+            adm_files = [
+                f for f in files
+                if f["name"].endswith(".ADM")
+            ]
+
+            if not adm_files:
+                print("❌ No ADM logs found")
+                return False
 
             # ================= FORCE TRUE NEWEST FILE =================
 
