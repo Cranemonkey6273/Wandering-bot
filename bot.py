@@ -56,7 +56,10 @@ def save_last_position(position):
         f.write(str(position))
 
 
-last_size = load_last_position()
+# ================= RESET PARSER POSITION =================
+# Forces bot to reread ADM from beginning
+
+last_size = 0
 
 # ================= DATE EXTRACTION =================
 
@@ -235,10 +238,6 @@ async def parse_new_lines():
                     inline=False
                 )
 
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
-                )
-
                 await channel.send(embed=embed)
 
             # ================= CONNECTED =================
@@ -260,10 +259,6 @@ async def parse_new_lines():
                     name="📍 Location",
                     value=location,
                     inline=False
-                )
-
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
                 )
 
                 await channel.send(embed=embed)
@@ -289,13 +284,9 @@ async def parse_new_lines():
                     inline=False
                 )
 
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
-                )
-
                 await channel.send(embed=embed)
 
-            # ================= EMOTES / ACTIONS =================
+            # ================= EMOTES =================
 
             elif " performed " in line:
 
@@ -331,80 +322,6 @@ async def parse_new_lines():
                     name="📍 Location",
                     value=location,
                     inline=False
-                )
-
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
-                )
-
-                await channel.send(embed=embed)
-
-            # ================= KILLS =================
-
-            elif " killed " in line:
-
-                players = re.findall(
-                    r'Player "([^"]+)"',
-                    line
-                )
-
-                if len(players) >= 2:
-
-                    killer = players[0]
-                    victim = players[1]
-
-                    embed = discord.Embed(
-                        title="💀 PLAYER KILL",
-                        color=0xff0000
-                    )
-
-                    embed.add_field(
-                        name="🔫 Killer",
-                        value=killer,
-                        inline=False
-                    )
-
-                    embed.add_field(
-                        name="☠️ Victim",
-                        value=victim,
-                        inline=False
-                    )
-
-                    embed.add_field(
-                        name="📍 Location",
-                        value=location,
-                        inline=False
-                    )
-
-                    embed.set_footer(
-                        text="Wandering Bot Live Feed"
-                    )
-
-                    await channel.send(embed=embed)
-
-            # ================= SUICIDES =================
-
-            elif " committed suicide" in line:
-
-                embed = discord.Embed(
-                    title="☠️ SUICIDE",
-                    color=0x555555
-                )
-
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
-
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
                 )
 
                 await channel.send(embed=embed)
@@ -447,10 +364,6 @@ async def parse_new_lines():
                     inline=False
                 )
 
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
-                )
-
                 await channel.send(embed=embed)
 
             # ================= ITEM PLACEMENT =================
@@ -489,10 +402,6 @@ async def parse_new_lines():
                     name="📍 Location",
                     value=location,
                     inline=False
-                )
-
-                embed.set_footer(
-                    text="Wandering Bot Live Feed"
                 )
 
                 await channel.send(embed=embed)
