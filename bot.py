@@ -67,7 +67,8 @@ def download_latest_log():
             print("❌ No ADM logs found")
             return False
 
-        # ✅ FORCE NEWEST FILE BY NAME
+        # ================= FORCE NEWEST FILE =================
+
         latest = max(
             adm_files,
             key=lambda x: x["name"]
@@ -155,9 +156,128 @@ async def parse_new_lines():
 
                 location = f"X:{x} Y:{y}"
 
+            # ================= CONNECTING =================
+
+            if " is connecting" in line:
+
+                embed = discord.Embed(
+                    title="🟡 PLAYER CONNECTING",
+                    color=0xffcc00
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.set_footer(
+                    text="Wandering Bot Live Feed"
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= CONNECTED =================
+
+            elif " is connected" in line:
+
+                embed = discord.Embed(
+                    title="🟢 PLAYER CONNECTED",
+                    color=0x00ff00
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
+
+                embed.set_footer(
+                    text="Wandering Bot Live Feed"
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= DISCONNECTED =================
+
+            elif " has been disconnected" in line:
+
+                embed = discord.Embed(
+                    title="🔴 PLAYER DISCONNECTED",
+                    color=0xff0000
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Last Location",
+                    value=location,
+                    inline=False
+                )
+
+                embed.set_footer(
+                    text="Wandering Bot Live Feed"
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= EMOTES / ACTIONS =================
+
+            elif " performed " in line:
+
+                action_match = re.search(
+                    r'performed (.?) with',
+                    line
+                )
+
+                action = (
+                    action_match.group(1)
+                    if action_match
+                    else "Action"
+                )
+
+                embed = discord.Embed(
+                    title="🎭 PLAYER ACTION",
+                    color=0xaa00ff
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🎬 Action",
+                    value=action,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
+
+                embed.set_footer(
+                    text="Wandering Bot Live Feed"
+                )
+
+                await channel.send(embed=embed)
+
             # ================= KILLS =================
 
-            if " killed " in line:
+            elif " killed " in line:
 
                 players = re.findall(r'Player "(.?)"', line)
 
@@ -271,7 +391,7 @@ async def parse_new_lines():
             elif " placed " in line:
 
                 item_match = re.search(
-                    r'placed (.?)<',
+                    r'placed (.*?)<',
                     line
                 )
 
