@@ -34,8 +34,6 @@ POSITION_FILE = "last_position.txt"
 
 LOG_DIRECTORY = "/dayzxb/config"
 
-BOT_IMAGE = "wanderingbot.png"
-
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
@@ -235,22 +233,9 @@ def download_latest_log():
 
 def style_embed(embed):
 
-    if os.path.exists(BOT_IMAGE):
-
-        embed.set_author(
-            name="☣️ Wandering Bot Intelligence",
-            icon_url="attachment://wanderingbot.png"
-        )
-
-        embed.set_thumbnail(
-            url="attachment://wanderingbot.png"
-        )
-
-    else:
-
-        embed.set_author(
-            name="☣️ Wandering Bot Intelligence"
-        )
+    embed.set_author(
+        name="☣️ Wandering Bot Intelligence"
+    )
 
     embed.set_footer(
         text="☣️ Live DayZ Intelligence • Wandering Bot"
@@ -270,21 +255,7 @@ async def send_embed(channel, embed):
 
     try:
 
-        if os.path.exists(BOT_IMAGE):
-
-            file = discord.File(
-                BOT_IMAGE,
-                filename="wanderingbot.png"
-            )
-
-            await channel.send(
-                embed=embed,
-                file=file
-            )
-
-        else:
-
-            await channel.send(embed=embed)
+        await channel.send(embed=embed)
 
     except Exception as e:
 
