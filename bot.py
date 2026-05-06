@@ -46,6 +46,9 @@ BOT_IMAGE = "wanderingbot.png"
 
 intents = discord.Intents.default()
 
+# ENABLE MESSAGE CONTENT INTENT
+intents.message_content = True
+
 bot = commands.Bot(
     command_prefix="!",
     intents=intents
@@ -61,7 +64,9 @@ if SUPABASE_URL and SUPABASE_KEY:
 # ================= POSITION TRACKING =================
 
 def load_last_position():
+
     if os.path.exists(POSITION_FILE):
+
         with open(POSITION_FILE, "r") as f:
             return int(f.read())
 
@@ -69,12 +74,14 @@ def load_last_position():
 
 
 def save_last_position(position):
+
     with open(POSITION_FILE, "w") as f:
         f.write(str(position))
 
 # ================= GLOBAL TRACKING =================
 
 last_size = load_last_position()
+
 current_log_file = None
 
 # ================= ONLINE PLAYER TRACKING =================
