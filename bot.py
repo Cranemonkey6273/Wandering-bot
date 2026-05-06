@@ -18,6 +18,7 @@ RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID", 0))
+DAMAGE_CHANNEL_ID = int(os.getenv("DAMAGE_CHANNEL_ID", 0))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -273,6 +274,7 @@ async def parse_new_lines():
     build_channel = client.get_channel(BUILD_CHANNEL_ID)
     deploy_channel = client.get_channel(DEPLOY_CHANNEL_ID)
     packing_channel = client.get_channel(PACKING_CHANNEL_ID)
+    damage_channel = client.get_channel(DAMAGE_CHANNEL_ID)
 
     try:
 
@@ -372,6 +374,39 @@ async def parse_new_lines():
                     location,
                     map_link
                 )
+
+            # ================= DAMAGE FEED =================
+
+            if (
+                "hit by" in line.lower()
+                or "attacked by" in line.lower()
+                or "bled" in line.lower()
+                or "unconscious" in line.lower()
+            ):
+
+                embed = discord.Embed(
+                    color=0xFF4500
+                )
+
+                embed.description = (
+                    "```fix\n"
+                    "🩸 DAMAGE EVENT 🩸\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"⚠️ **Damage Event**\n"
+                    f"> `{line}`\n\n"
+                    f"📍 **Location**\n"
+                    f"> {location_display}\n\n"
+                    f"🕒 **Event Time**\n"
+                    f"> `{timestamp}`"
+                )
+
+                embed = style_embed(embed)
+
+                await send_embed(damage_channel, embed)
+
+                continue
 
             # ================= KILL FEED =================
 
