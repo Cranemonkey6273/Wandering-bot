@@ -131,24 +131,6 @@ def find_latest_adm():
             newest_date = file_date
             newest_file = file["path"]
 
-    # ================= MANUAL FALLBACK =================
-
-    forced_latest = (
-        "dayzxb/config/"
-        "DayZServer_X1_x64_2026-05-06_14-38-13.ADM"
-    )
-
-    fallback_date = datetime.strptime(
-        "2026-05-06 14:38:13",
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    if newest_file is None or newest_date < fallback_date:
-
-        print("⚠️ API missing newest ADM, forcing latest known file")
-
-        newest_file = forced_latest
-
     return newest_file
 
 # ================= DOWNLOAD LOG =================
