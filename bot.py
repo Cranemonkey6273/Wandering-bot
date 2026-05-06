@@ -244,6 +244,17 @@ async def parse_new_lines():
             if not line:
                 continue
 
+            # ================= IGNORE SPAM =================
+
+            ignored_phrases = [
+                "PlayerList log",
+                "#####",
+                "AdminLog started"
+            ]
+
+            if any(x in line for x in ignored_phrases):
+                continue
+
             # ================= TIMESTAMP =================
 
             timestamp_match = re.match(
@@ -283,88 +294,59 @@ async def parse_new_lines():
 
             if pos_match:
 
-                x = pos_match.group(1)
-                y = pos_match.group(2)
+                x = round(float(pos_match.group(1)), 1)
+                y = round(float(pos_match.group(2)), 1)
 
-                location = f"X:{x} Y:{y}"
+                location = f"{x}, {y}"
 
-            # ================= PLAYER CONNECTING =================
+            # ================= EMBED TEMPLATE =================
+
+            embed = discord.Embed()
+
+            embed.set_footer(
+                text="☣️ Wandering Bot • DayZ Server Feed"
+            )
+
+            # ================= CONNECTING =================
 
             if " is connecting" in line:
 
-                embed = discord.Embed(
-                    title="🟡 PLAYER CONNECTING",
-                    color=0xffcc00
-                )
+                embed.color = 0xffcc00
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🟡 **PLAYER CONNECTING**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
 
-            # ================= PLAYER CONNECTED =================
+            # ================= CONNECTED =================
 
             elif " is connected" in line:
 
-                embed = discord.Embed(
-                    title="🟢 PLAYER CONNECTED",
-                    color=0x00ff00
-                )
+                embed.color = 0x00ff66
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🟢 **PLAYER CONNECTED**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"📍 **Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
 
-            # ================= PLAYER DISCONNECTED =================
+            # ================= DISCONNECTED =================
 
             elif " has been disconnected" in line:
 
-                embed = discord.Embed(
-                    title="🔴 PLAYER DISCONNECTED",
-                    color=0xff0000
-                )
+                embed.color = 0xff3333
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Last Location",
-                    value=location,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🔴 **PLAYER DISCONNECTED**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"📍 **Last Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
@@ -373,56 +355,53 @@ async def parse_new_lines():
 
             elif "placed" in line.lower():
 
-                embed = discord.Embed(
-                    title="🛠️ ITEM PLACED",
-                    color=0xff9900
+                placed_match = re.search(
+                    r'placed (.+)',
+                    line,
+                    re.IGNORECASE
                 )
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
+                placed_item = (
+                    placed_match.group(1)
+                    if placed_match
+                    else "Unknown Item"
                 )
 
-                embed.add_field(
-                    name="📜 Event",
-                    value=line,
-                    inline=False
-                )
+                embed.color = 0xff9900
 
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🛠️ **ITEM PLACED**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"📦 **Item:** `{placed_item}`\n"
+                    f"📍 **Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
 
-            # ================= BUILDING =================
+            # ================= BUILD EVENT =================
 
             elif "built" in line.lower():
 
-                embed = discord.Embed(
-                    title="🔨 BUILDING",
-                    color=0x9966ff
+                build_match = re.search(
+                    r'Built (.+)',
+                    line
                 )
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
+                build_action = (
+                    build_match.group(1)
+                    if build_match
+                    else "Unknown Build"
                 )
 
-                embed.add_field(
-                    name="📜 Event",
-                    value=line,
-                    inline=False
-                )
+                embed.color = 0x9966ff
 
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🔨 **BUILD EVENT**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"🏗️ **Action:** `{build_action}`\n"
+                    f"📍 **Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
@@ -431,27 +410,26 @@ async def parse_new_lines():
 
             elif "folded" in line.lower():
 
-                embed = discord.Embed(
-                    title="📦 ITEM FOLDED",
-                    color=0x00ccff
+                folded_match = re.search(
+                    r'folded (.+)',
+                    line,
+                    re.IGNORECASE
                 )
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
+                folded_item = (
+                    folded_match.group(1)
+                    if folded_match
+                    else "Unknown Item"
                 )
 
-                embed.add_field(
-                    name="📜 Event",
-                    value=line,
-                    inline=False
-                )
+                embed.color = 0x00ccff
 
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"📦 **ITEM FOLDED**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"📁 **Item:** `{folded_item}`\n"
+                    f"📍 **Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
@@ -460,27 +438,26 @@ async def parse_new_lines():
 
             elif "packed" in line.lower():
 
-                embed = discord.Embed(
-                    title="🎒 ITEM PACKED",
-                    color=0xcc6600
+                packed_match = re.search(
+                    r'packed (.+)',
+                    line,
+                    re.IGNORECASE
                 )
 
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
+                packed_item = (
+                    packed_match.group(1)
+                    if packed_match
+                    else "Unknown Item"
                 )
 
-                embed.add_field(
-                    name="📜 Event",
-                    value=line,
-                    inline=False
-                )
+                embed.color = 0xcc6600
 
-                embed.add_field(
-                    name="⏰ Time",
-                    value=timestamp,
-                    inline=False
+                embed.description = (
+                    f"🎒 **ITEM PACKED**\n\n"
+                    f"👤 **Player:** `{player}`\n"
+                    f"📦 **Item:** `{packed_item}`\n"
+                    f"📍 **Location:** `{location}`\n"
+                    f"⏰ **Time:** `{timestamp}`"
                 )
 
                 await channel.send(embed=embed)
