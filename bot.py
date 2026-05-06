@@ -12,12 +12,12 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # ================= FEED CHANNELS =================
 
-CONNECTION_CHANNEL_ID = int(os.getenv("CONNECTION_CHANNEL_ID"))
-KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID"))
-RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID"))
-BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID"))
-DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID"))
-PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID"))
+CONNECTION_CHANNEL_ID = int(os.getenv("CONNECTION_CHANNEL_ID", 0))
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
+RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
+BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
+DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
+PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID", 0))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -235,14 +235,22 @@ def download_latest_log():
 
 def style_embed(embed):
 
-    embed.set_author(
-        name="☣️ Wandering Bot Intelligence",
-        icon_url="attachment://wanderingbot.png"
-    )
+    if os.path.exists(BOT_IMAGE):
 
-    embed.set_thumbnail(
-        url="attachment://wanderingbot.png"
-    )
+        embed.set_author(
+            name="☣️ Wandering Bot Intelligence",
+            icon_url="attachment://wanderingbot.png"
+        )
+
+        embed.set_thumbnail(
+            url="attachment://wanderingbot.png"
+        )
+
+    else:
+
+        embed.set_author(
+            name="☣️ Wandering Bot Intelligence"
+        )
 
     embed.set_footer(
         text="☣️ Live DayZ Intelligence • Wandering Bot"
@@ -260,29 +268,33 @@ async def send_embed(channel, embed):
         print("❌ Channel not found")
         return
 
-    if os.path.exists(BOT_IMAGE):
+    try:
 
-        file = discord.File(
-            BOT_IMAGE,
-            filename="wanderingbot.png"
-        )
+        if os.path.exists(BOT_IMAGE):
 
-        await channel.send(
-            embed=embed,
-            file=file
-        )
+            file = discord.File(
+                BOT_IMAGE,
+                filename="wanderingbot.png"
+            )
 
-    else:
+            await channel.send(
+                embed=embed,
+                file=file
+            )
 
-        await channel.send(embed=embed)
+        else:
+
+            await channel.send(embed=embed)
+
+    except Exception as e:
+
+        print(f"❌ SEND EMBED ERROR: {e}")
 
 # ================= PARSE LOG =================
 
 async def parse_new_lines():
 
     global last_size
-
-    # ================= CHANNELS =================
 
     connection_channel = client.get_channel(CONNECTION_CHANNEL_ID)
     killfeed_channel = client.get_channel(KILLFEED_CHANNEL_ID)
@@ -343,8 +355,6 @@ async def parse_new_lines():
             if any(x in line for x in ignored_phrases):
                 continue
 
-            # ================= TIMESTAMP =================
-
             timestamp_match = re.match(
                 r'(\d{2}:\d{2}:\d{2})',
                 line
@@ -358,8 +368,6 @@ async def parse_new_lines():
 
             print(f"[{timestamp}] {line}")
 
-            # ================= PLAYER NAME =================
-
             player_match = re.search(
                 r'Player "([^"]+)"',
                 line
@@ -370,8 +378,6 @@ async def parse_new_lines():
                 if player_match
                 else "Unknown"
             )
-
-            # ================= LOCATION =================
 
             pos_match = re.search(
                 r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
@@ -458,7 +464,7 @@ async def parse_new_lines():
                     f"> {location_display}\n\n"
                     f"🕒 **Alert Time**\n"
                     f"> `{timestamp}`"
-                    )
+                )
 
                 embed = style_embed(embed)
 
