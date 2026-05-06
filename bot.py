@@ -17,13 +17,11 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
 SERVICE_ID = os.getenv("SERVICE_ID")
 
-FTP_LOG_PATH = os.getenv("FTP_LOG_PATH")
-
 headers = {
     "Authorization": f"Bearer {NITRADO_TOKEN}"
 }
 
-LOG_FILE = "server.ADM"
+LOG_FILE = "server.RPT"
 POSITION_FILE = "last_position.txt"
 
 # ================= DISCORD =================
@@ -102,9 +100,9 @@ def get_files(directory):
         print("❌ DIRECTORY ERROR:", e)
         return []
 
-# ================= FIND NEWEST ADM =================
+# ================= FIND NEWEST RPT =================
 
-def find_latest_adm():
+def find_latest_log():
 
     directory = "/games/ni12248929_2/ftproot/dayzxb/config"
 
@@ -119,10 +117,10 @@ def find_latest_adm():
 
         name = file.get("name", "")
 
-        if not name.endswith(".ADM"):
+        if not name.endswith(".RPT"):
             continue
 
-        print(f"📄 Found ADM: {name}")
+        print(f"📄 Found RPT: {name}")
 
         file_date = extract_date(name)
 
@@ -142,23 +140,23 @@ def download_latest_log():
 
     try:
 
-        log_path = find_latest_adm()
+        log_path = find_latest_log()
 
         if not log_path:
 
-            print("❌ No ADM logs found")
+            print("❌ No RPT logs found")
             return False
 
         if current_log_file != log_path:
 
-            print(f"🆕 New ADM detected: {log_path}")
+            print(f"🆕 New RPT detected: {log_path}")
 
             current_log_file = log_path
 
             last_size = 0
             save_last_position(0)
 
-        print(f"✅ Latest ADM log found: {log_path}")
+        print(f"✅ Latest RPT log found: {log_path}")
 
         # ================= GET DOWNLOAD URL =================
 
@@ -174,17 +172,9 @@ def download_latest_log():
 
         download_url = download["data"]["token"]["url"]
 
-        # ================= FORCE FRESH DOWNLOAD =================
+        # ================= DOWNLOAD FILE =================
 
-        file_data = requests.get(
-            download_url,
-            headers={
-                "Cache-Control": "no-cache"
-            },
-            params={
-                "_": str(asyncio.get_event_loop().time())
-            }
-        )
+        file_data = requests.get(download_url)
 
         print(f"📦 Downloaded file size: {len(file_data.content)} bytes")
 
@@ -217,7 +207,7 @@ async def parse_new_lines():
 
         if current_file_size < last_size:
 
-            print("♻️ ADM reset detected")
+            print("♻️ LOG RESET DETECTED")
 
             last_size = 0
             save_last_position(0)
@@ -245,6 +235,8 @@ async def parse_new_lines():
 
             print("NEW:", line)
 
+            # ================= PLAYER NAME =================
+
             player_match = re.search(
                 r'Player "([^"]+)"',
                 line
@@ -256,23 +248,9 @@ async def parse_new_lines():
                 else "Unknown"
             )
 
-            pos_match = re.search(
-                r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
-                line
-            )
-
-            location = "Unknown"
-
-            if pos_match:
-
-                x = pos_match.group(1)
-                y = pos_match.group(2)
-
-                location = f"X:{x} Y:{y}"
-
             # ================= CONNECTED =================
 
-            if " is connected" in line:
+            if "is connected" in line.lower():
 
                 embed = discord.Embed(
                     title="🟢 PLAYER CONNECTED",
@@ -285,17 +263,11 @@ async def parse_new_lines():
                     inline=False
                 )
 
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
-
                 await channel.send(embed=embed)
 
             # ================= DISCONNECTED =================
 
-            elif " has been disconnected" in line:
+            elif "has been disconnected" in line.lower():
 
                 embed = discord.Embed(
                     title="🔴 PLAYER DISCONNECTED",
