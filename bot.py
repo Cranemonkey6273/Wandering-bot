@@ -2,6 +2,8 @@ import os
 import re
 import asyncio
 import discord
+from discord.ext import commands
+from discord import app_commands
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from supabase import create_client
@@ -43,7 +45,11 @@ BOT_IMAGE = "wanderingbot.png"
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
-client = discord.Client(intents=intents)
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
 
 # ================= SUPABASE =================
 
@@ -71,9 +77,14 @@ def save_last_position(position):
 last_size = load_last_position()
 current_log_file = None
 
+# ================= ONLINE PLAYER TRACKING =================
+
+online_players = set()
+
 # ================= DATE EXTRACTION =================
 
 def extract_date(file_name):
+
     match = re.search(
         r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
         file_name
@@ -93,19 +104,34 @@ def extract_date(file_name):
 # ================= FTP CONNECTION =================
 
 def connect_ftp():
+
     ftp = FTP_TLS()
-    ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
-    ftp.login(FTP_USER, FTP_PASS)
+
+    ftp.connect(
+        FTP_HOST,
+        FTP_PORT,
+        timeout=30
+    )
+
+    ftp.login(
+        FTP_USER,
+        FTP_PASS
+    )
+
     ftp.prot_p()
+
     return ftp
 
 # ================= FIND NEWEST ADM =================
 
 def find_latest_adm():
+
     try:
+
         print(f"🔍 FTP Searching: {LOG_DIRECTORY}")
 
         ftp = connect_ftp()
+
         ftp.cwd(LOG_DIRECTORY)
 
         files = ftp.nlst()
@@ -113,8 +139,11 @@ def find_latest_adm():
         adm_files = []
 
         for file in files:
+
             if file.endswith(".ADM"):
+
                 print(f"📄 Found ADM: {file}")
+
                 adm_files.append(file)
 
         ftp.quit()
@@ -130,34 +159,44 @@ def find_latest_adm():
         return f"{LOG_DIRECTORY}/{newest_file}"
 
     except Exception as e:
+
         print("❌ FTP SEARCH ERROR:", e)
+
         return None
 
 # ================= DOWNLOAD LOG =================
 
 def download_latest_log():
+
     global current_log_file
     global last_size
 
     try:
+
         log_path = find_latest_adm()
 
         if not log_path:
+
             print("❌ No ADM logs found")
+
             return False
 
         print(f"✅ Latest ADM log found: {log_path}")
 
         if current_log_file != log_path:
+
             print(f"🆕 New ADM detected: {log_path}")
 
             current_log_file = log_path
+
             last_size = 0
+
             save_last_position(0)
 
         ftp = connect_ftp()
 
         with open(LOG_FILE, "wb") as f:
+
             ftp.retrbinary(
                 f"RETR {log_path}",
                 f.write
@@ -168,15 +207,23 @@ def download_latest_log():
         return True
 
     except Exception as e:
+
         print("❌ DOWNLOAD ERROR:", e)
+
         return False
 
 # ================= EMBED STYLE =================
 
 def style_embed(embed):
+
     embed.timestamp = datetime.now(UTC)
 
+    embed.set_footer(
+        text="☣️ Wandering Bot Intelligence"
+    )
+
     if os.path.exists(BOT_IMAGE):
+
         embed.set_thumbnail(
             url="attachment://wanderingbot.png"
         )
@@ -186,12 +233,17 @@ def style_embed(embed):
 # ================= SEND EMBED =================
 
 async def send_embed(channel, embed):
+
     if not channel:
+
         print("❌ Channel not found")
+
         return
 
     try:
+
         if os.path.exists(BOT_IMAGE):
+
             file = discord.File(
                 BOT_IMAGE,
                 filename="wanderingbot.png"
@@ -203,20 +255,25 @@ async def send_embed(channel, embed):
             )
 
         else:
+
             await channel.send(embed=embed)
 
     except Exception as e:
+
         print(f"❌ SEND EMBED ERROR: {e}")
 
 # ================= PARSE LOG =================
 
 async def parse_new_lines():
+
     global last_size
 
-    connection_channel = client.get_channel(CONNECTION_CHANNEL_ID)
-    admin_channel = client.get_channel(ADMIN_CHANNEL_ID)
+    connection_channel = bot.get_channel(CONNECTION_CHANNEL_ID)
+
+    admin_channel = bot.get_channel(ADMIN_CHANNEL_ID)
 
     try:
+
         if not os.path.exists(LOG_FILE):
             return
 
@@ -272,12 +329,13 @@ async def parse_new_lines():
             location_display = "`Unknown`"
 
             if pos_match:
+
                 x = round(float(pos_match.group(1)), 1)
                 y = round(float(pos_match.group(2)), 1)
 
                 location_display = f"`{x}, {y}`"
 
-            # PLAYER CONNECTING
+            # ================= PLAYER CONNECTING =================
 
             if " is connecting" in line:
 
@@ -292,11 +350,16 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(connection_channel, embed)
+                await send_embed(
+                    connection_channel,
+                    embed
+                )
 
-            # PLAYER CONNECTED
+            # ================= PLAYER CONNECTED =================
 
             elif " is connected" in line:
+
+                online_players.add(player)
 
                 embed = discord.Embed(
                     color=0x556B2F
@@ -309,11 +372,16 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(connection_channel, embed)
+                await send_embed(
+                    connection_channel,
+                    embed
+                )
 
-            # PLAYER DISCONNECTED
+            # ================= PLAYER DISCONNECTED =================
 
             elif " has been disconnected" in line:
+
+                online_players.discard(player)
 
                 embed = discord.Embed(
                     color=0x8B2E2E
@@ -327,35 +395,82 @@ async def parse_new_lines():
 
                 embed = style_embed(embed)
 
-                await send_embed(admin_channel, embed)
+                await send_embed(
+                    admin_channel,
+                    embed
+                )
 
     except Exception as e:
+
         print("❌ PARSE ERROR:", e)
+
+# ================= SLASH COMMANDS =================
+
+@bot.tree.command(
+    name="online",
+    description="Show online survivors"
+)
+async def online(
+    interaction: discord.Interaction
+):
+
+    if not online_players:
+
+        embed = discord.Embed(
+            title="☣️ Online Survivors",
+            description="No survivors currently online.",
+            color=0x8B0000
+        )
+
+    else:
+
+        player_list = "\n".join(
+            [f"• {p}" for p in sorted(online_players)]
+        )
+
+        embed = discord.Embed(
+            title="☣️ Online Survivors",
+            description=player_list,
+            color=0x556B2F
+        )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(
+        embed=embed
+    )
 
 # ================= LOOP =================
 
 async def tracker_loop():
-    await client.wait_until_ready()
+
+    await bot.wait_until_ready()
 
     print("🚀 Wandering Bot Tracker Started")
 
-    while not client.is_closed():
+    while not bot.is_closed():
 
         success = download_latest_log()
 
         if success:
+
             await parse_new_lines()
 
         await asyncio.sleep(30)
 
 # ================= EVENTS =================
 
-@client.event
+@bot.event
 async def on_ready():
-    print(f"✅ Logged in as {client.user}")
 
-    client.loop.create_task(tracker_loop())
+    await bot.tree.sync()
+
+    print(f"✅ Logged in as {bot.user}")
+
+    print("🌐 Slash commands synced")
+
+    bot.loop.create_task(tracker_loop())
 
 # ================= START =================
 
-client.run(DISCORD_TOKEN)
+bot.run(DISCORD_TOKEN)
