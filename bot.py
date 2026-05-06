@@ -20,7 +20,7 @@ DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID", 0))
 DAMAGE_CHANNEL_ID = int(os.getenv("DAMAGE_CHANNEL_ID", 0))
 
-# ✅ PRIVATE ADMIN DISCONNECT CHANNEL
+# PRIVATE ADMIN CHANNEL
 ADMIN_CHANNEL_ID = int(os.getenv("ADMIN_CHANNEL_ID", 0))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -89,40 +89,6 @@ def extract_date(file_name):
         f"{match.group(4)}",
         "%Y-%m-%d %H:%M:%S"
     )
-
-# ================= CLEAN BUILD TEXT =================
-
-def clean_build_action(action):
-    replacements = {
-        "wall_metal_up": "Metal Upper Wall Built",
-        "wall_metal_down": "Metal Lower Wall Built",
-        "wall_wood_up": "Wood Upper Wall Built",
-        "wall_wood_down": "Wood Lower Wall Built",
-        "wall_base_up": "Upper Frame Constructed",
-        "wall_base_down": "Lower Frame Constructed",
-        "base on Fence": "Fence Foundation Built"
-    }
-
-    for old, new in replacements.items():
-        action = action.replace(old, new)
-
-    return action
-
-# ================= IZURVIVE LINK =================
-
-def create_map_link(x, y):
-    return (
-        f"https://www.izurvive.com/chernarusplussatmap/"
-        f"#location={x};{y}"
-    )
-
-# ================= LOCATION DISPLAY =================
-
-def create_location_display(location, map_link):
-    if map_link:
-        return f"🗺️ [{location}]({map_link})"
-
-    return f"`{location}`"
 
 # ================= FTP CONNECTION =================
 
@@ -199,9 +165,6 @@ def download_latest_log():
 
         ftp.quit()
 
-        print(f"✅ Log downloaded: {log_path}")
-        print(f"📦 Downloaded file size: {os.path.getsize(LOG_FILE)} bytes")
-
         return True
 
     except Exception as e:
@@ -211,26 +174,12 @@ def download_latest_log():
 # ================= EMBED STYLE =================
 
 def style_embed(embed):
-    if os.path.exists(BOT_IMAGE):
-        embed.set_author(
-            name="☣️ Wandering Bot Intelligence",
-            icon_url="attachment://wanderingbot.png"
-        )
+    embed.timestamp = datetime.now(UTC)
 
+    if os.path.exists(BOT_IMAGE):
         embed.set_thumbnail(
             url="attachment://wanderingbot.png"
         )
-
-    else:
-        embed.set_author(
-            name="☣️ Wandering Bot Intelligence"
-        )
-
-    embed.set_footer(
-        text="☣️ Live DayZ Intelligence • Wandering Bot"
-    )
-
-    embed.timestamp = datetime.now(UTC)
 
     return embed
 
@@ -265,27 +214,11 @@ async def parse_new_lines():
     global last_size
 
     connection_channel = client.get_channel(CONNECTION_CHANNEL_ID)
-    killfeed_channel = client.get_channel(KILLFEED_CHANNEL_ID)
-    raid_channel = client.get_channel(RAID_CHANNEL_ID)
-    build_channel = client.get_channel(BUILD_CHANNEL_ID)
-    deploy_channel = client.get_channel(DEPLOY_CHANNEL_ID)
-    packing_channel = client.get_channel(PACKING_CHANNEL_ID)
-    damage_channel = client.get_channel(DAMAGE_CHANNEL_ID)
-
-    # ✅ PRIVATE ADMIN CHANNEL
     admin_channel = client.get_channel(ADMIN_CHANNEL_ID)
 
     try:
         if not os.path.exists(LOG_FILE):
-            print("❌ Local log file missing")
             return
-
-        current_file_size = os.path.getsize(LOG_FILE)
-
-        if current_file_size < last_size:
-            print("♻️ LOG RESET DETECTED")
-            last_size = 0
-            save_last_position(0)
 
         with open(
             LOG_FILE,
@@ -302,23 +235,11 @@ async def parse_new_lines():
 
             save_last_position(last_size)
 
-        if not new_lines:
-            print("⏳ No new log lines")
-            return
-
         for line in new_lines:
+
             line = line.strip()
 
             if not line:
-                continue
-
-            ignored_phrases = [
-                "PlayerList log",
-                "#####",
-                "AdminLog started"
-            ]
-
-            if any(x in line for x in ignored_phrases):
                 continue
 
             timestamp_match = re.match(
@@ -331,8 +252,6 @@ async def parse_new_lines():
                 if timestamp_match
                 else "Unknown"
             )
-
-            print(f"[{timestamp}] {line}")
 
             player_match = re.search(
                 r'Player "([^"]+)"',
@@ -350,84 +269,68 @@ async def parse_new_lines():
                 line
             )
 
-            location = "Unknown"
-            map_link = None
             location_display = "`Unknown`"
 
             if pos_match:
                 x = round(float(pos_match.group(1)), 1)
                 y = round(float(pos_match.group(2)), 1)
 
-                location = f"{x}, {y}"
-                map_link = create_map_link(x, y)
+                location_display = f"`{x}, {y}`"
 
-                location_display = create_location_display(
-                    location,
-                    map_link
-                )
-
-            # ================= PLAYER CONNECTING =================
+            # PLAYER CONNECTING
 
             if " is connecting" in line:
 
-                embed = discord.Embed(color=0x8B8000)
+                embed = discord.Embed(
+                    color=0x8B8000
+                )
 
                 embed.description = (
-                    "```fix\n"
-                    "📡 SURVIVOR SIGNAL DETECTED\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"🕒 **Connection Time**\n"
-                    f"> `{timestamp}`"
+                    f"📡 {player} is connecting\n"
+                    f"🕒 {timestamp}"
                 )
 
                 embed = style_embed(embed)
 
                 await send_embed(connection_channel, embed)
 
-            # ================= PLAYER CONNECTED =================
+            # PLAYER CONNECTED
 
             elif " is connected" in line:
 
-                embed = discord.Embed(color=0x556B2F)
+                embed = discord.Embed(
+                    color=0x556B2F
+                )
 
                 embed.description = (
-                    "```fix\n"
-                    "☣ SURVIVOR ENTERED CHERNARUS ☣\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"🕒 **Arrival Time**\n"
-                    f"> `{timestamp}`"
+                    f"☣ {player} connected\n"
+                    f"🕒 {timestamp}"
                 )
 
                 embed = style_embed(embed)
 
                 await send_embed(connection_channel, embed)
 
-            # ================= PLAYER DISCONNECTED =================
+            # PLAYER DISCONNECTED
 
             elif " has been disconnected" in line:
 
-                embed = discord.Embed(color=0x8B2E2E)
+                embed = discord.Embed(
+                    color=0x8B2E2E
+                )
 
                 embed.description = (
-                    "```fix\n"
-                    "☠ SURVIVOR LOST SIGNAL ☠\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"📍 **Last Known Position**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Disconnect Time**\n"
-                    f"> `{timestamp}`"
+                    f"☠ {player} disconnected\n"
+                    f"📍 {location_display}\n"
+                    f"🕒 {timestamp}"
                 )
 
                 embed = style_embed(embed)
 
-                # ✅ SEND TO PRIVATE ADMIN CHANNEL
                 await send_embed(admin_channel, embed)
+
+    except Exception as e:
+        print("❌ PARSE ERROR:", e)
 
 # ================= LOOP =================
 
@@ -437,6 +340,7 @@ async def tracker_loop():
     print("🚀 Wandering Bot Tracker Started")
 
     while not client.is_closed():
+
         success = download_latest_log()
 
         if success:
@@ -449,6 +353,7 @@ async def tracker_loop():
 @client.event
 async def on_ready():
     print(f"✅ Logged in as {client.user}")
+
     client.loop.create_task(tracker_loop())
 
 # ================= START =================
