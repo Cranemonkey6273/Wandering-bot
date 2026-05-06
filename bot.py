@@ -105,34 +105,48 @@ def get_files(directory):
 
 def find_latest_adm():
 
-    search_dirs = [
-        "/games/ni12248929_2/ftproot/dayzxb/config"
-    ]
+    directory = "/games/ni12248929_2/ftproot/dayzxb/config"
+
+    print(f"🔍 Searching: {directory}")
+
+    files = get_files(directory)
 
     newest_file = None
-    newest_modified = 0
+    newest_date = datetime.min
 
-    for directory in search_dirs:
+    for file in files:
 
-        print(f"🔍 Searching: {directory}")
+        name = file.get("name", "")
 
-        files = get_files(directory)
+        if not name.endswith(".ADM"):
+            continue
 
-        for file in files:
+        print(f"📄 Found ADM: {name}")
 
-            name = file.get("name", "")
+        file_date = extract_date(name)
 
-            if not name.endswith(".ADM"):
-                continue
+        if file_date > newest_date:
 
-            print(f"📄 Found ADM: {name}")
+            newest_date = file_date
+            newest_file = file["path"]
 
-            modified = file.get("modified_at", 0)
+    # ================= MANUAL FALLBACK =================
 
-            if modified > newest_modified:
+    forced_latest = (
+        "/games/ni12248929_2/ftproot/dayzxb/config/"
+        "DayZServer_X1_x64_2026-05-06_14-38-13.ADM"
+    )
 
-                newest_modified = modified
-                newest_file = file["path"]
+    fallback_date = datetime.strptime(
+        "2026-05-06 14:38:13",
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+    if newest_file is None or newest_date < fallback_date:
+
+        print("⚠️ API missing newest ADM, forcing latest known file")
+
+        newest_file = forced_latest
 
     return newest_file
 
