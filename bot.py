@@ -404,55 +404,54 @@ async def parse_new_lines():
                     map_link
                 )
 
-            ================= DAMAGE FEED =================
-            if (
-                "hit by" in line.lower()
-                or "attacked by" in line.lower()
-                or "bled" in line.lower()
-                or "unconscious" in line.lower()
-            ):
+# ================= DAMAGE FEED =================
+if (
+    "hit by" in line.lower()
+    or "attacked by" in line.lower()
+    or "bled" in line.lower()
+    or "unconscious" in line.lower()
+):
 
-                damage_clean = re.sub(
-                    r'pos=<[\d., ]+>',
-                    '',
-                    line
-                )
+    damage_clean = re.sub(
+        r'pos=<[\d., ]+>',
+        '',
+        line
+    )
 
-                damage_clean = re.sub(
-                    r'(id=[^)]+)',
-                    '',
-                    damage_clean
-                )
+    damage_clean = re.sub(
+        r'\(id=[^)]+\)',
+        '',
+        damage_clean
+    )
 
-                damage_clean = re.sub(
-                    r'\s+',
-                    ' ',
-                    damage_clean
-                ).strip()
+    damage_clean = re.sub(
+        r'\s+',
+        ' ',
+        damage_clean
+    ).strip()
 
-                embed = discord.Embed(
-                    color=0xFF4500
-                )
+    embed = discord.Embed(
+        color=0xFF4500
+    )
 
-                embed.description = (
-                    "
-fix\n"
-                    "🩸 SURVIVOR INJURED 🩸\n"
-                    "
-\n"
-                    f"👤 Survivor\n"
-                    f"> {player}\n\n"
-                    f"⚠️ Incident Report\n"
-                    f"> {damage_clean}\n\n"
-                    f"🕒 Event Time\n"
-                    f"> {timestamp}"
-                )
+    embed.description = (
+        "```fix\n"
+        "🩸 SURVIVOR INJURED 🩸\n"
+        "\n"
+        f"👤 Survivor\n"
+        f"> {player}\n\n"
+        f"⚠️ Incident Report\n"
+        f"> {damage_clean}\n\n"
+        f"🕒 Event Time\n"
+        f"> {timestamp}"
+        "```"
+    )
 
-                embed = style_embed(embed)
+    embed = style_embed(embed)
 
-                await send_embed(damage_channel, embed)
+    await send_embed(damage_channel, embed)
 
-                continue
+    continue
             # ================= KILL FEED =================
 
             if " killed by Player " in line:
