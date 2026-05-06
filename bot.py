@@ -21,8 +21,14 @@ headers = {
     "Authorization": f"Bearer {NITRADO_TOKEN}"
 }
 
-LOG_FILE = "server.RPT"
+# ================= FILE SETTINGS =================
+
+LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
+
+# IMPORTANT:
+# Change this if your ADM files are elsewhere
+LOG_DIRECTORY = "/games/ni12248929_2/ftproot/dayzxb/config"
 
 # ================= DISCORD =================
 
@@ -84,31 +90,33 @@ def get_files(directory):
 
     try:
 
-        res = requests.get(
+        response = requests.get(
             f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
             headers=headers,
             params={"dir": directory}
-        ).json()
+        )
 
-        if "data" not in res:
-            print("❌ API ERROR:", res)
+        data = response.json()
+
+        if "data" not in data:
+
+            print("❌ API ERROR:", data)
             return []
 
-        return res["data"]["entries"]
+        return data["data"]["entries"]
 
     except Exception as e:
+
         print("❌ DIRECTORY ERROR:", e)
         return []
 
-# ================= FIND NEWEST RPT =================
+# ================= FIND NEWEST ADM =================
 
-def find_latest_log():
+def find_latest_adm():
 
-    directory = "/games/ni12248929_2/ftproot/dayzxb/config"
+    print(f"🔍 Searching: {LOG_DIRECTORY}")
 
-    print(f"🔍 Searching: {directory}")
-
-    files = get_files(directory)
+    files = get_files(LOG_DIRECTORY)
 
     newest_file = None
     newest_date = datetime.min
@@ -117,10 +125,10 @@ def find_latest_log():
 
         name = file.get("name", "")
 
-        if not name.endswith(".RPT"):
+        if not name.endswith(".ADM"):
             continue
 
-        print(f"📄 Found RPT: {name}")
+        print(f"📄 Found ADM: {name}")
 
         file_date = extract_date(name)
 
@@ -140,52 +148,69 @@ def download_latest_log():
 
     try:
 
-        log_path = find_latest_log()
+        log_path = find_latest_adm()
 
         if not log_path:
 
-            print("❌ No RPT logs found")
+            print("❌ No ADM logs found")
             return False
+
+        print(f"✅ Latest ADM log found: {log_path}")
+
+        # ================= NEW FILE DETECTION =================
 
         if current_log_file != log_path:
 
-            print(f"🆕 New RPT detected: {log_path}")
+            print(f"🆕 New ADM detected: {log_path}")
 
             current_log_file = log_path
 
             last_size = 0
             save_last_position(0)
 
-        print(f"✅ Latest RPT log found: {log_path}")
-
         # ================= GET DOWNLOAD URL =================
 
-        download = requests.get(
+        download_response = requests.get(
             f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download",
             headers=headers,
             params={"file": log_path}
-        ).json()
+        )
 
-        if "data" not in download:
-            print("❌ DOWNLOAD ERROR:", download)
+        download_data = download_response.json()
+
+        if "data" not in download_data:
+
+            print("❌ DOWNLOAD ERROR:", download_data)
             return False
 
-        download_url = download["data"]["token"]["url"]
+        download_url = download_data["data"]["token"]["url"]
 
         # ================= DOWNLOAD FILE =================
 
-        file_data = requests.get(download_url)
+        file_response = requests.get(
+            download_url,
+            headers={
+                "Cache-Control": "no-cache"
+            }
+        )
 
-        print(f"📦 Downloaded file size: {len(file_data.content)} bytes")
+        if file_response.status_code != 200:
+
+            print("❌ FILE DOWNLOAD FAILED")
+            return False
+
+        print(f"📦 Downloaded file size: {len(file_response.content)} bytes")
 
         with open(LOG_FILE, "wb") as f:
-            f.write(file_data.content)
+
+            f.write(file_response.content)
 
         print(f"✅ Log downloaded: {log_path}")
 
         return True
 
     except Exception as e:
+
         print("❌ DOWNLOAD EXCEPTION:", e)
         return False
 
@@ -198,12 +223,20 @@ async def parse_new_lines():
     channel = client.get_channel(CHANNEL_ID)
 
     if not channel:
+
         print("❌ Discord channel not found")
         return
 
     try:
 
+        if not os.path.exists(LOG_FILE):
+
+            print("❌ Local log file missing")
+            return
+
         current_file_size = os.path.getsize(LOG_FILE)
+
+        # ================= FILE RESET DETECTION =================
 
         if current_file_size < last_size:
 
@@ -212,7 +245,12 @@ async def parse_new_lines():
             last_size = 0
             save_last_position(0)
 
-        with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        with open(
+            LOG_FILE,
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
 
             f.seek(last_size)
 
@@ -223,6 +261,7 @@ async def parse_new_lines():
             save_last_position(last_size)
 
         if not new_lines:
+
             print("⏳ No new log lines")
             return
 
@@ -248,9 +287,42 @@ async def parse_new_lines():
                 else "Unknown"
             )
 
-            # ================= CONNECTED =================
+            # ================= COORDS =================
 
-            if "is connected" in line.lower():
+            pos_match = re.search(
+                r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
+                line
+            )
+
+            location = "Unknown"
+
+            if pos_match:
+
+                x = pos_match.group(1)
+                y = pos_match.group(2)
+
+                location = f"X:{x} Y:{y}"
+
+            # ================= PLAYER CONNECTING =================
+
+            if " is connecting" in line:
+
+                embed = discord.Embed(
+                    title="🟡 PLAYER CONNECTING",
+                    color=0xffcc00
+                )
+
+                embed.add_field(
+                    name="👤 Player",
+                    value=player,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
+
+            # ================= PLAYER CONNECTED =================
+
+            elif " is connected" in line:
 
                 embed = discord.Embed(
                     title="🟢 PLAYER CONNECTED",
@@ -263,11 +335,17 @@ async def parse_new_lines():
                     inline=False
                 )
 
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
+
                 await channel.send(embed=embed)
 
-            # ================= DISCONNECTED =================
+            # ================= PLAYER DISCONNECTED =================
 
-            elif "has been disconnected" in line.lower():
+            elif " has been disconnected" in line:
 
                 embed = discord.Embed(
                     title="🔴 PLAYER DISCONNECTED",
@@ -280,9 +358,16 @@ async def parse_new_lines():
                     inline=False
                 )
 
+                embed.add_field(
+                    name="📍 Last Location",
+                    value=location,
+                    inline=False
+                )
+
                 await channel.send(embed=embed)
 
     except Exception as e:
+
         print("❌ PARSE ERROR:", e)
 
 # ================= LOOP =================
@@ -298,6 +383,7 @@ async def tracker_loop():
         success = download_latest_log()
 
         if success:
+
             await parse_new_lines()
 
         await asyncio.sleep(30)
