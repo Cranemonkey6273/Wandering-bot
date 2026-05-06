@@ -24,7 +24,6 @@ headers = {
 
 LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
-LAST_LOG_FILE = "last_log.txt"
 
 # ================= DISCORD =================
 
@@ -55,7 +54,6 @@ def save_last_position(position):
     with open(POSITION_FILE, "w") as f:
         f.write(str(position))
 
-
 # ================= GLOBAL TRACKING =================
 
 last_size = load_last_position()
@@ -72,14 +70,76 @@ def extract_date(file_name):
 
     if match:
 
-        date_part = match.group(1)
-        hour = match.group(2)
-        minute = match.group(3)
-        second = match.group(4)
-
-        return f"{date_part} {hour}:{minute}:{second}"
+        return (
+            f"{match.group(1)} "
+            f"{match.group(2)}:"
+            f"{match.group(3)}:"
+            f"{match.group(4)}"
+        )
 
     return "0000"
+
+# ================= GET FILE LIST =================
+
+def get_files(directory):
+
+    try:
+
+        res = requests.get(
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
+            headers=headers,
+            params={"dir": directory}
+        ).json()
+
+        if "data" not in res:
+            return []
+
+        return res["data"]["entries"]
+
+    except Exception as e:
+        print("❌ DIRECTORY ERROR:", e)
+        return []
+
+# ================= FIND NEWEST ADM =================
+
+def find_latest_adm():
+
+    search_dirs = [
+        FTP_LOG_PATH,
+        f"{FTP_LOG_PATH}/config",
+        f"{FTP_LOG_PATH}/profiles",
+        "/games",
+        "/games/ni12248929_2",
+        "/games/ni12248929_2/ftproot",
+        "/games/ni12248929_2/ftproot/dayzxb",
+        "/games/ni12248929_2/ftproot/dayzxb/config",
+        "/games/ni12248929_2/ftproot/dayzxb/profiles"
+    ]
+
+    newest_file = None
+    newest_date = "0000"
+
+    for directory in search_dirs:
+
+        print(f"🔍 Searching: {directory}")
+
+        files = get_files(directory)
+
+        for file in files:
+
+            name = file.get("name", "")
+
+            if not name.endswith(".ADM"):
+                continue
+
+            file_date = extract_date(name)
+
+            if file_date > newest_date:
+
+                newest_date = file_date
+                newest_file = file["path"]
+
+    return newest_file
 
 # ================= DOWNLOAD LOG =================
 
@@ -90,63 +150,21 @@ def download_latest_log():
 
     try:
 
-        res = requests.get(
-            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
-            headers=headers,
-            params={"dir": FTP_LOG_PATH}
-        ).json()
+        log_path = find_latest_adm()
 
-        # ================= API FAILURE FALLBACK =================
+        if not log_path:
 
-        if "data" not in res:
+            print("❌ No ADM logs found")
+            return False
 
-            print("❌ FILE LIST ERROR:", res)
+        if current_log_file != log_path:
 
-            if os.path.exists(LAST_LOG_FILE):
+            print(f"🆕 New ADM detected: {log_path}")
 
-                with open(LAST_LOG_FILE, "r") as f:
-                    log_path = f.read().strip()
+            current_log_file = log_path
 
-                print(f"♻️ Using cached ADM: {log_path}")
-
-            else:
-                return False
-
-        else:
-
-            files = res["data"]["entries"]
-
-            adm_files = [
-                f for f in files
-                if f["name"].endswith(".ADM")
-            ]
-
-            if not adm_files:
-                print("❌ No ADM logs found")
-                return False
-
-            # ================= GET TRUE NEWEST FILE =================
-
-            latest = max(
-                adm_files,
-                key=lambda x: extract_date(x["name"])
-            )
-
-            log_path = latest["path"]
-
-            # ================= NEW LOG DETECTION =================
-
-            if current_log_file != log_path:
-
-                print(f"🆕 New ADM detected: {log_path}")
-
-                current_log_file = log_path
-
-                last_size = 0
-                save_last_position(0)
-
-            with open(LAST_LOG_FILE, "w") as f:
-                f.write(log_path)
+            last_size = 0
+            save_last_position(0)
 
         print(f"✅ Latest ADM log found: {log_path}")
 
@@ -205,8 +223,6 @@ async def parse_new_lines():
 
         current_file_size = os.path.getsize(LOG_FILE)
 
-        # ================= FILE SHRUNK / RESET =================
-
         if current_file_size < last_size:
 
             print("♻️ ADM reset detected")
@@ -237,8 +253,6 @@ async def parse_new_lines():
 
             print("NEW:", line)
 
-            # ================= PLAYER NAME =================
-
             player_match = re.search(
                 r'Player "([^"]+)"',
                 line
@@ -249,8 +263,6 @@ async def parse_new_lines():
                 if player_match
                 else "Unknown"
             )
-
-            # ================= COORDS =================
 
             pos_match = re.search(
                 r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
@@ -266,26 +278,9 @@ async def parse_new_lines():
 
                 location = f"X:{x} Y:{y}"
 
-            # ================= CONNECTING =================
-
-            if " is connecting" in line:
-
-                embed = discord.Embed(
-                    title="🟡 PLAYER CONNECTING",
-                    color=0xffcc00
-                )
-
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                await channel.send(embed=embed)
-
             # ================= CONNECTED =================
 
-            elif " is connected" in line:
+            if " is connected" in line:
 
                 embed = discord.Embed(
                     title="🟢 PLAYER CONNECTED",
@@ -318,132 +313,6 @@ async def parse_new_lines():
                 embed.add_field(
                     name="👤 Player",
                     value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Last Location",
-                    value=location,
-                    inline=False
-                )
-
-                await channel.send(embed=embed)
-
-            # ================= EMOTES =================
-
-            elif " performed " in line:
-
-                action_match = re.search(
-                    r'performed ([^ ]+)',
-                    line
-                )
-
-                action = (
-                    action_match.group(1)
-                    if action_match
-                    else "Action"
-                )
-
-                embed = discord.Embed(
-                    title="🎭 PLAYER ACTION",
-                    color=0xaa00ff
-                )
-
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="🎬 Action",
-                    value=action,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
-
-                await channel.send(embed=embed)
-
-            # ================= BUILDING =================
-
-            elif "Built " in line:
-
-                build_match = re.search(
-                    r'Built (.*?) on',
-                    line
-                )
-
-                build = (
-                    build_match.group(1)
-                    if build_match
-                    else "Structure"
-                )
-
-                embed = discord.Embed(
-                    title="🛠️ BUILDING",
-                    color=0xffaa00
-                )
-
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="🧱 Structure",
-                    value=build,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
-
-                await channel.send(embed=embed)
-
-            # ================= ITEM PLACEMENT =================
-
-            elif " placed " in line:
-
-                item_match = re.search(
-                    r'placed (.*?)<',
-                    line
-                )
-
-                item = (
-                    item_match.group(1)
-                    if item_match
-                    else "Item"
-                )
-
-                embed = discord.Embed(
-                    title="📦 ITEM PLACED",
-                    color=0x00aaff
-                )
-
-                embed.add_field(
-                    name="👤 Player",
-                    value=player,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📦 Item",
-                    value=item,
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
                     inline=False
                 )
 
