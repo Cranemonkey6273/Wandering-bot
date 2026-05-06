@@ -67,8 +67,6 @@ def download_latest_log():
             print("❌ No ADM logs found")
             return False
 
-        # ================= FORCE NEWEST FILE =================
-
         latest = max(
             adm_files,
             key=lambda x: x["name"]
@@ -136,9 +134,16 @@ async def parse_new_lines():
 
             # ================= PLAYER NAME =================
 
-            player_match = re.search(r'Player "(.?)"', line)
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
 
-            player = player_match.group(1) if player_match else "Unknown"
+            player = (
+                player_match.group(1)
+                if player_match
+                else "Unknown"
+            )
 
             # ================= COORDS =================
 
@@ -236,7 +241,7 @@ async def parse_new_lines():
             elif " performed " in line:
 
                 action_match = re.search(
-                    r'performed (.?) with',
+                    r'performed ([^ ]+)',
                     line
                 )
 
@@ -279,7 +284,10 @@ async def parse_new_lines():
 
             elif " killed " in line:
 
-                players = re.findall(r'Player "(.?)"', line)
+                players = re.findall(
+                    r'Player "([^"]+)"',
+                    line
+                )
 
                 if len(players) >= 2:
 
@@ -391,7 +399,7 @@ async def parse_new_lines():
             elif " placed " in line:
 
                 item_match = re.search(
-                    r'placed (.*?)<',
+                    r'placed (.?)<',
                     line
                 )
 
