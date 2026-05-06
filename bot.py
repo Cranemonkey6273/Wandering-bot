@@ -404,8 +404,7 @@ async def parse_new_lines():
                     map_link
                 )
 
-            # ================= DAMAGE FEED =================
-
+            ================= DAMAGE FEED =================
             if (
                 "hit by" in line.lower()
                 or "attacked by" in line.lower()
@@ -413,22 +412,40 @@ async def parse_new_lines():
                 or "unconscious" in line.lower()
             ):
 
+                damage_clean = re.sub(
+                    r'pos=<[\d., ]+>',
+                    '',
+                    line
+                )
+
+                damage_clean = re.sub(
+                    r'(id=[^)]+)',
+                    '',
+                    damage_clean
+                )
+
+                damage_clean = re.sub(
+                    r'\s+',
+                    ' ',
+                    damage_clean
+                ).strip()
+
                 embed = discord.Embed(
                     color=0xFF4500
                 )
 
                 embed.description = (
-                    "```fix\n"
-                    "🩸 DAMAGE EVENT 🩸\n"
-                    "```\n"
-                    f"👤 **Player**\n"
-                    f"> `{player}`\n\n"
-                    f"⚠️ **Damage Event**\n"
-                    f"> `{line}`\n\n"
-                    f"📍 **Location**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Event Time**\n"
-                    f"> `{timestamp}`"
+                    "
+fix\n"
+                    "🩸 SURVIVOR INJURED 🩸\n"
+                    "
+\n"
+                    f"👤 Survivor\n"
+                    f"> {player}\n\n"
+                    f"⚠️ Incident Report\n"
+                    f"> {damage_clean}\n\n"
+                    f"🕒 Event Time\n"
+                    f"> {timestamp}"
                 )
 
                 embed = style_embed(embed)
@@ -436,7 +453,6 @@ async def parse_new_lines():
                 await send_embed(damage_channel, embed)
 
                 continue
-
             # ================= KILL FEED =================
 
             if " killed by Player " in line:
