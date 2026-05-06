@@ -2,7 +2,7 @@ import os
 import re
 import asyncio
 import discord
-import paramiko
+from ftplib import FTP_TLS
 from datetime import datetime
 from supabase import create_client
 
@@ -24,7 +24,8 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 LOG_FILE = "server.ADM"
 POSITION_FILE = "last_position.txt"
 
-LOG_DIRECTORY = "/games/ni12248929_2/ftproot/dayzxb/config"
+# CORRECT FTP PATH
+LOG_DIRECTORY = "/dayzxb/config"
 
 # ================= DISCORD =================
 
@@ -80,20 +81,19 @@ def extract_date(file_name):
         "%Y-%m-%d %H:%M:%S"
     )
 
-# ================= SFTP CONNECTION =================
+# ================= FTP CONNECTION =================
 
-def connect_sftp():
+def connect_ftp():
 
-    transport = paramiko.Transport((FTP_HOST, FTP_PORT))
+    ftp = FTP_TLS()
 
-    transport.connect(
-        username=FTP_USER,
-        password=FTP_PASS
-    )
+    ftp.connect(FTP_HOST, FTP_PORT, timeout=30)
 
-    sftp = paramiko.SFTPClient.from_transport(transport)
+    ftp.login(FTP_USER, FTP_PASS)
 
-    return sftp, transport
+    ftp.prot_p()
+
+    return ftp
 
 # ================= FIND NEWEST ADM =================
 
@@ -101,11 +101,13 @@ def find_latest_adm():
 
     try:
 
-        print(f"🔍 SFTP Searching: {LOG_DIRECTORY}")
+        print(f"🔍 FTP Searching: {LOG_DIRECTORY}")
 
-        sftp, transport = connect_sftp()
+        ftp = connect_ftp()
 
-        files = sftp.listdir(LOG_DIRECTORY)
+        ftp.cwd(LOG_DIRECTORY)
+
+        files = ftp.nlst()
 
         adm_files = []
 
@@ -117,11 +119,9 @@ def find_latest_adm():
 
                 adm_files.append(file)
 
+        ftp.quit()
+
         if not adm_files:
-
-            sftp.close()
-            transport.close()
-
             return None
 
         newest_file = max(
@@ -129,14 +129,11 @@ def find_latest_adm():
             key=lambda x: extract_date(x)
         )
 
-        sftp.close()
-        transport.close()
-
         return f"{LOG_DIRECTORY}/{newest_file}"
 
     except Exception as e:
 
-        print("❌ SFTP SEARCH ERROR:", e)
+        print("❌ FTP SEARCH ERROR:", e)
         return None
 
 # ================= DOWNLOAD LOG =================
@@ -168,12 +165,16 @@ def download_latest_log():
             last_size = 0
             save_last_position(0)
 
-        sftp, transport = connect_sftp()
+        ftp = connect_ftp()
 
-        sftp.get(log_path, LOG_FILE)
+        with open(LOG_FILE, "wb") as f:
 
-        sftp.close()
-        transport.close()
+            ftp.retrbinary(
+                f"RETR {log_path}",
+                f.write
+            )
+
+        ftp.quit()
 
         print(f"✅ Log downloaded: {log_path}")
 
