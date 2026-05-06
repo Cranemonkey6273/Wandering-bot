@@ -26,6 +26,8 @@ POSITION_FILE = "last_position.txt"
 
 LOG_DIRECTORY = "/dayzxb/config"
 
+BOT_IMAGE = "wanderingbot.png"
+
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
@@ -190,15 +192,36 @@ def download_latest_log():
 
 def style_embed(embed):
 
+    embed.set_author(
+        name="☣️ Wandering Bot Intelligence",
+        icon_url="attachment://wanderingbot.png"
+    )
+
     embed.set_thumbnail(
-        url="https://i.imgur.com/8B7QFQF.png"
+        url="attachment://wanderingbot.png"
     )
 
     embed.set_footer(
-        text="☣️ Wandering Bot • Live DayZ Intelligence"
+        text="☣️ Live DayZ Intelligence • Wandering Bot"
     )
 
+    embed.timestamp = datetime.utcnow()
+
     return embed
+
+# ================= SEND EMBED =================
+
+async def send_embed(channel, embed):
+
+    file = discord.File(
+        BOT_IMAGE,
+        filename="wanderingbot.png"
+    )
+
+    await channel.send(
+        embed=embed,
+        file=file
+    )
 
 # ================= PARSE LOG =================
 
@@ -265,6 +288,8 @@ async def parse_new_lines():
             if any(x in line for x in ignored_phrases):
                 continue
 
+            # ================= TIMESTAMP =================
+
             timestamp_match = re.match(
                 r'(\d{2}:\d{2}:\d{2})',
                 line
@@ -278,6 +303,8 @@ async def parse_new_lines():
 
             print(f"[{timestamp}] {line}")
 
+            # ================= PLAYER NAME =================
+
             player_match = re.search(
                 r'Player "([^"]+)"',
                 line
@@ -288,6 +315,8 @@ async def parse_new_lines():
                 if player_match
                 else "Unknown"
             )
+
+            # ================= LOCATION =================
 
             pos_match = re.search(
                 r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
@@ -305,69 +334,69 @@ async def parse_new_lines():
 
             embed = discord.Embed()
 
-            # ================= CONNECTING =================
+            # ================= PLAYER CONNECTING =================
 
             if " is connecting" in line:
 
-                embed.color = 0xffcc00
+                embed.color = 0x8B8000
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;33m🟡 PLAYER CONNECTING 🟡\u001b[0m\n"
+                    "```fix\n"
+                    "⚠ PLAYER CONNECTING\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"⏰ **Connection Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
-            # ================= CONNECTED =================
+            # ================= PLAYER CONNECTED =================
 
             elif " is connected" in line:
 
-                embed.color = 0x00ff66
+                embed.color = 0x556B2F
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;32m🟢 PLAYER CONNECTED 🟢\u001b[0m\n"
+                    "```fix\n"
+                    "☣ PLAYER ENTERED CHERNARUS\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📍 **Spawn Location**\n"
+                    f"📍 **Spawn Coordinates**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Arrival Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
-            # ================= DISCONNECTED =================
+            # ================= PLAYER DISCONNECTED =================
 
             elif " has been disconnected" in line:
 
-                embed.color = 0xff3333
+                embed.color = 0x8B2E2E
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;31m🔴 PLAYER DISCONNECTED 🔴\u001b[0m\n"
+                    "```fix\n"
+                    "☠ PLAYER LEFT THE SERVER\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📍 **Last Seen**\n"
+                    f"📍 **Last Known Position**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Disconnect Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
             # ================= ITEM PLACED =================
 
@@ -385,25 +414,25 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0xff9900
+                embed.color = 0xA67C52
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;33m🛠 ITEM PLACED 🛠\u001b[0m\n"
+                    "```fix\n"
+                    "⚒ DEPLOYMENT EVENT\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📦 **Placed Item**\n"
+                    f"📦 **Deployed Object**\n"
                     f"> `{placed_item}`\n\n"
-                    f"📍 **Location**\n"
+                    f"📍 **Deployment Zone**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Event Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
             # ================= BUILD EVENT =================
 
@@ -420,25 +449,25 @@ async def parse_new_lines():
                     else "Unknown Build"
                 )
 
-                embed.color = 0x9966ff
+                embed.color = 0x4B5320
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;35m⚒ BUILD EVENT ⚒\u001b[0m\n"
+                    "```fix\n"
+                    "🛠 BASE CONSTRUCTION\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Builder**\n"
                     f"> `{player}`\n\n"
-                    f"🏗️ **Action**\n"
+                    f"🏗 **Construction Action**\n"
                     f"> `{build_action}`\n\n"
-                    f"📍 **Location**\n"
+                    f"📍 **Build Coordinates**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Construction Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
             # ================= ITEM FOLDED =================
 
@@ -456,25 +485,25 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0x00ccff
+                embed.color = 0x3B4C59
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;36m📦 ITEM FOLDED 📦\u001b[0m\n"
+                    "```fix\n"
+                    "📦 STRUCTURE FOLDED\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📁 **Item**\n"
+                    f"📁 **Folded Object**\n"
                     f"> `{folded_item}`\n\n"
-                    f"📍 **Location**\n"
+                    f"📍 **Recovery Position**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Recovery Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
             # ================= ITEM PACKED =================
 
@@ -492,25 +521,25 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0xcc6600
+                embed.color = 0x70543E
 
                 embed.description = (
-                    "```ansi\n"
-                    "\u001b[1;33m🎒 ITEM PACKED 🎒\u001b[0m\n"
+                    "```fix\n"
+                    "🎒 CAMP PACKED\n"
                     "```\n"
-                    f"👤 **Player**\n"
+                    f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📦 **Item**\n"
+                    f"📦 **Packed Equipment**\n"
                     f"> `{packed_item}`\n\n"
-                    f"📍 **Location**\n"
+                    f"📍 **Pack-Up Location**\n"
                     f"> `{location}`\n\n"
-                    f"⏰ **Time**\n"
+                    f"🕒 **Event Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
 
-                await channel.send(embed=embed)
+                await send_embed(channel, embed)
 
     except Exception as e:
 
@@ -522,7 +551,7 @@ async def tracker_loop():
 
     await client.wait_until_ready()
 
-    print("🚀 Tracker started")
+    print("🚀 Wandering Bot Tracker Started")
 
     while not client.is_closed():
 
