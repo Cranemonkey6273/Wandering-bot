@@ -93,6 +93,7 @@ def get_files(directory):
         ).json()
 
         if "data" not in res:
+            print("❌ API ERROR:", res)
             return []
 
         return res["data"]["entries"]
@@ -105,7 +106,7 @@ def get_files(directory):
 
 def find_latest_adm():
 
-    directory = "/games/ni12248929_2/ftproot/dayzxb/config"
+    directory = "dayzxb/config"
 
     print(f"🔍 Searching: {directory}")
 
@@ -133,7 +134,7 @@ def find_latest_adm():
     # ================= MANUAL FALLBACK =================
 
     forced_latest = (
-        "/games/ni12248929_2/ftproot/dayzxb/config/"
+        "dayzxb/config/"
         "DayZServer_X1_x64_2026-05-06_14-38-13.ADM"
     )
 
