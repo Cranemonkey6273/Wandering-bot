@@ -447,6 +447,197 @@ async def online(
         embed=embed
     )
 
+# ================= PLAYER COUNT =================
+
+@bot.tree.command(
+    name="playercount",
+    description="Show current online player count"
+)
+async def playercount(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="👥 Current Survivor Count",
+        description=f"{len(online_players)} survivors online",
+        color=0x3498db
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= PING =================
+
+@bot.tree.command(
+    name="ping",
+    description="Check bot latency"
+)
+async def ping(interaction: discord.Interaction):
+
+    latency = round(bot.latency * 1000)
+
+    embed = discord.Embed(
+        title="🏓 Pong",
+        description=f"Latency: {latency}ms",
+        color=0x00ff00
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= SERVER STATUS =================
+
+@bot.tree.command(
+    name="serverstatus",
+    description="Check server tracker status"
+)
+async def serverstatus(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🖥️ Wandering Server Status",
+        description=(
+            "✅ FTP Connected\n"
+            "✅ ADM Tracking Active\n"
+            "✅ Slash Commands Online\n"
+            "✅ Log Monitoring Active"
+        ),
+        color=0x2ecc71
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= SHOP =================
+
+@bot.tree.command(
+    name="shop",
+    description="View trader shop"
+)
+async def shop(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🛒 Wandering Trader",
+        description=(
+            "• AKM = 10 Scrap\n"
+            "• Plate Carrier = 8 Scrap\n"
+            "• Tundra = 12 Scrap\n"
+            "• NBC Suit = 15 Scrap"
+        ),
+        color=0xFFD700
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= RULES =================
+
+@bot.tree.command(
+    name="rules",
+    description="Show server rules"
+)
+async def rules(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="📜 Server Rules",
+        description=(
+            "1. No cheating\n"
+            "2. Respect all players\n"
+            "3. No exploiting\n"
+            "4. Follow raid rules\n"
+            "5. Admin decisions are final"
+        ),
+        color=0xe67e22
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= RESTART =================
+
+@bot.tree.command(
+    name="restart",
+    description="Show next restart info"
+)
+async def restart(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🔄 Server Restart",
+        description="Server restarts every 4 hours.",
+        color=0xe74c3c
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= DISCORD =================
+
+@bot.tree.command(
+    name="discord",
+    description="Show Discord info"
+)
+async def discordinfo(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="💬 Wandering Community",
+        description="Welcome to the Wandering DayZ community.",
+        color=0x5865F2
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= MAP =================
+
+@bot.tree.command(
+    name="map",
+    description="Open iZurvive map"
+)
+async def mapcommand(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🗺️ Chernarus Map",
+        description="https://www.izurvive.com/chernarusplussatmap",
+        color=0x1abc9c
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
+# ================= HELP =================
+
+@bot.tree.command(
+    name="help",
+    description="Show all commands"
+)
+async def helpcommand(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🤖 Wandering Bot Commands",
+        description=(
+            "/online\n"
+            "/playercount\n"
+            "/ping\n"
+            "/serverstatus\n"
+            "/shop\n"
+            "/rules\n"
+            "/restart\n"
+            "/discord\n"
+            "/map\n"
+            "/help"
+        ),
+        color=0x9b59b6
+    )
+
+    embed = style_embed(embed)
+
+    await interaction.response.send_message(embed=embed)
+
 # ================= LOOP =================
 
 async def tracker_loop():
