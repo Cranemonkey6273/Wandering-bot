@@ -3,7 +3,7 @@ import re
 import asyncio
 import discord
 from ftplib import FTP_TLS
-from datetime import datetime
+from datetime import datetime, UTC
 from supabase import create_client
 
 # ================= CONFIG =================
@@ -82,6 +82,25 @@ def extract_date(file_name):
         "%Y-%m-%d %H:%M:%S"
     )
 
+# ================= CLEAN BUILD TEXT =================
+
+def clean_build_action(action):
+
+    replacements = {
+        "wall_metal_up": "Metal Upper Wall Built",
+        "wall_metal_down": "Metal Lower Wall Built",
+        "wall_wood_up": "Wood Upper Wall Built",
+        "wall_wood_down": "Wood Lower Wall Built",
+        "wall_base_up": "Upper Frame Constructed",
+        "wall_base_down": "Lower Frame Constructed",
+        "base on Fence": "Fence Foundation Built"
+    }
+
+    for old, new in replacements.items():
+        action = action.replace(old, new)
+
+    return action
+
 # ================= FTP CONNECTION =================
 
 def connect_ftp():
@@ -155,8 +174,6 @@ def download_latest_log():
 
         print(f"✅ Latest ADM log found: {log_path}")
 
-        # ================= NEW FILE DETECTION =================
-
         if current_log_file != log_path:
 
             print(f"🆕 New ADM detected: {log_path}")
@@ -205,7 +222,7 @@ def style_embed(embed):
         text="☣️ Live DayZ Intelligence • Wandering Bot"
     )
 
-    embed.timestamp = datetime.utcnow()
+    embed.timestamp = datetime.now(UTC)
 
     return embed
 
@@ -332,21 +349,91 @@ async def parse_new_lines():
 
                 location = f"{x}, {y}"
 
-            embed = discord.Embed()
+            # ================= KILL FEED =================
+
+            if " killed by Player " in line:
+
+                killer_match = re.search(
+                    r'Player "([^"]+)" .* killed by Player "([^"]+)"',
+                    line
+                )
+
+                if killer_match:
+
+                    victim = killer_match.group(1)
+                    killer = killer_match.group(2)
+
+                    embed = discord.Embed(
+                        color=0x8B0000
+                    )
+
+                    embed.description = (
+                        "```fix\n"
+                        "☠ PLAYER KILLED ☠\n"
+                        "```\n"
+                        f"🔫 **Killer**\n"
+                        f"> `{killer}`\n\n"
+                        f"💀 **Victim**\n"
+                        f"> `{victim}`\n\n"
+                        f"📍 **Combat Zone**\n"
+                        f"> `{location}`\n\n"
+                        f"🕒 **Time Of Death**\n"
+                        f"> `{timestamp}`"
+                    )
+
+                    embed = style_embed(embed)
+
+                    await send_embed(channel, embed)
+
+                    continue
+
+            # ================= RAID ALERT =================
+
+            if (
+                "destroyed" in line.lower()
+                or "dismantled" in line.lower()
+                or "damaged" in line.lower()
+            ):
+
+                embed = discord.Embed(
+                    color=0xff0000
+                )
+
+                embed.description = (
+                    "```fix\n"
+                    "🚨 RAID ALERT 🚨\n"
+                    "```\n"
+                    f"👤 **Player**\n"
+                    f"> `{player}`\n\n"
+                    f"💥 **Raid Activity**\n"
+                    f"> `{line}`\n\n"
+                    f"📍 **Raid Location**\n"
+                    f"> `{location}`\n\n"
+                    f"🕒 **Alert Time**\n"
+                    f"> `{timestamp}`"
+                )
+
+                embed = style_embed(embed)
+
+                await send_embed(channel, embed)
+
+                continue
 
             # ================= PLAYER CONNECTING =================
 
             if " is connecting" in line:
 
-                embed.color = 0x8B8000
+                embed = discord.Embed(
+                    color=0x8B8000
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "⚠ PLAYER CONNECTING\n"
+                    "📡 SURVIVOR SIGNAL DETECTED\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"⏰ **Connection Time**\n"
+                    f"🕒 **Connection Time**\n"
                     f"> `{timestamp}`"
                 )
 
@@ -358,11 +445,13 @@ async def parse_new_lines():
 
             elif " is connected" in line:
 
-                embed.color = 0x556B2F
+                embed = discord.Embed(
+                    color=0x556B2F
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "☣ PLAYER ENTERED CHERNARUS\n"
+                    "☣ SURVIVOR ENTERED CHERNARUS ☣\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
@@ -380,11 +469,13 @@ async def parse_new_lines():
 
             elif " has been disconnected" in line:
 
-                embed.color = 0x8B2E2E
+                embed = discord.Embed(
+                    color=0x8B2E2E
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "☠ PLAYER LEFT THE SERVER\n"
+                    "☠ SURVIVOR LOST SIGNAL ☠\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
@@ -414,11 +505,13 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0xA67C52
+                embed = discord.Embed(
+                    color=0xA67C52
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "⚒ DEPLOYMENT EVENT\n"
+                    "⚒ DEPLOYMENT EVENT ⚒\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
@@ -449,11 +542,15 @@ async def parse_new_lines():
                     else "Unknown Build"
                 )
 
-                embed.color = 0x4B5320
+                build_action = clean_build_action(build_action)
+
+                embed = discord.Embed(
+                    color=0x4B5320
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "🛠 BASE CONSTRUCTION\n"
+                    "🛠 BASE CONSTRUCTION 🛠\n"
                     "```\n"
                     f"👤 **Builder**\n"
                     f"> `{player}`\n\n"
@@ -485,15 +582,17 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0x3B4C59
+                embed = discord.Embed(
+                    color=0x3B4C59
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "📦 STRUCTURE FOLDED\n"
+                    "📦 STRUCTURE RECOVERED 📦\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📁 **Folded Object**\n"
+                    f"📁 **Recovered Object**\n"
                     f"> `{folded_item}`\n\n"
                     f"📍 **Recovery Position**\n"
                     f"> `{location}`\n\n"
@@ -521,11 +620,13 @@ async def parse_new_lines():
                     else "Unknown Item"
                 )
 
-                embed.color = 0x70543E
+                embed = discord.Embed(
+                    color=0x70543E
+                )
 
                 embed.description = (
                     "```fix\n"
-                    "🎒 CAMP PACKED\n"
+                    "🎒 CAMP PACKED 🎒\n"
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
