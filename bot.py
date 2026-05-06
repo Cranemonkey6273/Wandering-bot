@@ -1,6 +1,7 @@
+```python
 import os
 import re
-import time
+import asyncio
 import requests
 import discord
 from supabase import create_client
@@ -24,13 +25,19 @@ headers = {
 
 LOG_FILE = "server.ADM"
 
-# ================= INIT =================
+# ================= DISCORD =================
 
-client = discord.Client(intents=discord.Intents.default())
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
+
+# ================= SUPABASE =================
 
 supabase = None
+
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ================= TRACKING =================
 
 last_size = 0
 
@@ -39,6 +46,7 @@ last_size = 0
 def download_latest_log():
 
     try:
+
         # GET FILE LIST
         res = requests.get(
             f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
@@ -113,6 +121,7 @@ async def parse_new_lines():
         return
 
     try:
+
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
 
             f.seek(last_size)
@@ -130,39 +139,111 @@ async def parse_new_lines():
 
             print("NEW:", line)
 
+            # ================= PLAYER NAME =================
+
+            player_match = re.search(r'Player "(.?)"', line)
+
+            player = player_match.group(1) if player_match else "Unknown"
+
+            # ================= COORDS =================
+
+            pos_match = re.search(r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>', line)
+
+            location = "Unknown"
+
+            if pos_match:
+
+                x = pos_match.group(1)
+                y = pos_match.group(2)
+
+                location = f"X:{x} Y:{y}"
+
             # ================= KILLS =================
 
             if " killed " in line:
 
-                await channel.send(f"💀 {line}")
+                players = re.findall(r'Player "(.?)"', line)
+
+                if len(players) >= 2:
+
+                    killer = players[0]
+                    victim = players[1]
+
+                    embed = discord.Embed(
+                        title="💀 Player Kill",
+                        description=f"{killer} killed {victim}",
+                        color=0xff0000
+                    )
+
+                    embed.add_field(
+                        name="📍 Location",
+                        value=location,
+                        inline=False
+                    )
+
+                    await channel.send(embed=embed)
 
             # ================= SUICIDES =================
 
             elif " committed suicide" in line:
 
-                await channel.send(f"☠️ {line}")
+                embed = discord.Embed(
+                    title="☠️ Suicide",
+                    description=f"{player} committed suicide",
+                    color=0x555555
+                )
 
-            # ================= PLACEMENTS =================
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
 
-            elif " placed " in line:
-
-                await channel.send(f"📦 {line}")
+                await channel.send(embed=embed)
 
             # ================= BUILDING =================
 
             elif "Built " in line:
 
-                await channel.send(f"🛠️ {line}")
+                build_match = re.search(r'Built (.?) on', line)
 
-            # ================= CONNECTIONS =================
+                build = build_match.group(1) if build_match else "Structure"
 
-            elif "is connected" in line:
+                embed = discord.Embed(
+                    title="🛠️ Building",
+                    description=f"{player} built {build}",
+                    color=0xffaa00
+                )
 
-                await channel.send(f"🟢 {line}")
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
 
-            elif "has been disconnected" in line:
+                await channel.send(embed=embed)
 
-                await channel.send(f"🔴 {line}")
+            # ================= ITEM PLACEMENT =================
+
+            elif " placed " in line:
+
+                item_match = re.search(r'placed (.?)<', line)
+
+                item = item_match.group(1) if item_match else "Item"
+
+                embed = discord.Embed(
+                    title="📦 Item Placed",
+                    description=f"{player} placed {item}",
+                    color=0x00aaff
+                )
+
+                embed.add_field(
+                    name="📍 Location",
+                    value=location,
+                    inline=False
+                )
+
+                await channel.send(embed=embed)
 
     except Exception as e:
         print("❌ PARSE ERROR:", e)
@@ -198,6 +279,5 @@ async def on_ready():
 
 # ================= START =================
 
-import asyncio
-
 client.run(DISCORD_TOKEN)
+``
