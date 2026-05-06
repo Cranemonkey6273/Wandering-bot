@@ -3,6 +3,7 @@ import re
 import asyncio
 import requests
 import discord
+from datetime import datetime
 from supabase import create_client
 
 # ================= CONFIG =================
@@ -68,16 +69,16 @@ def extract_date(file_name):
         file_name
     )
 
-    if match:
+    if not match:
+        return datetime.min
 
-        return (
-            f"{match.group(1)} "
-            f"{match.group(2)}:"
-            f"{match.group(3)}:"
-            f"{match.group(4)}"
-        )
-
-    return "0000"
+    return datetime.strptime(
+        f"{match.group(1)} "
+        f"{match.group(2)}:"
+        f"{match.group(3)}:"
+        f"{match.group(4)}",
+        "%Y-%m-%d %H:%M:%S"
+    )
 
 # ================= GET FILE LIST =================
 
@@ -117,7 +118,7 @@ def find_latest_adm():
     ]
 
     newest_file = None
-    newest_date = "0000"
+    newest_date = datetime.min
 
     for directory in search_dirs:
 
