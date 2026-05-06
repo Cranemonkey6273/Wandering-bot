@@ -49,12 +49,34 @@ def load_last_position():
 
     return 0
 
+
 def save_last_position(position):
 
     with open(POSITION_FILE, "w") as f:
         f.write(str(position))
 
+
 last_size = load_last_position()
+
+# ================= DATE EXTRACTION =================
+
+def extract_date(file_name):
+
+    match = re.search(
+        r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
+        file_name
+    )
+
+    if match:
+
+        date_part = match.group(1)
+        hour = match.group(2)
+        minute = match.group(3)
+        second = match.group(4)
+
+        return f"{date_part} {hour}:{minute}:{second}"
+
+    return "0000"
 
 # ================= DOWNLOAD LOG =================
 
@@ -97,9 +119,11 @@ def download_latest_log():
 
         else:
 
+            # ================= FORCE TRUE NEWEST FILE =================
+
             latest = max(
                 adm_files,
-                key=lambda x: x.get("modified_at", "")
+                key=lambda x: extract_date(x["name"])
             )
 
             log_path = latest["path"]
@@ -390,7 +414,7 @@ async def parse_new_lines():
             elif "Built " in line:
 
                 build_match = re.search(
-                    r'Built (.?) on',
+                    r'Built (.*?) on',
                     line
                 )
 
@@ -434,7 +458,7 @@ async def parse_new_lines():
             elif " placed " in line:
 
                 item_match = re.search(
-                    r'placed (.?)<',
+                    r'placed (.*?)<',
                     line
                 )
 
