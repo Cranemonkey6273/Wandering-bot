@@ -1,6 +1,3 @@
-# Fixed `bot.py`
-
-````python
 import os
 import re
 import asyncio
@@ -717,4 +714,3 @@ async def on_ready():
 # ================= START =================
 
 client.run(DISCORD_TOKEN)
-````
