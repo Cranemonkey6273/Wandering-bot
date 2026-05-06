@@ -164,7 +164,19 @@ def download_latest_log():
 
         download_url = download["data"]["token"]["url"]
 
-        file_data = requests.get(download_url)
+        # ================= FORCE FRESH DOWNLOAD =================
+
+        file_data = requests.get(
+            download_url,
+            headers={
+                "Cache-Control": "no-cache"
+            },
+            params={
+                "_": str(asyncio.get_event_loop().time())
+            }
+        )
+
+        print(f"📦 Downloaded file size: {len(file_data.content)} bytes")
 
         with open(LOG_FILE, "wb") as f:
             f.write(file_data.content)
