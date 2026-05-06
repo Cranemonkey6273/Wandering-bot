@@ -206,19 +206,50 @@ async def parse_new_lines():
 
                 build_match = re.search(r'Built (.?) on', line)
 
-                build = build_match.group(1) if build_match else "Structure"
+                build = build_match.group(1) if build_match else "embed = discord.Embed(
 
-                embed = discord.Embed(
-                    title="🛠️ Building",
-                    description=f"{player} built {build}",
-                    color=0xffaa00
-                )
+    title="🛠️ BUILDING",
 
-                embed.add_field(
-                    name="📍 Location",
-                    value=location,
-                    inline=False
-                )
+    color=0xffaa00
+
+)
+
+embed.add_field(
+
+    name="👤 Player",
+
+    value=player,
+
+    inline=False
+
+)
+
+embed.add_field(
+
+    name="🧱 Structure",
+
+    value=build,
+
+    inline=False
+
+)
+
+embed.add_field(
+
+    name="📍 Location",
+
+    value=location,
+
+    inline=False
+
+)
+
+embed.set_footer(
+
+    text="Wandering Bot Live Feed"
+
+)
+
 
                 await channel.send(embed=embed)
 
