@@ -56,10 +56,10 @@ def save_last_position(position):
         f.write(str(position))
 
 
-# ================= RESET PARSER POSITION =================
-# Forces bot to reread ADM from beginning
+# ================= GLOBAL TRACKING =================
 
-last_size = 0
+last_size = load_last_position()
+current_log_file = None
 
 # ================= DATE EXTRACTION =================
 
@@ -84,6 +84,9 @@ def extract_date(file_name):
 # ================= DOWNLOAD LOG =================
 
 def download_latest_log():
+
+    global current_log_file
+    global last_size
 
     try:
 
@@ -122,7 +125,7 @@ def download_latest_log():
                 print("❌ No ADM logs found")
                 return False
 
-            # ================= FORCE TRUE NEWEST FILE =================
+            # ================= GET TRUE NEWEST FILE =================
 
             latest = max(
                 adm_files,
@@ -131,10 +134,23 @@ def download_latest_log():
 
             log_path = latest["path"]
 
+            # ================= NEW LOG DETECTION =================
+
+            if current_log_file != log_path:
+
+                print(f"🆕 New ADM detected: {log_path}")
+
+                current_log_file = log_path
+
+                last_size = 0
+                save_last_position(0)
+
             with open(LAST_LOG_FILE, "w") as f:
                 f.write(log_path)
 
         print(f"✅ Latest ADM log found: {log_path}")
+
+        # ================= GET DOWNLOAD URL =================
 
         download = requests.get(
             f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download",
@@ -175,6 +191,17 @@ async def parse_new_lines():
 
     try:
 
+        current_file_size = os.path.getsize(LOG_FILE)
+
+        # ================= FILE SHRUNK / RESET =================
+
+        if current_file_size < last_size:
+
+            print("♻️ ADM reset detected")
+
+            last_size = 0
+            save_last_position(0)
+
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
 
             f.seek(last_size)
@@ -184,6 +211,10 @@ async def parse_new_lines():
             last_size = f.tell()
 
             save_last_position(last_size)
+
+        if not new_lines:
+            print("⏳ No new log lines")
+            return
 
         for line in new_lines:
 
@@ -424,7 +455,7 @@ async def tracker_loop():
         if success:
             await parse_new_lines()
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(30)
 
 # ================= EVENTS =================
 
