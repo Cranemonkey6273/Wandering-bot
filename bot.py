@@ -106,19 +106,11 @@ def get_files(directory):
 def find_latest_adm():
 
     search_dirs = [
-        FTP_LOG_PATH,
-        f"{FTP_LOG_PATH}/config",
-        f"{FTP_LOG_PATH}/profiles",
-        "/games",
-        "/games/ni12248929_2",
-        "/games/ni12248929_2/ftproot",
-        "/games/ni12248929_2/ftproot/dayzxb",
-        "/games/ni12248929_2/ftproot/dayzxb/config",
-        "/games/ni12248929_2/ftproot/dayzxb/profiles"
+        "/games/ni12248929_2/ftproot/dayzxb/config"
     ]
 
     newest_file = None
-    newest_date = datetime.min
+    newest_modified = 0
 
     for directory in search_dirs:
 
@@ -133,11 +125,13 @@ def find_latest_adm():
             if not name.endswith(".ADM"):
                 continue
 
-            file_date = extract_date(name)
+            print(f"📄 Found ADM: {name}")
 
-            if file_date > newest_date:
+            modified = file.get("modified_at", 0)
 
-                newest_date = file_date
+            if modified > newest_modified:
+
+                newest_modified = modified
                 newest_file = file["path"]
 
     return newest_file
