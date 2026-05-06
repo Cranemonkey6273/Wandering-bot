@@ -20,6 +20,9 @@ DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID", 0))
 DAMAGE_CHANNEL_ID = int(os.getenv("DAMAGE_CHANNEL_ID", 0))
 
+# ✅ PRIVATE ADMIN DISCONNECT CHANNEL
+ADMIN_CHANNEL_ID = int(os.getenv("ADMIN_CHANNEL_ID", 0))
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -269,6 +272,9 @@ async def parse_new_lines():
     packing_channel = client.get_channel(PACKING_CHANNEL_ID)
     damage_channel = client.get_channel(DAMAGE_CHANNEL_ID)
 
+    # ✅ PRIVATE ADMIN CHANNEL
+    admin_channel = client.get_channel(ADMIN_CHANNEL_ID)
+
     try:
         if not os.path.exists(LOG_FILE):
             print("❌ Local log file missing")
@@ -360,123 +366,11 @@ async def parse_new_lines():
                     map_link
                 )
 
-            # ================= DAMAGE FEED =================
-
-            if (
-                "hit by" in line.lower()
-                or "attacked by" in line.lower()
-                or "bled" in line.lower()
-                or "unconscious" in line.lower()
-            ):
-
-                damage_clean = re.sub(
-                    r'pos=<[\d., ]+>',
-                    '',
-                    line
-                )
-
-                damage_clean = re.sub(
-                    r'\(id=[^)]+\)',
-                    '',
-                    damage_clean
-                )
-
-                damage_clean = re.sub(
-                    r'\s+',
-                    ' ',
-                    damage_clean
-                ).strip()
-
-                embed = discord.Embed(
-                    color=0xFF4500
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "🩸 SURVIVOR INJURED 🩸\n"
-                    "\n"
-                    f"👤 Survivor\n"
-                    f"> {player}\n\n"
-                    f"⚠️ Incident Report\n"
-                    f"> {damage_clean}\n\n"
-                    f"🕒 Event Time\n"
-                    f"> {timestamp}\n"
-                    "```"
-                )
-
-                embed = style_embed(embed)
-
-                await send_embed(damage_channel, embed)
-
-            # ================= KILL FEED =================
-
-            if " killed by Player " in line:
-                killer_match = re.search(
-                    r'Player "([^"]+)" .* killed by Player "([^"]+)"',
-                    line
-                )
-
-                if killer_match:
-                    victim = killer_match.group(1)
-                    killer = killer_match.group(2)
-
-                    embed = discord.Embed(
-                        color=0x8B0000
-                    )
-
-                    embed.description = (
-                        "```fix\n"
-                        "☠ PLAYER KILLED ☠\n"
-                        "```\n"
-                        f"🔫 **Killer**\n"
-                        f"> `{killer}`\n\n"
-                        f"💀 **Victim**\n"
-                        f"> `{victim}`\n\n"
-                        f"📍 **Combat Zone**\n"
-                        f"> {location_display}\n\n"
-                        f"🕒 **Time Of Death**\n"
-                        f"> `{timestamp}`"
-                    )
-
-                    embed = style_embed(embed)
-                    await send_embed(killfeed_channel, embed)
-
-            # ================= RAID ALERT =================
-
-            elif (
-                "destroyed" in line.lower()
-                or "dismantled" in line.lower()
-                or "damaged" in line.lower()
-            ):
-
-                embed = discord.Embed(
-                    color=0xff0000
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "🚨 RAID ALERT 🚨\n"
-                    "```\n"
-                    f"👤 **Player**\n"
-                    f"> `{player}`\n\n"
-                    f"💥 **Raid Activity**\n"
-                    f"> `{line}`\n\n"
-                    f"📍 **Raid Location**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Alert Time**\n"
-                    f"> `{timestamp}`"
-                )
-
-                embed = style_embed(embed)
-                await send_embed(raid_channel, embed)
-
             # ================= PLAYER CONNECTING =================
 
-            elif " is connecting" in line:
+            if " is connecting" in line:
 
-                embed = discord.Embed(
-                    color=0x8B8000
-                )
+                embed = discord.Embed(color=0x8B8000)
 
                 embed.description = (
                     "```fix\n"
@@ -489,15 +383,14 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
+
                 await send_embed(connection_channel, embed)
 
             # ================= PLAYER CONNECTED =================
 
             elif " is connected" in line:
 
-                embed = discord.Embed(
-                    color=0x556B2F
-                )
+                embed = discord.Embed(color=0x556B2F)
 
                 embed.description = (
                     "```fix\n"
@@ -505,22 +398,19 @@ async def parse_new_lines():
                     "```\n"
                     f"👤 **Survivor**\n"
                     f"> `{player}`\n\n"
-                    f"📍 **Location Intel**\n"
-                    f"> {location_display}\n\n"
                     f"🕒 **Arrival Time**\n"
                     f"> `{timestamp}`"
                 )
 
                 embed = style_embed(embed)
+
                 await send_embed(connection_channel, embed)
 
             # ================= PLAYER DISCONNECTED =================
 
             elif " has been disconnected" in line:
 
-                embed = discord.Embed(
-                    color=0x8B2E2E
-                )
+                embed = discord.Embed(color=0x8B2E2E)
 
                 embed.description = (
                     "```fix\n"
@@ -535,159 +425,9 @@ async def parse_new_lines():
                 )
 
                 embed = style_embed(embed)
-                await send_embed(connection_channel, embed)
 
-            # ================= ITEM PLACED =================
-
-            elif "placed" in line.lower():
-
-                placed_match = re.search(
-                    r'placed (.+)',
-                    line,
-                    re.IGNORECASE
-                )
-
-                placed_item = (
-                    placed_match.group(1)
-                    if placed_match
-                    else "Unknown Item"
-                )
-
-                embed = discord.Embed(
-                    color=0xA67C52
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "⚒ DEPLOYMENT EVENT ⚒\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"📦 **Deployed Object**\n"
-                    f"> `{placed_item}`\n\n"
-                    f"📍 **Deployment Zone**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Event Time**\n"
-                    f"> `{timestamp}`"
-                )
-
-                embed = style_embed(embed)
-                await send_embed(deploy_channel, embed)
-
-            # ================= BUILD EVENT =================
-
-            elif "built" in line.lower():
-
-                build_match = re.search(
-                    r'Built (.+)',
-                    line
-                )
-
-                build_action = (
-                    build_match.group(1)
-                    if build_match
-                    else "Unknown Build"
-                )
-
-                build_action = clean_build_action(build_action)
-
-                embed = discord.Embed(
-                    color=0x4B5320
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "🛠 BASE CONSTRUCTION 🛠\n"
-                    "```\n"
-                    f"👤 **Builder**\n"
-                    f"> `{player}`\n\n"
-                    f"🏗 **Construction Action**\n"
-                    f"> `{build_action}`\n\n"
-                    f"📍 **Build Coordinates**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Construction Time**\n"
-                    f"> `{timestamp}`"
-                )
-
-                embed = style_embed(embed)
-                await send_embed(build_channel, embed)
-
-            # ================= ITEM FOLDED =================
-
-            elif "folded" in line.lower():
-
-                folded_match = re.search(
-                    r'folded (.+)',
-                    line,
-                    re.IGNORECASE
-                )
-
-                folded_item = (
-                    folded_match.group(1)
-                    if folded_match
-                    else "Unknown Item"
-                )
-
-                embed = discord.Embed(
-                    color=0x3B4C59
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "📦 STRUCTURE RECOVERED 📦\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"📁 **Recovered Object**\n"
-                    f"> `{folded_item}`\n\n"
-                    f"📍 **Recovery Position**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Recovery Time**\n"
-                    f"> `{timestamp}`"
-                )
-
-                embed = style_embed(embed)
-                await send_embed(packing_channel, embed)
-
-            # ================= ITEM PACKED =================
-
-            elif "packed" in line.lower():
-
-                packed_match = re.search(
-                    r'packed (.+)',
-                    line,
-                    re.IGNORECASE
-                )
-
-                packed_item = (
-                    packed_match.group(1)
-                    if packed_match
-                    else "Unknown Item"
-                )
-
-                embed = discord.Embed(
-                    color=0x70543E
-                )
-
-                embed.description = (
-                    "```fix\n"
-                    "🎒 CAMP PACKED 🎒\n"
-                    "```\n"
-                    f"👤 **Survivor**\n"
-                    f"> `{player}`\n\n"
-                    f"📦 **Packed Equipment**\n"
-                    f"> `{packed_item}`\n\n"
-                    f"📍 **Pack-Up Location**\n"
-                    f"> {location_display}\n\n"
-                    f"🕒 **Event Time**\n"
-                    f"> `{timestamp}`"
-                )
-
-                embed = style_embed(embed)
-                await send_embed(packing_channel, embed)
-
-    except Exception as e:
-        print("❌ PARSE ERROR:", e)
+                # ✅ SEND TO PRIVATE ADMIN CHANNEL
+                await send_embed(admin_channel, embed)
 
 # ================= LOOP =================
 
