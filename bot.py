@@ -1,18 +1,22 @@
-import discord
-import requests
 import os
+import re
+import time
+import requests
+import discord
 from supabase import create_client
-from datetime import timedelta
 
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
 NITRADO_TOKEN = os.getenv("NITRADO_TOKEN")
 SERVICE_ID = os.getenv("SERVICE_ID")
 
-print("SERVICE_ID:", SERVICE_ID)
+FTP_LOG_PATH = os.getenv("FTP_LOG_PATH")
 
 headers = {
     "Authorization": f"Bearer {NITRADO_TOKEN}"
@@ -21,19 +25,26 @@ headers = {
 LOG_FILE = "server.ADM"
 
 # ================= INIT =================
+
 client = discord.Client(intents=discord.Intents.default())
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 last_size = 0
 
 # ================= DOWNLOAD LOG =================
-def download_log():
-    try:
-        # ✅ FINAL CORRECT PATH (FROM YOUR SERVER)
-        url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list?dir=/games/ni12248929_2/ftproot/dayzxb/config"
 
-        response = requests.get(url, headers=headers)
-        res = response.json()
+def download_latest_log():
+
+    try:
+        # GET FILE LIST
+        res = requests.get(
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list",
+            headers=headers,
+            params={"dir": FTP_LOG_PATH}
+        ).json()
 
         if "data" not in res:
             print("❌ FILE LIST ERROR:", res)
@@ -41,104 +52,152 @@ def download_log():
 
         files = res["data"]["entries"]
 
-        # ✅ FIND ADM FILES
-        adm_files = []
-        for f in files:
-            if f.get("path", "").endswith(".ADM") and "DayZServer" in f.get("name", ""):
-                adm_files.append(f)
+        adm_files = [
+            f for f in files
+            if f["name"].endswith(".ADM")
+        ]
 
-        if len(adm_files) == 0:
+        if not adm_files:
             print("❌ No ADM logs found")
             return False
 
-        # ✅ SORT BY FILENAME (MOST RELIABLE)
-        adm_files.sort(key=lambda x: x["name"], reverse=True)
+        # SORT NEWEST FIRST
+        adm_files.sort(
+            key=lambda x: x["name"],
+            reverse=True
+        )
 
-        latest_file = adm_files[0]
-        latest_path = latest_file["path"]
+        latest = adm_files[0]
 
-        print("✅ Latest ADM log found:", latest_path)
+        log_path = latest["path"]
 
-        # ✅ DOWNLOAD FILE
-        download_url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download?file={latest_path}"
+        print(f"✅ Latest ADM log found: {log_path}")
 
-        res = requests.get(download_url, headers=headers).json()
+        # DOWNLOAD FILE
+        download = requests.get(
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download",
+            headers=headers,
+            params={"file": log_path}
+        ).json()
 
-        if "data" not in res:
-            print("❌ DOWNLOAD ERROR:", res)
+        if "data" not in download:
+            print("❌ DOWNLOAD ERROR:", download)
             return False
 
-        file_url = res["data"]["token"]["url"]
-        file_data = requests.get(file_url).text
+        download_url = download["data"]["token"]["url"]
 
-        with open(LOG_FILE, "w") as f:
-            f.write(file_data)
+        file_data = requests.get(download_url)
 
-        print("✅ Log downloaded:", latest_path)
+        with open(LOG_FILE, "wb") as f:
+            f.write(file_data.content)
+
+        print(f"✅ Log downloaded: {log_path}")
+
         return True
 
     except Exception as e:
-        print("❌ LOG DOWNLOAD ERROR:", e)
+        print("❌ DOWNLOAD EXCEPTION:", e)
         return False
 
 
-# ================= PARSER =================
-def parse_log():
+# ================= PARSE LOG =================
+
+async def parse_new_lines():
+
     global last_size
 
-    try:
-        if not os.path.exists(LOG_FILE):
-            return
+    channel = client.get_channel(CHANNEL_ID)
 
+    if not channel:
+        print("❌ Discord channel not found")
+        return
+
+    try:
         with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+
             f.seek(last_size)
-            lines = f.readlines()
+
+            new_lines = f.readlines()
+
             last_size = f.tell()
 
-        for line in lines:
+        for line in new_lines:
+
             line = line.strip()
 
-            # 🚫 FILTER SPAM
-            if "Mounted BarbedWire" in line:
+            if not line:
                 continue
 
-            print("📜", line)
+            print("NEW:", line)
 
-            if "killed" in line:
-                print("💀 Kill detected:", line)
+            # ================= KILLS =================
 
-            if "unconscious" in line:
-                print("🧠 Unconscious:", line)
+            if " killed " in line:
 
-            if "hit by" in line:
-                print("⚔️ Hit:", line)
+                await channel.send(f"💀 {line}")
+
+            # ================= SUICIDES =================
+
+            elif " committed suicide" in line:
+
+                await channel.send(f"☠️ {line}")
+
+            # ================= PLACEMENTS =================
+
+            elif " placed " in line:
+
+                await channel.send(f"📦 {line}")
+
+            # ================= BUILDING =================
+
+            elif "Built " in line:
+
+                await channel.send(f"🛠️ {line}")
+
+            # ================= CONNECTIONS =================
+
+            elif "is connected" in line:
+
+                await channel.send(f"🟢 {line}")
+
+            elif "has been disconnected" in line:
+
+                await channel.send(f"🔴 {line}")
 
     except Exception as e:
         print("❌ PARSE ERROR:", e)
 
 
 # ================= LOOP =================
+
 async def tracker_loop():
+
     await client.wait_until_ready()
+
     print("🚀 Tracker started")
 
     while not client.is_closed():
-        success = download_log()
+
+        success = download_latest_log()
 
         if success:
-            parse_log()
+            await parse_new_lines()
 
-        await discord.utils.sleep_until(
-            discord.utils.utcnow() + timedelta(seconds=15)
-        )
+        await asyncio.sleep(10)
 
 
-# ================= DISCORD EVENTS =================
+# ================= EVENTS =================
+
 @client.event
 async def on_ready():
+
     print(f"✅ Logged in as {client.user}")
+
     client.loop.create_task(tracker_loop())
 
 
 # ================= START =================
+
+import asyncio
+
 client.run(DISCORD_TOKEN)
