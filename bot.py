@@ -18,9 +18,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
+# ================= CHANNEL IDS =================
+
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
+
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
+
+BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
+DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
+CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
+
+# ================= FTP =================
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
@@ -57,6 +66,8 @@ supabase = create_client(
 # ================= GLOBALS =================
 
 processed_lines = set()
+MAX_PROCESSED_LINES = 5000
+
 current_adm = None
 online_players = set()
 
@@ -106,7 +117,7 @@ def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
 
     embed.set_footer(
-        text="ð» Wandering Bot"
+        text="📻 Wandering Bot"
     )
 
     return embed
@@ -258,28 +269,46 @@ async def on_ready():
     territory_income.start()
     ai_radio.start()
 
-    print(f"â Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
 # ================= ADM PARSER =================
 
 async def parse_adm():
 
+    global processed_lines
+
     if not os.path.exists(LOCAL_LOG_FILE):
 
         print("LOCAL ADM MISSING")
-
         return
 
-    with open(
-        LOCAL_LOG_FILE,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
+    try:
 
-        lines = f.readlines()
+        with open(
+            LOCAL_LOG_FILE,
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+
+            lines = f.readlines()
+
+    except Exception as e:
+
+        print(f"ADM READ ERROR: {e}")
+        return
 
     print(f"ADM LINES READ: {len(lines)}")
+
+    print("===== ADM PREVIEW START =====")
+
+    for preview in lines[:15]:
+
+        print(repr(preview[:300]))
+
+    print("===== ADM PREVIEW END =====")
+
+    # ================= CHANNEL LOOKUPS =================
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
@@ -289,6 +318,24 @@ async def parse_adm():
         RAID_CHANNEL_ID
     )
 
+    build_channel = bot.get_channel(
+        BUILD_CHANNEL_ID
+    )
+
+    deploy_channel = bot.get_channel(
+        DEPLOY_CHANNEL_ID
+    )
+
+    connect_channel = bot.get_channel(
+        CONNECT_CHANNEL_ID
+    )
+
+    parsed_kills = 0
+    parsed_builds = 0
+    parsed_raids = 0
+    parsed_deploys = 0
+    parsed_connections = 0
+
     for raw_line in lines:
 
         line = raw_line.strip()
@@ -296,102 +343,153 @@ async def parse_adm():
         if not line:
             continue
 
-        if line in processed_lines:
+        line_hash = hash(line)
+
+        if line_hash in processed_lines:
             continue
 
-        processed_lines.add(line)
+        processed_lines.add(line_hash)
+
+        if len(processed_lines) > MAX_PROCESSED_LINES:
+            processed_lines.clear()
 
         if should_ignore(line):
             continue
 
         lower = line.lower()
 
-        # ================= CONNECTIONS =================
+        # ================= CONNECTION EVENTS =================
 
-        if "is connected" in lower:
+        if (
+            "is connected" in lower
+            or "connected" in lower
+        ):
 
             player_match = re.search(
-                r'Player "([^"]+)"',
-                line
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
             )
 
             if player_match:
 
-                online_players.add(
-                    player_match.group(1)
-                )
+                player_name = player_match.group(1)
 
-        if "has been disconnected" in lower:
+                online_players.add(player_name)
+
+                parsed_connections += 1
+
+                print(f"PLAYER CONNECTED: {player_name}")
+
+                if connect_channel:
+
+                    embed = discord.Embed(
+                        title="🟢 Player Connected",
+                        description=player_name,
+                        color=0x2ECC71
+                    )
+
+                    await connect_channel.send(
+                        embed=style_embed(embed)
+                    )
+
+        elif (
+            "has been disconnected" in lower
+            or "disconnected" in lower
+        ):
 
             player_match = re.search(
-                r'Player "([^"]+)"',
-                line
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
             )
 
             if player_match:
 
-                online_players.discard(
-                    player_match.group(1)
-                )
+                player_name = player_match.group(1)
+
+                online_players.discard(player_name)
+
+                print(f"PLAYER DISCONNECTED: {player_name}")
+
+                if connect_channel:
+
+                    embed = discord.Embed(
+                        title="🔴 Player Disconnected",
+                        description=player_name,
+                        color=0xE74C3C
+                    )
+
+                    await connect_channel.send(
+                        embed=style_embed(embed)
+                    )
 
         # ================= BUILD EVENTS =================
 
-        if (
-            "built" in lower
-            or "wall_base" in lower
-            or "watchtower" in lower
-            or "construction" in lower
-            or "territory" in lower
-        ):
+        if any(x in lower for x in [
+            "built",
+            "wall_base",
+            "watchtower",
+            "construction",
+            "territory"
+        ]):
+
+            parsed_builds += 1
+
+            print(f"BUILD EVENT: {line[:120]}")
 
             embed = discord.Embed(
-                title="ð¨ Build Event",
+                title="🔨 Build Event",
                 description=line[:3500],
                 color=0x2ECC71
             )
 
-            if killfeed_channel:
+            if build_channel:
 
-                await killfeed_channel.send(
+                await build_channel.send(
                     embed=style_embed(embed)
                 )
 
-                print("BUILD EVENT SENT")
-
         # ================= DEPLOY EVENTS =================
 
-        elif (
-            "placed" in lower
-            or "deployed" in lower
-            or "fencekit" in lower
-            or "seachest" in lower
-        ):
+        elif any(x in lower for x in [
+            "placed",
+            "deployed",
+            "fencekit",
+            "seachest"
+        ]):
+
+            parsed_deploys += 1
+
+            print(f"DEPLOY EVENT: {line[:120]}")
 
             embed = discord.Embed(
-                title="ð¦ Deploy Event",
+                title="📦 Deploy Event",
                 description=line[:3500],
                 color=0x3498DB
             )
 
-            if killfeed_channel:
+            if deploy_channel:
 
-                await killfeed_channel.send(
+                await deploy_channel.send(
                     embed=style_embed(embed)
                 )
 
-                print("DEPLOY EVENT SENT")
-
         # ================= RAID EVENTS =================
 
-        elif (
-            "destroyed" in lower
-            or "breached" in lower
-            or "raided" in lower
-            or "explosive" in lower
-        ):
+        elif any(x in lower for x in [
+            "destroyed",
+            "breached",
+            "raided",
+            "explosive"
+        ]):
+
+            parsed_raids += 1
+
+            print(f"RAID EVENT: {line[:120]}")
 
             embed = discord.Embed(
-                title="ð´ RAID ALERT",
+                title="🔴 RAID ALERT",
                 description=line[:3500],
                 color=0xE74C3C
             )
@@ -402,35 +500,56 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
-                print("RAID EVENT SENT")
-
         # ================= KILL EVENTS =================
 
-        elif "killed by player" in lower:
+        elif (
+            "killed by player" in lower
+            or "hit by player" in lower
+            or "killed" in lower
+        ):
+
+            print(f"KILL LINE DETECTED: {line}")
 
             victim_match = re.search(
-                r'Player "([^"]+)"',
-                line
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
             )
 
             killer_match = re.search(
-                r'killed by Player "([^"]+)"',
-                line
+                r'killed by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
             )
+
+            if not killer_match:
+
+                killer_match = re.search(
+                    r'by Player\s+"([^"]+)"',
+                    line,
+                    re.IGNORECASE
+                )
 
             if victim_match and killer_match:
 
                 victim = victim_match.group(1)
                 killer = killer_match.group(1)
 
+                parsed_kills += 1
+
                 reward = random.randint(100, 500)
 
+                print(
+                    f"PVP PARSED: "
+                    f"{killer} -> {victim}"
+                )
+
                 embed = discord.Embed(
-                    title="â ï¸ PvP Kill",
+                    title="☠️ PvP Kill",
                     description=(
-                        f"Killer: {killer}\n"
-                        f"Victim: {victim}\n"
-                        f"Reward: {reward}"
+                        f"🔫 Killer: {killer}\n"
+                        f"💀 Victim: {victim}\n"
+                        f"💰 Reward: {reward}"
                     ),
                     color=0xC0392B
                 )
@@ -442,6 +561,20 @@ async def parse_adm():
                     )
 
                     print("KILL EVENT SENT")
+
+            else:
+
+                print("FAILED TO PARSE KILL EVENT")
+
+    print("===== ADM SUMMARY =====")
+
+    print(f"Kills Parsed: {parsed_kills}")
+    print(f"Builds Parsed: {parsed_builds}")
+    print(f"Deploys Parsed: {parsed_deploys}")
+    print(f"Raids Parsed: {parsed_raids}")
+    print(f"Connections Parsed: {parsed_connections}")
+
+    print("=======================")
 
 # ================= TASKS =================
 
@@ -463,16 +596,16 @@ async def world_events():
         return
 
     events = [
-        "ð Helicopter crash reported.",
-        "â£ï¸ Toxic gas spreading.",
-        "ð» Convoy entering Chernarus.",
-        "ð¥ Heavy fighting near NWAF.",
-        "ð´ Faction conflict escalating.",
-        "ð¦ Supply crate detected."
+        "🚁 Helicopter crash reported.",
+        "☣️ Toxic gas spreading.",
+        "📻 Convoy entering Chernarus.",
+        "💥 Heavy fighting near NWAF.",
+        "🏴 Faction conflict escalating.",
+        "📦 Supply crate detected."
     ]
 
     embed = discord.Embed(
-        title="ð¡ World Event",
+        title="📡 World Event",
         description=random.choice(events),
         color=0x9B59B6
     )
@@ -523,15 +656,15 @@ async def ai_radio():
         return
 
     chatter = [
-        "ð» Gunfire heard near Tisy.",
-        "ð» Survivors spotted near Vybor.",
-        "ð» Trader convoy requesting escort.",
-        "ð» Black market trader active tonight.",
-        "ð» Toxic storm approaching."
+        "📻 Gunfire heard near Tisy.",
+        "📻 Survivors spotted near Vybor.",
+        "📻 Trader convoy requesting escort.",
+        "📻 Black market trader active tonight.",
+        "📻 Toxic storm approaching."
     ]
 
     embed = discord.Embed(
-        title="ð» Radio Chatter",
+        title="📻 Radio Chatter",
         description=random.choice(chatter),
         color=0x3498DB
     )
@@ -560,7 +693,7 @@ async def balance(interaction: discord.Interaction):
     )
 
     embed = discord.Embed(
-        title="ð° Survivor Stats",
+        title="💰 Survivor Stats",
         description=(
             f"Pennies: {player['scrap']}\n"
             f"Level: {player['level']}\n"
@@ -573,152 +706,6 @@ async def balance(interaction: discord.Interaction):
             f"Territory: {player['territory']}"
         ),
         color=0xFFD700
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-@bot.tree.command(
-    name="shop",
-    description="View shop"
-)
-async def shop(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    text = ""
-
-    for item, price in SHOP_ITEMS.items():
-
-        text += f"â¢ {item} â {price}\n"
-
-    embed = discord.Embed(
-        title="ð¦ Trader Shop",
-        description=text,
-        color=0xE67E22
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-@bot.tree.command(
-    name="buy",
-    description="Buy item"
-)
-@app_commands.describe(
-    item="Item name"
-)
-async def buy(interaction: discord.Interaction, item: str):
-
-    await interaction.response.defer()
-
-    item = item.lower()
-
-    if item not in SHOP_ITEMS:
-
-        await interaction.followup.send(
-            "â Item not found."
-        )
-
-        return
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    if player["scrap"] < SHOP_ITEMS[item]:
-
-        await interaction.followup.send(
-            "â Not enough pennies."
-        )
-
-        return
-
-    supabase.table(
-        "delivery_queue"
-    ).insert({
-        "discord_id": str(interaction.user.id),
-        "username": interaction.user.name,
-        "item": item,
-        "status": "queued"
-    }).execute()
-
-    embed = discord.Embed(
-        title="â Order Created",
-        description=f"{item} queued for delivery.",
-        color=0x2ECC71
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-@bot.tree.command(
-    name="inventory",
-    description="View inventory"
-)
-async def inventory(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    results = supabase.table(
-        "delivery_queue"
-    ).select("*").eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    if not results.data:
-
-        await interaction.followup.send(
-            "Inventory empty."
-        )
-
-        return
-
-    text = ""
-
-    for item in results.data:
-
-        text += (
-            f"â¢ {item['item']} "
-            f"({item['status']})\n"
-        )
-
-    embed = discord.Embed(
-        title="ð Inventory",
-        description=text,
-        color=0x3498DB
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-@bot.tree.command(
-    name="online",
-    description="Online players"
-)
-async def online(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    if not online_players:
-
-        await interaction.followup.send(
-            "No online players tracked."
-        )
-
-        return
-
-    players = "\n".join(online_players)
-
-    embed = discord.Embed(
-        title="ð¢ Online Survivors",
-        description=players,
-        color=0x2ECC71
     )
 
     await interaction.followup.send(
