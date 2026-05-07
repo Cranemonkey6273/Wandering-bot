@@ -1,7 +1,6 @@
 import os
 import re
 import random
-import asyncio
 import discord
 
 from datetime import datetime, UTC
@@ -128,9 +127,6 @@ async def on_ready():
 
     world_events.start()
     adm_loop.start()
-    dynamic_economy.start()
-    territory_income.start()
-    ai_radio.start()
 
     print(f"Logged in as {bot.user}")
 
@@ -141,6 +137,7 @@ async def parse_adm():
     global last_position
 
     if not os.path.exists(LOG_FILE):
+        print(f"ADM FILE NOT FOUND: {LOG_FILE}")
         return
 
     with open(
@@ -160,6 +157,8 @@ async def parse_adm():
         lines = f.readlines()
 
         last_position = f.tell()
+
+    print(f"ADM LINES READ: {len(lines)}")
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
@@ -214,14 +213,11 @@ async def parse_adm():
                 victim = victim_match.group(1)
                 killer = killer_match.group(1)
 
-                reward = random.randint(100, 500)
-
                 embed = discord.Embed(
-                    title="â ï¸ PvP Kill",
+                    title="PvP Kill",
                     description=(
                         f"Killer: {killer}\n"
-                        f"Victim: {victim}\n"
-                        f"Reward: {reward}"
+                        f"Victim: {victim}"
                     ),
                     color=0xC0392B
                 )
@@ -238,7 +234,7 @@ async def parse_adm():
         ):
 
             embed = discord.Embed(
-                title="ð´ RAID ALERT",
+                title="RAID ALERT",
                 description="Raid activity detected.",
                 color=0xE74C3C
             )
@@ -267,13 +263,11 @@ async def world_events():
         "Helicopter crash reported.",
         "Toxic gas spreading.",
         "Convoy entering Chernarus.",
-        "Heavy fighting near NWAF.",
-        "Faction conflict escalating.",
-        "Supply crate detected."
+        "Heavy fighting near NWAF."
     ]
 
     embed = discord.Embed(
-        title="ð¡ World Event",
+        title="World Event",
         description=random.choice(events),
         color=0x9B59B6
     )
@@ -282,66 +276,31 @@ async def world_events():
         embed=style_embed(embed)
     )
 
-@tasks.loop(minutes=60)
-async def dynamic_economy():
+# ================= ADM CHECK =================
 
-    for item in SHOP_ITEMS:
+@bot.tree.command(
+    name="admcheck",
+    description="Check ADM status"
+)
+async def admcheck(interaction: discord.Interaction):
 
-        SHOP_ITEMS[item] += random.randint(-5, 20)
+    exists = os.path.exists(LOG_FILE)
 
-        if SHOP_ITEMS[item] < 5:
-            SHOP_ITEMS[item] = 5
+    if exists:
 
-@tasks.loop(hours=2)
-async def territory_income():
+        size = os.path.getsize(LOG_FILE)
 
-    results = supabase.table(
-        "player_data"
-    ).select("*").neq(
-        "territory",
-        ""
-    ).execute()
+        await interaction.response.send_message(
+            f"ADM FOUND\nPath: {LOG_FILE}\nSize: {size}"
+        )
 
-    for player in results.data:
+    else:
 
-        income = random.randint(100, 300)
+        await interaction.response.send_message(
+            f"ADM NOT FOUND\nPath: {LOG_FILE}"
+        )
 
-        supabase.table(
-            "player_data"
-        ).update({
-            "scrap": player["scrap"] + income
-        }).eq(
-            "discord_id",
-            player["discord_id"]
-        ).execute()
-
-@tasks.loop(minutes=25)
-async def ai_radio():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    chatter = [
-        "Gunfire heard near Tisy.",
-        "Survivors spotted near Vybor.",
-        "Trader convoy requesting escort.",
-        "Black market trader active tonight.",
-        "Toxic storm approaching."
-    ]
-
-    embed = discord.Embed(
-        title="ð» Radio Chatter",
-        description=random.choice(chatter),
-        color=0x3498DB
-    )
-
-    await channel.send(
-        embed=style_embed(embed)
-    )
-
-# ================= COMMANDS =================
+# ================= BALANCE =================
 
 @bot.tree.command(
     name="balance",
@@ -361,17 +320,13 @@ async def balance(interaction: discord.Interaction):
     )
 
     embed = discord.Embed(
-        title="ð° Survivor Stats",
+        title="Survivor Stats",
         description=(
             f"Pennies: {player['scrap']}\n"
             f"Level: {player['level']}\n"
             f"XP: {player['xp']}\n"
             f"Kills: {player['kills']}\n"
-            f"Deaths: {player['deaths']}\n"
-            f"Bounty: {player['bounty']}\n"
-            f"Vehicles: {player['vehicles']}\n"
-            f"Faction: {player['faction']}\n"
-            f"Territory: {player['territory']}"
+            f"Deaths: {player['deaths']}"
         ),
         color=0xFFD700
     )
@@ -379,6 +334,8 @@ async def balance(interaction: discord.Interaction):
     await interaction.followup.send(
         embed=style_embed(embed)
     )
+
+# ================= SHOP =================
 
 @bot.tree.command(
     name="shop",
@@ -394,7 +351,7 @@ async def shop(interaction: discord.Interaction):
         text += f"â¢ {item} â {price}\n"
 
     embed = discord.Embed(
-        title="ð¦ Trader Shop",
+        title="Trader Shop",
         description=text,
         color=0xE67E22
     )
@@ -403,57 +360,7 @@ async def shop(interaction: discord.Interaction):
         embed=style_embed(embed)
     )
 
-@bot.tree.command(
-    name="buy",
-    description="Buy item"
-)
-@app_commands.describe(
-    item="Item name"
-)
-async def buy(interaction: discord.Interaction, item: str):
-
-    await interaction.response.defer()
-
-    item = item.lower()
-
-    if item not in SHOP_ITEMS:
-
-        await interaction.followup.send(
-            "Item not found."
-        )
-
-        return
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    if player["scrap"] < SHOP_ITEMS[item]:
-
-        await interaction.followup.send(
-            "Not enough pennies."
-        )
-
-        return
-
-    supabase.table(
-        "delivery_queue"
-    ).insert({
-        "discord_id": str(interaction.user.id),
-        "username": interaction.user.name,
-        "item": item,
-        "status": "queued"
-    }).execute()
-
-    embed = discord.Embed(
-        title="â Order Created",
-        description=f"{item} queued for delivery.",
-        color=0x2ECC71
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
+# ================= INVENTORY =================
 
 @bot.tree.command(
     name="inventory",
@@ -484,7 +391,7 @@ async def inventory(interaction: discord.Interaction):
         text += f"â¢ {item['item']} ({item['status']})\n"
 
     embed = discord.Embed(
-        title="ð Inventory",
+        title="Inventory",
         description=text,
         color=0x3498DB
     )
@@ -492,6 +399,8 @@ async def inventory(interaction: discord.Interaction):
     await interaction.followup.send(
         embed=style_embed(embed)
     )
+
+# ================= ONLINE =================
 
 @bot.tree.command(
     name="online",
@@ -512,7 +421,7 @@ async def online(interaction: discord.Interaction):
     players = "\n".join(online_players)
 
     embed = discord.Embed(
-        title="ð¡ Online Survivors",
+        title="Online Survivors",
         description=players,
         color=0x2ECC71
     )
