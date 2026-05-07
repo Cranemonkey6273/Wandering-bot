@@ -6,14 +6,12 @@ import discord
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
-from discord import app_commands
 
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
@@ -22,13 +20,10 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_DIRECTORIES = [
     "/dayzxb",
-    "/dayzxb/config",
-    "/dayzxb/logs",
-    "/dayzxb/profile",
-    "/dayzxb/mpmissions"
+    "/dayzxb/config"
 ]
 
-LOCAL_LOG_FILE = "live.ADM"
+LOCAL_LOG_FILE = "active.ADM"
 
 # ================= DISCORD =================
 
@@ -42,9 +37,8 @@ bot = commands.Bot(
 
 # ================= GLOBALS =================
 
-current_log_file = None
 processed_lines = set()
-online_players = set()
+current_log_file = None
 
 # ================= HELPERS =================
 
@@ -77,25 +71,7 @@ def connect_ftp():
 
     return ftp
 
-def extract_timestamp(filename):
-
-    match = re.search(
-        r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
-        filename
-    )
-
-    if not match:
-        return datetime.min
-
-    return datetime.strptime(
-        f"{match.group(1)} "
-        f"{match.group(2)}:"
-        f"{match.group(3)}:"
-        f"{match.group(4)}",
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-def recursive_find_adms():
+def get_all_adms():
 
     adm_files = []
 
@@ -117,13 +93,30 @@ def recursive_find_adms():
 
                         full_path = f"{directory}/{file}"
 
-                        adm_files.append(full_path)
+                        try:
 
-                        print(f"FOUND ADM: {full_path}")
+                            size = ftp.size(file)
+
+                        except:
+                            size = 0
+
+                        adm_files.append({
+                            "path": full_path,
+                            "size": size
+                        })
+
+                        print(
+                            f"FOUND ADM: "
+                            f"{full_path} "
+                            f"SIZE={size}"
+                        )
 
             except Exception as e:
 
-                print(f"SCAN FAILED: {directory} -> {e}")
+                print(
+                    f"SCAN FAILED: "
+                    f"{directory} -> {e}"
+                )
 
         ftp.quit()
 
@@ -133,45 +126,50 @@ def recursive_find_adms():
 
     return adm_files
 
-def get_latest_adm():
+def choose_active_adm():
 
-    adm_files = recursive_find_adms()
+    adms = get_all_adms()
 
-    if not adm_files:
+    if not adms:
         return None
 
-    newest = max(
-        adm_files,
-        key=lambda x: extract_timestamp(x)
+    # PICK BIGGEST FILE
+    # ACTIVE FILE IS USUALLY GROWING/LARGEST
+
+    biggest = max(
+        adms,
+        key=lambda x: x["size"]
     )
 
-    return newest
+    print(
+        f"ACTIVE ADM CHOSEN: "
+        f"{biggest['path']} "
+        f"SIZE={biggest['size']}"
+    )
 
-def download_latest_adm():
+    return biggest["path"]
+
+def download_active_adm():
 
     global current_log_file
 
     try:
 
-        newest_adm = get_latest_adm()
+        active_adm = choose_active_adm()
 
-        if not newest_adm:
+        if not active_adm:
 
-            print("NO ADM FOUND")
+            print("NO ACTIVE ADM FOUND")
             return False
 
-        if newest_adm != current_log_file:
-
-            current_log_file = newest_adm
-
-            print(f"LIVE ADM: {newest_adm}")
+        current_log_file = active_adm
 
         ftp = connect_ftp()
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
-                f"RETR {newest_adm}",
+                f"RETR {active_adm}",
                 f.write
             )
 
@@ -182,6 +180,7 @@ def download_latest_adm():
     except Exception as e:
 
         print(f"DOWNLOAD ERROR: {e}")
+
         return False
 
 # ================= READY =================
@@ -189,19 +188,17 @@ def download_latest_adm():
 @bot.event
 async def on_ready():
 
-    await bot.tree.sync()
-
     adm_loop.start()
 
     print(f"Logged in as {bot.user}")
 
-# ================= ADM PARSER =================
+# ================= PARSER =================
 
 async def parse_adm():
 
     if not os.path.exists(LOCAL_LOG_FILE):
 
-        print("NO LOCAL ADM")
+        print("LOCAL ADM MISSING")
         return
 
     with open(
@@ -226,54 +223,20 @@ async def parse_adm():
         if not line:
             continue
 
-        # ================= DUPLICATE PREVENTION =================
+        # ================= DUPLICATE CHECK =================
 
         if line in processed_lines:
             continue
 
         processed_lines.add(line)
 
-        # ================= CONNECTS =================
-
-        if "is connected" in line:
-
-            match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            if match:
-
-                player = match.group(1)
-
-                online_players.add(player)
-
-                print(f"CONNECTED: {player}")
-
-        # ================= DISCONNECTS =================
-
-        if "has been disconnected" in line:
-
-            match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            if match:
-
-                player = match.group(1)
-
-                online_players.discard(player)
-
-                print(f"DISCONNECTED: {player}")
-
         # ================= BUILD EVENTS =================
 
         if (
             "built" in line.lower()
-            or "construction" in line.lower()
             or "watchtower" in line.lower()
             or "wall_base" in line.lower()
+            or "construction" in line.lower()
         ):
 
             embed = discord.Embed(
@@ -331,40 +294,19 @@ async def parse_adm():
 @tasks.loop(seconds=60)
 async def adm_loop():
 
-    success = download_latest_adm()
+    success = download_active_adm()
 
     if success:
 
         await parse_adm()
 
-# ================= COMMANDS =================
+# ================= COMMAND =================
 
-@bot.tree.command(
-    name="admcheck",
-    description="ADM debug"
-)
-async def admcheck(interaction: discord.Interaction):
+@bot.command()
+async def adm(ctx):
 
-    await interaction.response.send_message(
-        f"Current ADM:\n{current_log_file}"
-    )
-
-@bot.tree.command(
-    name="online",
-    description="Online players"
-)
-async def online(interaction: discord.Interaction):
-
-    if not online_players:
-
-        await interaction.response.send_message(
-            "No players tracked."
-        )
-
-        return
-
-    await interaction.response.send_message(
-        "\n".join(online_players)
+    await ctx.send(
+        f"ACTIVE ADM:\n{current_log_file}"
     )
 
 # ================= START =================
