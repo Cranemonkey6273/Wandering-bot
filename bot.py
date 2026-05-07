@@ -74,11 +74,14 @@ current_adm_size = 0
 
 online_players = set()
 
+# TRACK LIVE ADM STATE
 last_line_count = 0
 last_growth_time = datetime.now(UTC)
 
+# TRACK STALE FILES
 growth_fail_count = 0
 
+# TRACK DEAD / TERMINATED ADMS
 dead_adms = set()
 
 # ================= SWEAR TRACKER =================
@@ -141,6 +144,13 @@ def should_ignore(line):
     return False
 
 
+def style_embed(embed):
+
+    embed.timestamp = datetime.now(UTC)
+
+    return embed
+
+
 def connect_ftp():
 
     ftp = FTP_TLS()
@@ -185,6 +195,8 @@ def find_active_adm():
             files.append
         )
 
+        files = sorted(files)
+
         adm_files = []
 
         for file in files:
@@ -194,43 +206,66 @@ def find_active_adm():
 
             full_path = f"{SEARCH_DIR}/{file}"
 
+            # SKIP DEAD FILES
             if full_path in dead_adms:
+
+                print(
+                    f"SKIPPING DEAD ADM: {file}"
+                )
+
                 continue
 
             match = re.search(
-                r"(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})",
+                r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
                 file
             )
 
             if not match:
                 continue
 
-            dt_str = (
-                match.group(1)
-                + " "
-                + match.group(2).replace("-", ":")
-            )
+            try:
 
-            file_dt = datetime.strptime(
-                dt_str,
-                "%Y-%m-%d %H:%M:%S"
-            )
+                dt_str = (
+                    match.group(1)
+                    + " "
+                    + match.group(2).replace("-", ":")
+                )
 
-            ftp.voidcmd("TYPE I")
+                file_dt = datetime.strptime(
+                    dt_str,
+                    "%Y-%m-%d %H:%M:%S"
+                )
 
-            size = ftp.size(file)
+                ftp.voidcmd("TYPE I")
 
-            adm_files.append({
-                "name": file,
-                "datetime": file_dt,
-                "size": size
-            })
+                size = ftp.size(file)
+
+                adm_files.append({
+                    "name": file,
+                    "datetime": file_dt,
+                    "size": size
+                })
+
+                print(
+                    f"FOUND ADM: {file} | "
+                    f"SIZE: {size}"
+                )
+
+            except Exception as e:
+
+                print(
+                    f"ADM PARSE ERROR: {e}"
+                )
 
         if not adm_files:
 
             ftp.quit()
+
+            print("NO VALID ADM FILES FOUND")
+
             return None
 
+        # SORT BY NEWEST FIRST
         adm_files.sort(
             key=lambda x: x["datetime"],
             reverse=True
@@ -244,20 +279,33 @@ def find_active_adm():
 
         best_size = best_adm["size"]
 
+        print(
+            f"BEST ADM CANDIDATE: "
+            f"{best_path} | SIZE: {best_size}"
+        )
+
+        # FIRST RUN
         if current_adm is None:
 
             current_adm = best_path
             current_adm_size = best_size
 
-            last_line_count = 0
             growth_fail_count = 0
+            last_line_count = 0
 
             processed_lines.clear()
+
+            last_growth_time = datetime.now(UTC)
+
+            print(
+                f"INITIAL ADM: {current_adm}"
+            )
 
             ftp.quit()
 
             return current_adm
 
+        # FIND CURRENT FILE
         current_file = None
 
         for adm in adm_files:
@@ -271,15 +319,23 @@ def find_active_adm():
                 current_file = adm
                 break
 
+        # CHECK CURRENT FILE GROWTH
         if current_file:
 
             latest_size = current_file["size"]
 
             if latest_size > current_adm_size:
 
+                print(
+                    f"ACTIVE ADM GROWING: "
+                    f"{latest_size}"
+                )
+
                 current_adm_size = latest_size
-                growth_fail_count = 0
+
                 last_growth_time = datetime.now(UTC)
+
+                growth_fail_count = 0
 
                 ftp.quit()
 
@@ -289,6 +345,12 @@ def find_active_adm():
 
                 growth_fail_count += 1
 
+                print(
+                    f"ADM NOT GROWING | "
+                    f"FAIL COUNT: {growth_fail_count}"
+                )
+
+                # CHECK FOR TERMINATION TEXT
                 try:
 
                     temp_lines = []
@@ -306,6 +368,11 @@ def find_active_adm():
                         "Termination successfully completed"
                         in recent_text
                     ):
+
+                        print(
+                            f"MARKING DEAD ADM: "
+                            f"{current_adm}"
+                        )
 
                         dead_adms.add(current_adm)
 
@@ -327,7 +394,13 @@ def find_active_adm():
                         f"TERMINATION CHECK ERROR: {e}"
                     )
 
+        # SWITCH TO NEWER FILE
         if best_path != current_adm:
+
+            print(
+                f"SWITCHING TO NEW ADM: "
+                f"{best_path}"
+            )
 
             current_adm = best_path
             current_adm_size = best_size
@@ -343,7 +416,30 @@ def find_active_adm():
 
             return current_adm
 
+        # FAILSAFE
+        time_since_growth = (
+            datetime.now(UTC)
+            - last_growth_time
+        ).total_seconds()
+
+        if time_since_growth > 14400:
+
+            print(
+                "ADM DEAD OVER 4 HOURS "
+                "- FORCING RESET"
+            )
+
+            current_adm = None
+            current_adm_size = 0
+
+            growth_fail_count = 0
+            last_line_count = 0
+
+            processed_lines.clear()
+
         ftp.quit()
+
+        print(f"ACTIVE ADM: {current_adm}")
 
         return current_adm
 
@@ -365,7 +461,20 @@ def download_adm():
         if not active_adm:
             return False
 
-        ftp = connect_ftp()
+        ftp = FTP_TLS()
+
+        ftp.connect(
+            FTP_HOST,
+            FTP_PORT,
+            timeout=60
+        )
+
+        ftp.login(
+            FTP_USER,
+            FTP_PASS
+        )
+
+        ftp.prot_p()
 
         ftp.cwd(SEARCH_DIR)
 
@@ -391,6 +500,14 @@ def download_adm():
 
         ftp.quit()
 
+        size = os.path.getsize(
+            LOCAL_LOG_FILE
+        )
+
+        print(
+            f"ADM DOWNLOADED | SIZE: {size}"
+        )
+
         return True
 
     except Exception as e:
@@ -405,10 +522,31 @@ def download_adm():
 @bot.event
 async def on_ready():
 
-    await bot.tree.sync()
+    print("BOT READY EVENT")
 
-    if not adm_loop.is_running():
-        adm_loop.start()
+    try:
+
+        await bot.tree.sync()
+
+        print("COMMANDS SYNCED")
+
+    except Exception as e:
+
+        print(f"COMMAND SYNC ERROR: {e}")
+
+    try:
+
+        if not adm_loop.is_running():
+
+            print("STARTING ADM LOOP")
+
+            adm_loop.start()
+
+            print("ADM LOOP STARTED")
+
+    except Exception as e:
+
+        print(f"ADM LOOP START ERROR: {e}")
 
     print(f"✅ Logged in as {bot.user}")
 
@@ -451,7 +589,12 @@ async def parse_adm():
     global processed_lines
     global last_line_count
 
+    print("PARSER STARTED")
+
     if not os.path.exists(LOCAL_LOG_FILE):
+
+        print("LOCAL ADM FILE MISSING")
+
         return
 
     try:
@@ -472,7 +615,11 @@ async def parse_adm():
 
     total_lines = len(lines)
 
+    print(f"ADM TOTAL LINES: {total_lines}")
+
     new_lines = lines[last_line_count:]
+
+    print(f"NEW LINES FOUND: {len(new_lines)}")
 
     last_line_count = total_lines
 
@@ -508,7 +655,7 @@ async def parse_adm():
         ):
 
             player_match = re.search(
-                r'Player\\s+"([^"]+)"',
+                r'Player\s+"([^"]+)"',
                 line,
                 re.IGNORECASE
             )
@@ -517,9 +664,11 @@ async def parse_adm():
 
                 player_name = player_match.group(1)
 
+                print(f"CONNECTING EVENT: {player_name}")
+
                 embed = discord.Embed(
                     description=(
-                        f"🛰️ {player_name} connecting\\n"
+                        f"🛰️ {player_name} connecting\n"
                         f"🕒 {line[:8]}"
                     ),
                     color=0x9C8A00
@@ -541,7 +690,7 @@ async def parse_adm():
         ):
 
             player_match = re.search(
-                r'Player\\s+"([^"]+)"',
+                r'Player\s+"([^"]+)"',
                 line,
                 re.IGNORECASE
             )
@@ -552,9 +701,11 @@ async def parse_adm():
 
                 online_players.add(player_name)
 
+                print(f"CONNECTED EVENT: {player_name}")
+
                 embed = discord.Embed(
                     description=(
-                        f"☣️ {player_name} connected\\n"
+                        f"☣️ {player_name} connected\n"
                         f"🕒 {line[:8]}"
                     ),
                     color=0x4E7F3D
@@ -576,7 +727,7 @@ async def parse_adm():
         ):
 
             player_match = re.search(
-                r'Player\\s+"([^"]+)"',
+                r'Player\s+"([^"]+)"',
                 line,
                 re.IGNORECASE
             )
@@ -587,9 +738,11 @@ async def parse_adm():
 
                 online_players.discard(player_name)
 
+                print(f"DISCONNECTED EVENT: {player_name}")
+
                 embed = discord.Embed(
                     description=(
-                        f"❌ {player_name} disconnected\\n"
+                        f"❌ {player_name} disconnected\n"
                         f"🕒 {line[:8]}"
                     ),
                     color=0x8E2E2E
@@ -611,12 +764,37 @@ async def parse_adm():
 @tasks.loop(seconds=30)
 async def adm_loop():
 
-    success = await asyncio.to_thread(
-        download_adm
-    )
+    print("ADM LOOP RUNNING")
 
-    if success:
-        await parse_adm()
+    try:
+
+        success = await asyncio.to_thread(
+            download_adm
+        )
+
+        print(f"DOWNLOAD RESULT: {success}")
+
+        if success:
+
+            print("STARTING PARSE")
+
+            await parse_adm()
+
+            print("PARSE COMPLETE")
+
+        else:
+
+            print("DOWNLOAD FAILED")
+
+    except Exception as e:
+
+        print(f"ADM LOOP ERROR: {e}")
+
+
+@adm_loop.error
+async def adm_loop_error(error):
+
+    print(f"ADM LOOP CRASHED: {error}")
 
 
 # ================= START =================
