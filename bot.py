@@ -79,6 +79,10 @@ TRACK LIVE ADM STATE
 last_line_count = 0
 last_growth_time = datetime.now(UTC)
 
+TRACK STALE FILES
+
+growth_fail_count = 0
+
 ================= SWEAR TRACKER =================
 
 SWEAR_WORDS = [
@@ -170,6 +174,7 @@ global current_adm
 global current_adm_size
 global last_line_count
 global last_growth_time
+global growth_fail_count
 
 try:
 
@@ -260,7 +265,7 @@ try:
 
         return current_adm
 
-    # ================= CURRENT ADM STILL GROWING =================
+    # ================= FIND CURRENT FILE =================
 
     current_file = None
 
@@ -275,11 +280,12 @@ try:
             current_file = adm
             break
 
+    # ================= CURRENT FILE GROWING =================
+
     if current_file:
 
         latest_size = current_file["size"]
 
-        # FILE STILL ACTIVE
         if latest_size > current_adm_size:
 
             print(
@@ -291,27 +297,59 @@ try:
 
             last_growth_time = datetime.now(UTC)
 
+            growth_fail_count = 0
+
             return current_adm
 
-    # ================= CHECK FOR NEWER GROWING ADM =================
+        else:
 
-    if newest_adm != current_adm:
-
-        # ONLY SWITCH IF NEW FILE IS ACTUALLY GROWING
-        if newest_size > 500:
+            growth_fail_count += 1
 
             print(
-                f"NEW LIVE ADM DETECTED: "
-                f"{newest_adm}"
+                f"ADM NOT GROWING | "
+                f"FAIL COUNT: {growth_fail_count}"
             )
 
-            current_adm = newest_adm
-            current_adm_size = newest_size
+    # ================= SEARCH FOR NEW GROWING ADM =================
 
-            # RESET TRACKERS
+    if growth_fail_count >= 3:
+
+        print(
+            "SEARCHING FOR NEW GROWING ADM..."
+        )
+
+        for adm in adm_files:
+
+            possible_adm = (
+                f"{SEARCH_DIR}/{adm['name']}"
+            )
+
+            possible_size = adm["size"]
+
+            # IGNORE CURRENT FILE
+            if possible_adm == current_adm:
+                continue
+
+            # MUST HAVE REAL DATA
+            if possible_size < 500:
+                continue
+
+            print(
+                f"SWITCHING TO NEW LIVE ADM: "
+                f"{possible_adm}"
+            )
+
+            current_adm = possible_adm
+
+            current_adm_size = possible_size
+
+            growth_fail_count = 0
+
             last_line_count = 0
 
             processed_lines.clear()
+
+            last_growth_time = datetime.now(UTC)
 
             return current_adm
 
@@ -322,20 +360,24 @@ try:
         - last_growth_time
     ).total_seconds()
 
-    # FORCE SEARCH AFTER 4 HOURS STALE
     if time_since_growth > 14400:
 
         print(
-            "ADM STALE OVER 4 HOURS "
+            "ADM DEAD OVER 4 HOURS "
             "- FORCING NEWEST FILE"
         )
 
         current_adm = newest_adm
+
         current_adm_size = newest_size
+
+        growth_fail_count = 0
 
         last_line_count = 0
 
         processed_lines.clear()
+
+        last_growth_time = datetime.now(UTC)
 
     print(f"ACTIVE ADM: {current_adm}")
 
@@ -411,50 +453,6 @@ except Exception as e:
     print(f"DOWNLOAD ERROR: {e}")
 
     return False
-
-async def ensure_player(discord_id, username):
-
-result = supabase.table(
-    "player_data"
-).select("*").eq(
-    "discord_id",
-    discord_id
-).execute()
-
-if not result.data:
-
-    supabase.table(
-        "player_data"
-    ).insert({
-        "discord_id": discord_id,
-        "username": username,
-        "scrap": 1000,
-        "bank": 0,
-        "kills": 0,
-        "deaths": 0,
-        "xp": 0,
-        "level": 1,
-        "bounty": 0,
-        "vehicles": 0,
-        "faction": "",
-        "territory": "",
-        "heat": 0,
-        "killstreak": 0
-    }).execute()
-
-async def get_player(discord_id):
-
-result = supabase.table(
-    "player_data"
-).select("*").eq(
-    "discord_id",
-    discord_id
-).execute()
-
-if result.data:
-    return result.data[0]
-
-return None
 ================= READY =================
 
 @bot.event
@@ -562,8 +560,6 @@ for raw_line in new_lines:
 
     lower = line.lower()
 
-    # ================= CONNECTING =================
-
     if (
         "is connecting" in lower
         or "connecting" in lower
@@ -596,8 +592,6 @@ for raw_line in new_lines:
             await connect_channel.send(
                 embed=embed
             )
-
-    # ================= CONNECTED =================
 
     elif (
         "is connected" in lower
@@ -633,8 +627,6 @@ for raw_line in new_lines:
             await connect_channel.send(
                 embed=embed
             )
-
-    # ================= DISCONNECTED =================
 
     elif (
         "has been disconnected" in lower
