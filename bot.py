@@ -11,7 +11,7 @@ from discord import app_commands
 from supabase import create_client
 from openai import AsyncOpenAI
 
-# ================= CONFIG =================
+================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -19,7 +19,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ================= CHANNEL IDS =================
+================= CHANNEL IDS =================
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 
@@ -30,7 +30,7 @@ BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
-# ================= FTP =================
+================= FTP =================
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
@@ -41,7 +41,7 @@ SEARCH_DIR = "/dayzxb/config"
 
 LOCAL_LOG_FILE = "live.ADM"
 
-# ================= DISCORD =================
+================= DISCORD =================
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -51,20 +51,20 @@ command_prefix="!",
 intents=intents
 )
 
-# ================= OPENAI =================
+================= OPENAI =================
 
 client = AsyncOpenAI(
 api_key=OPENAI_API_KEY
 )
 
-# ================= SUPABASE =================
+================= SUPABASE =================
 
 supabase = create_client(
 SUPABASE_URL,
 SUPABASE_KEY
 )
 
-# ================= GLOBALS =================
+================= GLOBALS =================
 
 processed_lines = set()
 MAX_PROCESSED_LINES = 2000
@@ -83,7 +83,7 @@ TRACK STALE FILES
 
 growth_fail_count = 0
 
-# ================= SWEAR TRACKER =================
+================= SWEAR TRACKER =================
 
 SWEAR_WORDS = [
 "fuck",
@@ -97,7 +97,7 @@ SWEAR_WORDS = [
 
 swear_tracker = {}
 
-# ================= ECONOMY =================
+================= ECONOMY =================
 
 SHOP_ITEMS = {
 "water": 10,
@@ -108,7 +108,7 @@ SHOP_ITEMS = {
 "rifle": 600
 }
 
-# ================= FILTERS =================
+================= FILTERS =================
 
 IGNORE_PATTERNS = [
 "[CE]",
@@ -129,7 +129,7 @@ IGNORE_PATTERNS = [
 
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
-# ================= HELPERS =================
+================= HELPERS =================
 
 def should_ignore(line):
 
@@ -166,7 +166,7 @@ ftp.login(
 ftp.prot_p()
 
 return ftp
-# ================= LIVE ADM FINDER =================
+================= LIVE ADM FINDER =================
 
 def find_active_adm():
 
@@ -252,8 +252,7 @@ try:
 
     newest_size = newest["size"]
 
-    # ================= FIRST RUN =================
-
+    # FIRST RUN
     if current_adm is None:
 
         current_adm = newest_adm
@@ -265,8 +264,7 @@ try:
 
         return current_adm
 
-    # ================= FIND CURRENT FILE =================
-
+    # FIND CURRENT FILE
     current_file = None
 
     for adm in adm_files:
@@ -280,8 +278,7 @@ try:
             current_file = adm
             break
 
-    # ================= CURRENT FILE GROWING =================
-
+    # CURRENT FILE GROWING
     if current_file:
 
         latest_size = current_file["size"]
@@ -310,8 +307,7 @@ try:
                 f"FAIL COUNT: {growth_fail_count}"
             )
 
-    # ================= SEARCH FOR NEW GROWING ADM =================
-
+    # SEARCH FOR NEW GROWING FILE
     if growth_fail_count >= 3:
 
         print(
@@ -326,11 +322,9 @@ try:
 
             possible_size = adm["size"]
 
-            # IGNORE CURRENT FILE
             if possible_adm == current_adm:
                 continue
 
-            # MUST HAVE REAL DATA
             if possible_size < 500:
                 continue
 
@@ -340,11 +334,9 @@ try:
             )
 
             current_adm = possible_adm
-
             current_adm_size = possible_size
 
             growth_fail_count = 0
-
             last_line_count = 0
 
             processed_lines.clear()
@@ -353,8 +345,7 @@ try:
 
             return current_adm
 
-    # ================= FAILSAFE =================
-
+    # FAILSAFE
     time_since_growth = (
         datetime.now(UTC)
         - last_growth_time
@@ -368,11 +359,9 @@ try:
         )
 
         current_adm = newest_adm
-
         current_adm_size = newest_size
 
         growth_fail_count = 0
-
         last_line_count = 0
 
         processed_lines.clear()
@@ -388,7 +377,7 @@ except Exception as e:
     print(f"ADM SEARCH ERROR: {e}")
 
     return None
-# ================= DOWNLOAD ADM =================
+================= DOWNLOAD ADM =================
 
 def download_adm():
 
@@ -453,7 +442,7 @@ except Exception as e:
     print(f"DOWNLOAD ERROR: {e}")
 
     return False
-# ================= READY =================
+================= READY =================
 
 @bot.event
 async def on_ready():
@@ -464,7 +453,7 @@ if not adm_loop.is_running():
     adm_loop.start()
 
 print(f"✅ Logged in as {bot.user}")
-# ================= SWEAR TRACKER =================
+================= SWEAR TRACKER =================
 
 @bot.event
 async def on_message(message):
@@ -493,7 +482,7 @@ if count > 0:
     swear_tracker[user_id]["count"] += count
 
 await bot.process_commands(message)
-# ================= ADM PARSER =================
+================= ADM PARSER =================
 
 async def parse_adm():
 
@@ -525,7 +514,6 @@ total_lines = len(lines)
 
 print(f"ADM TOTAL LINES: {total_lines}")
 
-# ONLY PROCESS NEW LINES
 new_lines = lines[last_line_count:]
 
 print(
@@ -662,7 +650,7 @@ for raw_line in new_lines:
             await connect_channel.send(
                 embed=embed
             )
-# ================= TASKS =================
+================= TASKS =================
 
 @tasks.loop(seconds=30)
 async def adm_loop():
@@ -673,6 +661,6 @@ success = await asyncio.to_thread(
 
 if success:
     await parse_adm()
-# ================= START =================
+================= START =================
 
 bot.run(DISCORD_TOKEN)
