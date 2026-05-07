@@ -145,7 +145,7 @@ def connect_ftp():
     ftp.connect(
         FTP_HOST,
         FTP_PORT,
-        timeout=30
+        timeout=60
     )
 
     ftp.login(
@@ -221,18 +221,41 @@ def download_adm():
         if not active_adm:
             return False
 
-        ftp = connect_ftp()
+        ftp = FTP_TLS()
+
+        ftp.connect(
+            FTP_HOST,
+            FTP_PORT,
+            timeout=60
+        )
+
+        ftp.login(
+            FTP_USER,
+            FTP_PASS
+        )
+
+        ftp.prot_p()
+
+        ftp.cwd(SEARCH_DIR)
+
+        filename = os.path.basename(active_adm)
+
+        if os.path.exists(LOCAL_LOG_FILE):
+            os.remove(LOCAL_LOG_FILE)
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
-                f"RETR {active_adm}",
-                f.write
+                f"RETR {filename}",
+                f.write,
+                blocksize=1024
             )
 
         ftp.quit()
 
-        print("ADM DOWNLOADED")
+        size = os.path.getsize(LOCAL_LOG_FILE)
+
+        print(f"ADM DOWNLOADED | SIZE: {size}")
 
         return True
 
@@ -489,7 +512,7 @@ async def parse_adm():
 
 # ================= TASKS =================
 
-@tasks.loop(seconds=120)
+@tasks.loop(seconds=30)
 async def adm_loop():
 
     success = download_adm()
