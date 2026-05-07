@@ -1,16 +1,20 @@
 import os
 import re
 import asyncio
+import random
 import discord
+
 from discord.ext import commands
 from discord import app_commands
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from supabase import create_client
+from openai import AsyncOpenAI
 
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # ================= FEED CHANNELS =================
 
@@ -54,6 +58,22 @@ bot = commands.Bot(
     intents=intents
 )
 
+# ================= OPENAI =================
+
+client = AsyncOpenAI(
+    api_key=OPENAI_API_KEY
+)
+
+# ================= AI MEMORY =================
+
+conversation_memory = {}
+
+MAX_MEMORY = 15
+
+AI_CHANNELS = []
+
+AI_COOLDOWN = {}
+
 # ================= SUPABASE =================
 
 supabase = None
@@ -87,6 +107,39 @@ current_log_file = None
 # ================= ONLINE PLAYER TRACKING =================
 
 online_players = set()
+
+# ================= AI SYSTEM PROMPT =================
+
+SYSTEM_PROMPT = """
+You are Wandering Bot.
+
+You are a conversational AI for a hardcore DayZ Discord server.
+
+Personality:
+- casual
+- immersive
+- intelligent
+- slightly sarcastic sometimes
+- survival-focused
+- natural sounding
+
+Behavior:
+- keep responses short unless needed
+- adapt slightly to user slang/tone
+- avoid repetitive responses
+- speak naturally like a real survivor
+
+You can:
+- discuss DayZ
+- answer server questions
+- joke with players
+- maintain conversations naturally
+
+Never:
+- spam
+- write huge essays constantly
+- pretend to be human
+"""
 
 # ================= DATE EXTRACTION =================
 
@@ -411,6 +464,59 @@ async def parse_new_lines():
 
         print("❌ PARSE ERROR:", e)
 
+# ================= AI RESPONSE =================
+
+async def generate_ai_response(user_id, username, message_content):
+
+    try:
+
+        if user_id not in conversation_memory:
+            conversation_memory[user_id] = []
+
+        memory = conversation_memory[user_id]
+
+        memory.append({
+            "role": "user",
+            "content": f"{username}: {message_content}"
+        })
+
+        memory = memory[-MAX_MEMORY:]
+
+        conversation_memory[user_id] = memory
+
+        messages = [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT
+            }
+        ]
+
+        messages.extend(memory)
+
+        response = await client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=messages,
+            temperature=0.8,
+            max_tokens=250
+        )
+
+        ai_reply = response.choices[0].message.content
+
+        memory.append({
+            "role": "assistant",
+            "content": ai_reply
+        })
+
+        conversation_memory[user_id] = memory[-MAX_MEMORY:]
+
+        return ai_reply
+
+    except Exception as e:
+
+        print(f"❌ OPENAI ERROR: {e}")
+
+        return "The radio signal got lost somewhere in Chernarus."
+
 # ================= SLASH COMMANDS =================
 
 @bot.tree.command(
@@ -499,110 +605,10 @@ async def serverstatus(interaction: discord.Interaction):
             "✅ FTP Connected\n"
             "✅ ADM Tracking Active\n"
             "✅ Slash Commands Online\n"
+            "✅ AI Conversations Online\n"
             "✅ Log Monitoring Active"
         ),
         color=0x2ecc71
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= SHOP =================
-
-@bot.tree.command(
-    name="shop",
-    description="View trader shop"
-)
-async def shop(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="🛒 Wandering Trader",
-        description=(
-            "• AKM = 10 Scrap\n"
-            "• Plate Carrier = 8 Scrap\n"
-            "• Tundra = 12 Scrap\n"
-            "• NBC Suit = 15 Scrap"
-        ),
-        color=0xFFD700
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= RULES =================
-
-@bot.tree.command(
-    name="rules",
-    description="Show server rules"
-)
-async def rules(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="📜 Server Rules",
-        description=(
-            "1. No cheating\n"
-            "2. Respect all players\n"
-            "3. No exploiting\n"
-            "4. Follow raid rules\n"
-            "5. Admin decisions are final"
-        ),
-        color=0xe67e22
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= RESTART =================
-
-@bot.tree.command(
-    name="restart",
-    description="Show next restart info"
-)
-async def restart(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="🔄 Server Restart",
-        description="Server restarts every 4 hours.",
-        color=0xe74c3c
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= DISCORD =================
-
-@bot.tree.command(
-    name="discord",
-    description="Show Discord info"
-)
-async def discordinfo(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="💬 Wandering Community",
-        description="Welcome to the Wandering DayZ community.",
-        color=0x5865F2
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= MAP =================
-
-@bot.tree.command(
-    name="map",
-    description="Open iZurvive map"
-)
-async def mapcommand(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="🗺️ Chernarus Map",
-        description="https://www.izurvive.com/chernarusplussatmap",
-        color=0x1abc9c
     )
 
     embed = style_embed(embed)
@@ -629,7 +635,8 @@ async def helpcommand(interaction: discord.Interaction):
             "/restart\n"
             "/discord\n"
             "/map\n"
-            "/help"
+            "/help\n\n"
+            "Mention the bot or start with 'wandering' to chat."
         ),
         color=0x9b59b6
     )
@@ -637,6 +644,74 @@ async def helpcommand(interaction: discord.Interaction):
     embed = style_embed(embed)
 
     await interaction.response.send_message(embed=embed)
+
+# ================= AI CHAT SYSTEM =================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    await bot.process_commands(message)
+
+    should_reply = False
+
+    # BOT MENTION
+    if bot.user in message.mentions:
+        should_reply = True
+
+    # STARTS WITH wandering
+    elif message.content.lower().startswith("wandering"):
+        should_reply = True
+
+    # RANDOM CHAT IN AI CHANNELS
+    elif message.channel.id in AI_CHANNELS:
+
+        chance = random.randint(1, 100)
+
+        if chance <= 15:
+            should_reply = True
+
+    if not should_reply:
+        return
+
+    user_id = str(message.author.id)
+
+    now = asyncio.get_event_loop().time()
+
+    if user_id in AI_COOLDOWN:
+
+        if now - AI_COOLDOWN[user_id] < 8:
+            return
+
+    AI_COOLDOWN[user_id] = now
+
+    try:
+
+        async with message.channel.typing():
+
+            await asyncio.sleep(
+                random.uniform(1.0, 2.5)
+            )
+
+            response = await generate_ai_response(
+                user_id,
+                message.author.name,
+                message.content
+            )
+
+        if len(response) > 1900:
+            response = response[:1900]
+
+        await message.reply(
+            response,
+            mention_author=False
+        )
+
+    except Exception as e:
+
+        print(f"❌ AI CHAT ERROR: {e}")
 
 # ================= LOOP =================
 
