@@ -1,45 +1,43 @@
 import os
+import re
 import discord
 
 from ftplib import FTP_TLS
+from datetime import datetime, UTC
 from discord.ext import commands, tasks
 
-# ================= CONFIG =================
-
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-SEARCH_DIRECTORIES = [
-    "/",
-    "/dayzxb",
-    "/dayzxb/config",
-    "/dayzxb/profile",
-    "/dayzxb/profiles",
-    "/dayzxb/logs",
-    "/dayzxb/mpmissions"
-]
-
-LOG_EXTENSIONS = [
-    ".ADM",
-    ".log",
-    ".LOG",
-    ".txt"
-]
-
-# ================= DISCORD =================
+REMOTE_LOG_FILE = "/dayzxb/config/server.log"
+LOCAL_LOG_FILE = "server.log"
 
 intents = discord.Intents.default()
+intents.message_content = True
 
 bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
 
-# ================= FTP =================
+processed_lines = set()
+online_players = set()
+
+def style_embed(embed):
+
+    embed.timestamp = datetime.now(UTC)
+
+    embed.set_footer(
+        text="Wandering Bot"
+    )
+
+    return embed
 
 def connect_ftp():
 
@@ -60,91 +58,195 @@ def connect_ftp():
 
     return ftp
 
-# ================= DISCOVERY =================
-
-def discover_logs():
-
-    discovered = []
+def download_server_log():
 
     try:
 
         ftp = connect_ftp()
 
-        for directory in SEARCH_DIRECTORIES:
+        with open(LOCAL_LOG_FILE, "wb") as f:
 
-            try:
-
-                ftp.cwd(directory)
-
-                files = ftp.nlst()
-
-                print(f"SCANNING: {directory}")
-
-                for file in files:
-
-                    lower = file.lower()
-
-                    if any(
-                        lower.endswith(ext.lower())
-                        for ext in LOG_EXTENSIONS
-                    ):
-
-                        full_path = f"{directory}/{file}"
-
-                        discovered.append(full_path)
-
-                        print(f"FOUND LOG: {full_path}")
-
-            except Exception as e:
-
-                print(
-                    f"SCAN FAILED: "
-                    f"{directory} -> {e}"
-                )
+            ftp.retrbinary(
+                f"RETR {REMOTE_LOG_FILE}",
+                f.write
+            )
 
         ftp.quit()
 
+        print("SERVER.LOG DOWNLOADED")
+
+        return True
+
     except Exception as e:
 
-        print(f"FTP ERROR: {e}")
+        print(f"DOWNLOAD ERROR: {e}")
 
-    return discovered
-
-# ================= READY =================
+        return False
 
 @bot.event
 async def on_ready():
 
+    adm_loop.start()
+
     print(f"Logged in as {bot.user}")
 
-    log_discovery.start()
+async def parse_server_log():
 
-# ================= TASK =================
+    if not os.path.exists(LOCAL_LOG_FILE):
 
-@tasks.loop(hours=12)
-async def log_discovery():
+        print("LOCAL SERVER.LOG MISSING")
+        return
 
-    results = discover_logs()
+    with open(
+        LOCAL_LOG_FILE,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
 
-    print("=" * 50)
-    print("LOG DISCOVERY COMPLETE")
-    print("=" * 50)
+        lines = f.readlines()
 
-    for result in results:
+    print(f"SERVER.LOG READ: {len(lines)}")
 
-        print(result)
-
-    print("=" * 50)
-
-# ================= COMMAND =================
-
-@bot.command()
-async def logs(ctx):
-
-    await ctx.send(
-        "Check container logs for FTP discovery results."
+    killfeed_channel = bot.get_channel(
+        KILLFEED_CHANNEL_ID
     )
 
-# ================= START =================
+    for raw_line in lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if line in processed_lines:
+            continue
+
+        processed_lines.add(line)
+
+        if (
+            "built" in line.lower()
+            or "watchtower" in line.lower()
+            or "wall_base" in line.lower()
+            or "construction" in line.lower()
+        ):
+
+            embed = discord.Embed(
+                title="ð¨ Build Event",
+                description=line[:3500],
+                color=0x2ECC71
+            )
+
+            if killfeed_channel:
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+                print("BUILD EVENT SENT")
+
+        if (
+            "placed" in line.lower()
+            or "deployed" in line.lower()
+        ):
+
+            embed = discord.Embed(
+                title="ð¦ Deploy Event",
+                description=line[:3500],
+                color=0x3498DB
+            )
+
+            if killfeed_channel:
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+                print("DEPLOY EVENT SENT")
+
+        if (
+            "destroyed" in line.lower()
+            or "breached" in line.lower()
+            or "explosive" in line.lower()
+        ):
+
+            embed = discord.Embed(
+                title="ð´ Raid Event",
+                description=line[:3500],
+                color=0xE74C3C
+            )
+
+            if killfeed_channel:
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+                print("RAID EVENT SENT")
+
+        if "killed by player" in line.lower():
+
+            victim_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            killer_match = re.search(
+                r'killed by Player "([^"]+)"',
+                line
+            )
+
+            if victim_match and killer_match:
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                embed = discord.Embed(
+                    title="â ï¸ PvP Kill",
+                    description=(
+                        f"Killer: {killer}\n"
+                        f"Victim: {victim}"
+                    ),
+                    color=0xC0392B
+                )
+
+                if killfeed_channel:
+
+                    await killfeed_channel.send(
+                        embed=style_embed(embed)
+                    )
+
+                    print("KILL EVENT SENT")
+
+@tasks.loop(seconds=60)
+async def adm_loop():
+
+    success = download_server_log()
+
+    if success:
+
+        await parse_server_log()
+
+@bot.command()
+async def online(ctx):
+
+    if not online_players:
+
+        await ctx.send(
+            "No online players tracked."
+        )
+
+        return
+
+    await ctx.send(
+        "\n".join(online_players)
+    )
+
+@bot.command()
+async def logcheck(ctx):
+
+    await ctx.send(
+        f"Reading:\n{REMOTE_LOG_FILE}"
+    )
 
 bot.run(DISCORD_TOKEN)
