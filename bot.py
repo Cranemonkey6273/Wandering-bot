@@ -170,9 +170,6 @@ def find_active_adm():
 
         ftp.cwd(SEARCH_DIR)
 
-        # IMPORTANT FIX
-        ftp.voidcmd("TYPE I")
-
         files = ftp.nlst()
 
         adm_files = []
@@ -182,6 +179,9 @@ def find_active_adm():
             if file.endswith(".ADM"):
 
                 try:
+
+                    # FORCE BINARY MODE BEFORE SIZE
+                    ftp.voidcmd("TYPE I")
 
                     modified = ftp.sendcmd(f"MDTM {file}")
 
@@ -208,7 +208,7 @@ def find_active_adm():
             ftp.quit()
             return None
 
-        # Sort newest first
+        # SORT NEWEST FIRST
         adm_files.sort(
             key=lambda x: x["modified"],
             reverse=True
@@ -224,17 +224,16 @@ def find_active_adm():
                 f"{adm['modified']}"
             )
 
-        # Ignore tiny restart logs
+        # IGNORE TINY RESTART LOGS
         valid_logs = [
             adm for adm in adm_files
             if adm["size"] > 50000
         ]
 
-        # fallback if none exist
+        # FALLBACK
         if not valid_logs:
             valid_logs = adm_files
 
-        # choose newest valid log
         best_adm = valid_logs[0]
 
         current_adm = (
@@ -256,8 +255,6 @@ def find_active_adm():
 
         return None
 
-
-# ================= DOWNLOAD ADM =================
 
 def download_adm():
 
@@ -285,7 +282,7 @@ def download_adm():
 
         ftp.cwd(SEARCH_DIR)
 
-        # IMPORTANT FIX
+        # FORCE BINARY MODE
         ftp.voidcmd("TYPE I")
 
         filename = os.path.basename(active_adm)
@@ -315,8 +312,6 @@ def download_adm():
 
         return False
 
-
-# ================= PLAYER HELPERS =================
 
 async def ensure_player(discord_id, username):
 
@@ -461,8 +456,6 @@ async def parse_adm():
 
         lower = line.lower()
 
-        print(line)
-
         if (
             "is connecting" in lower
             or "connecting" in lower
@@ -561,95 +554,6 @@ async def adm_loop():
 
     if success:
         await parse_adm()
-
-
-# ================= COMMANDS =================
-
-@bot.tree.command(
-    name="balance",
-    description="View stats"
-)
-async def balance(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    await ensure_player(
-        str(interaction.user.id),
-        interaction.user.name
-    )
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    embed = discord.Embed(
-        title="💰 Survivor Stats",
-        description=(
-            f"Pennies: {player['scrap']}\n"
-            f"Level: {player['level']}\n"
-            f"XP: {player['xp']}\n"
-            f"Kills: {player['kills']}\n"
-            f"Deaths: {player['deaths']}"
-        ),
-        color=0xFFD700
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-
-@bot.tree.command(
-    name="swears",
-    description="View your swear count"
-)
-async def swears(interaction: discord.Interaction):
-
-    user_id = str(interaction.user.id)
-
-    count = swear_tracker.get(user_id, {}).get("count", 0)
-
-    embed = discord.Embed(
-        title="🤬 Swear Counter",
-        description=f"You have sworn {count} times.",
-        color=0xE74C3C
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(
-    name="swearlb",
-    description="Swear leaderboard"
-)
-async def swearlb(interaction: discord.Interaction):
-
-    sorted_users = sorted(
-        swear_tracker.items(),
-        key=lambda x: x[1]["count"],
-        reverse=True
-    )
-
-    desc = ""
-
-    for i, (_, data) in enumerate(sorted_users[:10], start=1):
-
-        desc += f"{i}. {data['name']} — {data['count']} swears\n"
-
-    if not desc:
-        desc = "No swears tracked yet."
-
-    embed = discord.Embed(
-        title="🏆 Swear Leaderboard",
-        description=desc,
-        color=0xF39C12
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await interaction.response.send_message(embed=embed)
 
 
 # ================= START =================
