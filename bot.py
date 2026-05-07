@@ -1,6 +1,7 @@
 import os
 import re
 import random
+import asyncio
 import discord
 
 from ftplib import FTP_TLS
@@ -180,7 +181,7 @@ def find_active_adm():
 
                 try:
 
-                    # FORCE BINARY MODE BEFORE SIZE
+                    # FORCE BINARY MODE
                     ftp.voidcmd("TYPE I")
 
                     modified = ftp.sendcmd(f"MDTM {file}")
@@ -208,7 +209,6 @@ def find_active_adm():
             ftp.quit()
             return None
 
-        # SORT NEWEST FIRST
         adm_files.sort(
             key=lambda x: x["modified"],
             reverse=True
@@ -230,7 +230,6 @@ def find_active_adm():
             if adm["size"] > 50000
         ]
 
-        # FALLBACK
         if not valid_logs:
             valid_logs = adm_files
 
@@ -550,7 +549,7 @@ async def parse_adm():
 @tasks.loop(seconds=30)
 async def adm_loop():
 
-    success = download_adm()
+    success = await asyncio.to_thread(download_adm)
 
     if success:
         await parse_adm()
