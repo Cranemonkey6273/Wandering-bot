@@ -1,12 +1,11 @@
 import os
-import re
-import asyncio
 import random
+import asyncio
 import discord
 
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC
 from supabase import create_client
 from openai import AsyncOpenAI
 
@@ -17,6 +16,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 
 # ================= DISCORD =================
 
@@ -36,48 +37,36 @@ client = AsyncOpenAI(
 
 # ================= SUPABASE =================
 
-supabase = None
+supabase = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY
+)
 
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(
-        SUPABASE_URL,
-        SUPABASE_KEY
-    )
-
-# ================= MEMORY =================
-
-conversation_memory = {}
-
-# ================= SHOP =================
+# ================= SHOPS =================
 
 SHOP_ITEMS = {
     "water": 10,
     "beans": 15,
-    "knife": 50,
-    "ammo": 75,
+    "ammo": 50,
     "medkit": 100,
     "armor": 250,
     "rifle": 500
 }
 
 BLACKMARKET_ITEMS = {
-    "explosives": 1500,
     "nightvision": 2000,
-    "rare_rifle": 3000
+    "explosives": 3000,
+    "rare_rifle": 5000
 }
 
-# ================= SYSTEM PROMPT =================
+# ================= AI =================
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = '''
 You are Wandering Bot.
-
-You are a hardcore DayZ AI.
-
-Be immersive.
-Be survival focused.
-Be natural.
-Keep responses fairly short.
-"""
+You are a DayZ survival AI.
+Speak naturally.
+Keep responses immersive.
+'''
 
 # ================= HELPERS =================
 
@@ -93,14 +82,14 @@ def style_embed(embed):
 
 async def ensure_player(discord_id, username):
 
-    existing = supabase.table(
+    result = supabase.table(
         "player_data"
     ).select("*").eq(
         "discord_id",
         discord_id
     ).execute()
 
-    if not existing.data:
+    if not result.data:
 
         supabase.table(
             "player_data"
@@ -112,8 +101,7 @@ async def ensure_player(discord_id, username):
             "kills": 0,
             "deaths": 0,
             "faction": "",
-            "last_daily": "",
-            "last_work": ""
+            "territory": ""
         }).execute()
 
 async def get_player(discord_id):
@@ -137,39 +125,14 @@ async def add_money(discord_id, amount):
     if not player:
         return
 
-    new_total = player["scrap"] + amount
-
     supabase.table(
         "player_data"
     ).update({
-        "scrap": new_total
+        "scrap": player["scrap"] + amount
     }).eq(
         "discord_id",
         discord_id
     ).execute()
-
-async def remove_money(discord_id, amount):
-
-    player = await get_player(discord_id)
-
-    if not player:
-        return False
-
-    if player["scrap"] < amount:
-        return False
-
-    new_total = player["scrap"] - amount
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "scrap": new_total
-    }).eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    return True
 
 # ================= READY =================
 
@@ -177,6 +140,8 @@ async def remove_money(discord_id, amount):
 async def on_ready():
 
     await bot.tree.sync()
+
+    random_world_events.start()
 
     print(f"â Logged in as {bot.user}")
 
@@ -215,125 +180,11 @@ async def balance(interaction: discord.Interaction):
         embed=style_embed(embed)
     )
 
-# ================= DAILY =================
-
-@bot.tree.command(
-    name="daily",
-    description="Claim daily reward"
-)
-async def daily(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    await ensure_player(
-        str(interaction.user.id),
-        interaction.user.name
-    )
-
-    reward = random.randint(150, 400)
-
-    await add_money(
-        str(interaction.user.id),
-        reward
-    )
-
-    embed = discord.Embed(
-        title="ð Daily Reward",
-        description=f"You earned {reward} pennies.",
-        color=0x00FF00
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= WORK =================
-
-@bot.tree.command(
-    name="work",
-    description="Work for money"
-)
-async def work(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    jobs = [
-        "guarded a trader convoy",
-        "cleared infected",
-        "salvaged military loot",
-        "protected survivors",
-        "hunted wolves"
-    ]
-
-    reward = random.randint(50, 150)
-
-    await add_money(
-        str(interaction.user.id),
-        reward
-    )
-
-    embed = discord.Embed(
-        title="ð ï¸ Work Complete",
-        description=(
-            f"You {random.choice(jobs)}\n"
-            f"+{reward} pennies"
-        ),
-        color=0x3498DB
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= ROB =================
-
-@bot.tree.command(
-    name="rob",
-    description="Attempt robbery"
-)
-async def rob(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    success = random.randint(1, 100)
-
-    if success <= 45:
-
-        reward = random.randint(100, 500)
-
-        await add_money(
-            str(interaction.user.id),
-            reward
-        )
-
-        text = f"ð° Robbery successful. +{reward} pennies"
-
-    else:
-
-        penalty = random.randint(50, 200)
-
-        await remove_money(
-            str(interaction.user.id),
-            penalty
-        )
-
-        text = f"ð You got caught. -{penalty} pennies"
-
-    embed = discord.Embed(
-        title="ð« Robbery",
-        description=text,
-        color=0xE74C3C
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
 # ================= SHOP =================
 
 @bot.tree.command(
     name="shop",
-    description="View trader shop"
+    description="Trader shop"
 )
 async def shop(interaction: discord.Interaction):
 
@@ -359,7 +210,7 @@ async def shop(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="blackmarket",
-    description="View black market"
+    description="Black market"
 )
 async def blackmarket(interaction: discord.Interaction):
 
@@ -410,12 +261,11 @@ async def buy(interaction: discord.Interaction, item: str):
 
         return
 
-    success = await remove_money(
-        str(interaction.user.id),
-        price
+    player = await get_player(
+        str(interaction.user.id)
     )
 
-    if not success:
+    if player["scrap"] < price:
 
         await interaction.followup.send(
             "â Not enough pennies."
@@ -424,257 +274,32 @@ async def buy(interaction: discord.Interaction, item: str):
         return
 
     supabase.table(
-        "purchase_orders"
+        "player_data"
+    ).update({
+        "scrap": player["scrap"] - price
+    }).eq(
+        "discord_id",
+        str(interaction.user.id)
+    ).execute()
+
+    # AUTO DELIVERY QUEUE
+
+    supabase.table(
+        "delivery_queue"
     ).insert({
         "discord_id": str(interaction.user.id),
         "username": interaction.user.name,
         "item": item,
-        "price": price,
-        "status": "pending"
+        "status": "queued"
     }).execute()
 
     embed = discord.Embed(
-        title="â Purchase Complete",
+        title="ð¦ Order Queued",
         description=(
-            f"Bought: {item}\n"
-            f"Cost: {price} pennies"
+            f"Item: {item}\n"
+            f"Delivery status: queued"
         ),
         color=0x2ECC71
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= LEADERBOARD =================
-
-@bot.tree.command(
-    name="leaderboard",
-    description="Top richest survivors"
-)
-async def leaderboard(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    results = supabase.table(
-        "player_data"
-    ).select("*").order(
-        "scrap",
-        desc=True
-    ).limit(10).execute()
-
-    text = ""
-
-    for index, player in enumerate(results.data, start=1):
-
-        text += (
-            f"{index}. "
-            f"{player['username']} â "
-            f"{player['scrap']} pennies\n"
-        )
-
-    embed = discord.Embed(
-        title="ð Richest Survivors",
-        description=text,
-        color=0xF1C40F
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= GIVE =================
-
-@bot.tree.command(
-    name="give",
-    description="Give pennies"
-)
-@app_commands.describe(
-    member="Member",
-    amount="Amount"
-)
-async def give(
-    interaction: discord.Interaction,
-    member: discord.Member,
-    amount: int
-):
-
-    await interaction.response.defer()
-
-    if amount <= 0:
-
-        await interaction.followup.send(
-            "â Invalid amount."
-        )
-
-        return
-
-    success = await remove_money(
-        str(interaction.user.id),
-        amount
-    )
-
-    if not success:
-
-        await interaction.followup.send(
-            "â Not enough pennies."
-        )
-
-        return
-
-    await add_money(
-        str(member.id),
-        amount
-    )
-
-    embed = discord.Embed(
-        title="ð¸ Transfer Complete",
-        description=(
-            f"{interaction.user.mention} sent "
-            f"{amount} pennies to "
-            f"{member.mention}"
-        ),
-        color=0x9B59B6
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= BANK DEPOSIT =================
-
-@bot.tree.command(
-    name="deposit",
-    description="Deposit into bank"
-)
-@app_commands.describe(
-    amount="Amount"
-)
-async def deposit(interaction: discord.Interaction, amount: int):
-
-    await interaction.response.defer()
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    if player["scrap"] < amount:
-
-        await interaction.followup.send(
-            "â Not enough pennies."
-        )
-
-        return
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "scrap": player["scrap"] - amount,
-        "bank": player["bank"] + amount
-    }).eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    await interaction.followup.send(
-        f"ð¦ Deposited {amount} pennies."
-    )
-
-# ================= WITHDRAW =================
-
-@bot.tree.command(
-    name="withdraw",
-    description="Withdraw from bank"
-)
-@app_commands.describe(
-    amount="Amount"
-)
-async def withdraw(interaction: discord.Interaction, amount: int):
-
-    await interaction.response.defer()
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    if player["bank"] < amount:
-
-        await interaction.followup.send(
-            "â Not enough bank funds."
-        )
-
-        return
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "scrap": player["scrap"] + amount,
-        "bank": player["bank"] - amount
-    }).eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    await interaction.followup.send(
-        f"ð¦ Withdrew {amount} pennies."
-    )
-
-# ================= SLOT MACHINE =================
-
-@bot.tree.command(
-    name="slots",
-    description="Play slots"
-)
-@app_commands.describe(
-    bet="Bet amount"
-)
-async def slots(interaction: discord.Interaction, bet: int):
-
-    await interaction.response.defer()
-
-    success = await remove_money(
-        str(interaction.user.id),
-        bet
-    )
-
-    if not success:
-
-        await interaction.followup.send(
-            "â Not enough pennies."
-        )
-
-        return
-
-    symbols = ["ð", "ð", "â¢ï¸", "ðª"]
-
-    result = [
-        random.choice(symbols),
-        random.choice(symbols),
-        random.choice(symbols)
-    ]
-
-    payout = 0
-
-    if len(set(result)) == 1:
-        payout = bet * 5
-
-    elif result.count(result[0]) == 2:
-        payout = bet * 2
-
-    if payout > 0:
-
-        await add_money(
-            str(interaction.user.id),
-            payout
-        )
-
-    embed = discord.Embed(
-        title="ð° Slot Machine",
-        description=(
-            f"{' '.join(result)}\n\n"
-            f"Payout: {payout}"
-        ),
-        color=0x1ABC9C
     )
 
     await interaction.followup.send(
@@ -705,7 +330,7 @@ async def createfaction(interaction: discord.Interaction, name: str):
 
     embed = discord.Embed(
         title="ð¡ï¸ Faction Created",
-        description=f"You founded: {name}",
+        description=f"You founded {name}",
         color=0x95A5A6
     )
 
@@ -713,75 +338,135 @@ async def createfaction(interaction: discord.Interaction, name: str):
         embed=style_embed(embed)
     )
 
-# ================= PENDING ORDERS =================
+# ================= TERRITORY =================
 
 @bot.tree.command(
-    name="pendingorders",
-    description="View pending orders"
-)
-async def pendingorders(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    results = supabase.table(
-        "purchase_orders"
-    ).select("*").eq(
-        "status",
-        "pending"
-    ).execute()
-
-    if not results.data:
-
-        await interaction.followup.send(
-            "No pending orders."
-        )
-
-        return
-
-    text = ""
-
-    for order in results.data:
-
-        text += (
-            f"#{order['id']} "
-            f"{order['username']} â "
-            f"{order['item']}\n"
-        )
-
-    embed = discord.Embed(
-        title="ð¦ Pending Orders",
-        description=text,
-        color=0x95A5A6
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= DELIVER =================
-
-@bot.tree.command(
-    name="deliver",
-    description="Deliver order"
+    name="claimterritory",
+    description="Claim territory"
 )
 @app_commands.describe(
-    order_id="Order ID"
+    territory="Territory name"
 )
-async def deliver(interaction: discord.Interaction, order_id: int):
+async def claimterritory(
+    interaction: discord.Interaction,
+    territory: str
+):
 
     await interaction.response.defer()
 
     supabase.table(
-        "purchase_orders"
+        "player_data"
     ).update({
-        "status": "delivered"
+        "territory": territory
     }).eq(
-        "id",
-        order_id
+        "discord_id",
+        str(interaction.user.id)
     ).execute()
 
+    embed = discord.Embed(
+        title="ð´ Territory Claimed",
+        description=f"Claimed territory: {territory}",
+        color=0xE74C3C
+    )
+
     await interaction.followup.send(
-        f"â Order #{order_id} delivered."
+        embed=style_embed(embed)
+    )
+
+# ================= AIRDROP =================
+
+@bot.tree.command(
+    name="airdrop",
+    description="Trigger airdrop"
+)
+async def airdrop(interaction: discord.Interaction):
+
+    await interaction.response.defer()
+
+    locations = [
+        "NWAF",
+        "Tisy",
+        "Cherno",
+        "Vybor",
+        "Guglovo"
+    ]
+
+    location = random.choice(locations)
+
+    embed = discord.Embed(
+        title="âï¸ AIRDROP INCOMING",
+        description=(
+            f"Military supply drop detected near {location}."
+        ),
+        color=0x3498DB
+    )
+
+    await interaction.followup.send(
+        embed=style_embed(embed)
+    )
+
+# ================= RANDOM WORLD EVENTS =================
+
+@tasks.loop(minutes=30)
+async def random_world_events():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    events = [
+        "â£ï¸ Toxic gas spreading near Tisy.",
+        "ð Helicopter crash reported.",
+        "ð» Trader convoy entering Chernarus.",
+        "ð¥ Heavy gunfire heard near NWAF.",
+        "ðª Military airdrop inbound."
+    ]
+
+    embed = discord.Embed(
+        title="ð World Event",
+        description=random.choice(events),
+        color=0x9B59B6
+    )
+
+    await channel.send(
+        embed=style_embed(embed)
+    )
+
+# ================= KILL REWARD SYSTEM =================
+
+@bot.tree.command(
+    name="simulatekill",
+    description="Simulate kill reward"
+)
+@app_commands.describe(
+    member="Killed player"
+)
+async def simulatekill(
+    interaction: discord.Interaction,
+    member: discord.Member
+):
+
+    await interaction.response.defer()
+
+    reward = random.randint(100, 300)
+
+    await add_money(
+        str(interaction.user.id),
+        reward
+    )
+
+    embed = discord.Embed(
+        title="ð Kill Reward",
+        description=(
+            f"You eliminated {member.mention}\n"
+            f"+{reward} pennies"
+        ),
+        color=0xC0392B
+    )
+
+    await interaction.followup.send(
+        embed=style_embed(embed)
     )
 
 # ================= AI CHAT =================
