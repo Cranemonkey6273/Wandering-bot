@@ -1,8 +1,8 @@
 import os
 import re
 import random
-import asyncio
 import discord
+import asyncio
 
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -20,6 +20,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
+RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 
 LOG_FILE = "server.ADM"
 
@@ -46,6 +47,10 @@ supabase = create_client(
     SUPABASE_KEY
 )
 
+# ================= GLOBALS =================
+
+last_position = 0
+
 # ================= ECONOMY =================
 
 SHOP_ITEMS = {
@@ -58,22 +63,19 @@ SHOP_ITEMS = {
 }
 
 BLACKMARKET_ITEMS = {
-    "nightvision": 2000,
-    "explosives": 3000,
-    "rare_rifle": 5000
+    "nightvision": 2500,
+    "explosives": 5000,
+    "rare_rifle": 8000
 }
 
 # ================= AI =================
 
 SYSTEM_PROMPT = '''
 You are Wandering Bot.
-A hardcore DayZ survival AI.
-Stay immersive and natural.
+You are an immersive DayZ AI.
+Speak naturally.
+Stay survival focused.
 '''
-
-# ================= GLOBALS =================
-
-last_position = 0
 
 # ================= HELPERS =================
 
@@ -108,9 +110,9 @@ async def ensure_player(discord_id, username):
             "kills": 0,
             "deaths": 0,
             "bounty": 0,
+            "vehicles": 0,
             "faction": "",
-            "territory": "",
-            "vehicles": 0
+            "territory": ""
         }).execute()
 
 async def get_player(discord_id):
@@ -143,7 +145,7 @@ async def add_money(discord_id, amount):
         discord_id
     ).execute()
 
-# ================= REAL ADM PARSER =================
+# ================= ADM PARSER =================
 
 async def parse_adm():
 
@@ -169,9 +171,15 @@ async def parse_adm():
         KILLFEED_CHANNEL_ID
     )
 
+    raid_channel = bot.get_channel(
+        RAID_CHANNEL_ID
+    )
+
     for line in lines:
 
         line = line.strip()
+
+        # ================= KILL DETECTION =================
 
         if "killed by Player" in line:
 
@@ -193,7 +201,7 @@ async def parse_adm():
                 reward = random.randint(100, 500)
 
                 embed = discord.Embed(
-                    title="ð PvP Kill Detected",
+                    title="ð PvP Kill",
                     description=(
                         f"ð« Killer: {killer}\n"
                         f"â ï¸ Victim: {victim}\n"
@@ -208,6 +216,28 @@ async def parse_adm():
                         embed=style_embed(embed)
                     )
 
+        # ================= RAID DETECTION =================
+
+        if (
+            "explosive" in line.lower()
+            or "breached" in line.lower()
+            or "destroyed" in line.lower()
+        ):
+
+            embed = discord.Embed(
+                title="ð¨ RAID ALERT",
+                description=(
+                    "Possible raid activity detected."
+                ),
+                color=0xE74C3C
+            )
+
+            if raid_channel:
+
+                await raid_channel.send(
+                    embed=style_embed(embed)
+                )
+
 # ================= READY =================
 
 @bot.event
@@ -219,14 +249,53 @@ async def on_ready():
 
     adm_loop.start()
 
+    dynamic_economy.start()
+
+    process_delivery_queue.start()
+
     print(f"â Logged in as {bot.user}")
 
-# ================= ADM LOOP =================
+# ================= TASKS =================
 
 @tasks.loop(seconds=30)
 async def adm_loop():
 
     await parse_adm()
+
+# ================= DYNAMIC ECONOMY =================
+
+@tasks.loop(minutes=60)
+async def dynamic_economy():
+
+    for item in SHOP_ITEMS:
+
+        SHOP_ITEMS[item] += random.randint(-5, 15)
+
+        if SHOP_ITEMS[item] < 5:
+            SHOP_ITEMS[item] = 5
+
+# ================= DELIVERY SYSTEM =================
+
+@tasks.loop(minutes=2)
+async def process_delivery_queue():
+
+    results = supabase.table(
+        "delivery_queue"
+    ).select("*").eq(
+        "status",
+        "queued"
+    ).execute()
+
+    for order in results.data:
+
+        supabase.table(
+            "delivery_queue"
+        ).update({
+            "status": "delivered"
+        }).eq(
+            "id",
+            order["id"]
+        ).execute()
 
 # ================= BALANCE =================
 
@@ -248,16 +317,16 @@ async def balance(interaction: discord.Interaction):
     )
 
     embed = discord.Embed(
-        title="ðª Survivor Balance",
+        title="ðª Survivor Stats",
         description=(
             f"Pennies: {player['scrap']}\n"
             f"Bank: {player['bank']}\n"
             f"Kills: {player['kills']}\n"
             f"Deaths: {player['deaths']}\n"
             f"Bounty: {player['bounty']}\n"
+            f"Vehicles: {player['vehicles']}\n"
             f"Faction: {player['faction']}\n"
-            f"Territory: {player['territory']}\n"
-            f"Vehicles: {player['vehicles']}"
+            f"Territory: {player['territory']}"
         ),
         color=0xFFD700
     )
@@ -280,7 +349,10 @@ async def shop(interaction: discord.Interaction):
 
     for item, price in SHOP_ITEMS.items():
 
-        text += f"â¢ {item} â {price} pennies\n"
+        text += (
+            f"â¢ {item} â "
+            f"{price} pennies\n"
+        )
 
     embed = discord.Embed(
         title="ð Trader Shop",
@@ -308,9 +380,11 @@ async def buy(interaction: discord.Interaction, item: str):
     item = item.lower()
 
     if item in SHOP_ITEMS:
+
         price = SHOP_ITEMS[item]
 
     elif item in BLACKMARKET_ITEMS:
+
         price = BLACKMARKET_ITEMS[item]
 
     else:
@@ -352,8 +426,11 @@ async def buy(interaction: discord.Interaction, item: str):
     }).execute()
 
     embed = discord.Embed(
-        title="ð¦ Delivery Queued",
-        description=f"{item} queued for delivery.",
+        title="ð¦ Order Created",
+        description=(
+            f"Item: {item}\n"
+            f"Status: queued"
+        ),
         color=0x2ECC71
     )
 
@@ -412,7 +489,7 @@ async def inventory(interaction: discord.Interaction):
     description="Buy vehicle"
 )
 @app_commands.describe(
-    vehicle="Vehicle name"
+    vehicle="Vehicle type"
 )
 async def buyvehicle(
     interaction: discord.Interaction,
@@ -455,47 +532,62 @@ async def buyvehicle(
         embed=style_embed(embed)
     )
 
-# ================= BOUNTIES =================
+# ================= FACTIONS =================
 
 @bot.tree.command(
-    name="setbounty",
-    description="Place bounty"
+    name="createfaction",
+    description="Create faction"
 )
 @app_commands.describe(
-    member="Target player",
-    amount="Bounty amount"
+    name="Faction name"
 )
-async def setbounty(
+async def createfaction(
     interaction: discord.Interaction,
-    member: discord.Member,
-    amount: int
+    name: str
 ):
 
     await interaction.response.defer()
 
-    target = await get_player(
-        str(member.id)
+    supabase.table(
+        "player_data"
+    ).update({
+        "faction": name
+    }).eq(
+        "discord_id",
+        str(interaction.user.id)
+    ).execute()
+
+    await interaction.followup.send(
+        f"ð¡ï¸ Faction created: {name}"
     )
 
-    if not target:
+# ================= TERRITORY =================
 
-        await interaction.followup.send(
-            "â Player not found."
-        )
+@bot.tree.command(
+    name="claimterritory",
+    description="Claim territory"
+)
+@app_commands.describe(
+    territory="Territory name"
+)
+async def claimterritory(
+    interaction: discord.Interaction,
+    territory: str
+):
 
-        return
+    await interaction.response.defer()
 
     supabase.table(
         "player_data"
     ).update({
-        "bounty": target["bounty"] + amount
+        "territory": territory
     }).eq(
         "discord_id",
-        str(member.id)
+        str(interaction.user.id)
     ).execute()
 
     await interaction.followup.send(
-        f"ð¯ Bounty placed on {member.mention}"
+        f"ð´ Territory claimed: {territory}"
     )
 
 # ================= AIRDROP =================
@@ -520,7 +612,7 @@ async def airdrop(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="âï¸ AIRDROP DETECTED",
-        description=f"Military airdrop near {location}",
+        description=f"Supply drop near {location}",
         color=0x3498DB
     )
 
@@ -533,18 +625,20 @@ async def airdrop(interaction: discord.Interaction):
 @tasks.loop(minutes=20)
 async def world_events():
 
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
+    channel = bot.get_channel(
+        EVENT_CHANNEL_ID
+    )
 
     if not channel:
         return
 
     events = [
         "â£ï¸ Toxic gas spreading near Tisy.",
-        "ð Helicopter crash reported near Vybor.",
-        "ð¥ Heavy gunfire heard near NWAF.",
+        "ð Helicopter crash reported.",
+        "ð¥ Heavy gunfire near NWAF.",
         "ð» Trader convoy entering Chernarus.",
-        "ðª Military airdrop spotted.",
-        "ð´ Faction war escalating near Cherno."
+        "ð´ Faction conflict escalating.",
+        "ðª Military airdrop spotted."
     ]
 
     embed = discord.Embed(
