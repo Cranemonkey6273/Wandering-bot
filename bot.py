@@ -249,4 +249,4 @@ async def logcheck(ctx):
         f"Reading:\n{REMOTE_LOG_FILE}"
     )
 
-bot.run(DISCORD_TOKEN)
+bot.run(DISCORD_TOKEN) 
