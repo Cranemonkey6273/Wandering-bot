@@ -1,28 +1,5 @@
 import os
 
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                embed.set_footer(
-                    text="Wandering Bot Intelligence"
-                )
-
-                await connect_channel.send(
-                    embed=embed
-                )
-
-        elif (
-            "is connected" in lower
-            or "connected" in lower
-        ):
-
-            player_match = re.search(
-                r'Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            if player_match and connect_channel:
-
                 player_name = player_match.group(1)
 
                 online_players.add(player_name)
