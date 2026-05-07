@@ -6,6 +6,8 @@ from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 
+# ================= CONFIG =================
+
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
@@ -15,8 +17,11 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-REMOTE_LOG_FILE = "/dayzxb/config/server.log"
-LOCAL_LOG_FILE = "server.log"
+SEARCH_DIR = "/dayzxb/config"
+
+LOCAL_LOG_FILE = "live.ADM"
+
+# ================= DISCORD =================
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -26,8 +31,40 @@ bot = commands.Bot(
     intents=intents
 )
 
+# ================= GLOBALS =================
+
 processed_lines = set()
-online_players = set()
+current_adm = None
+
+# ================= FILTERS =================
+
+IGNORE_PATTERNS = [
+    "[CE]",
+    "LootRespawner",
+    "PRIDummy",
+    "causing search overtime",
+    "Ammo_40mm_Explosive",
+    "ConstructionHelmet",
+    "script",
+    "crash",
+    "weather",
+    "storage",
+    "economy",
+    "infected"
+]
+
+def should_ignore(line):
+
+    lower = line.lower()
+
+    for pattern in IGNORE_PATTERNS:
+
+        if pattern.lower() in lower:
+            return True
+
+    return False
+
+# ================= HELPERS =================
 
 def style_embed(embed):
 
@@ -58,22 +95,69 @@ def connect_ftp():
 
     return ftp
 
-def download_server_log():
+def find_active_adm():
+
+    global current_adm
 
     try:
+
+        ftp = connect_ftp()
+
+        ftp.cwd(SEARCH_DIR)
+
+        files = ftp.nlst()
+
+        adm_files = []
+
+        for file in files:
+
+            if file.endswith(".ADM"):
+
+                adm_files.append(file)
+
+                print(f"FOUND ADM: {file}")
+
+        ftp.quit()
+
+        if not adm_files:
+            return None
+
+        newest = sorted(adm_files)[-1]
+
+        current_adm = f"{SEARCH_DIR}/{newest}"
+
+        print(f"ACTIVE ADM: {current_adm}")
+
+        return current_adm
+
+    except Exception as e:
+
+        print(f"ADM SEARCH ERROR: {e}")
+
+        return None
+
+def download_adm():
+
+    try:
+
+        active_adm = find_active_adm()
+
+        if not active_adm:
+
+            return False
 
         ftp = connect_ftp()
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
-                f"RETR {REMOTE_LOG_FILE}",
+                f"RETR {active_adm}",
                 f.write
             )
 
         ftp.quit()
 
-        print("SERVER.LOG DOWNLOADED")
+        print("ADM DOWNLOADED")
 
         return True
 
@@ -83,18 +167,23 @@ def download_server_log():
 
         return False
 
+# ================= READY =================
+
 @bot.event
 async def on_ready():
 
-    adm_loop.start()
-
     print(f"Logged in as {bot.user}")
 
-async def parse_server_log():
+    adm_loop.start()
+
+# ================= PARSER =================
+
+async def parse_adm():
 
     if not os.path.exists(LOCAL_LOG_FILE):
 
-        print("LOCAL SERVER.LOG MISSING")
+        print("LOCAL ADM MISSING")
+
         return
 
     with open(
@@ -106,7 +195,7 @@ async def parse_server_log():
 
         lines = f.readlines()
 
-    print(f"SERVER.LOG READ: {len(lines)}")
+    print(f"ADM LINES READ: {len(lines)}")
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
@@ -124,11 +213,19 @@ async def parse_server_log():
 
         processed_lines.add(line)
 
+        if should_ignore(line):
+            continue
+
+        lower = line.lower()
+
+        # ================= BUILD EVENTS =================
+
         if (
-            "built" in line.lower()
-            or "watchtower" in line.lower()
-            or "wall_base" in line.lower()
-            or "construction" in line.lower()
+            "built" in lower
+            or "wall_base" in lower
+            or "watchtower" in lower
+            or "construction" in lower
+            or "territory" in lower
         ):
 
             embed = discord.Embed(
@@ -145,9 +242,13 @@ async def parse_server_log():
 
                 print("BUILD EVENT SENT")
 
-        if (
-            "placed" in line.lower()
-            or "deployed" in line.lower()
+        # ================= DEPLOY EVENTS =================
+
+        elif (
+            "placed" in lower
+            or "deployed" in lower
+            or "fencekit" in lower
+            or "seachest" in lower
         ):
 
             embed = discord.Embed(
@@ -164,10 +265,12 @@ async def parse_server_log():
 
                 print("DEPLOY EVENT SENT")
 
-        if (
-            "destroyed" in line.lower()
-            or "breached" in line.lower()
-            or "explosive" in line.lower()
+        # ================= RAID EVENTS =================
+
+        elif (
+            "destroyed" in lower
+            or "breached" in lower
+            or "raided" in lower
         ):
 
             embed = discord.Embed(
@@ -184,7 +287,9 @@ async def parse_server_log():
 
                 print("RAID EVENT SENT")
 
-        if "killed by player" in line.lower():
+        # ================= KILL EVENTS =================
+
+        elif "killed by player" in lower:
 
             victim_match = re.search(
                 r'Player "([^"]+)"',
@@ -218,35 +323,26 @@ async def parse_server_log():
 
                     print("KILL EVENT SENT")
 
+# ================= LOOP =================
+
 @tasks.loop(seconds=60)
 async def adm_loop():
 
-    success = download_server_log()
+    success = download_adm()
 
     if success:
 
-        await parse_server_log()
+        await parse_adm()
+
+# ================= COMMANDS =================
 
 @bot.command()
-async def online(ctx):
-
-    if not online_players:
-
-        await ctx.send(
-            "No online players tracked."
-        )
-
-        return
+async def adm(ctx):
 
     await ctx.send(
-        "\n".join(online_players)
+        f"Current ADM:\n{current_adm}"
     )
 
-@bot.command()
-async def logcheck(ctx):
-
-    await ctx.send(
-        f"Reading:\n{REMOTE_LOG_FILE}"
-    )
+# ================= START =================
 
 bot.run(DISCORD_TOKEN)
