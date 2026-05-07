@@ -1,4 +1,5 @@
 import os
+import re
 import random
 import asyncio
 import discord
@@ -18,6 +19,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
+
+LOG_FILE = "server.ADM"
 
 # ================= DISCORD =================
 
@@ -63,9 +67,13 @@ BLACKMARKET_ITEMS = {
 
 SYSTEM_PROMPT = '''
 You are Wandering Bot.
-A hardcore survival AI for DayZ.
-Keep replies immersive and natural.
+A hardcore DayZ survival AI.
+Stay immersive and natural.
 '''
+
+# ================= GLOBALS =================
+
+last_position = 0
 
 # ================= HELPERS =================
 
@@ -135,6 +143,71 @@ async def add_money(discord_id, amount):
         discord_id
     ).execute()
 
+# ================= REAL ADM PARSER =================
+
+async def parse_adm():
+
+    global last_position
+
+    if not os.path.exists(LOG_FILE):
+        return
+
+    with open(
+        LOG_FILE,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+
+        f.seek(last_position)
+
+        lines = f.readlines()
+
+        last_position = f.tell()
+
+    killfeed_channel = bot.get_channel(
+        KILLFEED_CHANNEL_ID
+    )
+
+    for line in lines:
+
+        line = line.strip()
+
+        if "killed by Player" in line:
+
+            victim_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            killer_match = re.search(
+                r'killed by Player "([^"]+)"',
+                line
+            )
+
+            if victim_match and killer_match:
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                reward = random.randint(100, 500)
+
+                embed = discord.Embed(
+                    title="ð PvP Kill Detected",
+                    description=(
+                        f"ð« Killer: {killer}\n"
+                        f"â ï¸ Victim: {victim}\n"
+                        f"ðª Reward: {reward}"
+                    ),
+                    color=0xC0392B
+                )
+
+                if killfeed_channel:
+
+                    await killfeed_channel.send(
+                        embed=style_embed(embed)
+                    )
+
 # ================= READY =================
 
 @bot.event
@@ -144,7 +217,16 @@ async def on_ready():
 
     world_events.start()
 
+    adm_loop.start()
+
     print(f"â Logged in as {bot.user}")
+
+# ================= ADM LOOP =================
+
+@tasks.loop(seconds=30)
+async def adm_loop():
+
+    await parse_adm()
 
 # ================= BALANCE =================
 
@@ -204,32 +286,6 @@ async def shop(interaction: discord.Interaction):
         title="ð Trader Shop",
         description=text,
         color=0xE67E22
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= BLACK MARKET =================
-
-@bot.tree.command(
-    name="blackmarket",
-    description="View black market"
-)
-async def blackmarket(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    text = ""
-
-    for item, price in BLACKMARKET_ITEMS.items():
-
-        text += f"â ï¸ {item} â {price} pennies\n"
-
-    embed = discord.Embed(
-        title="â ï¸ Black Market",
-        description=text,
-        color=0x8E44AD
     )
 
     await interaction.followup.send(
@@ -297,7 +353,7 @@ async def buy(interaction: discord.Interaction, item: str):
 
     embed = discord.Embed(
         title="ð¦ Delivery Queued",
-        description=f"{item} added to delivery queue.",
+        description=f"{item} queued for delivery.",
         color=0x2ECC71
     )
 
@@ -349,116 +405,6 @@ async def inventory(interaction: discord.Interaction):
         embed=style_embed(embed)
     )
 
-# ================= FACTIONS =================
-
-@bot.tree.command(
-    name="createfaction",
-    description="Create faction"
-)
-@app_commands.describe(
-    name="Faction name"
-)
-async def createfaction(interaction: discord.Interaction, name: str):
-
-    await interaction.response.defer()
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "faction": name
-    }).eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    embed = discord.Embed(
-        title="ð¡ï¸ Faction Created",
-        description=f"You created {name}",
-        color=0x95A5A6
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= CLAIM TERRITORY =================
-
-@bot.tree.command(
-    name="claimterritory",
-    description="Claim territory"
-)
-@app_commands.describe(
-    territory="Territory name"
-)
-async def claimterritory(
-    interaction: discord.Interaction,
-    territory: str
-):
-
-    await interaction.response.defer()
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "territory": territory
-    }).eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    embed = discord.Embed(
-        title="ð´ Territory Claimed",
-        description=f"Claimed: {territory}",
-        color=0xE74C3C
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= BOUNTY =================
-
-@bot.tree.command(
-    name="setbounty",
-    description="Set bounty on player"
-)
-@app_commands.describe(
-    member="Target player",
-    amount="Bounty amount"
-)
-async def setbounty(
-    interaction: discord.Interaction,
-    member: discord.Member,
-    amount: int
-):
-
-    await interaction.response.defer()
-
-    target = await get_player(
-        str(member.id)
-    )
-
-    if not target:
-
-        await interaction.followup.send(
-            "â Player not found."
-        )
-
-        return
-
-    supabase.table(
-        "player_data"
-    ).update({
-        "bounty": target["bounty"] + amount
-    }).eq(
-        "discord_id",
-        str(member.id)
-    ).execute()
-
-    await interaction.followup.send(
-        f"ð¯ Bounty of {amount} placed on {member.mention}"
-    )
-
 # ================= VEHICLES =================
 
 @bot.tree.command(
@@ -466,7 +412,7 @@ async def setbounty(
     description="Buy vehicle"
 )
 @app_commands.describe(
-    vehicle="Vehicle type"
+    vehicle="Vehicle name"
 )
 async def buyvehicle(
     interaction: discord.Interaction,
@@ -507,6 +453,49 @@ async def buyvehicle(
 
     await interaction.followup.send(
         embed=style_embed(embed)
+    )
+
+# ================= BOUNTIES =================
+
+@bot.tree.command(
+    name="setbounty",
+    description="Place bounty"
+)
+@app_commands.describe(
+    member="Target player",
+    amount="Bounty amount"
+)
+async def setbounty(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    amount: int
+):
+
+    await interaction.response.defer()
+
+    target = await get_player(
+        str(member.id)
+    )
+
+    if not target:
+
+        await interaction.followup.send(
+            "â Player not found."
+        )
+
+        return
+
+    supabase.table(
+        "player_data"
+    ).update({
+        "bounty": target["bounty"] + amount
+    }).eq(
+        "discord_id",
+        str(member.id)
+    ).execute()
+
+    await interaction.followup.send(
+        f"ð¯ Bounty placed on {member.mention}"
     )
 
 # ================= AIRDROP =================
@@ -554,7 +543,8 @@ async def world_events():
         "ð Helicopter crash reported near Vybor.",
         "ð¥ Heavy gunfire heard near NWAF.",
         "ð» Trader convoy entering Chernarus.",
-        "ðª Military airdrop spotted."
+        "ðª Military airdrop spotted.",
+        "ð´ Faction war escalating near Cherno."
     ]
 
     embed = discord.Embed(
@@ -564,42 +554,6 @@ async def world_events():
     )
 
     await channel.send(
-        embed=style_embed(embed)
-    )
-
-# ================= SIMULATED KILL REWARD =================
-
-@bot.tree.command(
-    name="simulatekill",
-    description="Simulate PvP reward"
-)
-@app_commands.describe(
-    member="Killed player"
-)
-async def simulatekill(
-    interaction: discord.Interaction,
-    member: discord.Member
-):
-
-    await interaction.response.defer()
-
-    reward = random.randint(100, 500)
-
-    await add_money(
-        str(interaction.user.id),
-        reward
-    )
-
-    embed = discord.Embed(
-        title="ð Kill Reward",
-        description=(
-            f"Eliminated {member.mention}\n"
-            f"+{reward} pennies"
-        ),
-        color=0xC0392B
-    )
-
-    await interaction.followup.send(
         embed=style_embed(embed)
     )
 
