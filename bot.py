@@ -7,16 +7,10 @@ from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from discord import app_commands
-from supabase import create_client
-from openai import AsyncOpenAI
 
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
@@ -27,9 +21,16 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-LOG_DIRECTORY = "/dayzxb/config"
+SEARCH_DIRECTORIES = [
+    "/dayzxb",
+    "/dayzxb/config",
+    "/dayzxb/profiles",
+    "/dayzxb/profile",
+    "/dayzxb/logs",
+    "/dayzxb/mpmissions"
+]
 
-LOCAL_LOG_FILE = "server.ADM"
+LOCAL_LOG_FILE = "live.ADM"
 
 # ================= DISCORD =================
 
@@ -41,35 +42,11 @@ bot = commands.Bot(
     intents=intents
 )
 
-# ================= OPENAI =================
-
-client = AsyncOpenAI(
-    api_key=OPENAI_API_KEY
-)
-
-# ================= SUPABASE =================
-
-supabase = create_client(
-    SUPABASE_URL,
-    SUPABASE_KEY
-)
-
 # ================= GLOBALS =================
 
 last_position = 0
 current_log_file = None
 online_players = set()
-
-# ================= SHOP =================
-
-SHOP_ITEMS = {
-    "water": 10,
-    "beans": 20,
-    "ammo": 50,
-    "medkit": 100,
-    "armor": 300,
-    "rifle": 600
-}
 
 # ================= HELPERS =================
 
@@ -82,24 +59,6 @@ def style_embed(embed):
     )
 
     return embed
-
-def extract_date(file_name):
-
-    match = re.search(
-        r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
-        file_name
-    )
-
-    if not match:
-        return datetime.min
-
-    return datetime.strptime(
-        f"{match.group(1)} "
-        f"{match.group(2)}:"
-        f"{match.group(3)}:"
-        f"{match.group(4)}",
-        "%Y-%m-%d %H:%M:%S"
-    )
 
 def connect_ftp():
 
@@ -120,68 +79,103 @@ def connect_ftp():
 
     return ftp
 
-def find_latest_adm():
+def extract_timestamp(filename):
+
+    match = re.search(
+        r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
+        filename
+    )
+
+    if not match:
+        return datetime.min
+
+    return datetime.strptime(
+        f"{match.group(1)} "
+        f"{match.group(2)}:"
+        f"{match.group(3)}:"
+        f"{match.group(4)}",
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+def recursive_find_adms():
+
+    adm_files = []
 
     try:
 
         ftp = connect_ftp()
 
-        ftp.cwd(LOG_DIRECTORY)
+        for directory in SEARCH_DIRECTORIES:
 
-        files = ftp.nlst()
+            try:
 
-        adm_files = []
+                ftp.cwd(directory)
 
-        for file in files:
+                files = ftp.nlst()
 
-            if file.endswith(".ADM"):
-                adm_files.append(file)
+                for file in files:
+
+                    if file.endswith(".ADM"):
+
+                        full_path = f"{directory}/{file}"
+
+                        adm_files.append(full_path)
+
+                        print(f"FOUND ADM: {full_path}")
+
+            except Exception as e:
+
+                print(f"SCAN FAILED: {directory} -> {e}")
 
         ftp.quit()
 
-        if not adm_files:
-            return None
-
-        newest_file = max(
-            adm_files,
-            key=lambda x: extract_date(x)
-        )
-
-        return f"{LOG_DIRECTORY}/{newest_file}"
-
     except Exception as e:
 
-        print(f"FTP SEARCH ERROR: {e}")
+        print(f"FTP ERROR: {e}")
 
+    return adm_files
+
+def get_latest_adm():
+
+    adm_files = recursive_find_adms()
+
+    if not adm_files:
         return None
 
-def download_latest_log():
+    newest = max(
+        adm_files,
+        key=lambda x: extract_timestamp(x)
+    )
+
+    return newest
+
+def download_latest_adm():
 
     global current_log_file
     global last_position
 
     try:
 
-        latest_log = find_latest_adm()
+        newest_adm = get_latest_adm()
 
-        if not latest_log:
-            print("NO ADM FILE FOUND")
+        if not newest_adm:
+
+            print("NO ADM FILES FOUND")
             return False
 
-        if current_log_file != latest_log:
+        if newest_adm != current_log_file:
 
-            print(f"NEW ADM DETECTED: {latest_log}")
-
-            current_log_file = latest_log
-
+            current_log_file = newest_adm
             last_position = 0
+
+            print(f"SWITCHED TO LIVE ADM: {newest_adm}")
 
         ftp = connect_ftp()
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
-                f"RETR {latest_log}",
+                f"RETR {newest_adm}",
                 f.write
             )
 
@@ -192,52 +186,7 @@ def download_latest_log():
     except Exception as e:
 
         print(f"DOWNLOAD ERROR: {e}")
-
         return False
-
-async def ensure_player(discord_id, username):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if not result.data:
-
-        supabase.table(
-            "player_data"
-        ).insert({
-            "discord_id": discord_id,
-            "username": username,
-            "scrap": 1000,
-            "bank": 0,
-            "kills": 0,
-            "deaths": 0,
-            "xp": 0,
-            "level": 1,
-            "bounty": 0,
-            "vehicles": 0,
-            "faction": "",
-            "territory": "",
-            "heat": 0,
-            "killstreak": 0
-        }).execute()
-
-async def get_player(discord_id):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if result.data:
-        return result.data[0]
-
-    return None
 
 # ================= READY =================
 
@@ -247,17 +196,17 @@ async def on_ready():
     await bot.tree.sync()
 
     adm_loop.start()
-    world_events.start()
 
     print(f"Logged in as {bot.user}")
 
-# ================= ADM PARSER =================
+# ================= PARSER =================
 
 async def parse_adm():
 
     global last_position
 
     if not os.path.exists(LOCAL_LOG_FILE):
+
         print("LOCAL ADM NOT FOUND")
         return
 
@@ -285,131 +234,83 @@ async def parse_adm():
         KILLFEED_CHANNEL_ID
     )
 
-    raid_channel = bot.get_channel(
-        RAID_CHANNEL_ID
-    )
-
     for line in lines:
 
         line = line.strip()
 
+        # ================= CONNECTS =================
+
         if "is connected" in line:
 
-            player_match = re.search(
+            match = re.search(
                 r'Player "([^"]+)"',
                 line
             )
 
-            if player_match:
+            if match:
 
-                player = player_match.group(1)
+                player = match.group(1)
 
                 online_players.add(player)
 
+                print(f"CONNECTED: {player}")
+
+        # ================= DISCONNECTS =================
+
         if "has been disconnected" in line:
 
-            player_match = re.search(
+            match = re.search(
                 r'Player "([^"]+)"',
                 line
             )
 
-            if player_match:
+            if match:
 
-                player = player_match.group(1)
+                player = match.group(1)
 
                 online_players.discard(player)
 
-        if "killed by Player" in line:
+                print(f"DISCONNECTED: {player}")
 
-            victim_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            killer_match = re.search(
-                r'killed by Player "([^"]+)"',
-                line
-            )
-
-            if victim_match and killer_match:
-
-                victim = victim_match.group(1)
-                killer = killer_match.group(1)
-
-                embed = discord.Embed(
-                    title="PvP Kill",
-                    description=(
-                        f"Killer: {killer}\n"
-                        f"Victim: {victim}"
-                    ),
-                    color=0xC0392B
-                )
-
-                if killfeed_channel:
-
-                    await killfeed_channel.send(
-                        embed=style_embed(embed)
-                    )
+        # ================= BUILD EVENTS =================
 
         if (
-            "destroyed" in line.lower()
-            or "breached" in line.lower()
-            or "explosive" in line.lower()
+            "built" in line.lower()
+            or "construction" in line.lower()
+            or "wall_base" in line.lower()
+            or "watchtower" in line.lower()
         ):
 
             embed = discord.Embed(
-                title="RAID ALERT",
-                description="Raid activity detected.",
-                color=0xE74C3C
+                title="ð¨ Build Event",
+                description=line[:3500],
+                color=0x2ECC71
             )
 
-            if raid_channel:
+            if killfeed_channel:
 
-                await raid_channel.send(
+                await killfeed_channel.send(
                     embed=style_embed(embed)
                 )
 
-# ================= TASKS =================
+                print("BUILD EVENT SENT")
+
+# ================= TASK =================
 
 @tasks.loop(seconds=30)
 async def adm_loop():
 
-    success = download_latest_log()
+    success = download_latest_adm()
 
     if success:
 
         await parse_adm()
 
-@tasks.loop(minutes=20)
-async def world_events():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    events = [
-        "Helicopter crash reported.",
-        "Toxic gas spreading.",
-        "Convoy entering Chernarus.",
-        "Heavy fighting near NWAF."
-    ]
-
-    embed = discord.Embed(
-        title="World Event",
-        description=random.choice(events),
-        color=0x9B59B6
-    )
-
-    await channel.send(
-        embed=style_embed(embed)
-    )
-
-# ================= ADM CHECK =================
+# ================= COMMANDS =================
 
 @bot.tree.command(
     name="admcheck",
-    description="Check ADM status"
+    description="ADM status"
 )
 async def admcheck(interaction: discord.Interaction):
 
@@ -420,79 +321,16 @@ async def admcheck(interaction: discord.Interaction):
         size = os.path.getsize(LOCAL_LOG_FILE)
 
         await interaction.response.send_message(
-            f"ADM FOUND\n"
-            f"Current File: {current_log_file}\n"
-            f"Size: {size}"
+            f"ACTIVE ADM:\n"
+            f"{current_log_file}\n\n"
+            f"SIZE: {size}"
         )
 
     else:
 
         await interaction.response.send_message(
-            "ADM FILE NOT FOUND"
+            "NO LOCAL ADM FOUND"
         )
-
-# ================= BALANCE =================
-
-@bot.tree.command(
-    name="balance",
-    description="View stats"
-)
-async def balance(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    await ensure_player(
-        str(interaction.user.id),
-        interaction.user.name
-    )
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    embed = discord.Embed(
-        title="Survivor Stats",
-        description=(
-            f"Pennies: {player['scrap']}\n"
-            f"Level: {player['level']}\n"
-            f"XP: {player['xp']}\n"
-            f"Kills: {player['kills']}\n"
-            f"Deaths: {player['deaths']}"
-        ),
-        color=0xFFD700
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= SHOP =================
-
-@bot.tree.command(
-    name="shop",
-    description="View shop"
-)
-async def shop(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    text = ""
-
-    for item, price in SHOP_ITEMS.items():
-
-        text += f"â¢ {item} â {price}\n"
-
-    embed = discord.Embed(
-        title="Trader Shop",
-        description=text,
-        color=0xE67E22
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= ONLINE =================
 
 @bot.tree.command(
     name="online",
@@ -500,26 +338,16 @@ async def shop(interaction: discord.Interaction):
 )
 async def online(interaction: discord.Interaction):
 
-    await interaction.response.defer()
-
     if not online_players:
 
-        await interaction.followup.send(
+        await interaction.response.send_message(
             "No online players tracked."
         )
 
         return
 
-    players = "\n".join(online_players)
-
-    embed = discord.Embed(
-        title="Online Survivors",
-        description=players,
-        color=0x2ECC71
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
+    await interaction.response.send_message(
+        "\n".join(online_players)
     )
 
 # ================= START =================
