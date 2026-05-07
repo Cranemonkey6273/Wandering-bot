@@ -70,11 +70,14 @@ processed_lines = set()
 MAX_PROCESSED_LINES = 2000
 
 current_adm = None
+current_adm_size = 0
+
 online_players = set()
 
 TRACK LIVE ADM STATE
 
 last_line_count = 0
+last_growth_time = datetime.now(UTC)
 
 ================= SWEAR TRACKER =================
 
@@ -164,7 +167,9 @@ return ftp
 def find_active_adm():
 
 global current_adm
+global current_adm_size
 global last_line_count
+global last_growth_time
 
 try:
 
@@ -202,23 +207,33 @@ try:
                 "%Y-%m-%d %H:%M:%S"
             )
 
+            ftp.voidcmd("TYPE I")
+
+            size = ftp.size(file)
+
             adm_files.append({
                 "name": file,
-                "datetime": file_dt
+                "datetime": file_dt,
+                "size": size
             })
 
-            print(f"FOUND ADM: {file}")
+            print(
+                f"FOUND ADM: {file} | "
+                f"SIZE: {size}"
+            )
 
         except Exception as e:
 
-            print(f"ADM PARSE ERROR: {e}")
+            print(
+                f"ADM PARSE ERROR: {e}"
+            )
 
     ftp.quit()
 
     if not adm_files:
         return None
 
-    # ALWAYS USE NEWEST FILE
+    # SORT NEWEST FIRST
     adm_files.sort(
         key=lambda x: x["datetime"],
         reverse=True
@@ -226,27 +241,103 @@ try:
 
     newest = adm_files[0]
 
-    new_adm = (
+    newest_adm = (
         f"{SEARCH_DIR}/{newest['name']}"
     )
 
-    # SERVER RESTART DETECTED
-    if current_adm != new_adm:
+    newest_size = newest["size"]
+
+    # ================= FIRST RUN =================
+
+    if current_adm is None:
+
+        current_adm = newest_adm
+        current_adm_size = newest_size
 
         print(
-            f"NEW ADM DETECTED: {new_adm}"
+            f"INITIAL ADM: {current_adm}"
         )
 
-        current_adm = new_adm
+        return current_adm
 
-        # RESET LIVE TRACKERS
+    # ================= CURRENT ADM STILL GROWING =================
+
+    current_file = None
+
+    for adm in adm_files:
+
+        full_path = (
+            f"{SEARCH_DIR}/{adm['name']}"
+        )
+
+        if full_path == current_adm:
+
+            current_file = adm
+            break
+
+    if current_file:
+
+        latest_size = current_file["size"]
+
+        # FILE STILL ACTIVE
+        if latest_size > current_adm_size:
+
+            print(
+                f"ACTIVE ADM GROWING: "
+                f"{latest_size}"
+            )
+
+            current_adm_size = latest_size
+
+            last_growth_time = datetime.now(UTC)
+
+            return current_adm
+
+    # ================= CHECK FOR NEWER GROWING ADM =================
+
+    if newest_adm != current_adm:
+
+        # ONLY SWITCH IF NEW FILE IS ACTUALLY GROWING
+        if newest_size > 500:
+
+            print(
+                f"NEW LIVE ADM DETECTED: "
+                f"{newest_adm}"
+            )
+
+            current_adm = newest_adm
+            current_adm_size = newest_size
+
+            # RESET TRACKERS
+            last_line_count = 0
+
+            processed_lines.clear()
+
+            return current_adm
+
+    # ================= FAILSAFE =================
+
+    time_since_growth = (
+        datetime.now(UTC)
+        - last_growth_time
+    ).total_seconds()
+
+    # FORCE SEARCH AFTER 4 HOURS STALE
+    if time_since_growth > 14400:
+
+        print(
+            "ADM STALE OVER 4 HOURS "
+            "- FORCING NEWEST FILE"
+        )
+
+        current_adm = newest_adm
+        current_adm_size = newest_size
+
         last_line_count = 0
 
         processed_lines.clear()
 
-    print(
-        f"ACTIVE ADM: {current_adm}"
-    )
+    print(f"ACTIVE ADM: {current_adm}")
 
     return current_adm
 
