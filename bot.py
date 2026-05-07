@@ -66,7 +66,7 @@ supabase = create_client(
 # ================= GLOBALS =================
 
 processed_lines = set()
-MAX_PROCESSED_LINES = 5000
+MAX_PROCESSED_LINES = 2000
 
 current_adm = None
 online_players = set()
@@ -174,11 +174,18 @@ def find_active_adm():
 
         for file in files:
 
-            if ".ADM" in file:
+            if file.endswith(".ADM"):
 
-                adm_files.append(file)
+                try:
 
-                print(f"FOUND ADM: {file}")
+                    modified = ftp.sendcmd(f"MDTM {file}")
+
+                    adm_files.append((file, modified))
+
+                    print(f"FOUND ADM: {file} | {modified}")
+
+                except:
+                    pass
 
         if not adm_files:
 
@@ -187,8 +194,8 @@ def find_active_adm():
 
         newest = max(
             adm_files,
-            key=lambda x: ftp.sendcmd(f"MDTM {x}")
-        )
+            key=lambda x: x[1]
+        )[0]
 
         current_adm = f"{SEARCH_DIR}/{newest}"
 
@@ -289,11 +296,20 @@ async def on_ready():
 
     await bot.tree.sync()
 
-    world_events.start()
-    adm_loop.start()
-    dynamic_economy.start()
-    territory_income.start()
-    ai_radio.start()
+    if not world_events.is_running():
+        world_events.start()
+
+    if not adm_loop.is_running():
+        adm_loop.start()
+
+    if not dynamic_economy.is_running():
+        dynamic_economy.start()
+
+    if not territory_income.is_running():
+        territory_income.start()
+
+    if not ai_radio.is_running():
+        ai_radio.start()
 
     print(f"✅ Logged in as {bot.user}")
 
@@ -381,8 +397,6 @@ async def parse_adm():
             continue
 
         lower = line.lower()
-
-        print(line)
 
         if (
             "is connecting" in lower
@@ -475,7 +489,7 @@ async def parse_adm():
 
 # ================= TASKS =================
 
-@tasks.loop(seconds=60)
+@tasks.loop(seconds=120)
 async def adm_loop():
 
     success = download_adm()
