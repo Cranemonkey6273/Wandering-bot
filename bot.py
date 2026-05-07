@@ -1,17 +1,12 @@
 import os
-import re
-import random
 import discord
 
 from ftplib import FTP_TLS
-from datetime import datetime, UTC
 from discord.ext import commands, tasks
 
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
-KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
@@ -19,38 +14,32 @@ FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_DIRECTORIES = [
+    "/",
     "/dayzxb",
-    "/dayzxb/config"
+    "/dayzxb/config",
+    "/dayzxb/profile",
+    "/dayzxb/profiles",
+    "/dayzxb/logs",
+    "/dayzxb/mpmissions"
 ]
 
-LOCAL_LOG_FILE = "active.ADM"
+LOG_EXTENSIONS = [
+    ".ADM",
+    ".log",
+    ".LOG",
+    ".txt"
+]
 
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
-intents.message_content = True
 
 bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
 
-# ================= GLOBALS =================
-
-processed_lines = set()
-current_log_file = None
-
-# ================= HELPERS =================
-
-def style_embed(embed):
-
-    embed.timestamp = datetime.now(UTC)
-
-    embed.set_footer(
-        text="Wandering Bot"
-    )
-
-    return embed
+# ================= FTP =================
 
 def connect_ftp():
 
@@ -71,9 +60,11 @@ def connect_ftp():
 
     return ftp
 
-def get_all_adms():
+# ================= DISCOVERY =================
 
-    adm_files = []
+def discover_logs():
+
+    discovered = []
 
     try:
 
@@ -87,29 +78,22 @@ def get_all_adms():
 
                 files = ftp.nlst()
 
+                print(f"SCANNING: {directory}")
+
                 for file in files:
 
-                    if file.endswith(".ADM"):
+                    lower = file.lower()
+
+                    if any(
+                        lower.endswith(ext.lower())
+                        for ext in LOG_EXTENSIONS
+                    ):
 
                         full_path = f"{directory}/{file}"
 
-                        try:
+                        discovered.append(full_path)
 
-                            size = ftp.size(file)
-
-                        except:
-                            size = 0
-
-                        adm_files.append({
-                            "path": full_path,
-                            "size": size
-                        })
-
-                        print(
-                            f"FOUND ADM: "
-                            f"{full_path} "
-                            f"SIZE={size}"
-                        )
+                        print(f"FOUND LOG: {full_path}")
 
             except Exception as e:
 
@@ -124,189 +108,41 @@ def get_all_adms():
 
         print(f"FTP ERROR: {e}")
 
-    return adm_files
-
-def choose_active_adm():
-
-    adms = get_all_adms()
-
-    if not adms:
-        return None
-
-    # PICK BIGGEST FILE
-    # ACTIVE FILE IS USUALLY GROWING/LARGEST
-
-    biggest = max(
-        adms,
-        key=lambda x: x["size"]
-    )
-
-    print(
-        f"ACTIVE ADM CHOSEN: "
-        f"{biggest['path']} "
-        f"SIZE={biggest['size']}"
-    )
-
-    return biggest["path"]
-
-def download_active_adm():
-
-    global current_log_file
-
-    try:
-
-        active_adm = choose_active_adm()
-
-        if not active_adm:
-
-            print("NO ACTIVE ADM FOUND")
-            return False
-
-        current_log_file = active_adm
-
-        ftp = connect_ftp()
-
-        with open(LOCAL_LOG_FILE, "wb") as f:
-
-            ftp.retrbinary(
-                f"RETR {active_adm}",
-                f.write
-            )
-
-        ftp.quit()
-
-        return True
-
-    except Exception as e:
-
-        print(f"DOWNLOAD ERROR: {e}")
-
-        return False
+    return discovered
 
 # ================= READY =================
 
 @bot.event
 async def on_ready():
 
-    adm_loop.start()
-
     print(f"Logged in as {bot.user}")
 
-# ================= PARSER =================
+    log_discovery.start()
 
-async def parse_adm():
+# ================= TASK =================
 
-    if not os.path.exists(LOCAL_LOG_FILE):
+@tasks.loop(hours=12)
+async def log_discovery():
 
-        print("LOCAL ADM MISSING")
-        return
+    results = discover_logs()
 
-    with open(
-        LOCAL_LOG_FILE,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
+    print("=" * 50)
+    print("LOG DISCOVERY COMPLETE")
+    print("=" * 50)
 
-        lines = f.readlines()
+    for result in results:
 
-    print(f"FULL ADM READ: {len(lines)}")
+        print(result)
 
-    killfeed_channel = bot.get_channel(
-        KILLFEED_CHANNEL_ID
-    )
-
-    for raw_line in lines:
-
-        line = raw_line.strip()
-
-        if not line:
-            continue
-
-        # ================= DUPLICATE CHECK =================
-
-        if line in processed_lines:
-            continue
-
-        processed_lines.add(line)
-
-        # ================= BUILD EVENTS =================
-
-        if (
-            "built" in line.lower()
-            or "watchtower" in line.lower()
-            or "wall_base" in line.lower()
-            or "construction" in line.lower()
-        ):
-
-            embed = discord.Embed(
-                title="Build Event",
-                description=line[:3500],
-                color=0x2ECC71
-            )
-
-            if killfeed_channel:
-
-                await killfeed_channel.send(
-                    embed=style_embed(embed)
-                )
-
-                print("BUILD EVENT SENT")
-
-        # ================= KILLS =================
-
-        if "killed by Player" in line:
-
-            victim_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            killer_match = re.search(
-                r'killed by Player "([^"]+)"',
-                line
-            )
-
-            if victim_match and killer_match:
-
-                victim = victim_match.group(1)
-                killer = killer_match.group(1)
-
-                embed = discord.Embed(
-                    title="PvP Kill",
-                    description=(
-                        f"Killer: {killer}\n"
-                        f"Victim: {victim}"
-                    ),
-                    color=0xC0392B
-                )
-
-                if killfeed_channel:
-
-                    await killfeed_channel.send(
-                        embed=style_embed(embed)
-                    )
-
-                    print("KILL EVENT SENT")
-
-# ================= LOOP =================
-
-@tasks.loop(seconds=60)
-async def adm_loop():
-
-    success = download_active_adm()
-
-    if success:
-
-        await parse_adm()
+    print("=" * 50)
 
 # ================= COMMAND =================
 
 @bot.command()
-async def adm(ctx):
+async def logs(ctx):
 
     await ctx.send(
-        f"ACTIVE ADM:\n{current_log_file}"
+        "Check container logs for FTP discovery results."
     )
 
 # ================= START =================
