@@ -184,7 +184,14 @@ def find_active_adm():
 
         ftp.cwd(SEARCH_DIR)
 
-        files = ftp.nlst()
+        files = []
+
+        ftp.retrlines(
+            "NLST",
+            files.append
+        )
+
+        files = sorted(files)
 
         adm_files = []
 
@@ -240,23 +247,33 @@ def find_active_adm():
         if not adm_files:
             return None
 
+        # PRIORITIZE LARGEST / MOST ACTIVE FILE
         adm_files.sort(
-            key=lambda x: x["datetime"],
+            key=lambda x: (
+                x["size"],
+                x["datetime"]
+            ),
             reverse=True
         )
 
-        newest = adm_files[0]
+        best_adm = adm_files[0]
 
-        newest_adm = (
-            f"{SEARCH_DIR}/{newest['name']}"
+        best_path = (
+            f"{SEARCH_DIR}/{best_adm['name']}"
         )
 
-        newest_size = newest["size"]
+        best_size = best_adm["size"]
 
+        print(
+            f"BEST ADM CANDIDATE: "
+            f"{best_path} | SIZE: {best_size}"
+        )
+
+        # FIRST RUN
         if current_adm is None:
 
-            current_adm = newest_adm
-            current_adm_size = newest_size
+            current_adm = best_path
+            current_adm_size = best_size
 
             print(
                 f"INITIAL ADM: {current_adm}"
@@ -264,6 +281,7 @@ def find_active_adm():
 
             return current_adm
 
+        # FIND CURRENT FILE
         current_file = None
 
         for adm in adm_files:
@@ -277,6 +295,7 @@ def find_active_adm():
                 current_file = adm
                 break
 
+        # CURRENT FILE STILL GROWING
         if current_file:
 
             latest_size = current_file["size"]
@@ -305,33 +324,18 @@ def find_active_adm():
                     f"FAIL COUNT: {growth_fail_count}"
                 )
 
+        # SWITCH AFTER FAILS
         if growth_fail_count >= 3:
 
-            print(
-                "SEARCHING FOR NEW GROWING ADM..."
-            )
-
-            for adm in adm_files:
-
-                possible_adm = (
-                    f"{SEARCH_DIR}/{adm['name']}"
-                )
-
-                possible_size = adm["size"]
-
-                if possible_adm == current_adm:
-                    continue
-
-                if possible_size < 500:
-                    continue
+            if best_path != current_adm:
 
                 print(
-                    f"SWITCHING TO NEW LIVE ADM: "
-                    f"{possible_adm}"
+                    f"SWITCHING TO BEST LIVE ADM: "
+                    f"{best_path}"
                 )
 
-                current_adm = possible_adm
-                current_adm_size = possible_size
+                current_adm = best_path
+                current_adm_size = best_size
 
                 growth_fail_count = 0
                 last_line_count = 0
@@ -342,6 +346,7 @@ def find_active_adm():
 
                 return current_adm
 
+        # 4 HOUR FAILSAFE
         time_since_growth = (
             datetime.now(UTC)
             - last_growth_time
@@ -351,11 +356,11 @@ def find_active_adm():
 
             print(
                 "ADM DEAD OVER 4 HOURS "
-                "- FORCING NEWEST FILE"
+                "- FORCING BEST FILE"
             )
 
-            current_adm = newest_adm
-            current_adm_size = newest_size
+            current_adm = best_path
+            current_adm_size = best_size
 
             growth_fail_count = 0
             last_line_count = 0
