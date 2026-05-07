@@ -158,6 +158,8 @@ def connect_ftp():
     return ftp
 
 
+# ================= FIXED ADM FINDER =================
+
 def find_active_adm():
 
     global current_adm
@@ -167,6 +169,10 @@ def find_active_adm():
         ftp = connect_ftp()
 
         ftp.cwd(SEARCH_DIR)
+
+        # IMPORTANT FIX
+        # Force binary mode so SIZE works
+        ftp.voidcmd("TYPE I")
 
         files = ftp.nlst()
 
@@ -178,9 +184,9 @@ def find_active_adm():
 
                 try:
 
-                    size = ftp.size(file)
-
                     modified = ftp.sendcmd(f"MDTM {file}")
+
+                    size = ftp.size(file)
 
                     adm_files.append({
                         "name": file,
@@ -209,12 +215,9 @@ def find_active_adm():
             reverse=True
         )
 
-        # Get newest 5 files
-        recent_files = adm_files[:5]
-
         print("=== RECENT ADM FILES ===")
 
-        for adm in recent_files:
+        for adm in adm_files[:10]:
 
             print(
                 f"{adm['name']} | "
@@ -222,11 +225,20 @@ def find_active_adm():
                 f"{adm['modified']}"
             )
 
-        # Choose largest file from newest 5
-        best_adm = max(
-            recent_files,
-            key=lambda x: x["size"]
-        )
+        # IMPORTANT FIX
+        # Ignore tiny restart logs
+
+        valid_logs = [
+            adm for adm in adm_files
+            if adm["size"] > 50000
+        ]
+
+        # fallback if none exist
+        if not valid_logs:
+            valid_logs = adm_files
+
+        # choose newest valid log
+        best_adm = valid_logs[0]
 
         current_adm = (
             f"{SEARCH_DIR}/{best_adm['name']}"
@@ -273,6 +285,9 @@ def download_adm():
         ftp.prot_p()
 
         ftp.cwd(SEARCH_DIR)
+
+        # IMPORTANT FIX
+        ftp.voidcmd("TYPE I")
 
         filename = os.path.basename(active_adm)
 
@@ -557,183 +572,6 @@ async def adm_loop():
         await parse_adm()
 
 
-@tasks.loop(minutes=20)
-async def world_events():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    events = [
-        "🚁 Helicopter crash reported.",
-        "☣️ Toxic gas spreading.",
-        "📻 Convoy entering Chernarus.",
-        "💥 Heavy fighting near NWAF.",
-        "🏴 Faction conflict escalating.",
-        "📦 Supply crate detected."
-    ]
-
-    embed = discord.Embed(
-        title="📡 World Event",
-        description=random.choice(events),
-        color=0x9B59B6
-    )
-
-    await channel.send(embed=style_embed(embed))
-
-
-@tasks.loop(minutes=60)
-async def dynamic_economy():
-
-    for item in SHOP_ITEMS:
-
-        SHOP_ITEMS[item] += random.randint(-5, 20)
-
-        if SHOP_ITEMS[item] < 5:
-            SHOP_ITEMS[item] = 5
-
-
-@tasks.loop(hours=2)
-async def territory_income():
-
-    results = supabase.table(
-        "player_data"
-    ).select("*").neq(
-        "territory",
-        ""
-    ).execute()
-
-    for player in results.data:
-
-        income = random.randint(100, 300)
-
-        supabase.table(
-            "player_data"
-        ).update({
-            "scrap": player["scrap"] + income
-        }).eq(
-            "discord_id",
-            player["discord_id"]
-        ).execute()
-
-
-@tasks.loop(minutes=25)
-async def ai_radio():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    chatter = [
-        "📻 Gunfire heard near Tisy.",
-        "📻 Survivors spotted near Vybor.",
-        "📻 Trader convoy requesting escort.",
-        "📻 Black market trader active tonight.",
-        "📻 Toxic storm approaching."
-    ]
-
-    embed = discord.Embed(
-        title="📻 Radio Chatter",
-        description=random.choice(chatter),
-        color=0x3498DB
-    )
-
-    await channel.send(embed=style_embed(embed))
-
-
-# ================= COMMANDS =================
-
-@bot.tree.command(
-    name="balance",
-    description="View stats"
-)
-async def balance(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    await ensure_player(
-        str(interaction.user.id),
-        interaction.user.name
-    )
-
-    player = await get_player(
-        str(interaction.user.id)
-    )
-
-    embed = discord.Embed(
-        title="💰 Survivor Stats",
-        description=(
-            f"Pennies: {player['scrap']}\n"
-            f"Level: {player['level']}\n"
-            f"XP: {player['xp']}\n"
-            f"Kills: {player['kills']}\n"
-            f"Deaths: {player['deaths']}\n"
-            f"Bounty: {player['bounty']}\n"
-            f"Vehicles: {player['vehicles']}\n"
-            f"Faction: {player['faction']}\n"
-            f"Territory: {player['territory']}"
-        ),
-        color=0xFFD700
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-
-@bot.tree.command(
-    name="swears",
-    description="View your swear count"
-)
-async def swears(interaction: discord.Interaction):
-
-    user_id = str(interaction.user.id)
-
-    count = swear_tracker.get(user_id, {}).get("count", 0)
-
-    embed = discord.Embed(
-        title="🤬 Swear Counter",
-        description=f"You have sworn {count} times.",
-        color=0xE74C3C
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await interaction.response.send_message(embed=embed)
-
-
-@bot.tree.command(
-    name="swearlb",
-    description="Swear leaderboard"
-)
-async def swearlb(interaction: discord.Interaction):
-
-    sorted_users = sorted(
-        swear_tracker.items(),
-        key=lambda x: x[1]["count"],
-        reverse=True
-    )
-
-    desc = ""
-
-    for i, (_, data) in enumerate(sorted_users[:10], start=1):
-
-        desc += f"{i}. {data['name']} — {data['count']} swears\n"
-
-    if not desc:
-        desc = "No swears tracked yet."
-
-    embed = discord.Embed(
-        title="🏆 Swear Leaderboard",
-        description=desc,
-        color=0xF39C12
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await interaction.response.send_message(embed=embed)
-
+# ================= START =================
 
 bot.run(DISCORD_TOKEN)
