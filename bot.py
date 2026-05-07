@@ -696,7 +696,7 @@ async def parse_adm():
 
     global processed_lines
 
-    BOT_IMAGE = "https://cdn.discordapp.com/embed/avatars/0.png"
+    BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
     if not os.path.exists(LOCAL_LOG_FILE):
 
