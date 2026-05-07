@@ -71,17 +71,10 @@ AI_CHANNELS = []
 
 AI_COOLDOWN = {}
 
-# ================= SUPABASE =================
-
-supabase = None
-
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # ================= SHOP ITEMS =================
 
 SHOP_ITEMS = {
-    "ak74": {
+    "ak": {
         "name": "AK-74",
         "price": 500
     },
@@ -102,6 +95,13 @@ SHOP_ITEMS = {
         "price": 250
     }
 }
+
+# ================= SUPABASE =================
+
+supabase = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ================= SWEAR SYSTEM =================
 
@@ -549,58 +549,61 @@ async def generate_ai_response(user_id, username, message_content):
 )
 async def balance(interaction: discord.Interaction):
 
-    discord_id = str(interaction.user.id)
+    try:
 
-    await ensure_player_exists(
-        discord_id,
-        interaction.user.name
-    )
+        discord_id = str(interaction.user.id)
 
-    player = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
+        await ensure_player_exists(
+            discord_id,
+            interaction.user.name
+        )
 
-    data = player.data[0]
+        player = supabase.table(
+            "player_data"
+        ).select("*").eq(
+            "discord_id",
+            discord_id
+        ).execute()
 
-    embed = discord.Embed(
-        title="🪙 Pennies Balance",
-        description=(
-            f"🪙 Pennies: {data['scrap']}\n"
-            f"🤬 Total Swears: {data['total_swears']}\n"
-            f"📻 Favorite Swear: {data['favorite_swear']}"
-        ),
-        color=0xFFD700
-    )
+        data = player.data[0]
 
-    embed = style_embed(embed)
+        embed = discord.Embed(
+            title="🪙 Pennies Balance",
+            description=(
+                f"🪙 Pennies: {data['scrap']}\n"
+                f"🤬 Total Swears: {data['total_swears']}\n"
+                f"📻 Favorite Swear: {data['favorite_swear']}"
+            ),
+            color=0xFFD700
+        )
 
-    await interaction.response.send_message(
-        embed=embed
-    )
+        embed = style_embed(embed)
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    except Exception as e:
+
+        print(f"❌ BALANCE ERROR: {e}")
 
 # ================= SHOP =================
 
 @bot.tree.command(
     name="shop",
-    description="View the trader shop"
+    description="View the wandering trader"
 )
 async def shop(interaction: discord.Interaction):
 
-    shop_text = ""
-
-    for item_id, item in SHOP_ITEMS.items():
-
-        shop_text += (
-            f"• {item['name']} — "
-            f"{item['price']} Pennies\n"
-        )
-
     embed = discord.Embed(
         title="🛒 Wandering Trader",
-        description=shop_text,
+        description=(
+            "🔫 AK-74 — 500 Pennies\n"
+            "🩹 Medical Kit — 150 Pennies\n"
+            "🥫 Food Bundle — 75 Pennies\n"
+            "🎒 Tactical Backpack — 300 Pennies\n"
+            "☢️ Gas Mask — 250 Pennies"
+        ),
         color=0xFFD700
     )
 
@@ -616,22 +619,23 @@ async def shop(interaction: discord.Interaction):
     name="buy",
     description="Buy an item from the shop"
 )
-@app_commands.describe(item="Item ID from the shop")
-async def buy(
-    interaction: discord.Interaction,
-    item: str
-):
+@app_commands.describe(
+    item="Item name or ID"
+)
+async def buy(interaction: discord.Interaction, item: str):
 
     item = item.lower()
 
     if item not in SHOP_ITEMS:
 
         await interaction.response.send_message(
-            "❌ Item not found.",
+            "❌ Item not found in shop.",
             ephemeral=True
         )
 
         return
+
+    shop_item = SHOP_ITEMS[item]
 
     discord_id = str(interaction.user.id)
 
@@ -649,9 +653,9 @@ async def buy(
 
     data = player.data[0]
 
-    item_data = SHOP_ITEMS[item]
+    current_scrap = data["scrap"]
 
-    if data["scrap"] < item_data["price"]:
+    if current_scrap < shop_item["price"]:
 
         await interaction.response.send_message(
             "❌ Not enough Pennies.",
@@ -660,7 +664,7 @@ async def buy(
 
         return
 
-    new_balance = data["scrap"] - item_data["price"]
+    new_balance = current_scrap - shop_item["price"]
 
     supabase.table("player_data").update({
         "scrap": new_balance
@@ -669,11 +673,18 @@ async def buy(
         discord_id
     ).execute()
 
+    supabase.table("purchase_orders").insert({
+        "discord_id": discord_id,
+        "username": interaction.user.name,
+        "item_name": shop_item["name"],
+        "item_price": shop_item["price"]
+    }).execute()
+
     embed = discord.Embed(
         title="✅ Purchase Successful",
         description=(
-            f"You bought:\n"
-            f"🎒 {item_data['name']}\n\n"
+            f"You bought:\n\n"
+            f"🎒 {shop_item['name']}\n\n"
             f"🪙 Remaining Pennies: {new_balance}"
         ),
         color=0x00FF00
@@ -685,49 +696,52 @@ async def buy(
         embed=embed
     )
 
-# ================= DAILY =================
+# ================= PENDING ORDERS =================
 
 @bot.tree.command(
-    name="daily",
-    description="Claim your daily pennies"
+    name="pendingorders",
+    description="View pending deliveries"
 )
-async def daily(interaction: discord.Interaction):
+async def pendingorders(interaction: discord.Interaction):
 
-    discord_id = str(interaction.user.id)
+    if interaction.channel.id != ADMIN_CHANNEL_ID:
 
-    await ensure_player_exists(
-        discord_id,
-        interaction.user.name
-    )
+        await interaction.response.send_message(
+            "❌ Admin only.",
+            ephemeral=True
+        )
 
-    reward = random.randint(50, 150)
+        return
 
-    player = supabase.table(
-        "player_data"
+    orders = supabase.table(
+        "purchase_orders"
     ).select("*").eq(
-        "discord_id",
-        discord_id
+        "delivered",
+        False
     ).execute()
 
-    data = player.data[0]
+    if not orders.data:
 
-    new_balance = data["scrap"] + reward
+        await interaction.response.send_message(
+            "✅ No pending orders."
+        )
 
-    supabase.table("player_data").update({
-        "scrap": new_balance
-    }).eq(
-        "discord_id",
-        discord_id
-    ).execute()
+        return
+
+    description = ""
+
+    for order in orders.data:
+
+        description += (
+            f"🆔 {order['id']} | "
+            f"{order['username']} | "
+            f"{order['item_name']}\n"
+        )
 
     embed = discord.Embed(
-        title="🎁 Daily Reward",
-        description=(
-            f"You found supplies in the wasteland.\n\n"
-            f"🪙 +{reward} Pennies\n"
-            f"💰 Balance: {new_balance}"
-        ),
-        color=0x00FF00
+        title="📦 Pending Orders",
+        description=description,
+        color=0xFFA500
     )
 
     embed = style_embed(embed)
@@ -736,86 +750,39 @@ async def daily(interaction: discord.Interaction):
         embed=embed
     )
 
-# ================= COINFLIP =================
+# ================= DELIVER =================
 
 @bot.tree.command(
-    name="coinflip",
-    description="Gamble your pennies"
+    name="deliver",
+    description="Mark order as delivered"
 )
-@app_commands.describe(amount="Amount to gamble")
-async def coinflip(
-    interaction: discord.Interaction,
-    amount: int
-):
+@app_commands.describe(
+    order_id="Order ID"
+)
+async def deliver(interaction: discord.Interaction, order_id: int):
 
-    if amount <= 0:
+    if interaction.channel.id != ADMIN_CHANNEL_ID:
 
         await interaction.response.send_message(
-            "❌ Invalid amount.",
+            "❌ Admin only.",
             ephemeral=True
         )
 
         return
 
-    discord_id = str(interaction.user.id)
-
-    await ensure_player_exists(
-        discord_id,
-        interaction.user.name
-    )
-
-    player = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    data = player.data[0]
-
-    if data["scrap"] < amount:
-
-        await interaction.response.send_message(
-            "❌ Not enough Pennies.",
-            ephemeral=True
-        )
-
-        return
-
-    win = random.choice([True, False])
-
-    if win:
-
-        new_balance = data["scrap"] + amount
-
-        result = (
-            f"🟢 You WON!\n"
-            f"🪙 +{amount} Pennies"
-        )
-
-    else:
-
-        new_balance = data["scrap"] - amount
-
-        result = (
-            f"🔴 You LOST!\n"
-            f"🪙 -{amount} Pennies"
-        )
-
-    supabase.table("player_data").update({
-        "scrap": new_balance
+    supabase.table(
+        "purchase_orders"
+    ).update({
+        "delivered": True
     }).eq(
-        "discord_id",
-        discord_id
+        "id",
+        order_id
     ).execute()
 
     embed = discord.Embed(
-        title="🪙 Coinflip",
-        description=(
-            f"{result}\n\n"
-            f"💰 Balance: {new_balance}"
-        ),
-        color=0xFFD700
+        title="✅ Order Delivered",
+        description=f"Order #{order_id} marked delivered.",
+        color=0x00FF00
     )
 
     embed = style_embed(embed)
@@ -832,35 +799,41 @@ async def coinflip(
 )
 async def swearleaderboard(interaction: discord.Interaction):
 
-    results = supabase.table(
-        "player_data"
-    ).select("*").order(
-        "total_swears",
-        desc=True
-    ).limit(10).execute()
+    try:
 
-    leaderboard = ""
+        results = supabase.table(
+            "player_data"
+        ).select("*").order(
+            "total_swears",
+            desc=True
+        ).limit(10).execute()
 
-    for index, player in enumerate(results.data, start=1):
+        leaderboard = ""
 
-        leaderboard += (
-            f"{index}. "
-            f"{player['username']} — "
-            f"{player['total_swears']} swears "
-            f"({player['favorite_swear']})\n"
+        for index, player in enumerate(results.data, start=1):
+
+            leaderboard += (
+                f"{index}. "
+                f"{player['username']} — "
+                f"{player['total_swears']} swears "
+                f"({player['favorite_swear']})\n"
+            )
+
+        embed = discord.Embed(
+            title="🤬 Swear Leaderboard",
+            description=leaderboard,
+            color=0x8B0000
         )
 
-    embed = discord.Embed(
-        title="🤬 Swear Leaderboard",
-        description=leaderboard,
-        color=0x8B0000
-    )
+        embed = style_embed(embed)
 
-    embed = style_embed(embed)
+        await interaction.response.send_message(
+            embed=embed
+        )
 
-    await interaction.response.send_message(
-        embed=embed
-    )
+    except Exception as e:
+
+        print(f"❌ SWEAR LEADERBOARD ERROR: {e}")
 
 # ================= AI CHAT SYSTEM =================
 
@@ -945,7 +918,7 @@ async def tracker_loop():
 
         await asyncio.sleep(30)
 
-# ================= EVENTS =================
+# ================= READY =================
 
 @bot.event
 async def on_ready():
