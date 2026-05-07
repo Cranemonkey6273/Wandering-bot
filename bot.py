@@ -370,20 +370,9 @@ async def on_ready():
 
     await bot.tree.sync()
 
-    if not world_events.is_running():
-        world_events.start()
-
+    # ONLY start ADM loop for now
     if not adm_loop.is_running():
         adm_loop.start()
-
-    if not dynamic_economy.is_running():
-        dynamic_economy.start()
-
-    if not territory_income.is_running():
-        territory_income.start()
-
-    if not ai_radio.is_running():
-        ai_radio.start()
 
     print(f"✅ Logged in as {bot.user}")
 
