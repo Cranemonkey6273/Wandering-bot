@@ -116,10 +116,6 @@ def style_embed(embed):
 
     embed.timestamp = datetime.now(UTC)
 
-    embed.set_footer(
-        text="📻 Wandering Bot"
-    )
-
     return embed
 
 def connect_ftp():
@@ -277,6 +273,8 @@ async def parse_adm():
 
     global processed_lines
 
+    BOT_IMAGE = "https://i.imgur.com/6L89r5K.png"
+
     if not os.path.exists(LOCAL_LOG_FILE):
 
         print("LOCAL ADM MISSING")
@@ -299,16 +297,6 @@ async def parse_adm():
         return
 
     print(f"ADM LINES READ: {len(lines)}")
-
-    print("===== ADM PREVIEW START =====")
-
-    for preview in lines[:15]:
-
-        print(repr(preview[:300]))
-
-    print("===== ADM PREVIEW END =====")
-
-    # ================= CHANNEL LOOKUPS =================
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
@@ -358,9 +346,41 @@ async def parse_adm():
 
         lower = line.lower()
 
-        # ================= CONNECTION EVENTS =================
+        # ================= CONNECTING =================
 
-        if (
+        if "is connecting" in lower:
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match:
+
+                player_name = player_match.group(1)
+
+                if connect_channel:
+
+                    embed = discord.Embed(
+                        description=(
+                            f"🛰️ {player_name} is connecting\n"
+                            f"🕒 {line[:8]}"
+                        ),
+                        color=0x9C8A00
+                    )
+
+                    embed.set_thumbnail(url=BOT_IMAGE)
+
+                    embed.set_footer(
+                        text="Wandering Bot Intelligence"
+                    )
+
+                    await connect_channel.send(embed=embed)
+
+        # ================= CONNECTED =================
+
+        elif (
             "is connected" in lower
             or "connected" in lower
         ):
@@ -379,19 +399,25 @@ async def parse_adm():
 
                 parsed_connections += 1
 
-                print(f"PLAYER CONNECTED: {player_name}")
-
                 if connect_channel:
 
                     embed = discord.Embed(
-                        title="🟢 Player Connected",
-                        description=player_name,
-                        color=0x2ECC71
+                        description=(
+                            f"☣️ {player_name} connected\n"
+                            f"🕒 {line[:8]}"
+                        ),
+                        color=0x4E7F3D
                     )
 
-                    await connect_channel.send(
-                        embed=style_embed(embed)
+                    embed.set_thumbnail(url=BOT_IMAGE)
+
+                    embed.set_footer(
+                        text="Wandering Bot Intelligence"
                     )
+
+                    await connect_channel.send(embed=embed)
+
+        # ================= DISCONNECTED =================
 
         elif (
             "has been disconnected" in lower
@@ -410,19 +436,23 @@ async def parse_adm():
 
                 online_players.discard(player_name)
 
-                print(f"PLAYER DISCONNECTED: {player_name}")
-
                 if connect_channel:
 
                     embed = discord.Embed(
-                        title="🔴 Player Disconnected",
-                        description=player_name,
-                        color=0xE74C3C
+                        description=(
+                            f"❌ {player_name} disconnected\n"
+                            f"🕒 {line[:8]}"
+                        ),
+                        color=0x8E2E2E
                     )
 
-                    await connect_channel.send(
-                        embed=style_embed(embed)
+                    embed.set_thumbnail(url=BOT_IMAGE)
+
+                    embed.set_footer(
+                        text="Wandering Bot Intelligence"
                     )
+
+                    await connect_channel.send(embed=embed)
 
         # ================= BUILD EVENTS =================
 
@@ -436,19 +466,44 @@ async def parse_adm():
 
             parsed_builds += 1
 
-            print(f"BUILD EVENT: {line[:120]}")
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            build_match = re.search(
+                r'Built\s+([A-Za-z0-9_]+)',
+                line,
+                re.IGNORECASE
+            )
+
+            player_name = "Unknown"
+            build_item = "Structure"
+
+            if player_match:
+                player_name = player_match.group(1)
+
+            if build_match:
+                build_item = build_match.group(1)
 
             embed = discord.Embed(
-                title="🔨 Build Event",
-                description=line[:3500],
-                color=0x2ECC71
+                description=(
+                    f"🔨 {player_name} built {build_item}\n"
+                    f"🕒 {line[:8]}"
+                ),
+                color=0x4E7F3D
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Intelligence"
             )
 
             if build_channel:
 
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
+                await build_channel.send(embed=embed)
 
         # ================= DEPLOY EVENTS =================
 
@@ -461,19 +516,23 @@ async def parse_adm():
 
             parsed_deploys += 1
 
-            print(f"DEPLOY EVENT: {line[:120]}")
-
             embed = discord.Embed(
-                title="📦 Deploy Event",
-                description=line[:3500],
-                color=0x3498DB
+                description=(
+                    f"📦 Deploy Event\n"
+                    f"🕒 {line[:8]}"
+                ),
+                color=0x9C8A00
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Intelligence"
             )
 
             if deploy_channel:
 
-                await deploy_channel.send(
-                    embed=style_embed(embed)
-                )
+                await deploy_channel.send(embed=embed)
 
         # ================= RAID EVENTS =================
 
@@ -486,19 +545,23 @@ async def parse_adm():
 
             parsed_raids += 1
 
-            print(f"RAID EVENT: {line[:120]}")
-
             embed = discord.Embed(
-                title="🔴 RAID ALERT",
-                description=line[:3500],
-                color=0xE74C3C
+                description=(
+                    f"💥 Raid Alert\n"
+                    f"🕒 {line[:8]}"
+                ),
+                color=0x8E2E2E
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Intelligence"
             )
 
             if raid_channel:
 
-                await raid_channel.send(
-                    embed=style_embed(embed)
-                )
+                await raid_channel.send(embed=embed)
 
         # ================= KILL EVENTS =================
 
@@ -507,8 +570,6 @@ async def parse_adm():
             or "hit by player" in lower
             or "killed" in lower
         ):
-
-            print(f"KILL LINE DETECTED: {line}")
 
             victim_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -539,32 +600,24 @@ async def parse_adm():
 
                 reward = random.randint(100, 500)
 
-                print(
-                    f"PVP PARSED: "
-                    f"{killer} -> {victim}"
+                embed = discord.Embed(
+                    description=(
+                        f"☠️ {killer} killed {victim}\n"
+                        f"💰 Reward: {reward}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x8E2E2E
                 )
 
-                embed = discord.Embed(
-                    title="☠️ PvP Kill",
-                    description=(
-                        f"🔫 Killer: {killer}\n"
-                        f"💀 Victim: {victim}\n"
-                        f"💰 Reward: {reward}"
-                    ),
-                    color=0xC0392B
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                embed.set_footer(
+                    text="Wandering Bot Intelligence"
                 )
 
                 if killfeed_channel:
 
-                    await killfeed_channel.send(
-                        embed=style_embed(embed)
-                    )
-
-                    print("KILL EVENT SENT")
-
-            else:
-
-                print("FAILED TO PARSE KILL EVENT")
+                    await killfeed_channel.send(embed=embed)
 
     print("===== ADM SUMMARY =====")
 
