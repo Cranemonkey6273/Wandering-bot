@@ -273,7 +273,7 @@ async def parse_adm():
 
     global processed_lines
 
-    BOT_IMAGE = "https://i.imgur.com/6L89r5K.png"
+    BOT_IMAGE = "https://cdn.discordapp.com/embed/avatars/0.png"
 
     if not os.path.exists(LOCAL_LOG_FILE):
 
@@ -380,10 +380,7 @@ async def parse_adm():
 
         # ================= CONNECTED =================
 
-        elif (
-            "is connected" in lower
-            or "connected" in lower
-        ):
+        elif "is connected" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -419,10 +416,7 @@ async def parse_adm():
 
         # ================= DISCONNECTED =================
 
-        elif (
-            "has been disconnected" in lower
-            or "disconnected" in lower
-        ):
+        elif "has been disconnected" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
