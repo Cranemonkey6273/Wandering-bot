@@ -78,6 +78,27 @@ supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# ================= SWEAR SYSTEM =================
+
+SWEAR_WORDS = {
+    "fuck": 2,
+    "shit": 1,
+    "bitch": 2,
+    "cunt": 5,
+    "bastard": 2,
+    "wanker": 2,
+    "twat": 2,
+    "prick": 2
+}
+
+FUNNY_SWEAR_MESSAGES = [
+    "☣️ Scrap tax applied for foul language.",
+    "💀 The wasteland heard that.",
+    "🪙 Swear jar updated, survivor.",
+    "📻 Easy on the radio chatter.",
+    "☢️ Another swear detected. Scrap confiscated."
+]
+
 # ================= POSITION TRACKING =================
 
 def load_last_position():
@@ -137,6 +158,105 @@ Never:
 - write huge essays constantly
 - pretend to be human
 """
+
+# ================= PLAYER DATA =================
+
+async def ensure_player_exists(discord_id, username):
+
+    try:
+
+        existing = supabase.table("player_data").select("*").eq(
+            "discord_id",
+            discord_id
+        ).execute()
+
+        if not existing.data:
+
+            supabase.table("player_data").insert({
+                "discord_id": discord_id,
+                "username": username,
+                "scrap": 100,
+                "total_swears": 0,
+                "favorite_swear": "",
+                "favorite_swear_count": 0
+            }).execute()
+
+    except Exception as e:
+
+        print(f"❌ PLAYER CREATE ERROR: {e}")
+
+# ================= SWEAR CHECK =================
+
+async def process_swear_jar(message):
+
+    try:
+
+        content = message.content.lower()
+
+        for swear, penalty in SWEAR_WORDS.items():
+
+            if swear in content:
+
+                await ensure_player_exists(
+                    str(message.author.id),
+                    message.author.name
+                )
+
+                player = supabase.table(
+                    "player_data"
+                ).select("*").eq(
+                    "discord_id",
+                    str(message.author.id)
+                ).execute()
+
+                if not player.data:
+                    return
+
+                data = player.data[0]
+
+                new_scrap = max(
+                    0,
+                    data["scrap"] - penalty
+                )
+
+                total_swears = data["total_swears"] + 1
+
+                favorite_word = data["favorite_swear"]
+                favorite_count = data["favorite_swear_count"]
+
+                if favorite_word == swear:
+                    favorite_count += 1
+
+                else:
+
+                    favorite_word = swear
+                    favorite_count = 1
+
+                supabase.table("player_data").update({
+                    "scrap": new_scrap,
+                    "total_swears": total_swears,
+                    "favorite_swear": favorite_word,
+                    "favorite_swear_count": favorite_count
+                }).eq(
+                    "discord_id",
+                    str(message.author.id)
+                ).execute()
+
+                funny_message = random.choice(
+                    FUNNY_SWEAR_MESSAGES
+                )
+
+                await message.channel.send(
+                    f"{funny_message}\n"
+                    f"💰 -{penalty} Scrap\n"
+                    f"🗣️ Word detected: `{swear}`"
+                )
+
+                break
+
+    except Exception as e:
+
+        print(f"❌ SWEAR JAR ERROR: {e}")
 
 # ================= DATE EXTRACTION =================
 
@@ -199,8 +319,6 @@ def find_latest_adm():
 
             if file.endswith(".ADM"):
 
-                print(f"📄 Found ADM: {file}")
-
                 adm_files.append(file)
 
         ftp.quit()
@@ -233,16 +351,9 @@ def download_latest_log():
         log_path = find_latest_adm()
 
         if not log_path:
-
-            print("❌ No ADM logs found")
-
             return False
 
-        print(f"✅ Latest ADM log found: {log_path}")
-
         if current_log_file != log_path:
-
-            print(f"🆕 New ADM detected: {log_path}")
 
             current_log_file = log_path
 
@@ -279,12 +390,6 @@ def style_embed(embed):
         text="☣️ Wandering Bot Intelligence"
     )
 
-    if os.path.exists(BOT_IMAGE):
-
-        embed.set_thumbnail(
-            url="attachment://wanderingbot.png"
-        )
-
     return embed
 
 # ================= SEND EMBED =================
@@ -292,28 +397,11 @@ def style_embed(embed):
 async def send_embed(channel, embed):
 
     if not channel:
-
-        print("❌ Channel not found")
-
         return
 
     try:
 
-        if os.path.exists(BOT_IMAGE):
-
-            file = discord.File(
-                BOT_IMAGE,
-                filename="wanderingbot.png"
-            )
-
-            await channel.send(
-                embed=embed,
-                file=file
-            )
-
-        else:
-
-            await channel.send(embed=embed)
+        await channel.send(embed=embed)
 
     except Exception as e:
 
@@ -378,78 +466,13 @@ async def parse_new_lines():
                 else "Unknown"
             )
 
-            pos_match = re.search(
-                r'pos=<([\d.]+), ([\d.]+), ([\d.]+)>',
-                line
-            )
-
-            location_display = "`Unknown`"
-
-            if pos_match:
-
-                x = round(float(pos_match.group(1)), 1)
-                y = round(float(pos_match.group(2)), 1)
-
-                location_display = f"`{x}, {y}`"
-
-            if " is connecting" in line:
-
-                embed = discord.Embed(
-                    color=0x8B8000
-                )
-
-                embed.description = (
-                    f"📡 {player} is connecting\n"
-                    f"🕒 {timestamp}"
-                )
-
-                embed = style_embed(embed)
-
-                await send_embed(
-                    connection_channel,
-                    embed
-                )
-
-            elif " is connected" in line:
+            if " is connected" in line:
 
                 online_players.add(player)
-
-                embed = discord.Embed(
-                    color=0x556B2F
-                )
-
-                embed.description = (
-                    f"☣ {player} connected\n"
-                    f"🕒 {timestamp}"
-                )
-
-                embed = style_embed(embed)
-
-                await send_embed(
-                    connection_channel,
-                    embed
-                )
 
             elif " has been disconnected" in line:
 
                 online_players.discard(player)
-
-                embed = discord.Embed(
-                    color=0x8B2E2E
-                )
-
-                embed.description = (
-                    f"☠ {player} disconnected\n"
-                    f"📍 {location_display}\n"
-                    f"🕒 {timestamp}"
-                )
-
-                embed = style_embed(embed)
-
-                await send_embed(
-                    admin_channel,
-                    embed
-                )
 
     except Exception as e:
 
@@ -508,6 +531,96 @@ async def generate_ai_response(user_id, username, message_content):
 
         return "The radio signal got lost somewhere in Chernarus."
 
+# ================= BALANCE COMMAND =================
+
+@bot.tree.command(
+    name="balance",
+    description="Check your scrap balance"
+)
+async def balance(interaction: discord.Interaction):
+
+    try:
+
+        discord_id = str(interaction.user.id)
+
+        await ensure_player_exists(
+            discord_id,
+            interaction.user.name
+        )
+
+        player = supabase.table(
+            "player_data"
+        ).select("*").eq(
+            "discord_id",
+            discord_id
+        ).execute()
+
+        data = player.data[0]
+
+        embed = discord.Embed(
+            title="💰 Scrap Balance",
+            description=(
+                f"🪙 Scrap: {data['scrap']}\n"
+                f"🤬 Total Swears: {data['total_swears']}\n"
+                f"📻 Favorite Swear: {data['favorite_swear']}"
+            ),
+            color=0xFFD700
+        )
+
+        embed = style_embed(embed)
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    except Exception as e:
+
+        print(f"❌ BALANCE ERROR: {e}")
+
+# ================= SWEAR LEADERBOARD =================
+
+@bot.tree.command(
+    name="swearleaderboard",
+    description="Show top swearers"
+)
+async def swearleaderboard(interaction: discord.Interaction):
+
+    try:
+
+        results = supabase.table(
+            "player_data"
+        ).select("*").order(
+            "total_swears",
+            desc=True
+        ).limit(10).execute()
+
+        leaderboard = ""
+
+        for index, player in enumerate(results.data, start=1):
+
+            leaderboard += (
+                f"{index}. "
+                f"{player['username']} — "
+                f"{player['total_swears']} swears "
+                f"({player['favorite_swear']})\n"
+            )
+
+        embed = discord.Embed(
+            title="🤬 Swear Leaderboard",
+            description=leaderboard,
+            color=0x8B0000
+        )
+
+        embed = style_embed(embed)
+
+        await interaction.response.send_message(
+            embed=embed
+        )
+
+    except Exception as e:
+
+        print(f"❌ SWEAR LEADERBOARD ERROR: {e}")
+
 # ================= AI CHAT SYSTEM =================
 
 @bot.event
@@ -515,6 +628,8 @@ async def on_message(message):
 
     if message.author.bot:
         return
+
+    await process_swear_jar(message)
 
     await bot.process_commands(message)
 
@@ -579,8 +694,6 @@ async def tracker_loop():
 
     await bot.wait_until_ready()
 
-    print("🚀 Wandering Bot Tracker Started")
-
     while not bot.is_closed():
 
         success = download_latest_log()
@@ -599,8 +712,6 @@ async def on_ready():
     await bot.tree.sync()
 
     print(f"✅ Logged in as {bot.user}")
-
-    print("🌐 Slash commands synced")
 
     bot.loop.create_task(tracker_loop())
 
