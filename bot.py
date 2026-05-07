@@ -3,6 +3,7 @@ import re
 import random
 import discord
 
+from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -21,7 +22,14 @@ EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 
-LOG_FILE = "server.ADM"
+FTP_HOST = os.getenv("FTP_HOST")
+FTP_USER = os.getenv("FTP_USER")
+FTP_PASS = os.getenv("FTP_PASS")
+FTP_PORT = int(os.getenv("FTP_PORT", 21))
+
+LOG_DIRECTORY = "/dayzxb/config"
+
+LOCAL_LOG_FILE = "server.ADM"
 
 # ================= DISCORD =================
 
@@ -48,7 +56,8 @@ supabase = create_client(
 
 # ================= GLOBALS =================
 
-last_position = os.path.getsize(LOG_FILE) if os.path.exists(LOG_FILE) else 0
+last_position = 0
+current_log_file = None
 online_players = set()
 
 # ================= SHOP =================
@@ -73,6 +82,118 @@ def style_embed(embed):
     )
 
     return embed
+
+def extract_date(file_name):
+
+    match = re.search(
+        r'(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})',
+        file_name
+    )
+
+    if not match:
+        return datetime.min
+
+    return datetime.strptime(
+        f"{match.group(1)} "
+        f"{match.group(2)}:"
+        f"{match.group(3)}:"
+        f"{match.group(4)}",
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+def connect_ftp():
+
+    ftp = FTP_TLS()
+
+    ftp.connect(
+        FTP_HOST,
+        FTP_PORT,
+        timeout=30
+    )
+
+    ftp.login(
+        FTP_USER,
+        FTP_PASS
+    )
+
+    ftp.prot_p()
+
+    return ftp
+
+def find_latest_adm():
+
+    try:
+
+        ftp = connect_ftp()
+
+        ftp.cwd(LOG_DIRECTORY)
+
+        files = ftp.nlst()
+
+        adm_files = []
+
+        for file in files:
+
+            if file.endswith(".ADM"):
+                adm_files.append(file)
+
+        ftp.quit()
+
+        if not adm_files:
+            return None
+
+        newest_file = max(
+            adm_files,
+            key=lambda x: extract_date(x)
+        )
+
+        return f"{LOG_DIRECTORY}/{newest_file}"
+
+    except Exception as e:
+
+        print(f"FTP SEARCH ERROR: {e}")
+
+        return None
+
+def download_latest_log():
+
+    global current_log_file
+    global last_position
+
+    try:
+
+        latest_log = find_latest_adm()
+
+        if not latest_log:
+            print("NO ADM FILE FOUND")
+            return False
+
+        if current_log_file != latest_log:
+
+            print(f"NEW ADM DETECTED: {latest_log}")
+
+            current_log_file = latest_log
+
+            last_position = 0
+
+        ftp = connect_ftp()
+
+        with open(LOCAL_LOG_FILE, "wb") as f:
+
+            ftp.retrbinary(
+                f"RETR {latest_log}",
+                f.write
+            )
+
+        ftp.quit()
+
+        return True
+
+    except Exception as e:
+
+        print(f"DOWNLOAD ERROR: {e}")
+
+        return False
 
 async def ensure_player(discord_id, username):
 
@@ -125,8 +246,8 @@ async def on_ready():
 
     await bot.tree.sync()
 
-    world_events.start()
     adm_loop.start()
+    world_events.start()
 
     print(f"Logged in as {bot.user}")
 
@@ -136,18 +257,18 @@ async def parse_adm():
 
     global last_position
 
-    if not os.path.exists(LOG_FILE):
-        print(f"ADM FILE NOT FOUND: {LOG_FILE}")
+    if not os.path.exists(LOCAL_LOG_FILE):
+        print("LOCAL ADM NOT FOUND")
         return
 
     with open(
-        LOG_FILE,
+        LOCAL_LOG_FILE,
         "r",
         encoding="utf-8",
         errors="ignore"
     ) as f:
 
-        current_size = os.path.getsize(LOG_FILE)
+        current_size = os.path.getsize(LOCAL_LOG_FILE)
 
         if current_size < last_position:
             last_position = 0
@@ -180,9 +301,10 @@ async def parse_adm():
             )
 
             if player_match:
-                online_players.add(
-                    player_match.group(1)
-                )
+
+                player = player_match.group(1)
+
+                online_players.add(player)
 
         if "has been disconnected" in line:
 
@@ -192,9 +314,10 @@ async def parse_adm():
             )
 
             if player_match:
-                online_players.discard(
-                    player_match.group(1)
-                )
+
+                player = player_match.group(1)
+
+                online_players.discard(player)
 
         if "killed by Player" in line:
 
@@ -223,6 +346,7 @@ async def parse_adm():
                 )
 
                 if killfeed_channel:
+
                     await killfeed_channel.send(
                         embed=style_embed(embed)
                     )
@@ -240,6 +364,7 @@ async def parse_adm():
             )
 
             if raid_channel:
+
                 await raid_channel.send(
                     embed=style_embed(embed)
                 )
@@ -249,7 +374,11 @@ async def parse_adm():
 @tasks.loop(seconds=30)
 async def adm_loop():
 
-    await parse_adm()
+    success = download_latest_log()
+
+    if success:
+
+        await parse_adm()
 
 @tasks.loop(minutes=20)
 async def world_events():
@@ -284,20 +413,22 @@ async def world_events():
 )
 async def admcheck(interaction: discord.Interaction):
 
-    exists = os.path.exists(LOG_FILE)
+    exists = os.path.exists(LOCAL_LOG_FILE)
 
     if exists:
 
-        size = os.path.getsize(LOG_FILE)
+        size = os.path.getsize(LOCAL_LOG_FILE)
 
         await interaction.response.send_message(
-            f"ADM FOUND\nPath: {LOG_FILE}\nSize: {size}"
+            f"ADM FOUND\n"
+            f"Current File: {current_log_file}\n"
+            f"Size: {size}"
         )
 
     else:
 
         await interaction.response.send_message(
-            f"ADM NOT FOUND\nPath: {LOG_FILE}"
+            "ADM FILE NOT FOUND"
         )
 
 # ================= BALANCE =================
@@ -348,52 +479,13 @@ async def shop(interaction: discord.Interaction):
     text = ""
 
     for item, price in SHOP_ITEMS.items():
+
         text += f"â¢ {item} â {price}\n"
 
     embed = discord.Embed(
         title="Trader Shop",
         description=text,
         color=0xE67E22
-    )
-
-    await interaction.followup.send(
-        embed=style_embed(embed)
-    )
-
-# ================= INVENTORY =================
-
-@bot.tree.command(
-    name="inventory",
-    description="View inventory"
-)
-async def inventory(interaction: discord.Interaction):
-
-    await interaction.response.defer()
-
-    results = supabase.table(
-        "delivery_queue"
-    ).select("*").eq(
-        "discord_id",
-        str(interaction.user.id)
-    ).execute()
-
-    if not results.data:
-
-        await interaction.followup.send(
-            "Inventory empty."
-        )
-
-        return
-
-    text = ""
-
-    for item in results.data:
-        text += f"â¢ {item['item']} ({item['status']})\n"
-
-    embed = discord.Embed(
-        title="Inventory",
-        description=text,
-        color=0x3498DB
     )
 
     await interaction.followup.send(
