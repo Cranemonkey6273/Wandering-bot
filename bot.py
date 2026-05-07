@@ -12,9 +12,8 @@ from discord import app_commands
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
+EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
 FTP_USER = os.getenv("FTP_USER")
@@ -24,9 +23,8 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 SEARCH_DIRECTORIES = [
     "/dayzxb",
     "/dayzxb/config",
-    "/dayzxb/profiles",
-    "/dayzxb/profile",
     "/dayzxb/logs",
+    "/dayzxb/profile",
     "/dayzxb/mpmissions"
 ]
 
@@ -44,8 +42,8 @@ bot = commands.Bot(
 
 # ================= GLOBALS =================
 
-last_position = 0
 current_log_file = None
+processed_lines = set()
 online_players = set()
 
 # ================= HELPERS =================
@@ -152,7 +150,6 @@ def get_latest_adm():
 def download_latest_adm():
 
     global current_log_file
-    global last_position
 
     try:
 
@@ -160,15 +157,14 @@ def download_latest_adm():
 
         if not newest_adm:
 
-            print("NO ADM FILES FOUND")
+            print("NO ADM FOUND")
             return False
 
         if newest_adm != current_log_file:
 
             current_log_file = newest_adm
-            last_position = 0
 
-            print(f"SWITCHED TO LIVE ADM: {newest_adm}")
+            print(f"LIVE ADM: {newest_adm}")
 
         ftp = connect_ftp()
 
@@ -199,15 +195,13 @@ async def on_ready():
 
     print(f"Logged in as {bot.user}")
 
-# ================= PARSER =================
+# ================= ADM PARSER =================
 
 async def parse_adm():
 
-    global last_position
-
     if not os.path.exists(LOCAL_LOG_FILE):
 
-        print("LOCAL ADM NOT FOUND")
+        print("NO LOCAL ADM")
         return
 
     with open(
@@ -217,26 +211,27 @@ async def parse_adm():
         errors="ignore"
     ) as f:
 
-        current_size = os.path.getsize(LOCAL_LOG_FILE)
-
-        if current_size < last_position:
-            last_position = 0
-
-        f.seek(last_position)
-
         lines = f.readlines()
 
-        last_position = f.tell()
-
-    print(f"ADM LINES READ: {len(lines)}")
+    print(f"FULL ADM READ: {len(lines)}")
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
     )
 
-    for line in lines:
+    for raw_line in lines:
 
-        line = line.strip()
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        # ================= DUPLICATE PREVENTION =================
+
+        if line in processed_lines:
+            continue
+
+        processed_lines.add(line)
 
         # ================= CONNECTS =================
 
@@ -277,12 +272,12 @@ async def parse_adm():
         if (
             "built" in line.lower()
             or "construction" in line.lower()
-            or "wall_base" in line.lower()
             or "watchtower" in line.lower()
+            or "wall_base" in line.lower()
         ):
 
             embed = discord.Embed(
-                title="ð¨ Build Event",
+                title="Build Event",
                 description=line[:3500],
                 color=0x2ECC71
             )
@@ -295,9 +290,45 @@ async def parse_adm():
 
                 print("BUILD EVENT SENT")
 
-# ================= TASK =================
+        # ================= KILLS =================
 
-@tasks.loop(seconds=30)
+        if "killed by Player" in line:
+
+            victim_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            killer_match = re.search(
+                r'killed by Player "([^"]+)"',
+                line
+            )
+
+            if victim_match and killer_match:
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                embed = discord.Embed(
+                    title="PvP Kill",
+                    description=(
+                        f"Killer: {killer}\n"
+                        f"Victim: {victim}"
+                    ),
+                    color=0xC0392B
+                )
+
+                if killfeed_channel:
+
+                    await killfeed_channel.send(
+                        embed=style_embed(embed)
+                    )
+
+                    print("KILL EVENT SENT")
+
+# ================= LOOP =================
+
+@tasks.loop(seconds=60)
 async def adm_loop():
 
     success = download_latest_adm()
@@ -310,27 +341,13 @@ async def adm_loop():
 
 @bot.tree.command(
     name="admcheck",
-    description="ADM status"
+    description="ADM debug"
 )
 async def admcheck(interaction: discord.Interaction):
 
-    exists = os.path.exists(LOCAL_LOG_FILE)
-
-    if exists:
-
-        size = os.path.getsize(LOCAL_LOG_FILE)
-
-        await interaction.response.send_message(
-            f"ACTIVE ADM:\n"
-            f"{current_log_file}\n\n"
-            f"SIZE: {size}"
-        )
-
-    else:
-
-        await interaction.response.send_message(
-            "NO LOCAL ADM FOUND"
-        )
+    await interaction.response.send_message(
+        f"Current ADM:\n{current_log_file}"
+    )
 
 @bot.tree.command(
     name="online",
@@ -341,7 +358,7 @@ async def online(interaction: discord.Interaction):
     if not online_players:
 
         await interaction.response.send_message(
-            "No online players tracked."
+            "No players tracked."
         )
 
         return
