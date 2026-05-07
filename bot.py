@@ -92,11 +92,11 @@ SWEAR_WORDS = {
 }
 
 FUNNY_SWEAR_MESSAGES = [
-    "☣️ Scrap tax applied for foul language.",
+    "☣️ Pennies tax applied for foul language.",
     "💀 The wasteland heard that.",
     "🪙 Swear jar updated, survivor.",
     "📻 Easy on the radio chatter.",
-    "☢️ Another swear detected. Scrap confiscated."
+    "☢️ Another swear detected. Pennies confiscated."
 ]
 
 # ================= POSITION TRACKING =================
@@ -248,7 +248,7 @@ async def process_swear_jar(message):
 
                 await message.channel.send(
                     f"{funny_message}\n"
-                    f"💰 -{penalty} Scrap\n"
+                    f"🪙 -{penalty} Pennies\n"
                     f"🗣️ Word detected: `{swear}`"
                 )
 
@@ -535,7 +535,7 @@ async def generate_ai_response(user_id, username, message_content):
 
 @bot.tree.command(
     name="balance",
-    description="Check your scrap balance"
+    description="Check your pennies balance"
 )
 async def balance(interaction: discord.Interaction):
 
@@ -558,9 +558,9 @@ async def balance(interaction: discord.Interaction):
         data = player.data[0]
 
         embed = discord.Embed(
-            title="💰 Scrap Balance",
+            title="🪙 Pennies Balance",
             description=(
-                f"🪙 Scrap: {data['scrap']}\n"
+                f"🪙 Pennies: {data['scrap']}\n"
                 f"🤬 Total Swears: {data['total_swears']}\n"
                 f"📻 Favorite Swear: {data['favorite_swear']}"
             ),
