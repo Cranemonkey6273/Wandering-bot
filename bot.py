@@ -159,7 +159,6 @@ def connect_ftp():
     return ftp
 
 
-
 def find_active_adm():
 
     global current_adm
@@ -178,20 +177,35 @@ def find_active_adm():
 
             if file.endswith(".ADM"):
 
-                adm_files.append(file)
+                try:
 
-                print(f"FOUND ADM: {file}")
+                    modified = ftp.sendcmd(f"MDTM {file}")
 
-        ftp.quit()
+                    timestamp = modified[4:].strip()
+
+                    adm_files.append((file, timestamp))
+
+                    print(f"FOUND ADM: {file} | {timestamp}")
+
+                except Exception as e:
+
+                    print(f"FAILED MDTM: {file} | {e}")
 
         if not adm_files:
+
+            ftp.quit()
             return None
 
-        newest = sorted(adm_files)[-1]
+        newest_file = max(
+            adm_files,
+            key=lambda x: x[1]
+        )[0]
 
-        current_adm = f"{SEARCH_DIR}/{newest}"
+        current_adm = f"{SEARCH_DIR}/{newest_file}"
 
         print(f"ACTIVE ADM: {current_adm}")
+
+        ftp.quit()
 
         return current_adm
 
@@ -200,7 +214,6 @@ def find_active_adm():
         print(f"ADM SEARCH ERROR: {e}")
 
         return None
-
 
 
 def download_adm():
@@ -383,8 +396,6 @@ async def parse_adm():
 
         lower = line.lower()
 
-        # ================= CONNECTIONS =================
-
         if (
             "is connecting" in lower
             or "connecting" in lower
@@ -472,6 +483,118 @@ async def parse_adm():
                 embed.set_footer(text="Wandering Bot Intelligence")
 
                 await connect_channel.send(embed=embed)
+
+        elif any(x in lower for x in [
+            "built",
+            "wall_base",
+            "watchtower",
+            "territory",
+            "fence",
+            "gate"
+        ]):
+
+            if build_channel:
+
+                embed = discord.Embed(
+                    description=(
+                        f"🔨 Build Event\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x2ECC71
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+                embed.set_footer(text="Wandering Bot Intelligence")
+
+                await build_channel.send(embed=embed)
+
+        elif any(x in lower for x in [
+            "placed",
+            "deployed",
+            "seachest",
+            "barrel"
+        ]):
+
+            if deploy_channel:
+
+                embed = discord.Embed(
+                    description=(
+                        f"📦 Deploy Event\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xF1C40F
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+                embed.set_footer(text="Wandering Bot Intelligence")
+
+                await deploy_channel.send(embed=embed)
+
+        elif any(x in lower for x in [
+            "destroyed",
+            "breached",
+            "explosive",
+            "raid"
+        ]):
+
+            if raid_channel:
+
+                embed = discord.Embed(
+                    description=(
+                        f"💥 Raid Alert\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xE74C3C
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+                embed.set_footer(text="Wandering Bot Intelligence")
+
+                await raid_channel.send(embed=embed)
+
+        elif (
+            "killed by player" in lower
+            or "hit by player" in lower
+            or "killed" in lower
+        ):
+
+            victim_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            killer_match = re.search(
+                r'by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if (
+                victim_match
+                and killer_match
+                and killfeed_channel
+            ):
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                reward = random.randint(100, 500)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☠️ {killer} killed {victim}\n"
+                        f"💰 Reward: {reward}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xC0392B
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+                embed.set_footer(text="Wandering Bot Intelligence")
+
+                await killfeed_channel.send(embed=embed)
+
 
 # ================= TASKS =================
 
