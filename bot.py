@@ -49,10 +49,10 @@ supabase = create_client(
 
 # ================= GLOBALS =================
 
-last_position = 0
+last_position = os.path.getsize(LOG_FILE) if os.path.exists(LOG_FILE) else 0
 online_players = set()
 
-# ================= ECONOMY =================
+# ================= SHOP =================
 
 SHOP_ITEMS = {
     "water": 10,
@@ -132,7 +132,7 @@ async def on_ready():
     territory_income.start()
     ai_radio.start()
 
-    print(f"â Logged in as {bot.user}")
+    print(f"Logged in as {bot.user}")
 
 # ================= ADM PARSER =================
 
@@ -149,6 +149,11 @@ async def parse_adm():
         encoding="utf-8",
         errors="ignore"
     ) as f:
+
+        current_size = os.path.getsize(LOG_FILE)
+
+        if current_size < last_position:
+            last_position = 0
 
         f.seek(last_position)
 
@@ -259,12 +264,12 @@ async def world_events():
         return
 
     events = [
-        "ð Helicopter crash reported.",
-        "â£ï¸ Toxic gas spreading.",
-        "ð» Convoy entering Chernarus.",
-        "ð¥ Heavy fighting near NWAF.",
-        "ð´ Faction conflict escalating.",
-        "ð¦ Supply crate detected."
+        "Helicopter crash reported.",
+        "Toxic gas spreading.",
+        "Convoy entering Chernarus.",
+        "Heavy fighting near NWAF.",
+        "Faction conflict escalating.",
+        "Supply crate detected."
     ]
 
     embed = discord.Embed(
@@ -319,11 +324,11 @@ async def ai_radio():
         return
 
     chatter = [
-        "ð» Gunfire heard near Tisy.",
-        "ð» Survivors spotted near Vybor.",
-        "ð» Trader convoy requesting escort.",
-        "ð» Black market trader active tonight.",
-        "ð» Toxic storm approaching."
+        "Gunfire heard near Tisy.",
+        "Survivors spotted near Vybor.",
+        "Trader convoy requesting escort.",
+        "Black market trader active tonight.",
+        "Toxic storm approaching."
     ]
 
     embed = discord.Embed(
@@ -386,7 +391,6 @@ async def shop(interaction: discord.Interaction):
     text = ""
 
     for item, price in SHOP_ITEMS.items():
-
         text += f"â¢ {item} â {price}\n"
 
     embed = discord.Embed(
@@ -415,7 +419,7 @@ async def buy(interaction: discord.Interaction, item: str):
     if item not in SHOP_ITEMS:
 
         await interaction.followup.send(
-            "â Item not found."
+            "Item not found."
         )
 
         return
@@ -427,7 +431,7 @@ async def buy(interaction: discord.Interaction, item: str):
     if player["scrap"] < SHOP_ITEMS[item]:
 
         await interaction.followup.send(
-            "â Not enough pennies."
+            "Not enough pennies."
         )
 
         return
@@ -477,11 +481,7 @@ async def inventory(interaction: discord.Interaction):
     text = ""
 
     for item in results.data:
-
-        text += (
-            f"â¢ {item['item']} "
-            f"({item['status']})\n"
-        )
+        text += f"â¢ {item['item']} ({item['status']})\n"
 
     embed = discord.Embed(
         title="ð Inventory",
