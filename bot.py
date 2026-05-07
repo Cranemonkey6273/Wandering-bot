@@ -42,15 +42,15 @@ supabase = create_client(
     SUPABASE_KEY
 )
 
-# ================= SHOPS =================
+# ================= ECONOMY =================
 
 SHOP_ITEMS = {
     "water": 10,
-    "beans": 15,
+    "beans": 20,
     "ammo": 50,
     "medkit": 100,
-    "armor": 250,
-    "rifle": 500
+    "armor": 300,
+    "rifle": 600
 }
 
 BLACKMARKET_ITEMS = {
@@ -63,9 +63,8 @@ BLACKMARKET_ITEMS = {
 
 SYSTEM_PROMPT = '''
 You are Wandering Bot.
-You are a DayZ survival AI.
-Speak naturally.
-Keep responses immersive.
+A hardcore survival AI for DayZ.
+Keep replies immersive and natural.
 '''
 
 # ================= HELPERS =================
@@ -96,12 +95,14 @@ async def ensure_player(discord_id, username):
         ).insert({
             "discord_id": discord_id,
             "username": username,
-            "scrap": 500,
+            "scrap": 1000,
             "bank": 0,
             "kills": 0,
             "deaths": 0,
+            "bounty": 0,
             "faction": "",
-            "territory": ""
+            "territory": "",
+            "vehicles": 0
         }).execute()
 
 async def get_player(discord_id):
@@ -141,7 +142,7 @@ async def on_ready():
 
     await bot.tree.sync()
 
-    random_world_events.start()
+    world_events.start()
 
     print(f"â Logged in as {bot.user}")
 
@@ -149,7 +150,7 @@ async def on_ready():
 
 @bot.tree.command(
     name="balance",
-    description="Check balance"
+    description="View survivor stats"
 )
 async def balance(interaction: discord.Interaction):
 
@@ -171,7 +172,10 @@ async def balance(interaction: discord.Interaction):
             f"Bank: {player['bank']}\n"
             f"Kills: {player['kills']}\n"
             f"Deaths: {player['deaths']}\n"
-            f"Faction: {player['faction']}"
+            f"Bounty: {player['bounty']}\n"
+            f"Faction: {player['faction']}\n"
+            f"Territory: {player['territory']}\n"
+            f"Vehicles: {player['vehicles']}"
         ),
         color=0xFFD700
     )
@@ -184,7 +188,7 @@ async def balance(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="shop",
-    description="Trader shop"
+    description="View trader shop"
 )
 async def shop(interaction: discord.Interaction):
 
@@ -210,7 +214,7 @@ async def shop(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="blackmarket",
-    description="Black market"
+    description="View black market"
 )
 async def blackmarket(interaction: discord.Interaction):
 
@@ -282,8 +286,6 @@ async def buy(interaction: discord.Interaction, item: str):
         str(interaction.user.id)
     ).execute()
 
-    # AUTO DELIVERY QUEUE
-
     supabase.table(
         "delivery_queue"
     ).insert({
@@ -294,12 +296,53 @@ async def buy(interaction: discord.Interaction, item: str):
     }).execute()
 
     embed = discord.Embed(
-        title="ð¦ Order Queued",
-        description=(
-            f"Item: {item}\n"
-            f"Delivery status: queued"
-        ),
+        title="ð¦ Delivery Queued",
+        description=f"{item} added to delivery queue.",
         color=0x2ECC71
+    )
+
+    await interaction.followup.send(
+        embed=style_embed(embed)
+    )
+
+# ================= INVENTORY =================
+
+@bot.tree.command(
+    name="inventory",
+    description="View inventory"
+)
+async def inventory(interaction: discord.Interaction):
+
+    await interaction.response.defer()
+
+    results = supabase.table(
+        "delivery_queue"
+    ).select("*").eq(
+        "discord_id",
+        str(interaction.user.id)
+    ).execute()
+
+    if not results.data:
+
+        await interaction.followup.send(
+            "ð¦ Inventory empty."
+        )
+
+        return
+
+    text = ""
+
+    for item in results.data:
+
+        text += (
+            f"â¢ {item['item']} "
+            f"({item['status']})\n"
+        )
+
+    embed = discord.Embed(
+        title="ð Inventory",
+        description=text,
+        color=0x3498DB
     )
 
     await interaction.followup.send(
@@ -330,7 +373,7 @@ async def createfaction(interaction: discord.Interaction, name: str):
 
     embed = discord.Embed(
         title="ð¡ï¸ Faction Created",
-        description=f"You founded {name}",
+        description=f"You created {name}",
         color=0x95A5A6
     )
 
@@ -338,7 +381,7 @@ async def createfaction(interaction: discord.Interaction, name: str):
         embed=style_embed(embed)
     )
 
-# ================= TERRITORY =================
+# ================= CLAIM TERRITORY =================
 
 @bot.tree.command(
     name="claimterritory",
@@ -365,8 +408,101 @@ async def claimterritory(
 
     embed = discord.Embed(
         title="ð´ Territory Claimed",
-        description=f"Claimed territory: {territory}",
+        description=f"Claimed: {territory}",
         color=0xE74C3C
+    )
+
+    await interaction.followup.send(
+        embed=style_embed(embed)
+    )
+
+# ================= BOUNTY =================
+
+@bot.tree.command(
+    name="setbounty",
+    description="Set bounty on player"
+)
+@app_commands.describe(
+    member="Target player",
+    amount="Bounty amount"
+)
+async def setbounty(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    amount: int
+):
+
+    await interaction.response.defer()
+
+    target = await get_player(
+        str(member.id)
+    )
+
+    if not target:
+
+        await interaction.followup.send(
+            "â Player not found."
+        )
+
+        return
+
+    supabase.table(
+        "player_data"
+    ).update({
+        "bounty": target["bounty"] + amount
+    }).eq(
+        "discord_id",
+        str(member.id)
+    ).execute()
+
+    await interaction.followup.send(
+        f"ð¯ Bounty of {amount} placed on {member.mention}"
+    )
+
+# ================= VEHICLES =================
+
+@bot.tree.command(
+    name="buyvehicle",
+    description="Buy vehicle"
+)
+@app_commands.describe(
+    vehicle="Vehicle type"
+)
+async def buyvehicle(
+    interaction: discord.Interaction,
+    vehicle: str
+):
+
+    await interaction.response.defer()
+
+    cost = 5000
+
+    player = await get_player(
+        str(interaction.user.id)
+    )
+
+    if player["scrap"] < cost:
+
+        await interaction.followup.send(
+            "â Not enough pennies."
+        )
+
+        return
+
+    supabase.table(
+        "player_data"
+    ).update({
+        "scrap": player["scrap"] - cost,
+        "vehicles": player["vehicles"] + 1
+    }).eq(
+        "discord_id",
+        str(interaction.user.id)
+    ).execute()
+
+    embed = discord.Embed(
+        title="ð Vehicle Purchased",
+        description=f"Purchased: {vehicle}",
+        color=0x1ABC9C
     )
 
     await interaction.followup.send(
@@ -388,16 +524,14 @@ async def airdrop(interaction: discord.Interaction):
         "Tisy",
         "Cherno",
         "Vybor",
-        "Guglovo"
+        "Severograd"
     ]
 
     location = random.choice(locations)
 
     embed = discord.Embed(
-        title="âï¸ AIRDROP INCOMING",
-        description=(
-            f"Military supply drop detected near {location}."
-        ),
+        title="âï¸ AIRDROP DETECTED",
+        description=f"Military airdrop near {location}",
         color=0x3498DB
     )
 
@@ -405,10 +539,10 @@ async def airdrop(interaction: discord.Interaction):
         embed=style_embed(embed)
     )
 
-# ================= RANDOM WORLD EVENTS =================
+# ================= WORLD EVENTS =================
 
-@tasks.loop(minutes=30)
-async def random_world_events():
+@tasks.loop(minutes=20)
+async def world_events():
 
     channel = bot.get_channel(EVENT_CHANNEL_ID)
 
@@ -417,14 +551,14 @@ async def random_world_events():
 
     events = [
         "â£ï¸ Toxic gas spreading near Tisy.",
-        "ð Helicopter crash reported.",
-        "ð» Trader convoy entering Chernarus.",
+        "ð Helicopter crash reported near Vybor.",
         "ð¥ Heavy gunfire heard near NWAF.",
-        "ðª Military airdrop inbound."
+        "ð» Trader convoy entering Chernarus.",
+        "ðª Military airdrop spotted."
     ]
 
     embed = discord.Embed(
-        title="ð World Event",
+        title="ð Dynamic World Event",
         description=random.choice(events),
         color=0x9B59B6
     )
@@ -433,11 +567,11 @@ async def random_world_events():
         embed=style_embed(embed)
     )
 
-# ================= KILL REWARD SYSTEM =================
+# ================= SIMULATED KILL REWARD =================
 
 @bot.tree.command(
     name="simulatekill",
-    description="Simulate kill reward"
+    description="Simulate PvP reward"
 )
 @app_commands.describe(
     member="Killed player"
@@ -449,7 +583,7 @@ async def simulatekill(
 
     await interaction.response.defer()
 
-    reward = random.randint(100, 300)
+    reward = random.randint(100, 500)
 
     await add_money(
         str(interaction.user.id),
@@ -459,7 +593,7 @@ async def simulatekill(
     embed = discord.Embed(
         title="ð Kill Reward",
         description=(
-            f"You eliminated {member.mention}\n"
+            f"Eliminated {member.mention}\n"
             f"+{reward} pennies"
         ),
         color=0xC0392B
