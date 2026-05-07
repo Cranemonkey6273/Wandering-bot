@@ -70,7 +70,7 @@ def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
 
     embed.set_footer(
-        text="ð» Wandering Bot"
+        text="Wandering Bot"
     )
 
     return embed
@@ -512,7 +512,7 @@ async def online(interaction: discord.Interaction):
     players = "\n".join(online_players)
 
     embed = discord.Embed(
-        title="ð¢ Online Survivors",
+        title="ð¡ Online Survivors",
         description=players,
         color=0x2ECC71
     )
