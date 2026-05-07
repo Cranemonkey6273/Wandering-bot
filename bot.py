@@ -178,28 +178,64 @@ def find_active_adm():
 
                 try:
 
+                    size = ftp.size(file)
+
                     modified = ftp.sendcmd(f"MDTM {file}")
 
-                    adm_files.append((file, modified))
+                    adm_files.append({
+                        "name": file,
+                        "size": size,
+                        "modified": modified
+                    })
 
-                    print(f"FOUND ADM: {file} | {modified}")
+                    print(
+                        f"FOUND ADM: {file} | "
+                        f"SIZE: {size} | "
+                        f"{modified}"
+                    )
 
-                except:
-                    pass
+                except Exception as e:
+
+                    print(f"FILE CHECK ERROR: {e}")
 
         if not adm_files:
 
             ftp.quit()
             return None
 
-        newest = max(
-            adm_files,
-            key=lambda x: x[1]
-        )[0]
+        # Sort newest first
+        adm_files.sort(
+            key=lambda x: x["modified"],
+            reverse=True
+        )
 
-        current_adm = f"{SEARCH_DIR}/{newest}"
+        # Get newest 5 files
+        recent_files = adm_files[:5]
 
-        print(f"ACTIVE ADM: {current_adm}")
+        print("=== RECENT ADM FILES ===")
+
+        for adm in recent_files:
+
+            print(
+                f"{adm['name']} | "
+                f"SIZE: {adm['size']} | "
+                f"{adm['modified']}"
+            )
+
+        # Choose largest file from newest 5
+        best_adm = max(
+            recent_files,
+            key=lambda x: x["size"]
+        )
+
+        current_adm = (
+            f"{SEARCH_DIR}/{best_adm['name']}"
+        )
+
+        print(
+            f"ACTIVE ADM: {current_adm} | "
+            f"SIZE: {best_adm['size']}"
+        )
 
         ftp.quit()
 
