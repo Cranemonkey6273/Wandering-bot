@@ -26,7 +26,6 @@ DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 PACKING_CHANNEL_ID = int(os.getenv("PACKING_CHANNEL_ID", 0))
 DAMAGE_CHANNEL_ID = int(os.getenv("DAMAGE_CHANNEL_ID", 0))
 
-# PRIVATE ADMIN CHANNEL
 ADMIN_CHANNEL_ID = int(os.getenv("ADMIN_CHANNEL_ID", 0))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -49,8 +48,6 @@ BOT_IMAGE = "wanderingbot.png"
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
-
-# ENABLE MESSAGE CONTENT INTENT
 intents.message_content = True
 
 bot = commands.Bot(
@@ -395,8 +392,6 @@ async def parse_new_lines():
 
                 location_display = f"`{x}, {y}`"
 
-            # ================= PLAYER CONNECTING =================
-
             if " is connecting" in line:
 
                 embed = discord.Embed(
@@ -414,8 +409,6 @@ async def parse_new_lines():
                     connection_channel,
                     embed
                 )
-
-            # ================= PLAYER CONNECTED =================
 
             elif " is connected" in line:
 
@@ -436,8 +429,6 @@ async def parse_new_lines():
                     connection_channel,
                     embed
                 )
-
-            # ================= PLAYER DISCONNECTED =================
 
             elif " has been disconnected" in line:
 
@@ -494,7 +485,7 @@ async def generate_ai_response(user_id, username, message_content):
         messages.extend(memory)
 
         response = await client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="gpt-3.5-turbo",
             messages=messages,
             temperature=0.8,
             max_tokens=250
@@ -517,134 +508,6 @@ async def generate_ai_response(user_id, username, message_content):
 
         return "The radio signal got lost somewhere in Chernarus."
 
-# ================= SLASH COMMANDS =================
-
-@bot.tree.command(
-    name="online",
-    description="Show online survivors"
-)
-async def online(
-    interaction: discord.Interaction
-):
-
-    if not online_players:
-
-        embed = discord.Embed(
-            title="☣️ Online Survivors",
-            description="No survivors currently online.",
-            color=0x8B0000
-        )
-
-    else:
-
-        player_list = "\n".join(
-            [f"• {p}" for p in sorted(online_players)]
-        )
-
-        embed = discord.Embed(
-            title="☣️ Online Survivors",
-            description=player_list,
-            color=0x556B2F
-        )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(
-        embed=embed
-    )
-
-# ================= PLAYER COUNT =================
-
-@bot.tree.command(
-    name="playercount",
-    description="Show current online player count"
-)
-async def playercount(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="👥 Current Survivor Count",
-        description=f"{len(online_players)} survivors online",
-        color=0x3498db
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= PING =================
-
-@bot.tree.command(
-    name="ping",
-    description="Check bot latency"
-)
-async def ping(interaction: discord.Interaction):
-
-    latency = round(bot.latency * 1000)
-
-    embed = discord.Embed(
-        title="🏓 Pong",
-        description=f"Latency: {latency}ms",
-        color=0x00ff00
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= SERVER STATUS =================
-
-@bot.tree.command(
-    name="serverstatus",
-    description="Check server tracker status"
-)
-async def serverstatus(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="🖥️ Wandering Server Status",
-        description=(
-            "✅ FTP Connected\n"
-            "✅ ADM Tracking Active\n"
-            "✅ Slash Commands Online\n"
-            "✅ AI Conversations Online\n"
-            "✅ Log Monitoring Active"
-        ),
-        color=0x2ecc71
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
-# ================= HELP =================
-
-@bot.tree.command(
-    name="help",
-    description="Show all commands"
-)
-async def helpcommand(interaction: discord.Interaction):
-
-    embed = discord.Embed(
-        title="🤖 Wandering Bot Commands",
-        description=(
-            "/online\n"
-            "/playercount\n"
-            "/ping\n"
-            "/serverstatus\n"
-            "/shop\n"
-            "/rules\n"
-            "/restart\n"
-            "/discord\n"
-            "/map\n"
-            "/help\n\n"
-            "Mention the bot or start with 'wandering' to chat."
-        ),
-        color=0x9b59b6
-    )
-
-    embed = style_embed(embed)
-
-    await interaction.response.send_message(embed=embed)
-
 # ================= AI CHAT SYSTEM =================
 
 @bot.event
@@ -657,15 +520,12 @@ async def on_message(message):
 
     should_reply = False
 
-    # BOT MENTION
     if bot.user in message.mentions:
         should_reply = True
 
-    # STARTS WITH wandering
     elif message.content.lower().startswith("wandering"):
         should_reply = True
 
-    # RANDOM CHAT IN AI CHANNELS
     elif message.channel.id in AI_CHANNELS:
 
         chance = random.randint(1, 100)
