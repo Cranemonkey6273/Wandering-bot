@@ -3,3 +3,4 @@ openai
 supabase
 websockets
 paramiko
+berconpy
