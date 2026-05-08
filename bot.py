@@ -634,61 +634,7 @@ if not DISCORD_TOKEN:
         "DISCORD_TOKEN missing"
     )
 
-async def main():
-
-    while True:
-
-        try:
-
-            print("STARTING BOT...")
-
-            await bot.start(
-                DISCORD_TOKEN
-            )
-
-        except discord.HTTPException as e:
-
-            print(
-                f"DISCORD HTTP ERROR: {e}"
-            )
-
-            try:
-
-                await bot.close()
-
-            except Exception:
-
-                pass
-
-            if e.status == 429:
-
-                print(
-                    "RATE LIMITED - "
-                    "WAITING 60 SECONDS"
-                )
-
-                await asyncio.sleep(60)
-
-            else:
-
-                await asyncio.sleep(15)
-
-        except Exception as e:
-
-            print(
-                f"BOT CRASHED: {e}"
-            )
-
-            try:
-
-                await bot.close()
-
-            except Exception:
-
-                pass
-
-            await asyncio.sleep(15)
-
-if __name__ == "__main__":
-
-    asyncio.run(main())
+bot.run(
+    DISCORD_TOKEN,
+    reconnect=True
+)
