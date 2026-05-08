@@ -4,3 +4,4 @@ supabase
 websockets
 paramiko
 berconpy
+flask
