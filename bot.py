@@ -185,21 +185,25 @@ async def rcon_loop():
 
             print("CONNECTING TO RCON...")
 
-            rcon = berconpy.AsyncRCONClient()
-
-            await rcon.login(
+            rcon = berconpy.ArmaRCONClient(
                 RCON_HOST,
                 RCON_PORT,
                 RCON_PASSWORD
             )
 
+            await rcon.connect()
+
             print("RCON CONNECTED")
 
             while True:
 
-                players = await rcon.command("players")
+                players = await rcon.send_command(
+                    "players"
+                )
 
-                print(f"RCON PLAYERS:\n{players}")
+                print(
+                    f"RCON PLAYERS:\n{players}"
+                )
 
                 await asyncio.sleep(30)
 
@@ -287,11 +291,16 @@ def find_active_adm():
 
             except Exception as e:
 
-                print(f"ADM PARSE ERROR: {e}")
+                print(
+                    f"ADM PARSE ERROR: {e}"
+                )
 
         if not adm_files:
 
             ftp.quit()
+
+            print("NO VALID ADM FILES FOUND")
+
             return None
 
         adm_files.sort(
@@ -324,7 +333,9 @@ def find_active_adm():
 
             last_growth_time = datetime.now(UTC)
 
-            print(f"INITIAL ADM: {current_adm}")
+            print(
+                f"INITIAL ADM: {current_adm}"
+            )
 
             ftp.quit()
 
@@ -349,13 +360,16 @@ def find_active_adm():
 
             if latest_size > current_adm_size:
 
+                print(
+                    f"ACTIVE ADM GROWING: "
+                    f"{latest_size}"
+                )
+
                 current_adm_size = latest_size
 
                 last_growth_time = datetime.now(UTC)
 
                 growth_fail_count = 0
-
-                print(f"ACTIVE ADM GROWING: {latest_size}")
 
                 ftp.quit()
 
@@ -370,9 +384,15 @@ def find_active_adm():
                     f"FAIL COUNT: {growth_fail_count}"
                 )
 
-                print(f"ADM SIZE STATIC: {latest_size}")
+                print(
+                    f"ADM SIZE STATIC: {latest_size}"
+                )
 
         if growth_fail_count >= 3:
+
+            print(
+                "CURRENT ADM DEAD - SEARCHING NEW FILE"
+            )
 
             for adm in adm_files:
 
