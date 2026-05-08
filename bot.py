@@ -45,7 +45,10 @@ LOCAL_LOG_FILE = "live.ADM"
 # ================= RCON =================
 
 RCON_HOST = os.getenv("RCON_HOST")
-RCON_PORT = int(os.getenv("RCON_PORT", 2302))
+
+# DayZ Battleye RCON port
+RCON_PORT = int(os.getenv("RCON_PORT", 2306))
+
 RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 
 # ================= DISCORD =================
@@ -338,6 +341,53 @@ def find_active_adm():
             ftp.quit()
 
             return current_adm
+
+        current_file = None
+
+        for adm in adm_files:
+
+            full_path = (
+                f"{SEARCH_DIR}/{adm['name']}"
+            )
+
+            if full_path == current_adm:
+
+                current_file = adm
+                break
+
+        if current_file:
+
+            latest_size = current_file["size"]
+
+            if latest_size > current_adm_size:
+
+                print(
+                    f"ACTIVE ADM GROWING: "
+                    f"{latest_size}"
+                )
+
+                current_adm_size = latest_size
+
+                last_growth_time = datetime.now(UTC)
+
+                growth_fail_count = 0
+
+                ftp.quit()
+
+                return current_adm
+
+            else:
+
+                growth_fail_count += 1
+
+                print(
+                    f"ADM NOT GROWING | "
+                    f"FAIL COUNT: {growth_fail_count}"
+                )
+
+                print(
+                    f"ADM SIZE STATIC: {latest_size}"
+                )
 
         ftp.quit()
 
