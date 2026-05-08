@@ -634,7 +634,35 @@ if not DISCORD_TOKEN:
         "DISCORD_TOKEN missing"
     )
 
-bot.run(
-    DISCORD_TOKEN,
-    reconnect=True
-)
+while True:
+
+    try:
+
+        bot.run(
+            DISCORD_TOKEN,
+            reconnect=True
+        )
+
+    except discord.DiscordServerError as e:
+
+        print(
+            f"DISCORD SERVER ERROR: {e}"
+        )
+
+        print(
+            "WAITING 30 SECONDS..."
+        )
+
+        asyncio.run(
+            asyncio.sleep(30)
+        )
+
+    except Exception as e:
+
+        print(
+            f"BOT START ERROR: {e}"
+        )
+
+        asyncio.run(
+            asyncio.sleep(15)
+        )
