@@ -195,7 +195,7 @@ async def rcon_loop():
 
             print("CONNECTING TO RCON...")
 
-            async with berconpy.AsyncRCONClient().connect(
+            async with berconpy.ArmaClient().connect(
                 RCON_HOST,
                 RCON_PORT,
                 RCON_PASSWORD
