@@ -54,7 +54,21 @@ FTP_PASS = os.getenv("FTP_PASS")
 
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-SEARCH_DIR = "/dayzxb/config"
+SEARCH_DIRS = [
+
+    "config",
+
+    "/config",
+
+    "dayzxb/config",
+
+    "/dayzxb/config",
+
+    "profiles",
+
+    "/profiles"
+
+]
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -102,17 +116,11 @@ current_adm_size = 0
 
 online_players = set()
 
-# TRACK LIVE ADM STATE
-
 last_line_count = 0
 
 last_growth_time = datetime.now(UTC)
 
-# TRACK STALE FILES
-
 growth_fail_count = 0
-
-# TRACK DEAD / TERMINATED ADMS
 
 dead_adms = set()
 
@@ -236,6 +244,62 @@ def connect_ftp():
 
     return ftp
 
+# ================= FIND WORKING FTP PATH =================
+
+def find_working_path(ftp):
+
+    for path in SEARCH_DIRS:
+
+        try:
+
+            ftp.cwd(path)
+
+            files = []
+
+            ftp.retrlines(
+
+                "NLST",
+
+                files.append
+
+            )
+
+            adm_files = [
+
+                f for f in files
+
+                if f.endswith(".ADM")
+
+            ]
+
+            print(
+
+                f"CHECKING PATH: {path} | "
+
+                f"ADM FILES: {len(adm_files)}"
+
+            )
+
+            if adm_files:
+
+                print(
+
+                    f"WORKING PATH FOUND: {path}"
+
+                )
+
+                return path
+
+        except Exception as e:
+
+            print(
+
+                f"PATH FAILED: {path} | {e}"
+
+            )
+
+    return None
+
 # ================= LIVE ADM FINDER =================
 
 def find_active_adm():
@@ -256,7 +320,17 @@ def find_active_adm():
 
         ftp = connect_ftp()
 
-        ftp.cwd(SEARCH_DIR)
+        working_dir = find_working_path(ftp)
+
+        if not working_dir:
+
+            print("NO WORKING ADM DIRECTORY FOUND")
+
+            ftp.quit()
+
+            return None
+
+        ftp.cwd(working_dir)
 
         files = []
 
@@ -268,8 +342,6 @@ def find_active_adm():
 
         )
 
-        files = sorted(files)
-
         adm_files = []
 
         for file in files:
@@ -278,7 +350,7 @@ def find_active_adm():
 
                 continue
 
-            full_path = f"{SEARCH_DIR}/{file}"
+            full_path = f"{working_dir}/{file}"
 
             if full_path in dead_adms:
 
@@ -360,8 +432,6 @@ def find_active_adm():
 
             return None
 
-        # PRIORITIZE ACTIVE / GROWING FILES
-
         adm_files.sort(
 
             key=lambda x: (
@@ -380,7 +450,7 @@ def find_active_adm():
 
         best_path = (
 
-            f"{SEARCH_DIR}/{best_adm['name']}"
+            f"{working_dir}/{best_adm['name']}"
 
         )
 
@@ -393,8 +463,6 @@ def find_active_adm():
             f"{best_path} | SIZE: {best_size}"
 
         )
-
-        # FIRST RUN
 
         if current_adm is None:
 
@@ -420,15 +488,13 @@ def find_active_adm():
 
             return current_adm
 
-        # FIND CURRENT FILE
-
         current_file = None
 
         for adm in adm_files:
 
             full_path = (
 
-                f"{SEARCH_DIR}/{adm['name']}"
+                f"{working_dir}/{adm['name']}"
 
             )
 
@@ -437,8 +503,6 @@ def find_active_adm():
                 current_file = adm
 
                 break
-
-        # CHECK CURRENT FILE GROWTH
 
         if current_file:
 
@@ -475,8 +539,6 @@ def find_active_adm():
                     f"FAIL COUNT: {growth_fail_count}"
 
                 )
-
-                # CHECK FOR TERMINATION TEXT
 
                 try:
 
@@ -536,8 +598,6 @@ def find_active_adm():
 
                     )
 
-        # ONLY SWITCH IF CURRENT FILE IS STALE
-
         if (
 
             best_path != current_adm
@@ -569,8 +629,6 @@ def find_active_adm():
             ftp.quit()
 
             return current_adm
-
-        # FAILSAFE
 
         time_since_growth = (
 
@@ -646,7 +704,9 @@ def download_adm():
 
         ftp.prot_p()
 
-        ftp.cwd(SEARCH_DIR)
+        working_dir = os.path.dirname(active_adm)
+
+        ftp.cwd(working_dir)
 
         ftp.voidcmd("TYPE I")
 
