@@ -5,6 +5,8 @@ import asyncio
 import discord
 import berconpy
 
+print(dir(berconpy))
+
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
@@ -185,27 +187,7 @@ async def rcon_loop():
 
             print("CONNECTING TO RCON...")
 
-            rcon = berconpy.Client()
-
-            await rcon.connect(
-                RCON_HOST,
-                RCON_PORT,
-                RCON_PASSWORD
-            )
-
-            print("RCON CONNECTED")
-
-            while True:
-
-                response = await rcon.command(
-                    "players"
-                )
-
-                print(
-                    f"RCON PLAYERS:\n{response}"
-                )
-
-                await asyncio.sleep(30)
+            await asyncio.sleep(30)
 
         except Exception as e:
 
@@ -341,97 +323,7 @@ def find_active_adm():
 
             return current_adm
 
-        current_file = None
-
-        for adm in adm_files:
-
-            full_path = (
-                f"{SEARCH_DIR}/{adm['name']}"
-            )
-
-            if full_path == current_adm:
-
-                current_file = adm
-                break
-
-        if current_file:
-
-            latest_size = current_file["size"]
-
-            if latest_size > current_adm_size:
-
-                print(
-                    f"ACTIVE ADM GROWING: "
-                    f"{latest_size}"
-                )
-
-                current_adm_size = latest_size
-
-                last_growth_time = datetime.now(UTC)
-
-                growth_fail_count = 0
-
-                ftp.quit()
-
-                return current_adm
-
-            else:
-
-                growth_fail_count += 1
-
-                print(
-                    f"ADM NOT GROWING | "
-                    f"FAIL COUNT: {growth_fail_count}"
-                )
-
-                print(
-                    f"ADM SIZE STATIC: {latest_size}"
-                )
-
-        if growth_fail_count >= 3:
-
-            print(
-                "CURRENT ADM DEAD - SEARCHING NEW FILE"
-            )
-
-            for adm in adm_files:
-
-                possible_path = (
-                    f"{SEARCH_DIR}/{adm['name']}"
-                )
-
-                if possible_path == current_adm:
-                    continue
-
-                if (
-                    current_file
-                    and adm["datetime"]
-                    <= current_file["datetime"]
-                ):
-                    continue
-
-                print(
-                    f"SWITCHING TO NEW ADM: "
-                    f"{possible_path}"
-                )
-
-                current_adm = possible_path
-                current_adm_size = adm["size"]
-
-                growth_fail_count = 0
-                last_line_count = 0
-
-                processed_lines.clear()
-
-                last_growth_time = datetime.now(UTC)
-
-                ftp.quit()
-
-                return current_adm
-
         ftp.quit()
-
-        print(f"ACTIVE ADM: {current_adm}")
 
         return current_adm
 
