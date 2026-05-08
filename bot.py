@@ -49,9 +49,8 @@ RCON_HOST = os.getenv(
     "95.156.224.60"
 )
 
-# DayZ Battleye RCON usually GamePort + 4
 RCON_PORT = int(
-    os.getenv("RCON_PORT", 2306)
+    os.getenv("RCON_PORT", 14503)
 )
 
 RCON_PASSWORD = os.getenv(
@@ -196,25 +195,27 @@ async def rcon_loop():
 
             print("CONNECTING TO RCON...")
 
-            async with berconpy.RCONClient().connect(
+            client = berconpy.AsyncRCONClient()
+
+            await client.connect(
                 RCON_HOST,
                 RCON_PORT,
                 RCON_PASSWORD
-            ) as client:
+            )
 
-                print("✅ RCON CONNECTED")
+            print("✅ RCON CONNECTED")
 
-                while True:
+            while True:
 
-                    players = await client.command(
-                        "players"
-                    )
+                players = await client.command(
+                    "players"
+                )
 
-                    print(
-                        f"RCON PLAYERS:\n{players}"
-                    )
+                print(
+                    f"RCON PLAYERS:\n{players}"
+                )
 
-                    await asyncio.sleep(30)
+                await asyncio.sleep(30)
 
         except Exception as e:
 
