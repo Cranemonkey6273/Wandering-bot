@@ -272,7 +272,7 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
-                # IGNORE DEAD/TINY STARTUP ADMS
+                # IGNORE TINY DEAD FILES
 
                 if size < 1000:
 
@@ -308,7 +308,15 @@ def find_active_adm():
 
             return None
 
-        # NITRADO RETURNS LIVE ADM FIRST
+        # SORT NEWEST ADM FIRST
+
+        adm_files.sort(
+
+            key=lambda x: x["name"],
+
+            reverse=True
+
+        )
 
         best_adm = adm_files[0]
 
