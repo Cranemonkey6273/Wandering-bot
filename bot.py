@@ -1,27 +1,16 @@
 import os
-
 import re
-
 import random
-
 import asyncio
-
 import logging
-
 import discord
-
 import berconpy
 
 from ftplib import FTP_TLS
-
 from datetime import datetime, UTC
-
 from discord.ext import commands, tasks
-
 from discord import app_commands
-
 from supabase import create_client
-
 from openai import AsyncOpenAI
 
 # ================= LOGGING =================
@@ -31,11 +20,9 @@ logging.getLogger("discord").setLevel(logging.ERROR)
 # ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # ================= CHANNEL IDS =================
@@ -43,23 +30,17 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
-
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
-
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
 # ================= FTP =================
 
 FTP_HOST = os.getenv("FTP_HOST")
-
 FTP_USER = os.getenv("FTP_USER")
-
 FTP_PASS = os.getenv("FTP_PASS")
-
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_DIR = "/dayzxb/config"
@@ -69,73 +50,53 @@ LOCAL_LOG_FILE = "live.ADM"
 # ================= RCON =================
 
 RCON_HOST = os.getenv(
-
     "RCON_HOST",
-
     "95.156.224.60"
-
 )
 
 RCON_PORT = int(
-
     os.getenv("RCON_PORT", 14503)
-
 )
 
 RCON_PASSWORD = os.getenv(
-
     "RCON_PASSWORD",
-
     "WanderingBot2026"
-
 )
 
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 
 bot = commands.Bot(
-
     command_prefix="!",
-
     intents=intents
-
 )
 
 # ================= OPENAI =================
 
 client = AsyncOpenAI(
-
     api_key=OPENAI_API_KEY
-
 )
 
 # ================= SUPABASE =================
 
 supabase = create_client(
-
     SUPABASE_URL,
-
     SUPABASE_KEY
-
 )
 
 # ================= GLOBALS =================
 
 processed_lines = set()
-
 MAX_PROCESSED_LINES = 5000
 
 current_adm = None
-
 current_adm_size = 0
 
 online_players = set()
 
 last_line_count = 0
-
 last_growth_time = datetime.now(UTC)
 
 growth_fail_count = 0
@@ -147,21 +108,13 @@ rcon_task = None
 # ================= SWEAR TRACKER =================
 
 SWEAR_WORDS = [
-
     "fuck",
-
     "shit",
-
     "bitch",
-
     "cunt",
-
     "wanker",
-
     "bastard",
-
     "twat"
-
 ]
 
 swear_tracker = {}
@@ -169,49 +122,29 @@ swear_tracker = {}
 # ================= ECONOMY =================
 
 SHOP_ITEMS = {
-
     "water": 10,
-
     "beans": 20,
-
     "ammo": 50,
-
     "medkit": 100,
-
     "armor": 300,
-
     "rifle": 600
-
 }
 
 # ================= FILTERS =================
 
 IGNORE_PATTERNS = [
-
     "[CE]",
-
     "LootRespawner",
-
     "PRIDummy",
-
     "causing search overtime",
-
     "Ammo_40mm_Explosive",
-
     "ConstructionHelmet",
-
     "script",
-
     "crash",
-
     "weather",
-
     "storage",
-
     "economy",
-
     "infected"
-
 ]
 
 # ================= BOT IMAGE =================
@@ -227,10 +160,10 @@ def should_ignore(line):
     for pattern in IGNORE_PATTERNS:
 
         if pattern.lower() in lower:
-
             return True
 
     return False
+
 
 def style_embed(embed):
 
@@ -238,31 +171,26 @@ def style_embed(embed):
 
     return embed
 
+
 def connect_ftp():
 
     ftp = FTP_TLS()
 
     ftp.connect(
-
         FTP_HOST,
-
         FTP_PORT,
-
         timeout=60
-
     )
 
     ftp.login(
-
         FTP_USER,
-
         FTP_PASS
-
     )
 
     ftp.prot_p()
 
     return ftp
+
 
 # ================= RCON LOOP =================
 
@@ -275,13 +203,9 @@ async def rcon_loop():
             print("CONNECTING TO RCON...")
 
             async with berconpy.ArmaClient().connect(
-
                 RCON_HOST,
-
                 RCON_PORT,
-
                 RCON_PASSWORD
-
             ) as client:
 
                 print("✅ RCON CONNECTED")
@@ -289,15 +213,11 @@ async def rcon_loop():
                 while True:
 
                     players = await client.command(
-
                         "players"
-
                     )
 
                     print(
-
                         f"RCON PLAYERS:\n{players}"
-
                     )
 
                     await asyncio.sleep(30)
@@ -308,20 +228,16 @@ async def rcon_loop():
 
             await asyncio.sleep(10)
 
+
 # ================= LIVE ADM FINDER =================
 
 def find_active_adm():
 
     global current_adm
-
     global current_adm_size
-
     global last_line_count
-
     global last_growth_time
-
     global growth_fail_count
-
     global dead_adms
 
     try:
@@ -333,11 +249,8 @@ def find_active_adm():
         files = []
 
         ftp.retrlines(
-
             "NLST",
-
             files.append
-
         )
 
         files = sorted(files)
@@ -347,45 +260,32 @@ def find_active_adm():
         for file in files:
 
             if not file.endswith(".ADM"):
-
                 continue
 
             full_path = f"{SEARCH_DIR}/{file}"
 
             if full_path in dead_adms:
-
                 continue
 
             match = re.search(
-
                 r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
-
                 file
-
             )
 
             if not match:
-
                 continue
 
             try:
 
                 dt_str = (
-
                     match.group(1)
-
                     + " "
-
                     + match.group(2).replace("-", ":")
-
                 )
 
                 file_dt = datetime.strptime(
-
                     dt_str,
-
                     "%Y-%m-%d %H:%M:%S"
-
                 )
 
                 ftp.voidcmd("TYPE I")
@@ -393,31 +293,21 @@ def find_active_adm():
                 size = ftp.size(file)
 
                 adm_files.append({
-
                     "name": file,
-
                     "datetime": file_dt,
-
                     "size": size
-
                 })
 
                 print(
-
                     f"FOUND ADM: {file} | "
-
                     f"SIZE: {size} | "
-
                     f"START: {file_dt}"
-
                 )
 
             except Exception as e:
 
                 print(
-
                     f"ADM PARSE ERROR: {e}"
-
                 )
 
         if not adm_files:
@@ -429,39 +319,29 @@ def find_active_adm():
             return None
 
         adm_files.sort(
-
             key=lambda x: x["datetime"],
-
             reverse=True
-
         )
 
         best_adm = adm_files[0]
 
         best_path = (
-
             f"{SEARCH_DIR}/{best_adm['name']}"
-
         )
 
         best_size = best_adm["size"]
 
         print(
-
             f"BEST ADM CANDIDATE: "
-
             f"{best_path} | SIZE: {best_size}"
-
         )
 
         if current_adm is None:
 
             current_adm = best_path
-
             current_adm_size = best_size
 
             growth_fail_count = 0
-
             last_line_count = 0
 
             processed_lines.clear()
@@ -469,9 +349,7 @@ def find_active_adm():
             last_growth_time = datetime.now(UTC)
 
             print(
-
                 f"INITIAL ADM: {current_adm}"
-
             )
 
             ftp.quit()
@@ -483,15 +361,12 @@ def find_active_adm():
         for adm in adm_files:
 
             full_path = (
-
                 f"{SEARCH_DIR}/{adm['name']}"
-
             )
 
             if full_path == current_adm:
 
                 current_file = adm
-
                 break
 
         if current_file:
@@ -501,11 +376,8 @@ def find_active_adm():
             if latest_size > current_adm_size:
 
                 print(
-
                     f"ACTIVE ADM GROWING: "
-
                     f"{latest_size}"
-
                 )
 
                 current_adm_size = latest_size
@@ -523,65 +395,45 @@ def find_active_adm():
                 growth_fail_count += 1
 
                 print(
-
                     f"ADM NOT GROWING | "
-
                     f"FAIL COUNT: {growth_fail_count}"
-
                 )
 
                 print(
-
                     f"ADM SIZE STATIC: {latest_size}"
-
                 )
 
         if growth_fail_count >= 3:
 
             print(
-
                 "CURRENT ADM DEAD - SEARCHING NEW FILE"
-
             )
 
             for adm in adm_files:
 
                 possible_path = (
-
                     f"{SEARCH_DIR}/{adm['name']}"
-
                 )
 
                 if possible_path == current_adm:
-
                     continue
 
                 if (
-
                     current_file
-
                     and adm["datetime"]
-
                     <= current_file["datetime"]
-
                 ):
-
                     continue
 
                 print(
-
                     f"SWITCHING TO NEW ADM: "
-
                     f"{possible_path}"
-
                 )
 
                 current_adm = possible_path
-
                 current_adm_size = adm["size"]
 
                 growth_fail_count = 0
-
                 last_line_count = 0
 
                 processed_lines.clear()
@@ -604,6 +456,7 @@ def find_active_adm():
 
         return None
 
+
 # ================= DOWNLOAD ADM =================
 
 def download_adm():
@@ -613,7 +466,6 @@ def download_adm():
         active_adm = find_active_adm()
 
         if not active_adm:
-
             return False
 
         ftp = connect_ftp()
@@ -623,45 +475,31 @@ def download_adm():
         ftp.voidcmd("TYPE I")
 
         filename = os.path.basename(
-
             active_adm
-
         )
 
         if os.path.exists(LOCAL_LOG_FILE):
-
             os.remove(LOCAL_LOG_FILE)
 
         with open(
-
             LOCAL_LOG_FILE,
-
             "wb"
-
         ) as f:
 
             ftp.retrbinary(
-
                 f"RETR {filename}",
-
                 f.write,
-
                 blocksize=1024
-
             )
 
         ftp.quit()
 
         size = os.path.getsize(
-
             LOCAL_LOG_FILE
-
         )
 
         print(
-
             f"ADM DOWNLOADED | SIZE: {size}"
-
         )
 
         return True
@@ -672,10 +510,10 @@ def download_adm():
 
         return False
 
+
 # ================= READY =================
 
 @bot.event
-
 async def on_ready():
 
     global rcon_task
@@ -695,21 +533,18 @@ async def on_ready():
     if rcon_task is None or rcon_task.done():
 
         rcon_task = asyncio.create_task(
-
             rcon_loop()
-
         )
 
     print(f"✅ Logged in as {bot.user}")
 
+
 # ================= SWEAR TRACKER =================
 
 @bot.event
-
 async def on_message(message):
 
     if message.author.bot:
-
         return
 
     lower = message.content.lower()
@@ -717,7 +552,6 @@ async def on_message(message):
     count = 0
 
     for swear in SWEAR_WORDS:
-
         count += lower.count(swear)
 
     if count > 0:
@@ -727,43 +561,34 @@ async def on_message(message):
         if user_id not in swear_tracker:
 
             swear_tracker[user_id] = {
-
                 "name": message.author.name,
-
                 "count": 0
-
             }
 
         swear_tracker[user_id]["count"] += count
 
     await bot.process_commands(message)
 
+
 # ================= ADM PARSER =================
 
 async def parse_adm():
 
     global processed_lines
-
     global last_line_count
 
     if not os.path.exists(LOCAL_LOG_FILE):
 
         print("LOCAL ADM MISSING")
-
         return
 
     try:
 
         with open(
-
             LOCAL_LOG_FILE,
-
             "r",
-
             encoding="utf-8",
-
             errors="ignore"
-
         ) as f:
 
             lines = f.readlines()
@@ -771,7 +596,6 @@ async def parse_adm():
     except Exception as e:
 
         print(f"ADM READ ERROR: {e}")
-
         return
 
     total_lines = len(lines)
@@ -781,39 +605,33 @@ async def parse_adm():
     new_lines = lines[last_line_count:]
 
     print(
-
         f"NEW LINES FOUND: {len(new_lines)}"
-
     )
 
     last_line_count = total_lines
 
+
 # ================= TASKS =================
 
 @tasks.loop(seconds=30)
-
 async def adm_loop():
 
     success = await asyncio.to_thread(
-
         download_adm
-
     )
 
     print(f"DOWNLOAD RESULT: {success}")
 
     if success:
-
         await parse_adm()
+
 
 # ================= START =================
 
 if not DISCORD_TOKEN:
 
     raise ValueError(
-
         "DISCORD_TOKEN missing"
-
     )
 
 async def main():
@@ -825,27 +643,28 @@ async def main():
             print("STARTING BOT...")
 
             await bot.start(
-
                 DISCORD_TOKEN
-
             )
 
         except discord.HTTPException as e:
 
             print(
-
                 f"DISCORD HTTP ERROR: {e}"
-
             )
+
+            try:
+
+                await bot.close()
+
+            except Exception:
+
+                pass
 
             if e.status == 429:
 
                 print(
-
                     "RATE LIMITED - "
-
                     "WAITING 60 SECONDS"
-
                 )
 
                 await asyncio.sleep(60)
@@ -857,10 +676,16 @@ async def main():
         except Exception as e:
 
             print(
-
                 f"BOT CRASHED: {e}"
-
             )
+
+            try:
+
+                await bot.close()
+
+            except Exception:
+
+                pass
 
             await asyncio.sleep(15)
 
