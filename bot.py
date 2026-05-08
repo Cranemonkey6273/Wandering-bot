@@ -1,93 +1,151 @@
 import os
+
 import re
+
 import random
+
 import asyncio
+
 import discord
 
 from ftplib import FTP_TLS
+
 from datetime import datetime, UTC
+
 from discord.ext import commands, tasks
+
 from discord import app_commands
+
 from supabase import create_client
+
 from openai import AsyncOpenAI
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
+
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
+
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
+
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
+
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
+
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
+
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
+
 FTP_USER = os.getenv("FTP_USER")
+
 FTP_PASS = os.getenv("FTP_PASS")
+
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_DIRS = [
+
     "config",
+
     "/config",
+
     "dayzxb/config",
+
     "/dayzxb/config",
+
     "profiles",
+
     "/profiles"
+
 ]
 
 LOCAL_LOG_FILE = "live.ADM"
 
 intents = discord.Intents.default()
+
 intents.message_content = True
 
 bot = commands.Bot(
+
     command_prefix="!",
+
     intents=intents
+
 )
 
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 supabase = create_client(
+
     SUPABASE_URL,
+
     SUPABASE_KEY
+
 )
 
 processed_lines = set()
+
 MAX_PROCESSED_LINES = 2000
 
 current_adm = None
+
 current_adm_size = 0
+
 online_players = set()
 
 last_line_count = 0
+
 last_growth_time = datetime.now(UTC)
+
 growth_fail_count = 0
+
 dead_adms = set()
 
 IGNORE_PATTERNS = [
+
     "[CE]",
+
     "LootRespawner",
+
     "PRIDummy",
+
     "causing search overtime",
+
     "Ammo_40mm_Explosive",
+
     "ConstructionHelmet",
+
     "script",
+
     "crash",
+
     "weather",
+
     "storage",
+
     "economy",
+
     "infected"
+
 ]
 
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 def should_ignore(line):
+
     lower = line.lower()
+
     for pattern in IGNORE_PATTERNS:
+
         if pattern.lower() in lower:
+
             return True
+
     return False
 
 def connect_ftp():
@@ -95,14 +153,21 @@ def connect_ftp():
     ftp = FTP_TLS()
 
     ftp.connect(
+
         FTP_HOST,
+
         FTP_PORT,
+
         timeout=60
+
     )
 
     ftp.login(
+
         FTP_USER,
+
         FTP_PASS
+
     )
 
     ftp.prot_p()
@@ -120,13 +185,19 @@ def find_working_path(ftp):
             files = []
 
             ftp.retrlines(
+
                 "NLST",
+
                 files.append
+
             )
 
             adm_files = [
+
                 f for f in files
+
                 if f.endswith(".ADM")
+
             ]
 
             print(f"CHECKING PATH: {path} | ADM FILES: {len(adm_files)}")
@@ -146,10 +217,15 @@ def find_working_path(ftp):
 def find_active_adm():
 
     global current_adm
+
     global current_adm_size
+
     global last_line_count
+
     global last_growth_time
+
     global growth_fail_count
+
     global dead_adms
 
     try:
@@ -169,8 +245,11 @@ def find_active_adm():
         files = []
 
         ftp.retrlines(
+
             "NLST",
+
             files.append
+
         )
 
         adm_files = []
@@ -178,11 +257,13 @@ def find_active_adm():
         for file in files:
 
             if not file.endswith(".ADM"):
+
                 continue
 
             full_path = f"{working_dir}/{file}"
 
             if full_path in dead_adms:
+
                 continue
 
             try:
@@ -191,9 +272,26 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
+                # IGNORE DEAD/TINY STARTUP ADMS
+
+                if size < 1000:
+
+                    print(
+
+                        f"IGNORING SMALL ADM: "
+
+                        f"{file} | SIZE: {size}"
+
+                    )
+
+                    continue
+
                 adm_files.append({
+
                     "name": file,
+
                     "size": size
+
                 })
 
                 print(f"FOUND ADM: {file} | SIZE: {size}")
@@ -211,9 +309,11 @@ def find_active_adm():
             return None
 
         # NITRADO RETURNS LIVE ADM FIRST
+
         best_adm = adm_files[0]
 
         best_path = f"{working_dir}/{best_adm['name']}"
+
         best_size = best_adm["size"]
 
         print(f"BEST ADM CANDIDATE: {best_path} | SIZE: {best_size}")
@@ -221,9 +321,11 @@ def find_active_adm():
         if current_adm is None:
 
             current_adm = best_path
+
             current_adm_size = best_size
 
             growth_fail_count = 0
+
             last_line_count = 0
 
             processed_lines.clear()
@@ -272,15 +374,16 @@ def find_active_adm():
 
                 print(f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}")
 
-        # SWITCH TO TOP/LIVE NITRADO ADM
         if best_path != current_adm and growth_fail_count >= 3:
 
             print(f"SWITCHING TO NEW ADM: {best_path}")
 
             current_adm = best_path
+
             current_adm_size = best_size
 
             growth_fail_count = 0
+
             last_line_count = 0
 
             processed_lines.clear()
@@ -310,6 +413,7 @@ def download_adm():
         active_adm = find_active_adm()
 
         if not active_adm:
+
             return False
 
         ftp = connect_ftp()
@@ -323,14 +427,19 @@ def download_adm():
         filename = os.path.basename(active_adm)
 
         if os.path.exists(LOCAL_LOG_FILE):
+
             os.remove(LOCAL_LOG_FILE)
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
+
                 f"RETR {filename}",
+
                 f.write,
+
                 blocksize=1024
+
             )
 
         ftp.quit()
@@ -348,6 +457,7 @@ def download_adm():
         return False
 
 @tasks.loop(seconds=30)
+
 async def adm_loop():
 
     print("ADM LOOP RUNNING")
@@ -371,6 +481,7 @@ async def adm_loop():
         print(f"ADM LOOP ERROR: {e}")
 
 @bot.event
+
 async def on_ready():
 
     print("BOT READY EVENT")
