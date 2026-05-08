@@ -169,6 +169,13 @@ dead_adms = set()
 
 rcon_task = None
 
+# ================= ADM STABILIZER =================
+
+MIN_ADM_SIZE = 500
+MAX_FAILS_BEFORE_SWITCH = 8
+
+adm_growth_tracker = {}
+
 # ================= SWEAR TRACKER =================
 
 SWEAR_WORDS = [
@@ -255,7 +262,6 @@ def connect_ftp():
 
     return ftp
 
-
 # ================= RCON LOOP =================
 
 async def rcon_loop():
@@ -302,6 +308,7 @@ def find_active_adm():
     global last_growth_time
     global growth_fail_count
     global dead_adms
+    global adm_growth_tracker
 
     try:
 
@@ -316,8 +323,6 @@ def find_active_adm():
             files.append
         )
 
-        files = sorted(files)
-
         adm_files = []
 
         for file in files:
@@ -331,7 +336,7 @@ def find_active_adm():
                 continue
 
             match = re.search(
-                r"(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})",
+                r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
                 file
             )
 
@@ -357,16 +362,24 @@ def find_active_adm():
 
                 adm_files.append({
                     "name": file,
+                    "path": full_path,
                     "datetime": file_dt,
                     "size": size
                 })
 
-            except Exception:
-                pass
+                print(
+                    f"FOUND ADM: {file} | SIZE: {size}"
+                )
+
+            except Exception as e:
+
+                print(f"ADM READ ERROR: {e}")
+
+        ftp.quit()
 
         if not adm_files:
 
-            ftp.quit()
+            print("NO ADM FILES FOUND")
             return None
 
         adm_files.sort(
@@ -374,15 +387,100 @@ def find_active_adm():
             reverse=True
         )
 
-        best_adm = adm_files[0]
+        newest = adm_files[0]
 
-        best_path = (
-            f"{SEARCH_DIR}/{best_adm['name']}"
+        newest_path = newest["path"]
+        newest_size = newest["size"]
+
+        # ================= FIRST START =================
+
+        if current_adm is None:
+
+            current_adm = newest_path
+            current_adm_size = newest_size
+
+            print(
+                f"INITIAL ADM LOCK: {current_adm}"
+            )
+
+            return current_adm
+
+        # ================= SAME FILE =================
+
+        if newest_path == current_adm:
+
+            if newest_size > current_adm_size:
+
+                print(
+                    f"ADM GROWING: {newest_size}"
+                )
+
+                current_adm_size = newest_size
+                growth_fail_count = 0
+                last_growth_time = datetime.now(UTC)
+
+            else:
+
+                growth_fail_count += 1
+
+                print(
+                    f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}"
+                )
+
+            return current_adm
+
+        # ================= NEW FILE DETECTED =================
+
+        print(
+            f"NEW ADM DETECTED: {newest_path}"
         )
 
-        current_adm = best_path
+        # Ignore tiny empty fresh files
+        if newest_size < MIN_ADM_SIZE:
 
-        ftp.quit()
+            print(
+                f"IGNORING TINY ADM: {newest_size}"
+            )
+
+            return current_adm
+
+        previous_size = adm_growth_tracker.get(
+            newest_path,
+            0
+        )
+
+        adm_growth_tracker[newest_path] = newest_size
+
+        if newest_size > previous_size:
+
+            print(
+                f"NEW ADM GROWING: {previous_size} -> {newest_size}"
+            )
+
+            if newest_size > 5000:
+
+                print(
+                    f"SWITCHING TO ACTIVE ADM: {newest_path}"
+                )
+
+                current_adm = newest_path
+                current_adm_size = newest_size
+                growth_fail_count = 0
+
+                return current_adm
+
+        # Force switch if old ADM dead
+        if growth_fail_count >= MAX_FAILS_BEFORE_SWITCH:
+
+            print(
+                "OLD ADM APPEARS DEAD -> FORCING SWITCH"
+            )
+
+            current_adm = newest_path
+            current_adm_size = newest_size
+            growth_fail_count = 0
+
+            return current_adm
 
         return current_adm
 
@@ -390,7 +488,7 @@ def find_active_adm():
 
         print(f"ADM SEARCH ERROR: {e}")
 
-        return None
+        return current_adm
 
 # ================= DOWNLOAD ADM =================
 
@@ -428,6 +526,33 @@ def download_adm():
             )
 
         ftp.quit()
+
+        print(
+            f"ADM DOWNLOADED | SIZE: {os.path.getsize(LOCAL_LOG_FILE)}"
+        )
+
+        # ================= NEW LOG CHECK =================
+
+        try:
+
+            with open(
+                LOCAL_LOG_FILE,
+                "r",
+                encoding="utf-8",
+                errors="ignore"
+            ) as check_file:
+
+                first_lines = check_file.read(500)
+
+                if "AdminLog started" in first_lines:
+
+                    print(
+                        "NEW LOG CYCLE DETECTED"
+                    )
+
+        except Exception as e:
+
+            print(f"LOG CHECK ERROR: {e}")
 
         return True
 
