@@ -1,6 +1,5 @@
 import os
 import re
-import random
 import asyncio
 import logging
 import discord
@@ -8,17 +7,16 @@ import berconpy
 
 from flask import Flask
 from threading import Thread
-
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
-from discord import app_commands
+from discord import Embed
 from supabase import create_client
 from openai import AsyncOpenAI
 
 # ================= LOGGING =================
 
-logging.getLogger("discord").setLevel(logging.ERROR)
+logging.basicConfig(level=logging.INFO)
 
 # ================= CONFIG =================
 
@@ -31,10 +29,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # ================= CHANNEL IDS =================
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
-
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
-
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
@@ -52,19 +48,9 @@ LOCAL_LOG_FILE = "live.ADM"
 
 # ================= RCON =================
 
-RCON_HOST = os.getenv(
-    "RCON_HOST",
-    "95.156.224.60"
-)
-
-RCON_PORT = int(
-    os.getenv("RCON_PORT", 14503)
-)
-
-RCON_PASSWORD = os.getenv(
-    "RCON_PASSWORD",
-    "WanderingBot2026"
-)
+RCON_HOST = os.getenv("RCON_HOST")
+RCON_PORT = int(os.getenv("RCON_PORT", 2302))
+RCON_PASSWORD = os.getenv("RCON_PASSWORD")
 
 # ================= DISCORD =================
 
@@ -82,66 +68,26 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-
     return """
     <html>
-        <head>
-            <title>Wandering Bot</title>
-
-            <style>
-
-                body {
-                    background-color: #0f0f0f;
-                    color: #00ff88;
-                    font-family: Arial;
-                    text-align: center;
-                    padding-top: 100px;
-                }
-
-                h1 {
-                    font-size: 60px;
-                }
-
-                p {
-                    font-size: 24px;
-                }
-
-            </style>
-
-        </head>
-
-        <body>
-
-            <h1>Wandering Bot Online</h1>
-
-            <p>DayZ Killfeed Active</p>
-
-            <p>Server Systems Operational</p>
-
-        </body>
-
+    <head>
+    <title>Wandering Bot Omega</title>
+    </head>
+    <body style="background:#111;color:#00ff88;font-family:Arial;text-align:center;padding-top:100px;">
+    <h1>Wandering Bot Omega Online</h1>
+    <p>Killfeed Active</p>
+    <p>ADM Tracking Operational</p>
+    </body>
     </html>
     """
 
 def run_web():
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            8080
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
 # ================= OPENAI =================
 
-client = AsyncOpenAI(
-    api_key=OPENAI_API_KEY
-)
+client_ai = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 # ================= SUPABASE =================
 
@@ -158,48 +104,15 @@ MAX_PROCESSED_LINES = 5000
 current_adm = None
 current_adm_size = 0
 
-online_players = set()
-
-last_line_count = 0
-last_growth_time = datetime.now(UTC)
-
+last_position = 0
 growth_fail_count = 0
-
-dead_adms = set()
-
-rcon_task = None
-
-# ================= ADM STABILIZER =================
 
 MIN_ADM_SIZE = 500
 MAX_FAILS_BEFORE_SWITCH = 8
 
-adm_growth_tracker = {}
+online_players = set()
 
-# ================= SWEAR TRACKER =================
-
-SWEAR_WORDS = [
-    "fuck",
-    "shit",
-    "bitch",
-    "cunt",
-    "wanker",
-    "bastard",
-    "twat"
-]
-
-swear_tracker = {}
-
-# ================= ECONOMY =================
-
-SHOP_ITEMS = {
-    "water": 10,
-    "beans": 20,
-    "ammo": 50,
-    "medkit": 100,
-    "armor": 300,
-    "rifle": 600
-}
+BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 # ================= FILTERS =================
 
@@ -207,44 +120,28 @@ IGNORE_PATTERNS = [
     "[CE]",
     "LootRespawner",
     "PRIDummy",
-    "causing search overtime",
-    "Ammo_40mm_Explosive",
-    "ConstructionHelmet",
     "script",
-    "crash",
     "weather",
-    "storage",
-    "economy",
-    "infected"
+    "economy"
 ]
-
-# ================= BOT IMAGE =================
-
-BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 # ================= HELPERS =================
 
 def should_ignore(line):
-
     lower = line.lower()
 
     for pattern in IGNORE_PATTERNS:
-
         if pattern.lower() in lower:
             return True
 
     return False
 
-
 def style_embed(embed):
-
     embed.timestamp = datetime.now(UTC)
-
+    embed.set_thumbnail(url=BOT_IMAGE)
     return embed
 
-
 def connect_ftp():
-
     ftp = FTP_TLS()
 
     ftp.connect(
@@ -262,7 +159,7 @@ def connect_ftp():
 
     return ftp
 
-# ================= RCON LOOP =================
+# ================= RCON =================
 
 async def rcon_loop():
 
@@ -278,17 +175,18 @@ async def rcon_loop():
                 RCON_PASSWORD
             ) as client:
 
-                print("✅ RCON CONNECTED")
+                print("RCON CONNECTED")
 
                 while True:
 
-                    players = await client.command(
-                        "players"
-                    )
+                    try:
 
-                    print(
-                        f"RCON PLAYERS:\n{players}"
-                    )
+                        players = await client.command("players")
+
+                        print(players)
+
+                    except Exception as e:
+                        print(f"RCON COMMAND ERROR: {e}")
 
                     await asyncio.sleep(30)
 
@@ -296,19 +194,15 @@ async def rcon_loop():
 
             print(f"RCON ERROR: {e}")
 
-            await asyncio.sleep(10)
+            await asyncio.sleep(15)
 
-# ================= LIVE ADM FINDER =================
+# ================= ADM FINDER =================
 
 def find_active_adm():
 
     global current_adm
     global current_adm_size
-    global last_line_count
-    global last_growth_time
     global growth_fail_count
-    global dead_adms
-    global adm_growth_tracker
 
     try:
 
@@ -318,10 +212,7 @@ def find_active_adm():
 
         files = []
 
-        ftp.retrlines(
-            "NLST",
-            files.append
-        )
+        ftp.retrlines("NLST", files.append)
 
         adm_files = []
 
@@ -330,56 +221,41 @@ def find_active_adm():
             if not file.endswith(".ADM"):
                 continue
 
-            full_path = f"{SEARCH_DIR}/{file}"
-
-            if full_path in dead_adms:
-                continue
-
             match = re.search(
-                r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
+                r"(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})",
                 file
             )
 
             if not match:
                 continue
 
-            try:
+            dt_str = (
+                match.group(1)
+                + " "
+                + match.group(2).replace("-", ":")
+            )
 
-                dt_str = (
-                    match.group(1)
-                    + " "
-                    + match.group(2).replace("-", ":")
-                )
+            file_dt = datetime.strptime(
+                dt_str,
+                "%Y-%m-%d %H:%M:%S"
+            )
 
-                file_dt = datetime.strptime(
-                    dt_str,
-                    "%Y-%m-%d %H:%M:%S"
-                )
+            ftp.voidcmd("TYPE I")
 
-                ftp.voidcmd("TYPE I")
+            size = ftp.size(file)
 
-                size = ftp.size(file)
+            adm_files.append({
+                "name": file,
+                "path": f"{SEARCH_DIR}/{file}",
+                "datetime": file_dt,
+                "size": size
+            })
 
-                adm_files.append({
-                    "name": file,
-                    "path": full_path,
-                    "datetime": file_dt,
-                    "size": size
-                })
-
-                print(
-                    f"FOUND ADM: {file} | SIZE: {size}"
-                )
-
-            except Exception as e:
-
-                print(f"ADM READ ERROR: {e}")
+            print(f"FOUND ADM: {file} | SIZE: {size}")
 
         ftp.quit()
 
         if not adm_files:
-
-            print("NO ADM FILES FOUND")
             return None
 
         adm_files.sort(
@@ -392,93 +268,51 @@ def find_active_adm():
         newest_path = newest["path"]
         newest_size = newest["size"]
 
-        # ================= FIRST START =================
-
         if current_adm is None:
 
             current_adm = newest_path
             current_adm_size = newest_size
 
-            print(
-                f"INITIAL ADM LOCK: {current_adm}"
-            )
+            print(f"INITIAL ADM LOCK: {current_adm}")
 
             return current_adm
-
-        # ================= SAME FILE =================
 
         if newest_path == current_adm:
 
             if newest_size > current_adm_size:
 
-                print(
-                    f"ADM GROWING: {newest_size}"
-                )
-
                 current_adm_size = newest_size
                 growth_fail_count = 0
-                last_growth_time = datetime.now(UTC)
+
+                print(f"ADM GROWING: {newest_size}")
 
             else:
 
                 growth_fail_count += 1
 
-                print(
-                    f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}"
-                )
+                print(f"ADM NOT GROWING: {growth_fail_count}")
 
             return current_adm
 
-        # ================= NEW FILE DETECTED =================
+        print(f"NEW ADM DETECTED: {newest_path}")
 
-        print(
-            f"NEW ADM DETECTED: {newest_path}"
-        )
+        if newest_size >= MIN_ADM_SIZE:
 
-        # Ignore tiny empty fresh files
-        if newest_size < MIN_ADM_SIZE:
-
-            print(
-                f"IGNORING TINY ADM: {newest_size}"
-            )
-
-            return current_adm
-
-        previous_size = adm_growth_tracker.get(
-            newest_path,
-            0
-        )
-
-        adm_growth_tracker[newest_path] = newest_size
-
-        if newest_size > previous_size:
-
-            print(
-                f"NEW ADM GROWING: {previous_size} -> {newest_size}"
-            )
-
-            if newest_size > 5000:
-
-                print(
-                    f"SWITCHING TO ACTIVE ADM: {newest_path}"
-                )
-
-                current_adm = newest_path
-                current_adm_size = newest_size
-                growth_fail_count = 0
-
-                return current_adm
-
-        # Force switch if old ADM dead
-        if growth_fail_count >= MAX_FAILS_BEFORE_SWITCH:
-
-            print(
-                "OLD ADM APPEARS DEAD -> FORCING SWITCH"
-            )
+            print(f"SWITCHING TO NEW ADM: {newest_path}")
 
             current_adm = newest_path
             current_adm_size = newest_size
-            growth_fail_count = 0
+
+            reset_parser_state()
+
+            return current_adm
+
+        if growth_fail_count >= MAX_FAILS_BEFORE_SWITCH:
+
+            current_adm = newest_path
+            current_adm_size = newest_size
+
+            reset_parser_state()
 
             return current_adm
 
@@ -486,11 +320,11 @@ def find_active_adm():
 
     except Exception as e:
 
-        print(f"ADM SEARCH ERROR: {e}")
+        print(f"ADM FINDER ERROR: {e}")
 
         return current_adm
 
-# ================= DOWNLOAD ADM =================
+# ================= DOWNLOAD =================
 
 def download_adm():
 
@@ -505,54 +339,18 @@ def download_adm():
 
         ftp.cwd(SEARCH_DIR)
 
-        ftp.voidcmd("TYPE I")
+        filename = os.path.basename(active_adm)
 
-        filename = os.path.basename(
-            active_adm
-        )
-
-        if os.path.exists(LOCAL_LOG_FILE):
-            os.remove(LOCAL_LOG_FILE)
-
-        with open(
-            LOCAL_LOG_FILE,
-            "wb"
-        ) as f:
+        with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
                 f"RETR {filename}",
-                f.write,
-                blocksize=1024
+                f.write
             )
 
         ftp.quit()
 
-        print(
-            f"ADM DOWNLOADED | SIZE: {os.path.getsize(LOCAL_LOG_FILE)}"
-        )
-
-        # ================= NEW LOG CHECK =================
-
-        try:
-
-            with open(
-                LOCAL_LOG_FILE,
-                "r",
-                encoding="utf-8",
-                errors="ignore"
-            ) as check_file:
-
-                first_lines = check_file.read(500)
-
-                if "AdminLog started" in first_lines:
-
-                    print(
-                        "NEW LOG CYCLE DETECTED"
-                    )
-
-        except Exception as e:
-
-            print(f"LOG CHECK ERROR: {e}")
+        print(f"ADM DOWNLOADED: {filename}")
 
         return True
 
@@ -562,51 +360,243 @@ def download_adm():
 
         return False
 
+# ================= PARSER =================
+
+def reset_parser_state():
+
+    global last_position
+    global processed_lines
+
+    last_position = 0
+    processed_lines.clear()
+
+    print("PARSER RESET")
+
+async def send_embed(channel_id, embed):
+
+    try:
+
+        channel = bot.get_channel(channel_id)
+
+        if channel:
+            await channel.send(embed=embed)
+
+    except Exception as e:
+
+        print(f"DISCORD SEND ERROR: {e}")
+
+async def process_line(line):
+
+    if should_ignore(line):
+        return
+
+    if line in processed_lines:
+        return
+
+    processed_lines.add(line)
+
+    if len(processed_lines) > MAX_PROCESSED_LINES:
+        processed_lines.clear()
+
+    print(f"PARSED: {line}")
+
+    # ================= RESTART DETECTION =================
+
+    if "AdminLog started" in line:
+
+        reset_parser_state()
+
+        embed = Embed(
+            title="Server Restart Detected",
+            description="New ADM cycle started.",
+            color=0x00ff88
+        )
+
+        await send_embed(
+            EVENT_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= KILLS =================
+
+    if " killed " in line:
+
+        embed = Embed(
+            title="Killfeed",
+            description=f"```{line}```",
+            color=0xff0000
+        )
+
+        await send_embed(
+            KILLFEED_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= UNCON =================
+
+    if "unconscious" in line:
+
+        embed = Embed(
+            title="Player Unconscious",
+            description=f"```{line}```",
+            color=0xffaa00
+        )
+
+        await send_embed(
+            EVENT_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= HITS =================
+
+    if "hit by" in line:
+
+        embed = Embed(
+            title="Combat Hit",
+            description=f"```{line}```",
+            color=0xff8800
+        )
+
+        await send_embed(
+            EVENT_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= CONNECT =================
+
+    if "is connected" in line:
+
+        embed = Embed(
+            title="Player Connected",
+            description=f"```{line}```",
+            color=0x00ff00
+        )
+
+        await send_embed(
+            CONNECT_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= DISCONNECT =================
+
+    if "has been disconnected" in line:
+
+        embed = Embed(
+            title="Player Disconnected",
+            description=f"```{line}```",
+            color=0x888888
+        )
+
+        await send_embed(
+            CONNECT_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+        return
+
+    # ================= BUILD =================
+
+    if "placed" in line or "built" in line:
+
+        embed = Embed(
+            title="Build Event",
+            description=f"```{line}```",
+            color=0x0099ff
+        )
+
+        await send_embed(
+            BUILD_CHANNEL_ID,
+            style_embed(embed)
+        )
+
+async def parse_adm():
+
+    global last_position
+
+    try:
+
+        if not os.path.exists(LOCAL_LOG_FILE):
+            return
+
+        with open(
+            LOCAL_LOG_FILE,
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+
+            f.seek(last_position)
+
+            lines = f.readlines()
+
+            last_position = f.tell()
+
+        for line in lines:
+
+            line = line.strip()
+
+            if not line:
+                continue
+
+            await process_line(line)
+
+    except Exception as e:
+
+        print(f"PARSER ERROR: {e}")
+
+# ================= TASKS =================
+
+@tasks.loop(seconds=15)
+async def adm_loop():
+
+    try:
+
+        success = await asyncio.to_thread(
+            download_adm
+        )
+
+        if success:
+            await parse_adm()
+
+    except Exception as e:
+
+        print(f"ADM LOOP ERROR: {e}")
+
+# ================= COMMANDS =================
+
+@bot.command()
+async def ping(ctx):
+
+    await ctx.send("Pong")
+
 # ================= READY =================
 
 @bot.event
 async def on_ready():
 
-    global rcon_task
-
-    try:
-
-        await bot.tree.sync()
-
-    except Exception as e:
-
-        print(f"COMMAND SYNC ERROR: {e}")
+    print(f"LOGGED IN AS {bot.user}")
 
     if not adm_loop.is_running():
-
         adm_loop.start()
 
-    if rcon_task is None or rcon_task.done():
-
-        rcon_task = asyncio.create_task(
-            rcon_loop()
-        )
-
-    print(f"✅ Logged in as {bot.user}")
-
-# ================= TASKS =================
-
-@tasks.loop(seconds=30)
-async def adm_loop():
-
-    success = await asyncio.to_thread(
-        download_adm
+    asyncio.create_task(
+        rcon_loop()
     )
-
-    print(f"DOWNLOAD RESULT: {success}")
 
 # ================= START =================
 
 if not DISCORD_TOKEN:
-
-    raise ValueError(
-        "DISCORD_TOKEN missing"
-    )
+    raise ValueError("DISCORD_TOKEN missing")
 
 Thread(
     target=run_web,
