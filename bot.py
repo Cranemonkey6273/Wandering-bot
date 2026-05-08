@@ -185,24 +185,24 @@ async def rcon_loop():
 
             print("CONNECTING TO RCON...")
 
-            rcon = berconpy.ArmaRCONClient(
+            rcon = berconpy.Client()
+
+            await rcon.connect(
                 RCON_HOST,
                 RCON_PORT,
                 RCON_PASSWORD
             )
 
-            await rcon.connect()
-
             print("RCON CONNECTED")
 
             while True:
 
-                players = await rcon.send_command(
+                response = await rcon.command(
                     "players"
                 )
 
                 print(
-                    f"RCON PLAYERS:\n{players}"
+                    f"RCON PLAYERS:\n{response}"
                 )
 
                 await asyncio.sleep(30)
