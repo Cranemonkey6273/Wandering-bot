@@ -1,105 +1,68 @@
 import os
-
 import re
-
 import random
-
 import asyncio
-
 import discord
 
 from ftplib import FTP_TLS
-
 from datetime import datetime, UTC
-
 from discord.ext import commands, tasks
-
 from discord import app_commands
-
 from supabase import create_client
-
 from openai import AsyncOpenAI
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
-
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
-
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
-
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
-
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
 FTP_HOST = os.getenv("FTP_HOST")
-
 FTP_USER = os.getenv("FTP_USER")
-
 FTP_PASS = os.getenv("FTP_PASS")
-
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_DIRS = [
-
     "config",
-
     "/config",
-
     "dayzxb/config",
-
     "/dayzxb/config",
-
     "profiles",
-
     "/profiles"
-
 ]
 
 LOCAL_LOG_FILE = "live.ADM"
 
 intents = discord.Intents.default()
-
 intents.message_content = True
 
 bot = commands.Bot(
-
     command_prefix="!",
-
     intents=intents
-
 )
 
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 supabase = create_client(
-
     SUPABASE_URL,
-
     SUPABASE_KEY
-
 )
 
 processed_lines = set()
-
 MAX_PROCESSED_LINES = 2000
 
 current_adm = None
-
 current_adm_size = 0
 
 online_players = set()
 
 last_line_count = 0
-
 last_growth_time = datetime.now(UTC)
 
 growth_fail_count = 0
@@ -107,31 +70,18 @@ growth_fail_count = 0
 dead_adms = set()
 
 IGNORE_PATTERNS = [
-
     "[CE]",
-
     "LootRespawner",
-
     "PRIDummy",
-
     "causing search overtime",
-
     "Ammo_40mm_Explosive",
-
     "ConstructionHelmet",
-
     "script",
-
     "crash",
-
     "weather",
-
     "storage",
-
     "economy",
-
     "infected"
-
 ]
 
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
@@ -143,7 +93,6 @@ def should_ignore(line):
     for pattern in IGNORE_PATTERNS:
 
         if pattern.lower() in lower:
-
             return True
 
     return False
@@ -153,21 +102,14 @@ def connect_ftp():
     ftp = FTP_TLS()
 
     ftp.connect(
-
         FTP_HOST,
-
         FTP_PORT,
-
         timeout=60
-
     )
 
     ftp.login(
-
         FTP_USER,
-
         FTP_PASS
-
     )
 
     ftp.prot_p()
@@ -185,22 +127,19 @@ def find_working_path(ftp):
             files = []
 
             ftp.retrlines(
-
                 "NLST",
-
                 files.append
-
             )
 
             adm_files = [
-
                 f for f in files
-
                 if f.endswith(".ADM")
-
             ]
 
-            print(f"CHECKING PATH: {path} | ADM FILES: {len(adm_files)}")
+            print(
+                f"CHECKING PATH: {path} | "
+                f"ADM FILES: {len(adm_files)}"
+            )
 
             if adm_files:
 
@@ -214,62 +153,13 @@ def find_working_path(ftp):
 
     return None
 
-def get_adm_start_time(ftp, filename):
-
-    try:
-
-        lines = []
-
-        ftp.retrlines(
-
-            f"RETR {filename}",
-
-            lines.append
-
-        )
-
-        first_text = "\n".join(lines[:5])
-
-        match = re.search(
-
-            r"AdminLog started on (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}:\d{2})",
-
-            first_text
-
-        )
-
-        if not match:
-
-            return None
-
-        dt_str = f"{match.group(1)} {match.group(2)}"
-
-        return datetime.strptime(
-
-            dt_str,
-
-            "%Y-%m-%d %H:%M:%S"
-
-        )
-
-    except Exception as e:
-
-        print(f"START TIME READ ERROR: {e}")
-
-        return None
-
 def find_active_adm():
 
     global current_adm
-
     global current_adm_size
-
     global last_line_count
-
     global last_growth_time
-
     global growth_fail_count
-
     global dead_adms
 
     try:
@@ -289,11 +179,8 @@ def find_active_adm():
         files = []
 
         ftp.retrlines(
-
             "NLST",
-
             files.append
-
         )
 
         adm_files = []
@@ -301,13 +188,11 @@ def find_active_adm():
         for file in files:
 
             if not file.endswith(".ADM"):
-
                 continue
 
             full_path = f"{working_dir}/{file}"
 
             if full_path in dead_adms:
-
                 continue
 
             try:
@@ -316,56 +201,44 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
-                # IGNORE DEAD / EMPTY FILES
                 if size < 1000:
 
                     print(
-
                         f"IGNORING SMALL ADM: "
-
                         f"{file} | SIZE: {size}"
-
                     )
 
                     continue
 
-                start_time = get_adm_start_time(
-
-                    ftp,
-
+                match = re.search(
+                    r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
                     file
-
                 )
 
-                # MUST HAVE VALID SESSION START
-                if not start_time:
-
-                    print(
-
-                        f"INVALID ADM START: {file}"
-
-                    )
-
+                if not match:
                     continue
 
+                dt_str = (
+                    match.group(1)
+                    + " "
+                    + match.group(2).replace("-", ":")
+                )
+
+                start_time = datetime.strptime(
+                    dt_str,
+                    "%Y-%m-%d %H:%M:%S"
+                )
+
                 adm_files.append({
-
                     "name": file,
-
                     "size": size,
-
-                    "start_time": start_time
-
+                    "start": start_time
                 })
 
                 print(
-
                     f"FOUND ADM: {file} | "
-
                     f"SIZE: {size} | "
-
                     f"START: {start_time}"
-
                 )
 
             except Exception as e:
@@ -380,39 +253,27 @@ def find_active_adm():
 
             return None
 
-        # NEWEST VALID SESSION WINS
         adm_files.sort(
-
-            key=lambda x: x["start_time"],
-
+            key=lambda x: x["start"],
             reverse=True
-
         )
 
         best_adm = adm_files[0]
 
         best_path = f"{working_dir}/{best_adm['name']}"
-
         best_size = best_adm["size"]
 
         print(
-
             f"BEST ADM CANDIDATE: "
-
-            f"{best_path} | "
-
-            f"SIZE: {best_size}"
-
+            f"{best_path} | SIZE: {best_size}"
         )
 
         if current_adm is None:
 
             current_adm = best_path
-
             current_adm_size = best_size
 
             growth_fail_count = 0
-
             last_line_count = 0
 
             processed_lines.clear()
@@ -451,61 +312,89 @@ def find_active_adm():
 
                 growth_fail_count = 0
 
-                ftp.quit()
-
-                return current_adm
-
             else:
 
-                # QUIET SERVER DOES NOT MEAN DEAD ADM
-                print(
+                growth_fail_count += 1
 
-                    f"ADM SIZE STATIC: "
+                print(f"ADM SIZE STATIC: {latest_size}")
 
-                    f"{latest_size}"
+            try:
 
+                temp_lines = []
+
+                ftp.retrlines(
+                    f"RETR {os.path.basename(current_adm)}",
+                    temp_lines.append
                 )
 
-                newest_session = adm_files[0]
+                recent_lines = temp_lines[-30:]
 
-                newest_path = (
+                recent_text = "\n".join(recent_lines)
 
-                    f"{working_dir}/"
+                has_heartbeat = "#####" in recent_text
 
-                    f"{newest_session['name']}"
-
+                disconnected_end = (
+                    "has been disconnected"
+                    in recent_text.lower()
                 )
 
-                newest_start = newest_session["start_time"]
+                terminated = (
+                    "termination successfully completed"
+                    in recent_text.lower()
+                )
 
-                current_start = current_file["start_time"]
-
-                # ONLY SWITCH IF A NEWER VALID SESSION EXISTS
-                if newest_start > current_start:
+                if (
+                    (disconnected_end or terminated)
+                    and not has_heartbeat
+                ):
 
                     print(
-
-                        f"NEWER VALID SESSION DETECTED: "
-
-                        f"{newest_path}"
-
+                        f"MARKING DEAD ADM: "
+                        f"{current_adm}"
                     )
 
-                    current_adm = newest_path
+                    dead_adms.add(current_adm)
 
-                    current_adm_size = newest_session["size"]
+                    current_adm = None
+                    current_adm_size = 0
 
                     growth_fail_count = 0
-
                     last_line_count = 0
 
                     processed_lines.clear()
 
-                    last_growth_time = datetime.now(UTC)
-
                     ftp.quit()
 
-                    return current_adm
+                    return find_active_adm()
+
+            except Exception as e:
+
+                print(f"END CHECK ERROR: {e}")
+
+        newest_start = best_adm["start"]
+
+        current_start = current_file["start"]
+
+        if newest_start > current_start:
+
+            print(
+                f"NEWER ADM DETECTED: "
+                f"{best_path}"
+            )
+
+            current_adm = best_path
+            current_adm_size = best_size
+
+            growth_fail_count = 0
+            last_line_count = 0
+
+            processed_lines.clear()
+
+            last_growth_time = datetime.now(UTC)
+
+            ftp.quit()
+
+            return current_adm
 
         ftp.quit()
 
@@ -526,7 +415,6 @@ def download_adm():
         active_adm = find_active_adm()
 
         if not active_adm:
-
             return False
 
         ftp = connect_ftp()
@@ -540,19 +428,14 @@ def download_adm():
         filename = os.path.basename(active_adm)
 
         if os.path.exists(LOCAL_LOG_FILE):
-
             os.remove(LOCAL_LOG_FILE)
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
             ftp.retrbinary(
-
                 f"RETR {filename}",
-
                 f.write,
-
                 blocksize=1024
-
             )
 
         ftp.quit()
@@ -570,7 +453,6 @@ def download_adm():
         return False
 
 @tasks.loop(seconds=30)
-
 async def adm_loop():
 
     print("ADM LOOP RUNNING")
@@ -578,9 +460,7 @@ async def adm_loop():
     try:
 
         success = await asyncio.to_thread(
-
             download_adm
-
         )
 
         print(f"DOWNLOAD RESULT: {success}")
@@ -598,7 +478,6 @@ async def adm_loop():
         print(f"ADM LOOP ERROR: {e}")
 
 @bot.event
-
 async def on_ready():
 
     print("BOT READY EVENT")
