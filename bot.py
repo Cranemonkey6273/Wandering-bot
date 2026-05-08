@@ -316,7 +316,7 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
-                # IGNORE TINY / DEAD FILES
+                # IGNORE DEAD / EMPTY FILES
                 if size < 1000:
 
                     print(
@@ -337,7 +337,7 @@ def find_active_adm():
 
                 )
 
-                # MUST START WITH VALID ADMINLOG SESSION
+                # MUST HAVE VALID SESSION START
                 if not start_time:
 
                     print(
@@ -380,7 +380,7 @@ def find_active_adm():
 
             return None
 
-        # NEWEST SESSION WINS
+        # NEWEST VALID SESSION WINS
         adm_files.sort(
 
             key=lambda x: x["start_time"],
@@ -457,35 +457,55 @@ def find_active_adm():
 
             else:
 
-                growth_fail_count += 1
-
+                # QUIET SERVER DOES NOT MEAN DEAD ADM
                 print(
 
-                    f"ADM NOT GROWING | "
+                    f"ADM SIZE STATIC: "
 
-                    f"FAIL COUNT: {growth_fail_count}"
+                    f"{latest_size}"
 
                 )
 
-        if best_path != current_adm and growth_fail_count >= 3:
+                newest_session = adm_files[0]
 
-            print(f"SWITCHING TO NEW ADM: {best_path}")
+                newest_path = (
 
-            current_adm = best_path
+                    f"{working_dir}/"
 
-            current_adm_size = best_size
+                    f"{newest_session['name']}"
 
-            growth_fail_count = 0
+                )
 
-            last_line_count = 0
+                newest_start = newest_session["start_time"]
 
-            processed_lines.clear()
+                current_start = current_file["start_time"]
 
-            last_growth_time = datetime.now(UTC)
+                # ONLY SWITCH IF A NEWER VALID SESSION EXISTS
+                if newest_start > current_start:
 
-            ftp.quit()
+                    print(
 
-            return current_adm
+                        f"NEWER VALID SESSION DETECTED: "
+
+                        f"{newest_path}"
+
+                    )
+
+                    current_adm = newest_path
+
+                    current_adm_size = newest_session["size"]
+
+                    growth_fail_count = 0
+
+                    last_line_count = 0
+
+                    processed_lines.clear()
+
+                    last_growth_time = datetime.now(UTC)
+
+                    ftp.quit()
+
+                    return current_adm
 
         ftp.quit()
 
