@@ -214,6 +214,50 @@ def find_working_path(ftp):
 
     return None
 
+def get_adm_start_time(ftp, filename):
+
+    try:
+
+        lines = []
+
+        ftp.retrlines(
+
+            f"RETR {filename}",
+
+            lines.append
+
+        )
+
+        first_text = "\n".join(lines[:5])
+
+        match = re.search(
+
+            r"AdminLog started on (\d{4}-\d{2}-\d{2}) at (\d{2}:\d{2}:\d{2})",
+
+            first_text
+
+        )
+
+        if not match:
+
+            return None
+
+        dt_str = f"{match.group(1)} {match.group(2)}"
+
+        return datetime.strptime(
+
+            dt_str,
+
+            "%Y-%m-%d %H:%M:%S"
+
+        )
+
+    except Exception as e:
+
+        print(f"START TIME READ ERROR: {e}")
+
+        return None
+
 def find_active_adm():
 
     global current_adm
@@ -272,8 +316,7 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
-                # IGNORE TINY DEAD FILES
-
+                # IGNORE TINY / DEAD FILES
                 if size < 1000:
 
                     print(
@@ -286,15 +329,44 @@ def find_active_adm():
 
                     continue
 
+                start_time = get_adm_start_time(
+
+                    ftp,
+
+                    file
+
+                )
+
+                # MUST START WITH VALID ADMINLOG SESSION
+                if not start_time:
+
+                    print(
+
+                        f"INVALID ADM START: {file}"
+
+                    )
+
+                    continue
+
                 adm_files.append({
 
                     "name": file,
 
-                    "size": size
+                    "size": size,
+
+                    "start_time": start_time
 
                 })
 
-                print(f"FOUND ADM: {file} | SIZE: {size}")
+                print(
+
+                    f"FOUND ADM: {file} | "
+
+                    f"SIZE: {size} | "
+
+                    f"START: {start_time}"
+
+                )
 
             except Exception as e:
 
@@ -308,11 +380,10 @@ def find_active_adm():
 
             return None
 
-        # SORT NEWEST ADM FIRST
-
+        # NEWEST SESSION WINS
         adm_files.sort(
 
-            key=lambda x: x["name"],
+            key=lambda x: x["start_time"],
 
             reverse=True
 
@@ -324,7 +395,15 @@ def find_active_adm():
 
         best_size = best_adm["size"]
 
-        print(f"BEST ADM CANDIDATE: {best_path} | SIZE: {best_size}")
+        print(
+
+            f"BEST ADM CANDIDATE: "
+
+            f"{best_path} | "
+
+            f"SIZE: {best_size}"
+
+        )
 
         if current_adm is None:
 
@@ -380,7 +459,13 @@ def find_active_adm():
 
                 growth_fail_count += 1
 
-                print(f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}")
+                print(
+
+                    f"ADM NOT GROWING | "
+
+                    f"FAIL COUNT: {growth_fail_count}"
+
+                )
 
         if best_path != current_adm and growth_fail_count >= 3:
 
@@ -472,7 +557,11 @@ async def adm_loop():
 
     try:
 
-        success = await asyncio.to_thread(download_adm)
+        success = await asyncio.to_thread(
+
+            download_adm
+
+        )
 
         print(f"DOWNLOAD RESULT: {success}")
 
