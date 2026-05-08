@@ -181,48 +181,35 @@ async def rcon_loop():
 
     while True:
 
-        client = None
-
         try:
 
             print("CONNECTING TO RCON...")
 
-            client = berconpy.RCONClient()
-
-            await client.connect(
+            async with berconpy.RCONClient().connect(
                 RCON_HOST,
                 RCON_PORT,
                 RCON_PASSWORD
-            )
+            ) as client:
 
-            print("✅ RCON CONNECTED")
+                print("✅ RCON CONNECTED")
 
-            while True:
+                while True:
 
-                players = await client.command(
-                    "players"
-                )
+                    players = await client.command(
+                        "players"
+                    )
 
-                print(
-                    f"RCON PLAYERS:\n{players}"
-                )
+                    print(
+                        f"RCON PLAYERS:\n{players}"
+                    )
 
-                await asyncio.sleep(30)
+                    await asyncio.sleep(30)
 
         except Exception as e:
 
             print(f"RCON ERROR: {e}")
 
             await asyncio.sleep(10)
-
-        finally:
-
-            try:
-
-                if client:
-                    await client.close()
-            except:
-                pass
 
 
 # ================= LIVE ADM FINDER =================
@@ -351,94 +338,6 @@ def find_active_adm():
             ftp.quit()
 
             return current_adm
-
-        current_file = None
-
-        for adm in adm_files:
-
-            full_path = (
-                f"{SEARCH_DIR}/{adm['name']}"
-            )
-
-            if full_path == current_adm:
-
-                current_file = adm
-                break
-
-        if current_file:
-
-            latest_size = current_file["size"]
-
-            if latest_size > current_adm_size:
-
-                print(
-                    f"ACTIVE ADM GROWING: "
-                    f"{latest_size}"
-                )
-
-                current_adm_size = latest_size
-
-                last_growth_time = datetime.now(UTC)
-
-                growth_fail_count = 0
-
-                ftp.quit()
-
-                return current_adm
-
-            else:
-
-                growth_fail_count += 1
-
-                print(
-                    f"ADM NOT GROWING | "
-                    f"FAIL COUNT: {growth_fail_count}"
-                )
-
-                print(
-                    f"ADM SIZE STATIC: {latest_size}"
-                )
-
-        if growth_fail_count >= 3:
-
-            print(
-                "CURRENT ADM DEAD - SEARCHING NEW FILE"
-            )
-
-            for adm in adm_files:
-
-                possible_path = (
-                    f"{SEARCH_DIR}/{adm['name']}"
-                )
-
-                if possible_path == current_adm:
-                    continue
-
-                if (
-                    current_file
-                    and adm["datetime"]
-                    <= current_file["datetime"]
-                ):
-                    continue
-
-                print(
-                    f"SWITCHING TO NEW ADM: "
-                    f"{possible_path}"
-                )
-
-                current_adm = possible_path
-                current_adm_size = adm["size"]
-
-                growth_fail_count = 0
-                last_line_count = 0
-
-                processed_lines.clear()
-
-                last_growth_time = datetime.now(UTC)
-
-                ftp.quit()
-
-                return current_adm
 
         ftp.quit()
 
