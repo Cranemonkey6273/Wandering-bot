@@ -59,14 +59,11 @@ MAX_PROCESSED_LINES = 2000
 
 current_adm = None
 current_adm_size = 0
-
 online_players = set()
 
 last_line_count = 0
 last_growth_time = datetime.now(UTC)
-
 growth_fail_count = 0
-
 dead_adms = set()
 
 IGNORE_PATTERNS = [
@@ -93,6 +90,7 @@ def should_ignore(line):
     for pattern in IGNORE_PATTERNS:
 
         if pattern.lower() in lower:
+
             return True
 
     return False
@@ -136,10 +134,7 @@ def find_working_path(ftp):
                 if f.endswith(".ADM")
             ]
 
-            print(
-                f"CHECKING PATH: {path} | "
-                f"ADM FILES: {len(adm_files)}"
-            )
+            print(f"CHECKING PATH: {path} | ADM FILES: {len(adm_files)}")
 
             if adm_files:
 
@@ -210,35 +205,39 @@ def find_active_adm():
 
                     continue
 
-                match = re.search(
-                    r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
-                    file
+                temp_lines = []
+
+                ftp.retrlines(
+                    f"RETR {file}",
+                    temp_lines.append
                 )
 
-                if not match:
+                if len(temp_lines) < 2:
                     continue
 
-                dt_str = (
-                    match.group(1)
-                    + " "
-                    + match.group(2).replace("-", ":")
-                )
+                start_text = "\n".join(temp_lines[:5])
 
-                start_time = datetime.strptime(
-                    dt_str,
-                    "%Y-%m-%d %H:%M:%S"
-                )
+                if "AdminLog started on" not in start_text:
+
+                    print(
+                        f"INVALID ADM START: {file}"
+                    )
+
+                    continue
+
+                recent_text = "\n".join(temp_lines[-30:])
 
                 adm_files.append({
+
                     "name": file,
                     "size": size,
-                    "start": start_time
+                    "recent": recent_text
+
                 })
 
                 print(
                     f"FOUND ADM: {file} | "
-                    f"SIZE: {size} | "
-                    f"START: {start_time}"
+                    f"SIZE: {size}"
                 )
 
             except Exception as e:
@@ -254,7 +253,7 @@ def find_active_adm():
             return None
 
         adm_files.sort(
-            key=lambda x: x["start"],
+            key=lambda x: x["name"],
             reverse=True
         )
 
@@ -267,6 +266,36 @@ def find_active_adm():
             f"BEST ADM CANDIDATE: "
             f"{best_path} | SIZE: {best_size}"
         )
+
+        newest_recent = best_adm["recent"]
+
+        newest_has_heartbeat = "#####" in newest_recent
+
+        newest_has_activity = any([
+
+            "Player" in newest_recent,
+            "built" in newest_recent.lower(),
+            "placed" in newest_recent.lower(),
+            "connected" in newest_recent.lower(),
+            "hit by" in newest_recent.lower()
+
+        ])
+
+        newest_is_dead = any([
+
+            "has been disconnected" in newest_recent.lower(),
+            "termination successfully completed" in newest_recent.lower()
+
+        ])
+
+        newest_is_alive = (
+            newest_has_heartbeat
+            or newest_has_activity
+        ) and not newest_is_dead
+
+        print(f"NEWEST HEARTBEAT: {newest_has_heartbeat}")
+        print(f"NEWEST ACTIVITY: {newest_has_activity}")
+        print(f"NEWEST DEAD: {newest_is_dead}")
 
         if current_adm is None:
 
@@ -286,6 +315,27 @@ def find_active_adm():
 
             return current_adm
 
+        if best_path != current_adm and newest_is_alive:
+
+            print(
+                f"SWITCHING TO NEW LIVE ADM: "
+                f"{best_path}"
+            )
+
+            current_adm = best_path
+            current_adm_size = best_size
+
+            growth_fail_count = 0
+            last_line_count = 0
+
+            processed_lines.clear()
+
+            last_growth_time = datetime.now(UTC)
+
+            ftp.quit()
+
+            return current_adm
+
         current_file = None
 
         for adm in adm_files:
@@ -295,7 +345,6 @@ def find_active_adm():
             if full_path == current_adm:
 
                 current_file = adm
-
                 break
 
         if current_file:
@@ -318,34 +367,11 @@ def find_active_adm():
 
                 print(f"ADM SIZE STATIC: {latest_size}")
 
-            try:
-
-                temp_lines = []
-
-                ftp.retrlines(
-                    f"RETR {os.path.basename(current_adm)}",
-                    temp_lines.append
-                )
-
-                recent_lines = temp_lines[-30:]
-
-                recent_text = "\n".join(recent_lines)
-
-                has_heartbeat = "#####" in recent_text
-
-                disconnected_end = (
-                    "has been disconnected"
-                    in recent_text.lower()
-                )
-
-                terminated = (
-                    "termination successfully completed"
-                    in recent_text.lower()
-                )
+                recent = current_file["recent"].lower()
 
                 if (
-                    (disconnected_end or terminated)
-                    and not has_heartbeat
+                    "has been disconnected" in recent
+                    or "termination successfully completed" in recent
                 ):
 
                     print(
@@ -354,47 +380,6 @@ def find_active_adm():
                     )
 
                     dead_adms.add(current_adm)
-
-                    current_adm = None
-                    current_adm_size = 0
-
-                    growth_fail_count = 0
-                    last_line_count = 0
-
-                    processed_lines.clear()
-
-                    ftp.quit()
-
-                    return find_active_adm()
-
-            except Exception as e:
-
-                print(f"END CHECK ERROR: {e}")
-
-        newest_start = best_adm["start"]
-
-        current_start = current_file["start"]
-
-        if newest_start > current_start:
-
-            print(
-                f"NEWER ADM DETECTED: "
-                f"{best_path}"
-            )
-
-            current_adm = best_path
-            current_adm_size = best_size
-
-            growth_fail_count = 0
-            last_line_count = 0
-
-            processed_lines.clear()
-
-            last_growth_time = datetime.now(UTC)
-
-            ftp.quit()
-
-            return current_adm
 
         ftp.quit()
 
@@ -459,9 +444,7 @@ async def adm_loop():
 
     try:
 
-        success = await asyncio.to_thread(
-            download_adm
-        )
+        success = await asyncio.to_thread(download_adm)
 
         print(f"DOWNLOAD RESULT: {success}")
 
