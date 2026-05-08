@@ -6,6 +6,9 @@ import logging
 import discord
 import berconpy
 
+from flask import Flask
+from threading import Thread
+
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
@@ -72,6 +75,67 @@ bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
+
+# ================= WEBSITE =================
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+
+    return """
+    <html>
+        <head>
+            <title>Wandering Bot</title>
+
+            <style>
+
+                body {
+                    background-color: #0f0f0f;
+                    color: #00ff88;
+                    font-family: Arial;
+                    text-align: center;
+                    padding-top: 100px;
+                }
+
+                h1 {
+                    font-size: 60px;
+                }
+
+                p {
+                    font-size: 24px;
+                }
+
+            </style>
+
+        </head>
+
+        <body>
+
+            <h1>Wandering Bot Online</h1>
+
+            <p>DayZ Killfeed Active</p>
+
+            <p>Server Systems Operational</p>
+
+        </body>
+
+    </html>
+    """
+
+def run_web():
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            8080
+        )
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
 
 # ================= OPENAI =================
 
@@ -228,7 +292,6 @@ async def rcon_loop():
 
             await asyncio.sleep(10)
 
-
 # ================= LIVE ADM FINDER =================
 
 def find_active_adm():
@@ -268,7 +331,7 @@ def find_active_adm():
                 continue
 
             match = re.search(
-                r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
+                r"(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})",
                 file
             )
 
@@ -298,24 +361,12 @@ def find_active_adm():
                     "size": size
                 })
 
-                print(
-                    f"FOUND ADM: {file} | "
-                    f"SIZE: {size} | "
-                    f"START: {file_dt}"
-                )
-
-            except Exception as e:
-
-                print(
-                    f"ADM PARSE ERROR: {e}"
-                )
+            except Exception:
+                pass
 
         if not adm_files:
 
             ftp.quit()
-
-            print("NO VALID ADM FILES FOUND")
-
             return None
 
         adm_files.sort(
@@ -329,124 +380,9 @@ def find_active_adm():
             f"{SEARCH_DIR}/{best_adm['name']}"
         )
 
-        best_size = best_adm["size"]
-
-        print(
-            f"BEST ADM CANDIDATE: "
-            f"{best_path} | SIZE: {best_size}"
-        )
-
-        if current_adm is None:
-
-            current_adm = best_path
-            current_adm_size = best_size
-
-            growth_fail_count = 0
-            last_line_count = 0
-
-            processed_lines.clear()
-
-            last_growth_time = datetime.now(UTC)
-
-            print(
-                f"INITIAL ADM: {current_adm}"
-            )
-
-            ftp.quit()
-
-            return current_adm
-
-        current_file = None
-
-        for adm in adm_files:
-
-            full_path = (
-                f"{SEARCH_DIR}/{adm['name']}"
-            )
-
-            if full_path == current_adm:
-
-                current_file = adm
-                break
-
-        if current_file:
-
-            latest_size = current_file["size"]
-
-            if latest_size > current_adm_size:
-
-                print(
-                    f"ACTIVE ADM GROWING: "
-                    f"{latest_size}"
-                )
-
-                current_adm_size = latest_size
-
-                last_growth_time = datetime.now(UTC)
-
-                growth_fail_count = 0
-
-                ftp.quit()
-
-                return current_adm
-
-            else:
-
-                growth_fail_count += 1
-
-                print(
-                    f"ADM NOT GROWING | "
-                    f"FAIL COUNT: {growth_fail_count}"
-                )
-
-                print(
-                    f"ADM SIZE STATIC: {latest_size}"
-                )
-
-        if growth_fail_count >= 3:
-
-            print(
-                "CURRENT ADM DEAD - SEARCHING NEW FILE"
-            )
-
-            for adm in adm_files:
-
-                possible_path = (
-                    f"{SEARCH_DIR}/{adm['name']}"
-                )
-
-                if possible_path == current_adm:
-                    continue
-
-                if (
-                    current_file
-                    and adm["datetime"]
-                    <= current_file["datetime"]
-                ):
-                    continue
-
-                print(
-                    f"SWITCHING TO NEW ADM: "
-                    f"{possible_path}"
-                )
-
-                current_adm = possible_path
-                current_adm_size = adm["size"]
-
-                growth_fail_count = 0
-                last_line_count = 0
-
-                processed_lines.clear()
-
-                last_growth_time = datetime.now(UTC)
-
-                ftp.quit()
-
-                return current_adm
+        current_adm = best_path
 
         ftp.quit()
-
-        print(f"ACTIVE ADM: {current_adm}")
 
         return current_adm
 
@@ -455,7 +391,6 @@ def find_active_adm():
         print(f"ADM SEARCH ERROR: {e}")
 
         return None
-
 
 # ================= DOWNLOAD ADM =================
 
@@ -494,14 +429,6 @@ def download_adm():
 
         ftp.quit()
 
-        size = os.path.getsize(
-            LOCAL_LOG_FILE
-        )
-
-        print(
-            f"ADM DOWNLOADED | SIZE: {size}"
-        )
-
         return True
 
     except Exception as e:
@@ -509,7 +436,6 @@ def download_adm():
         print(f"DOWNLOAD ERROR: {e}")
 
         return False
-
 
 # ================= READY =================
 
@@ -538,79 +464,6 @@ async def on_ready():
 
     print(f"✅ Logged in as {bot.user}")
 
-
-# ================= SWEAR TRACKER =================
-
-@bot.event
-async def on_message(message):
-
-    if message.author.bot:
-        return
-
-    lower = message.content.lower()
-
-    count = 0
-
-    for swear in SWEAR_WORDS:
-        count += lower.count(swear)
-
-    if count > 0:
-
-        user_id = str(message.author.id)
-
-        if user_id not in swear_tracker:
-
-            swear_tracker[user_id] = {
-                "name": message.author.name,
-                "count": 0
-            }
-
-        swear_tracker[user_id]["count"] += count
-
-    await bot.process_commands(message)
-
-
-# ================= ADM PARSER =================
-
-async def parse_adm():
-
-    global processed_lines
-    global last_line_count
-
-    if not os.path.exists(LOCAL_LOG_FILE):
-
-        print("LOCAL ADM MISSING")
-        return
-
-    try:
-
-        with open(
-            LOCAL_LOG_FILE,
-            "r",
-            encoding="utf-8",
-            errors="ignore"
-        ) as f:
-
-            lines = f.readlines()
-
-    except Exception as e:
-
-        print(f"ADM READ ERROR: {e}")
-        return
-
-    total_lines = len(lines)
-
-    print(f"ADM TOTAL LINES: {total_lines}")
-
-    new_lines = lines[last_line_count:]
-
-    print(
-        f"NEW LINES FOUND: {len(new_lines)}"
-    )
-
-    last_line_count = total_lines
-
-
 # ================= TASKS =================
 
 @tasks.loop(seconds=30)
@@ -622,10 +475,6 @@ async def adm_loop():
 
     print(f"DOWNLOAD RESULT: {success}")
 
-    if success:
-        await parse_adm()
-
-
 # ================= START =================
 
 if not DISCORD_TOKEN:
@@ -634,35 +483,12 @@ if not DISCORD_TOKEN:
         "DISCORD_TOKEN missing"
     )
 
-while True:
+Thread(
+    target=run_web,
+    daemon=True
+).start()
 
-    try:
-
-        bot.run(
-            DISCORD_TOKEN,
-            reconnect=True
-        )
-
-    except discord.DiscordServerError as e:
-
-        print(
-            f"DISCORD SERVER ERROR: {e}"
-        )
-
-        print(
-            "WAITING 30 SECONDS..."
-        )
-
-        asyncio.run(
-            asyncio.sleep(30)
-        )
-
-    except Exception as e:
-
-        print(
-            f"BOT START ERROR: {e}"
-        )
-
-        asyncio.run(
-            asyncio.sleep(15)
-        )
+bot.run(
+    DISCORD_TOKEN,
+    reconnect=True
+)
