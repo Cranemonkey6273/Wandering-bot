@@ -78,6 +78,9 @@ online_players = set()
 last_line_count = 0
 last_growth_time = datetime.now(UTC)
 
+# TRACK CURRENT FILE
+last_parsed_adm = None
+
 # TRACK STALE FILES
 growth_fail_count = 0
 
@@ -206,7 +209,6 @@ def find_active_adm():
 
             full_path = f"{SEARCH_DIR}/{file}"
 
-            # SKIP DEAD FILES
             if full_path in dead_adms:
 
                 print(
@@ -350,6 +352,28 @@ def find_active_adm():
                     f"FAIL COUNT: {growth_fail_count}"
                 )
 
+                # FORCE SWITCH TO NEWER FILE
+                if best_path != current_adm:
+
+                    print(
+                        f"NEWER ADM FOUND - SWITCHING: "
+                        f"{best_path}"
+                    )
+
+                    current_adm = best_path
+                    current_adm_size = best_size
+
+                    growth_fail_count = 0
+                    last_line_count = 0
+
+                    processed_lines.clear()
+
+                    last_growth_time = datetime.now(UTC)
+
+                    ftp.quit()
+
+                    return current_adm
+
                 # CHECK FOR TERMINATION TEXT
                 try:
 
@@ -393,28 +417,6 @@ def find_active_adm():
                     print(
                         f"TERMINATION CHECK ERROR: {e}"
                     )
-
-        # SWITCH TO NEWER FILE
-        if best_path != current_adm:
-
-            print(
-                f"SWITCHING TO NEW ADM: "
-                f"{best_path}"
-            )
-
-            current_adm = best_path
-            current_adm_size = best_size
-
-            growth_fail_count = 0
-            last_line_count = 0
-
-            processed_lines.clear()
-
-            last_growth_time = datetime.now(UTC)
-
-            ftp.quit()
-
-            return current_adm
 
         # FAILSAFE
         time_since_growth = (
@@ -588,6 +590,8 @@ async def parse_adm():
 
     global processed_lines
     global last_line_count
+    global last_parsed_adm
+    global current_adm
 
     print("PARSER STARTED")
 
@@ -616,6 +620,23 @@ async def parse_adm():
     total_lines = len(lines)
 
     print(f"ADM TOTAL LINES: {total_lines}")
+
+    # RESET LINE TRACKER ON NEW ADM
+    if current_adm != last_parsed_adm:
+
+        print("NEW ADM DETECTED - RESETTING PARSER")
+
+        last_line_count = 0
+        processed_lines.clear()
+
+        last_parsed_adm = current_adm
+
+    # SAFETY RESET
+    if last_line_count > total_lines:
+
+        print("LINE COUNT INVALID - RESETTING")
+
+        last_line_count = 0
 
     new_lines = lines[last_line_count:]
 
@@ -649,10 +670,7 @@ async def parse_adm():
 
         lower = line.lower()
 
-        if (
-            "is connecting" in lower
-            or "connecting" in lower
-        ):
+        if "is connecting" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -684,10 +702,7 @@ async def parse_adm():
                     embed=embed
                 )
 
-        elif (
-            "is connected" in lower
-            or "connected" in lower
-        ):
+        elif "is connected" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -721,10 +736,7 @@ async def parse_adm():
                     embed=embed
                 )
 
-        elif (
-            "has been disconnected" in lower
-            or "disconnected" in lower
-        ):
+        elif "has been disconnected" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
