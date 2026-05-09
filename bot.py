@@ -35,11 +35,7 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-# IMPORTANT:
-# Nitrado FTP already starts
-# inside your server root
-
-SEARCH_DIR = "config"
+SEARCH_DIR = "/dayzxb/config"
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -371,7 +367,7 @@ def download_adm():
 
         ftp = connect_ftp()
 
-        ftp.cwd("config")
+        ftp.cwd(SEARCH_DIR)
 
         filename = os.path.basename(
             active_adm
@@ -574,6 +570,30 @@ async def parse_adm():
                         f"🕒 {line[:8]}"
                     ),
                     color=0x9C8A00
+                )
+
+                await connect_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        elif "connected" in lower:
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☣️ {player_name} connected\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x2ECC71
                 )
 
                 await connect_channel.send(
