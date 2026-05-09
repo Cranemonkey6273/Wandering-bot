@@ -10,7 +10,7 @@ from datetime import datetime
 
 NITRADO_TOKEN = os.getenv("NITRADO_API_TOKEN")
 
-SERVICE_ID = "12248929"
+SERVICE_ID = "18965708"
 NITRADO_USER = "ni12248929_1"
 PLATFORM = "dayzxb"
 
