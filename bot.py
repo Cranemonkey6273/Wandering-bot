@@ -5,7 +5,7 @@ import discord
 import json
 import requests
 
-from ftplib import FTP_TLS
+# FTP REMOVED - USING NITRADO API ONLY
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from supabase import create_client
@@ -160,30 +160,73 @@ def style_embed(embed):
     return embed
 
 
-def connect_ftp():
+def nitrado_headers():
 
-    ftp = FTP_TLS()
+    return {
+        "Authorization": f"Bearer {NITRADO_API_TOKEN}"
+    }
 
-    ftp.connect(
-        FTP_HOST,
-        FTP_PORT,
+
+def nitrado_file_list():
+
+    url = (
+        f"https://api.nitrado.net/services/"
+        f"{NITRADO_SERVICE_ID}/gameservers/file_server/list"
+    )
+
+    response = requests.get(
+        url,
+        headers=nitrado_headers(),
+        params={"dir": SEARCH_DIR},
         timeout=30
     )
 
-    ftp.login(
-        FTP_USER,
-        FTP_PASS
+    if response.status_code != 200:
+
+        print(f"NITRADO LIST ERROR: {response.status_code}")
+        return []
+
+    return response.json().get("data", {}).get("entries", [])
+
+
+def nitrado_download_file(filepath):
+
+    url = (
+        f"https://api.nitrado.net/services/"
+        f"{NITRADO_SERVICE_ID}/gameservers/file_server/download"
     )
 
-    try:
-        ftp.prot_p()
+    response = requests.get(
+        url,
+        headers=nitrado_headers(),
+        params={"file": filepath},
+        timeout=30
+    )
 
-    except Exception as e:
-        print(f"FTP TLS WARNING: {e}")
+    if response.status_code != 200:
 
-    ftp.set_pasv(True)
+        print(f"NITRADO DOWNLOAD ERROR: {response.status_code}")
+        return False
 
-    return ftp
+    download_url = (
+        response.json()
+        .get("data", {})
+        .get("token", {})
+        .get("url")
+    )
+
+    if not download_url:
+        return False
+
+    file_response = requests.get(download_url, timeout=60)
+
+    if file_response.status_code != 200:
+        return False
+
+    with open(LOCAL_LOG_FILE, "wb") as f:
+        f.write(file_response.content)
+
+    return True
 
 
 # ================= EVENT CLASSIFIER =================
@@ -275,97 +318,7 @@ def find_active_adm():
 
     try:
 
-        ftp = connect_ftp()
-
-        ftp.cwd(SEARCH_DIR)
-
-        files = ftp.nlst()
-
-        adm_candidates = []
-
-        for file in files:
-
-            if not re.match(
-                r'^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$',
-                file
-            ):
-                continue
-
-            file_datetime = extract_filename_datetime(file)
-
-            if not file_datetime:
-                continue
-
-            ftp.voidcmd("TYPE I")
-
-            size = ftp.size(file)
-
-            adm_candidates.append({
-                "name": file,
-                "datetime": file_datetime,
-                "size": size
-            })
-
-        ftp.quit()
-
-        if not adm_candidates:
-            return current_adm
-
-        adm_candidates.sort(
-            key=lambda x: x["datetime"],
-            reverse=True
-        )
-
-        best = adm_candidates[0]
-
-        newest_adm = (
-            f"{SEARCH_DIR}/{best['name']}"
-        )
-
-        if current_adm != newest_adm:
-
-            current_adm = newest_adm
-            current_adm_size = best["size"]
-
-            adm_state["last_line"] = 0
-            adm_state["last_text"] = ""
-
-            save_state()
-
-            print(f"ACTIVE ADM: {current_adm}")
-
-        return current_adm
-
-    except Exception as e:
-
-        print(f"ADM SEARCH ERROR: {e}")
-
-        return current_adm
-
-
-# ================= DOWNLOAD ADM =================
-
-
-def download_adm():
-
-    global current_adm_size
-
-    try:
-
-        active_adm = find_active_adm()
-
-        if not active_adm:
-            return False
-
-        ftp = connect_ftp()
-
-        ftp.cwd(SEARCH_DIR)
-
-        filename = os.path.basename(active_adm)
-
-        ftp.voidcmd("TYPE I")
-
-        current_size = ftp.size(filename)
+        filename = os.path.basename(active_adm)ent_size = ftp.size(filename)
 
         if current_size <= current_adm_size:
 
@@ -374,12 +327,10 @@ def download_adm():
 
         current_adm_size = current_size
 
-        with open(LOCAL_LOG_FILE, "wb") as f:
+        download_success = nitrado_download_file(active_adm)
 
-            ftp.retrbinary(
-                f"RETR {filename}",
-                f.write
-            )
+        if not download_success:
+            return False
 
         ftp.quit()
 
@@ -387,88 +338,7 @@ def download_adm():
 
         return True
 
-    except Exception as e:
-
-        print(f"DOWNLOAD ERROR: {e}")
-
-        return False
-
-
-# ================= ADM PARSER =================
-
-
-async def parse_adm():
-
-    if not os.path.exists(LOCAL_LOG_FILE):
-        return
-
-    with open(
-        LOCAL_LOG_FILE,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
-        lines = f.readlines()
-
-    start_index = adm_state.get("last_line", 0)
-
-    new_lines = lines[start_index:]
-
-    adm_state["last_line"] = len(lines)
-
-    save_state()
-
-    print(f"NEW ADM LINES: {len(new_lines)}")
-
-    for raw_line in new_lines:
-
-        line = raw_line.strip()
-
-        if not line:
-            continue
-
-        if should_ignore(line):
-            continue
-
-        event_type = classify_event(line)
-
-        if not event_type:
-            continue
-
-        print(f"EVENT: {event_type} | {line}")
-
-
-# ================= TASK LOOP =================
-
-
-@tasks.loop(minutes=5)
-async def adm_loop():
-
-    success = await asyncio.to_thread(
-        download_adm
-    )
-
-    if success:
-        await parse_adm()
-
-
-# ================= READY =================
-
-
-@bot.event
-async def on_ready():
-
-    load_state()
-
-    await bot.tree.sync()
-
-    try:
-        adm_loop.start()
-
-    except RuntimeError:
-        pass
-
-    print(f"✅ Logged in as {bot.user}")
+ current_size = current_adm_size + 1t.user}")
 
 
 # ================= ONLINE =================
@@ -478,7 +348,7 @@ async def on_ready():
     name="online",
     description="View online players"
 )
-async def online(interaction: discord.Interaction):
+async def online(in discord.Interaction):
 
     if online_players:
 
