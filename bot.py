@@ -22,10 +22,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 # ================= CHANNEL IDS =================
 
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
-
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
-
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 DEPLOY_CHANNEL_ID = int(os.getenv("DEPLOY_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
@@ -72,22 +70,8 @@ current_adm = None
 current_adm_size = 0
 
 online_players = set()
-
-# ================= SWEAR TRACKER =================
-
-SWEAR_WORDS = [
-    "fuck",
-    "shit",
-    "bitch",
-    "cunt",
-    "wanker",
-    "bastard",
-    "twat"
-]
-
 swear_tracker = {}
-
-# ================= ECONOMY =================
+delivery_queue = []
 
 SHOP_ITEMS = {
     "water": 10,
@@ -98,7 +82,15 @@ SHOP_ITEMS = {
     "rifle": 600
 }
 
-# ================= FILTERS =================
+SWEAR_WORDS = [
+    "fuck",
+    "shit",
+    "bitch",
+    "cunt",
+    "wanker",
+    "bastard",
+    "twat"
+]
 
 IGNORE_PATTERNS = [
     "[CE]",
@@ -115,6 +107,10 @@ IGNORE_PATTERNS = [
     "infected"
 ]
 
+BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
+
+# ================= HELPERS =================
+
 
 def should_ignore(line):
 
@@ -128,7 +124,6 @@ def should_ignore(line):
     return False
 
 
-# ================= HELPERS =================
 
 def style_embed(embed):
 
@@ -136,8 +131,6 @@ def style_embed(embed):
 
     return embed
 
-
-BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 
 def connect_ftp():
@@ -166,7 +159,8 @@ def connect_ftp():
     return ftp
 
 
-# ================= LIVE ADM FINDER =================
+# ================= ACTIVE ADM FINDER =================
+
 
 def find_active_adm():
 
@@ -200,7 +194,6 @@ def find_active_adm():
 
                 timestamp = modified[4:].strip()
 
-                # IGNORE EMPTY FILES
                 if size < 500:
                     continue
 
@@ -227,10 +220,6 @@ def find_active_adm():
             ftp.quit()
             return None
 
-        # =========================
-        # SORT NEWEST FIRST
-        # =========================
-
         candidates.sort(
             key=lambda x: x["timestamp"],
             reverse=True
@@ -255,24 +244,12 @@ def find_active_adm():
                     temp_lines[-50:]
                 )
 
-                # =========================
-                # DEAD FILE CHECK
-                # =========================
-
                 if (
                     "Termination successfully completed"
                     in recent
                 ):
 
-                    print(
-                        f"DEAD ADM: {filename}"
-                    )
-
                     continue
-
-                # =========================
-                # ACTIVE FILE CHECK
-                # =========================
 
                 if (
                     "AdminLog started on"
@@ -281,7 +258,6 @@ def find_active_adm():
                 ):
 
                     best = adm
-
                     break
 
             except Exception as e:
@@ -291,7 +267,6 @@ def find_active_adm():
                     f"{filename} | {e}"
                 )
 
-        # FALLBACK TO BIGGEST
         if not best:
 
             candidates.sort(
@@ -304,10 +279,6 @@ def find_active_adm():
         new_path = (
             f"{SEARCH_DIR}/{best['name']}"
         )
-
-        # =========================
-        # SWITCH TO NEW ACTIVE ADM
-        # =========================
 
         if current_adm != new_path:
 
@@ -337,6 +308,7 @@ def find_active_adm():
 
 
 # ================= DOWNLOAD ADM =================
+
 
 def download_adm():
 
@@ -369,7 +341,58 @@ def download_adm():
         return False
 
 
+# ================= PLAYER DATA =================
+
+
+async def ensure_player(discord_id, username):
+
+    result = supabase.table(
+        "player_data"
+    ).select("*").eq(
+        "discord_id",
+        discord_id
+    ).execute()
+
+    if not result.data:
+
+        supabase.table(
+            "player_data"
+        ).insert({
+            "discord_id": discord_id,
+            "username": username,
+            "scrap": 1000,
+            "bank": 0,
+            "kills": 0,
+            "deaths": 0,
+            "xp": 0,
+            "level": 1,
+            "bounty": 0,
+            "vehicles": 0,
+            "faction": "",
+            "territory": "",
+            "heat": 0,
+            "killstreak": 0,
+            "inventory": []
+        }).execute()
+
+
+async def get_player(discord_id):
+
+    result = supabase.table(
+        "player_data"
+    ).select("*").eq(
+        "discord_id",
+        discord_id
+    ).execute()
+
+    if result.data:
+        return result.data[0]
+
+    return None
+
+
 # ================= ADM PARSER =================
+
 
 async def parse_adm():
 
@@ -400,6 +423,9 @@ async def parse_adm():
 
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
+    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
+    deploy_channel = bot.get_channel(DEPLOY_CHANNEL_ID)
+    raid_channel = bot.get_channel(RAID_CHANNEL_ID)
 
     for raw_line in lines:
 
@@ -423,12 +449,7 @@ async def parse_adm():
 
         lower = line.lower()
 
-        # ================= CONNECTIONS =================
-
-        if (
-            "is connecting" in lower
-            or "connecting" in lower
-        ):
+        if "connecting" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -441,19 +462,13 @@ async def parse_adm():
                 player_name = player_match.group(1)
 
                 embed = discord.Embed(
-                    description=(
-                        f"🛰️ {player_name} connecting\n"
-                        f"🕒 {line[:8]}"
-                    ),
+                    description=f"🛰️ {player_name} connecting",
                     color=0x9C8A00
                 )
 
                 await connect_channel.send(embed=embed)
 
-        elif (
-            "is connected" in lower
-            or "connected" in lower
-        ):
+        elif "connected" in lower:
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -465,22 +480,63 @@ async def parse_adm():
 
                 player_name = player_match.group(1)
 
+                online_players.add(player_name)
+
                 embed = discord.Embed(
-                    description=(
-                        f"☣️ {player_name} connected\n"
-                        f"🕒 {line[:8]}"
-                    ),
+                    description=f"☣️ {player_name} connected",
                     color=0x4E7F3D
                 )
 
                 await connect_channel.send(embed=embed)
 
-        # ================= KILLFEED =================
+        elif any(x in lower for x in [
+            "built",
+            "watchtower",
+            "fence",
+            "gate"
+        ]):
 
-        elif (
-            "killed by player" in lower
-            or "killed" in lower
-        ):
+            if build_channel:
+
+                embed = discord.Embed(
+                    description=f"🔨 Build Event\n{line[:120]}",
+                    color=0x2ECC71
+                )
+
+                await build_channel.send(embed=embed)
+
+        elif any(x in lower for x in [
+            "placed",
+            "deployed",
+            "barrel",
+            "seachest"
+        ]):
+
+            if deploy_channel:
+
+                embed = discord.Embed(
+                    description=f"📦 Deploy Event\n{line[:120]}",
+                    color=0xF1C40F
+                )
+
+                await deploy_channel.send(embed=embed)
+
+        elif any(x in lower for x in [
+            "destroyed",
+            "breached",
+            "raid"
+        ]):
+
+            if raid_channel:
+
+                embed = discord.Embed(
+                    description=f"💥 Raid Alert\n{line[:120]}",
+                    color=0xE74C3C
+                )
+
+                await raid_channel.send(embed=embed)
+
+        elif "killed" in lower:
 
             victim_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -503,10 +559,12 @@ async def parse_adm():
                 victim = victim_match.group(1)
                 killer = killer_match.group(1)
 
+                reward = random.randint(100, 500)
+
                 embed = discord.Embed(
                     description=(
                         f"☠️ {killer} killed {victim}\n"
-                        f"🕒 {line[:8]}"
+                        f"💰 Reward: {reward}"
                     ),
                     color=0xC0392B
                 )
@@ -515,6 +573,7 @@ async def parse_adm():
 
 
 # ================= TASKS =================
+
 
 @tasks.loop(seconds=5)
 async def adm_loop():
@@ -527,7 +586,83 @@ async def adm_loop():
         await parse_adm()
 
 
+@tasks.loop(minutes=20)
+async def world_events():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    events = [
+        "🚁 Helicopter crash reported.",
+        "☣️ Toxic gas spreading.",
+        "📻 Convoy entering Chernarus.",
+        "💥 Heavy fighting near NWAF.",
+        "🏴 Faction conflict escalating.",
+        "📦 Supply crate detected."
+    ]
+
+    embed = discord.Embed(
+        title="📡 World Event",
+        description=random.choice(events),
+        color=0x9B59B6
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
+@tasks.loop(minutes=25)
+async def ai_radio():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    chatter = [
+        "📻 Gunfire heard near Tisy.",
+        "📻 Survivors spotted near Vybor.",
+        "📻 Trader convoy requesting escort.",
+        "📻 Black market trader active tonight.",
+        "📻 Toxic storm approaching."
+    ]
+
+    embed = discord.Embed(
+        title="📻 Radio Chatter",
+        description=random.choice(chatter),
+        color=0x3498DB
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
+@tasks.loop(hours=2)
+async def territory_income():
+
+    results = supabase.table(
+        "player_data"
+    ).select("*").neq(
+        "territory",
+        ""
+    ).execute()
+
+    for player in results.data:
+
+        income = random.randint(100, 300)
+
+        supabase.table(
+            "player_data"
+        ).update({
+            "scrap": player["scrap"] + income
+        }).eq(
+            "discord_id",
+            player["discord_id"]
+        ).execute()
+
+
 # ================= READY =================
+
 
 @bot.event
 async def on_ready():
@@ -535,8 +670,50 @@ async def on_ready():
     await bot.tree.sync()
 
     adm_loop.start()
+    world_events.start()
+    territory_income.start()
+    ai_radio.start()
 
     print(f"✅ Logged in as {bot.user}")
+
+
+# ================= COMMANDS =================
+
+
+@bot.tree.command(
+    name="balance",
+    description="View stats"
+)
+async def balance(interaction: discord.Interaction):
+
+    await interaction.response.defer()
+
+    await ensure_player(
+        str(interaction.user.id),
+        interaction.user.name
+    )
+
+    player = await get_player(
+        str(interaction.user.id)
+    )
+
+    embed = discord.Embed(
+        title="💰 Survivor Stats",
+        description=(
+            f"Pennies: {player['scrap']}\n"
+            f"Level: {player['level']}\n"
+            f"XP: {player['xp']}\n"
+            f"Kills: {player['kills']}\n"
+            f"Deaths: {player['deaths']}\n"
+            f"Faction: {player['faction']}\n"
+            f"Territory: {player['territory']}"
+        ),
+        color=0xFFD700
+    )
+
+    await interaction.followup.send(
+        embed=style_embed(embed)
+    )
 
 
 # ================= START =================
