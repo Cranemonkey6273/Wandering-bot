@@ -256,6 +256,11 @@ def scan_for_adm(ftp, path=".", depth=0):
 
             if path == ".":
                 full_path = item
+
+                # SPECIAL ROOT FIX
+                if item == "dayzxb_missions":
+                    full_path = "/dayzxb_missions"
+
             else:
                 full_path = f"{path}/{item}"
 
