@@ -83,6 +83,9 @@ current_adm = None
 current_adm_size = 0
 
 online_players = set()
+
+player_hits = {}
+
 swear_tracker = {}
 delivery_queue = []
 
@@ -288,7 +291,8 @@ def find_active_adm():
                     "placed",
                     "packed",
                     "built",
-                    "destroyed"
+                    "destroyed",
+                    "hit by"
                 ]
 
                 for line in recent_lines:
@@ -572,6 +576,8 @@ async def parse_adm():
 
                 player_name = player_match.group(1)
 
+                online_players.add(player_name)
+
                 embed = discord.Embed(
                     description=(
                         f"🟢 {player_name} connected\n"
@@ -600,6 +606,8 @@ async def parse_adm():
             if player_match and connect_channel:
 
                 player_name = player_match.group(1)
+
+                online_players.discard(player_name)
 
                 embed = discord.Embed(
                     description=(
@@ -644,6 +652,76 @@ async def parse_adm():
                         f"🕒 {line[:8]}"
                     ),
                     color=0xC0392B
+                )
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # ================= HIT EVENTS =================
+
+        elif (
+            "hit by" in lower
+            or "hit player" in lower
+        ):
+
+            victim_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            attacker_match = re.search(
+                r'by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            weapon_match = re.search(
+                r'with\s+([^\|]+)',
+                line,
+                re.IGNORECASE
+            )
+
+            if (
+                victim_match
+                and attacker_match
+                and killfeed_channel
+            ):
+
+                victim = victim_match.group(1)
+
+                attacker = attacker_match.group(1)
+
+                weapon = (
+                    weapon_match.group(1).strip()
+                    if weapon_match
+                    else "Unknown Weapon"
+                )
+
+                embed = discord.Embed(
+                    title="💥 PLAYER HIT",
+                    description=(
+                        f"🔫 {attacker} hit {victim}\n"
+                        f"🪖 Weapon: {weapon}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xE67E22
+                )
+
+                embed.set_author(
+                    name="☢️ Wandering Bot Intelligence"
+                )
+
+                embed.set_thumbnail(
+                    url=BOT_IMAGE
+                )
+
+                embed.set_footer(
+                    text=(
+                        "☢️ Live DayZ Intelligence • "
+                        "Wandering Bot"
+                    )
                 )
 
                 await killfeed_channel.send(
@@ -910,6 +988,47 @@ async def inventory(interaction: discord.Interaction):
         title="🎒 Inventory",
         description=inventory_text,
         color=0x9B59B6
+    )
+
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
+
+
+# ================= ONLINE PLAYERS =================
+
+
+@bot.tree.command(
+    name="online",
+    description="View online players"
+)
+async def online(interaction: discord.Interaction):
+
+    if online_players:
+
+        players = "\n".join(
+            f"• {x}"
+            for x in sorted(online_players)
+        )
+
+    else:
+
+        players = "No players online."
+
+    embed = discord.Embed(
+        title=(
+            f"🟢 Online Players "
+            f"({len(online_players)})"
+        ),
+        description=players,
+        color=0x2ECC71
+    )
+
+    embed.set_footer(
+        text=(
+            "☢️ Live DayZ Intelligence • "
+            "Wandering Bot"
+        )
     )
 
     await interaction.response.send_message(
