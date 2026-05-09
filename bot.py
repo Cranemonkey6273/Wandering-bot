@@ -1,13 +1,14 @@
+import os
 import re
 import requests
 from datetime import datetime
 
 
 # =========================
-# FILL THESE IN
+# ENV VARIABLES
 # =========================
 
-NITRADO_TOKEN = "PASTE_YOUR_NITRADO_API_TOKEN_HERE"
+NITRADO_TOKEN = os.getenv("NITRADO_API_TOKEN")
 
 SERVICE_ID = "12248929"
 NITRADO_USER = "ni12248929_1"
@@ -40,7 +41,11 @@ def extract_timestamp(filename):
 
 
 def ping_latest_adm_log():
-    url = f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
+
+    url = (
+        f"https://api.nitrado.net/services/"
+        f"{SERVICE_ID}/gameservers/file_server/list"
+    )
 
     headers = {
         "Authorization": f"Bearer {NITRADO_TOKEN}",
@@ -59,6 +64,7 @@ def ping_latest_adm_log():
     print("")
 
     try:
+
         response = requests.get(
             url,
             headers=headers,
@@ -69,29 +75,50 @@ def ping_latest_adm_log():
         print("[PING] HTTP Status:", response.status_code)
 
         if response.status_code == 401:
-            print("[ERROR] 401 Unauthorized - token is wrong or expired")
+
+            print(
+                "[ERROR] 401 Unauthorized "
+                "- token is wrong or expired"
+            )
+
             return None
 
         if response.status_code != 200:
+
             print("[ERROR] Bad HTTP status from Nitrado")
             print(response.text)
+
             return None
 
         data = response.json()
 
         if data.get("status") != "success":
-            print("[ERROR] Nitrado returned non-success response")
+
+            print(
+                "[ERROR] Nitrado returned "
+                "non-success response"
+            )
+
             print(data)
+
             return None
 
-        entries = data.get("data", {}).get("entries", [])
+        entries = (
+            data
+            .get("data", {})
+            .get("entries", [])
+        )
 
         if not entries:
+
             print("[LOG] API returned no files")
+
             return None
 
         matching_logs = [
+
             entry for entry in entries
+
             if re.match(
                 r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
                 entry.get("name", ""),
@@ -100,6 +127,7 @@ def ping_latest_adm_log():
         ]
 
         if not matching_logs:
+
             print("[LOG] No matching ADM logs found")
             print("")
             print("[DEBUG] Files returned by API:")
@@ -110,7 +138,9 @@ def ping_latest_adm_log():
             return None
 
         matching_logs.sort(
-            key=lambda entry: extract_timestamp(entry.get("name", "")),
+            key=lambda entry: extract_timestamp(
+                entry.get("name", "")
+            ),
             reverse=True
         )
 
@@ -128,12 +158,16 @@ def ping_latest_adm_log():
         return latest_log
 
     except requests.Timeout:
+
         print("[ERROR] Request timed out")
+
         return None
 
     except Exception as error:
+
         print("[ERROR] Something failed")
         print(error)
+
         return None
 
 
@@ -144,12 +178,12 @@ if __name__ == "__main__":
     latest_log = ping_latest_adm_log()
 
     if latest_log:
+
         print("FINAL RESULT:")
         print("filename:", latest_log.get("name"))
         print("modified_at:", latest_log.get("modified_at"))
+
     else:
+
         print("FINAL RESULT:")
         print("None")
-
-    print("")
-    print("SCRIPT FINISHED")
