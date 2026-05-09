@@ -73,6 +73,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
+
     return """
     <html>
     <head>
@@ -112,12 +113,7 @@ processed_lines = set()
 MAX_PROCESSED_LINES = 5000
 
 current_adm = None
-current_adm_size = 0
-
 last_position = 0
-growth_fail_count = 0
-
-MAX_FAILS_BEFORE_SWITCH = 8
 
 online_players = set()
 
@@ -175,9 +171,7 @@ def connect_ftp():
 
     try:
 
-        current_dir = ftp.pwd()
-
-        print(f"CURRENT DIR: {current_dir}")
+        print(f"CURRENT DIR: {ftp.pwd()}")
 
         files = []
 
@@ -190,7 +184,7 @@ def connect_ftp():
 
     except Exception as e:
 
-        print(f"FTP ROOT DEBUG ERROR: {e}")
+        print(f"FTP DEBUG ERROR: {e}")
 
     return ftp
 
@@ -218,7 +212,7 @@ async def rcon_loop():
 
                         players = await client.command("players")
 
-                        print(f"RCON PLAYERS:\n{players}")
+                        print(players)
 
                     except Exception as e:
 
@@ -232,7 +226,7 @@ async def rcon_loop():
 
             await asyncio.sleep(15)
 
-# ================= ADM HELPERS =================
+# ================= ADM =================
 
 def reset_parser_state():
 
@@ -244,13 +238,9 @@ def reset_parser_state():
 
     print("PARSER RESET")
 
-# ================= ADM FINDER =================
-
 def find_active_adm():
 
     global current_adm
-    global current_adm_size
-    global growth_fail_count
 
     try:
 
@@ -269,8 +259,6 @@ def find_active_adm():
                 files = []
 
                 ftp.retrlines("NLST", files.append)
-
-                print(f"FILES FOUND: {len(files)}")
 
                 for file in files:
 
@@ -301,18 +289,13 @@ def find_active_adm():
                     except:
                         continue
 
-                    ftp.voidcmd("TYPE I")
-
-                    size = ftp.size(file)
-
                     adm_files.append({
                         "name": file,
                         "path": f"{path}/{file}",
-                        "datetime": file_dt,
-                        "size": size
+                        "datetime": file_dt
                     })
 
-                    print(f"FOUND ADM: {file} | SIZE: {size}")
+                    print(f"FOUND ADM: {file}")
 
                 ftp.cwd("/")
 
@@ -336,51 +319,14 @@ def find_active_adm():
         newest = adm_files[0]
 
         newest_path = newest["path"]
-        newest_size = newest["size"]
-
-        print(f"NEWEST ADM: {newest_path}")
-
-        if current_adm is None:
-
-            current_adm = newest_path
-            current_adm_size = newest_size
-
-            print(f"INITIAL ADM LOCK: {current_adm}")
-
-            return current_adm
 
         if newest_path != current_adm:
 
-            print(f"NEW ADM DETECTED: {newest_path}")
+            print(f"SWITCHING ADM: {newest_path}")
 
             current_adm = newest_path
-            current_adm_size = newest_size
 
             reset_parser_state()
-
-            return current_adm
-
-        if newest_size > current_adm_size:
-
-            growth_fail_count = 0
-            current_adm_size = newest_size
-
-            print(f"ADM GROWING: {newest_size}")
-
-        else:
-
-            growth_fail_count += 1
-
-            print(
-                f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}"
-            )
-
-        if growth_fail_count >= MAX_FAILS_BEFORE_SWITCH:
-
-            print("FORCING ADM RECHECK")
-
-            current_adm = None
-            growth_fail_count = 0
 
         return current_adm
 
@@ -435,7 +381,7 @@ def download_adm():
 
         return False
 
-# ================= DISCORD SEND =================
+# ================= DISCORD =================
 
 async def send_embed(channel_id, embed):
 
@@ -453,7 +399,7 @@ async def send_embed(channel_id, embed):
 
         print(f"DISCORD SEND ERROR: {e}")
 
-# ================= LINE PROCESSOR =================
+# ================= PARSER =================
 
 async def process_line(line):
 
@@ -473,8 +419,6 @@ async def process_line(line):
     # ================= RESTART =================
 
     if "AdminLog started" in line:
-
-        reset_parser_state()
 
         embed = Embed(
             title="Server Restart Detected",
@@ -588,8 +532,6 @@ async def process_line(line):
             BUILD_CHANNEL_ID,
             style_embed(embed)
         )
-
-# ================= PARSER =================
 
 async def parse_adm():
 
