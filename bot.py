@@ -182,3 +182,83 @@ def connect_ftp():
     ftp.set_pasv(True)
 
     return ftp
+
+
+# ================= EVENT CLASSIFIER =================
+
+def classify_event(line):
+
+    lower = line.lower()
+
+    if "disconnected" in lower:
+        return "disconnect"
+
+    if (
+        "connecting" in lower
+        or "connected" in lower
+    ):
+        return "connect"
+
+    if "killed" in lower:
+        return "kill"
+
+    if (
+        "hit by" in lower
+        or "hit player" in lower
+    ):
+        return "hit"
+
+    if (
+        "placed" in lower
+        or "packed" in lower
+        or "built" in lower
+        or "mounted" in lower
+        or "folded" in lower
+    ):
+        return "build"
+
+    if (
+        "unconscious" in lower
+        or "regained consciousness" in lower
+        or "bled out" in lower
+    ):
+        return "combat"
+
+    if (
+        "destroyed" in lower
+        or "dismantled" in lower
+        or "breached" in lower
+        or "explosive" in lower
+    ):
+        return "raid"
+
+    return None
+
+
+# ================= ACTIVE ADM FINDER =================
+
+def extract_filename_datetime(filename):
+
+    match = re.search(
+        r'_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$',
+        filename
+    )
+
+    if not match:
+        return None
+
+    iso = (
+        f"{match.group(1)} "
+        f"{match.group(2).replace('-', ':')}"
+    )
+
+    try:
+
+        return datetime.strptime(
+            iso,
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    except Exception:
+
+        return None
