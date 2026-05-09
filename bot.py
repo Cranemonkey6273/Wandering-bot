@@ -66,6 +66,12 @@ supabase = create_client(
 processed_lines = set()
 MAX_PROCESSED_LINES = 5000
 
+adm_state = {
+    "file": None,
+    "last_line": 0,
+    "last_modified": ""
+}
+
 current_adm = None
 current_adm_size = 0
 
@@ -315,6 +321,8 @@ def find_active_adm():
 
 def download_adm():
 
+    global adm_state
+
     try:
 
         active_adm = find_active_adm()
@@ -323,6 +331,25 @@ def download_adm():
             return False
 
         ftp = connect_ftp()
+
+        filename = os.path.basename(active_adm)
+
+        modified = ftp.sendcmd(
+            f"MDTM {filename}"
+        )
+
+        timestamp = modified[4:].strip()
+
+        if (
+            adm_state["file"] == active_adm
+            and adm_state["last_modified"] == timestamp
+        ):
+
+            ftp.quit()
+
+            print("ADM UNCHANGED")
+
+            return False
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
@@ -333,7 +360,10 @@ def download_adm():
 
         ftp.quit()
 
-        print("ADM DOWNLOADED")
+        adm_state["file"] = active_adm
+        adm_state["last_modified"] = timestamp
+
+        print("ADM UPDATED AND DOWNLOADED")
 
         return True
 
@@ -343,70 +373,7 @@ def download_adm():
 
         return False
 
-
-# ================= PLAYER DATA =================
-
-
-async def ensure_player(discord_id, username):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if not result.data:
-
-        supabase.table(
-            "player_data"
-        ).insert({
-            "discord_id": discord_id,
-            "username": username,
-            "scrap": 1000,
-            "bank": 0,
-            "kills": 0,
-            "deaths": 0,
-            "xp": 0,
-            "level": 1,
-            "bounty": 0,
-            "vehicles": 0,
-            "faction": "",
-            "territory": "",
-            "heat": 0,
-            "killstreak": 0,
-            "inventory": []
-        }).execute()
-
-
-async def get_player(discord_id):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if result.data:
-        return result.data[0]
-
-    return None
-
-
-# ================= ADM PARSER =================
-
-
-async def parse_adm():
-
-    global processed_lines
-
-    if not os.path.exists(LOCAL_LOG_FILE):
-
-        print("LOCAL ADM MISSING")
-        return
-
-    try:
+        ftp = connect_ftp()
 
         with open(
             LOCAL_LOG_FILE,
@@ -417,12 +384,21 @@ async def parse_adm():
 
             lines = f.readlines()
 
+        start_index = adm_state.get(
+            "last_line",
+            0
+        )
+
+        new_lines = lines[start_index:]
+
+        adm_state["last_line"] = len(lines)
+
     except Exception as e:
 
         print(f"ADM READ ERROR: {e}")
         return
 
-    print(f"ADM LINES READ: {len(lines)}")
+    print(f"NEW ADM LINES: {len(new_lines)}")
 
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
@@ -430,7 +406,7 @@ async def parse_adm():
     deploy_channel = bot.get_channel(DEPLOY_CHANNEL_ID)
     raid_channel = bot.get_channel(RAID_CHANNEL_ID)
 
-    for raw_line in lines:
+    for raw_line in new_lines:
 
         line = raw_line.strip()
 
