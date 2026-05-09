@@ -554,7 +554,7 @@ async def parse_adm():
 
         lower = line.lower()
 
-        print(f"PARSING: {line}")
+        # ================= CONNECTION EVENTS =================
 
         if (
             "connecting" in lower
@@ -584,6 +584,8 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
+        # ================= DISCONNECT EVENTS =================
+
         elif (
             "disconnected" in lower
             or "has been disconnected" in lower
@@ -610,6 +612,8 @@ async def parse_adm():
                 await connect_channel.send(
                     embed=style_embed(embed)
                 )
+
+        # ================= KILL EVENTS =================
 
         elif "killed" in lower:
 
@@ -646,6 +650,8 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
+        # ================= BUILD EVENTS =================
+
         elif (
             "placed" in lower
             or "packed" in lower
@@ -654,11 +660,118 @@ async def parse_adm():
 
             if build_channel:
 
+                player_match = re.search(
+                    r'Player\s+"([^"]+)"',
+                    line,
+                    re.IGNORECASE
+                )
+
+                coords_match = re.search(
+                    r'pos=<([^>]+)>',
+                    line,
+                    re.IGNORECASE
+                )
+
+                object_match = re.search(
+                    r'(placed|packed|built)\s+(.+)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                player_name = (
+                    player_match.group(1)
+                    if player_match else "Unknown"
+                )
+
+                coords = (
+                    coords_match.group(1)
+                    if coords_match else "Unknown"
+                )
+
+                action = "Activity"
+
+                object_name = "Object"
+
+                if object_match:
+
+                    action = (
+                        object_match.group(1)
+                        .title()
+                    )
+
+                    object_name = (
+                        object_match.group(2)
+                        .replace("with Hands", "")
+                        .strip()
+                    )
+
+                if "packed" in lower:
+
+                    title_text = (
+                        "📦 STRUCTURE RECOVERED 📦"
+                    )
+
+                    color = 0x3498DB
+
+                elif "placed" in lower:
+
+                    title_text = (
+                        "🏗️ STRUCTURE DEPLOYED 🏗️"
+                    )
+
+                    color = 0x2ECC71
+
+                else:
+
+                    title_text = (
+                        "🛠️ BUILDING ACTIVITY 🛠️"
+                    )
+
+                    color = 0xF1C40F
+
                 embed = discord.Embed(
-                    description=(
-                        f"🏗️ {line}"
-                    ),
-                    color=0xF1C40F
+                    color=color
+                )
+
+                embed.title = title_text
+
+                embed.set_author(
+                    name="☢️ Wandering Bot Intelligence"
+                )
+
+                embed.add_field(
+                    name="👤 Survivor",
+                    value=f"`{player_name}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name=f"📦 {action} Object",
+                    value=f"`{object_name}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Position",
+                    value=f"`{coords}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🕒 Event Time",
+                    value=f"`{line[:8]}`",
+                    inline=False
+                )
+
+                embed.set_thumbnail(
+                    url=BOT_IMAGE
+                )
+
+                embed.set_footer(
+                    text=(
+                        "☢️ Live DayZ Intelligence • "
+                        "Wandering Bot"
+                    )
                 )
 
                 await build_channel.send(
@@ -677,8 +790,6 @@ async def adm_loop():
 
     now = datetime.now(UTC)
 
-    # ================= IDLE MODE =================
-
     if not LIVE_MODE:
 
         seconds_idle = (
@@ -688,13 +799,9 @@ async def adm_loop():
         if seconds_idle < 60:
             return
 
-    # ================= DOWNLOAD =================
-
     success = await asyncio.to_thread(
         download_adm
     )
-
-    # ================= FILE UPDATED =================
 
     if success:
 
@@ -709,8 +816,6 @@ async def adm_loop():
         LIVE_MODE = True
 
         await parse_adm()
-
-    # ================= NO CHANGE =================
 
     else:
 
