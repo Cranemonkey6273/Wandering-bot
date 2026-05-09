@@ -252,7 +252,12 @@ def scan_for_adm(ftp, path=".", depth=0):
 
             print(f"FOUND ITEM: {item}")
 
-            full_path = f"{path}/{item}".replace("//", "/")
+            # ================= FIXED PATH BUILDING =================
+
+            if path == ".":
+                full_path = item
+            else:
+                full_path = f"{path}/{item}"
 
             # ================= ADM FILE =================
 
@@ -308,8 +313,9 @@ def scan_for_adm(ftp, path=".", depth=0):
 
                     ftp.cwd("/")
 
-                except:
-                    pass
+                except Exception as e:
+
+                    print(f"DIRECTORY SKIP: {full_path} | {e}")
 
     except Exception as e:
 
@@ -442,8 +448,6 @@ async def process_line(line):
 
     print(f"PARSED: {line}")
 
-    # ================= RESTART =================
-
     if "AdminLog started" in line:
 
         embed = Embed(
@@ -458,8 +462,6 @@ async def process_line(line):
         )
 
         return
-
-    # ================= KILLS =================
 
     if " killed " in line:
 
@@ -476,8 +478,6 @@ async def process_line(line):
 
         return
 
-    # ================= UNCON =================
-
     if "unconscious" in line:
 
         embed = Embed(
@@ -492,8 +492,6 @@ async def process_line(line):
         )
 
         return
-
-    # ================= HITS =================
 
     if "hit by" in line:
 
@@ -510,8 +508,6 @@ async def process_line(line):
 
         return
 
-    # ================= CONNECT =================
-
     if "is connected" in line:
 
         embed = Embed(
@@ -527,8 +523,6 @@ async def process_line(line):
 
         return
 
-    # ================= DISCONNECT =================
-
     if "has been disconnected" in line:
 
         embed = Embed(
@@ -543,8 +537,6 @@ async def process_line(line):
         )
 
         return
-
-    # ================= BUILD =================
 
     if "placed" in line or "built" in line:
 
