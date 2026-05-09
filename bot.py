@@ -78,6 +78,7 @@ current_adm_size = 0
 online_players = set()
 swear_tracker = {}
 delivery_queue = []
+adm_growth_tracker = {}
 
 SHOP_ITEMS = {
     "water": 10,
@@ -166,8 +167,6 @@ def connect_ftp():
 
 
 # ================= ACTIVE ADM FINDER =================
-
-adm_growth_tracker = {}
 
 
 def find_active_adm():
@@ -294,6 +293,7 @@ def find_active_adm():
             )
 
             processed_lines.clear()
+            adm_state["last_line"] = 0
 
         current_adm = new_path
         current_adm_size = best["size"]
@@ -350,6 +350,93 @@ def download_adm():
 
             return False
 
+        with open(LOCAL_LOG_FILE, "wb") as f:
+
+            ftp.retrbinary(
+                f"RETR {active_adm}",
+                f.write
+            )
+
+        ftp.quit()
+
+        adm_state["file"] = active_adm
+        adm_state["last_modified"] = timestamp
+
+        print("ADM UPDATED AND DOWNLOADED")
+
+        return True
+
+    except Exception as e:
+
+        print(f"DOWNLOAD ERROR: {e}")
+
+        return False
+
+
+# ================= PLAYER DATA =================
+
+
+async def ensure_player(discord_id, username):
+
+    result = supabase.table(
+        "player_data"
+    ).select("*").eq(
+        "discord_id",
+        discord_id
+    ).execute()
+
+    if not result.data:
+
+        supabase.table(
+            "player_data"
+        ).insert({
+            "discord_id": discord_id,
+            "username": username,
+            "scrap": 1000,
+            "bank": 0,
+            "kills": 0,
+            "deaths": 0,
+            "xp": 0,
+            "level": 1,
+            "bounty": 0,
+            "vehicles": 0,
+            "faction": "",
+            "territory": "",
+            "heat": 0,
+            "killstreak": 0,
+            "inventory": []
+        }).execute()
+
+
+async def get_player(discord_id):
+
+    result = supabase.table(
+        "player_data"
+    ).select("*").eq(
+        "discord_id",
+        discord_id
+    ).execute()
+
+    if result.data:
+        return result.data[0]
+
+    return None
+
+
+# ================= ADM PARSER =================
+
+
+async def parse_adm():
+
+    global processed_lines
+
+    if not os.path.exists(LOCAL_LOG_FILE):
+
+        print("LOCAL ADM MISSING")
+        return
+
+    try:
+
         with open(
             LOCAL_LOG_FILE,
             "r",
@@ -359,27 +446,24 @@ def download_adm():
 
             lines = f.readlines()
 
-        start_index = adm_state.get(
-            "last_line",
-            0
-        )
-
-        new_lines = lines[start_index:]
-
-        adm_state["last_line"] = len(lines)
-
     except Exception as e:
 
         print(f"ADM READ ERROR: {e}")
         return
 
+    start_index = adm_state.get(
+        "last_line",
+        0
+    )
+
+    new_lines = lines[start_index:]
+
+    adm_state["last_line"] = len(lines)
+
     print(f"NEW ADM LINES: {len(new_lines)}")
 
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
-    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
-    deploy_channel = bot.get_channel(DEPLOY_CHANNEL_ID)
-    raid_channel = bot.get_channel(RAID_CHANNEL_ID)
 
     for raw_line in new_lines:
 
@@ -416,18 +500,109 @@ def download_adm():
                 player_name = player_match.group(1)
 
                 embed = discord.Embed(
-        title="📦 Purchase Successful",
-        description=(
-            f"Bought: {item}\n"
-            f"Cost: ${cost}\n"
-            f"Added to delivery queue"
-        ),
-        color=0x3498DB
+                    description=(
+                        f"🛰️ {player_name} connecting\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x9C8A00
+                )
+
+                await connect_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        elif "killed" in lower:
+
+            victim_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            killer_match = re.search(
+                r'by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if (
+                victim_match
+                and killer_match
+                and killfeed_channel
+            ):
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☠️ {killer} killed {victim}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xC0392B
+                )
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+
+# ================= TASK LOOP =================
+
+
+@tasks.loop(seconds=10)
+async def adm_loop():
+
+    success = await asyncio.to_thread(
+        download_adm
+    )
+
+    if success:
+        await parse_adm()
+
+
+# ================= READY =================
+
+
+@bot.event
+async def on_ready():
+
+    await bot.tree.sync()
+
+    try:
+        adm_loop.start()
+    except RuntimeError:
+        pass
+
+    print(f"✅ Logged in as {bot.user}")
+
+
+# ================= SHOP =================
+
+
+@bot.tree.command(
+    name="shop",
+    description="View shop items"
+)
+async def shop(interaction: discord.Interaction):
+
+    desc = ""
+
+    for item, price in SHOP_ITEMS.items():
+        desc += f"{item} — ${price}\n"
+
+    embed = discord.Embed(
+        title="🛒 Survivor Shop",
+        description=desc,
+        color=0x2ECC71
     )
 
     await interaction.response.send_message(
         embed=style_embed(embed)
     )
+
+
+# ================= INVENTORY =================
 
 
 @bot.tree.command(
@@ -445,10 +620,17 @@ async def inventory(interaction: discord.Interaction):
         str(interaction.user.id)
     )
 
-    inventory_items = player.get("inventory", [])
+    inventory_items = player.get(
+        "inventory",
+        []
+    )
 
-    if not inventory_items:
-        inventory_text = "\n".join(inventory_items)
+    if inventory_items:
+        inventory_text = "\n".join(
+            inventory_items
+        )
+    else:
+        inventory_text = "Inventory empty."
 
     embed = discord.Embed(
         title="🎒 Inventory",
