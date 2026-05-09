@@ -576,6 +576,8 @@ async def parse_adm():
                     color=0x2ECC71
                 )
 
+                embed.set_thumbnail(url=BOT_IMAGE)
+
                 await connect_channel.send(
                     embed=style_embed(embed)
                 )
@@ -620,6 +622,8 @@ async def parse_adm():
                     color=0xE74C3C
                 )
 
+                embed.set_thumbnail(url=BOT_IMAGE)
+
                 await connect_channel.send(
                     embed=style_embed(embed)
                 )
@@ -630,10 +634,117 @@ async def parse_adm():
 
             if build_channel:
 
+                player_match = re.search(
+                    r'Player\s+"([^"]+)"',
+                    line,
+                    re.IGNORECASE
+                )
+
+                coords_match = re.search(
+                    r'pos=<([^>]+)>',
+                    line,
+                    re.IGNORECASE
+                )
+
+                action_match = re.search(
+                    r'(placed|packed|built|mounted|folded)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                object_match = re.search(
+                    r'(FenceKit|Fence|BarbedWire|LargeTent|CarTent|GardenPlot|Barrel_[A-Za-z]+|wall_[a-z_]+|base)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                player_name = (
+                    player_match.group(1)
+                    if player_match else "Unknown"
+                )
+
+                coords = (
+                    coords_match.group(1)
+                    if coords_match else "Unknown"
+                )
+
+                action = (
+                    action_match.group(1).title()
+                    if action_match else "Activity"
+                )
+
+                object_name = (
+                    object_match.group(1)
+                    if object_match else "Structure"
+                )
+
+                if "mounted" in line.lower():
+
+                    title_text = "🪤 DEFENSE DEPLOYED 🪤"
+                    color = 0xE67E22
+
+                elif "placed" in line.lower():
+
+                    title_text = "🏗️ STRUCTURE PLACED 🏗️"
+                    color = 0x2ECC71
+
+                elif "packed" in line.lower():
+
+                    title_text = "📦 STRUCTURE PACKED 📦"
+                    color = 0x3498DB
+
+                elif "folded" in line.lower():
+
+                    title_text = "📁 STRUCTURE FOLDED 📁"
+                    color = 0x9B59B6
+
+                else:
+
+                    title_text = "🛠️ BUILDING ACTIVITY 🛠️"
+                    color = 0xF1C40F
+
                 embed = discord.Embed(
-                    title="🏗️ BUILD EVENT",
-                    description=line,
-                    color=0xF1C40F
+                    title=title_text,
+                    color=color
+                )
+
+                embed.set_author(
+                    name="☢️ Wandering Bot Intelligence"
+                )
+
+                embed.add_field(
+                    name="👤 Survivor",
+                    value=f"`{player_name}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🔨 Action",
+                    value=f"`{action}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🏗️ Structure",
+                    value=f"`{object_name}`",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Position",
+                    value=f"`{coords}`",
+                    inline=False
+                )
+
+                embed.set_thumbnail(
+                    url=BOT_IMAGE
+                )
+
+                embed.set_footer(
+                    text=(
+                        "☢️ Live DayZ Intelligence • "
+                        "Wandering Bot"
+                    )
                 )
 
                 await build_channel.send(
@@ -651,6 +762,8 @@ async def parse_adm():
                     description=line,
                     color=0xE67E22
                 )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
 
                 await killfeed_channel.send(
                     embed=style_embed(embed)
@@ -688,6 +801,8 @@ async def parse_adm():
                     value=str(territory_heat[coords]),
                     inline=False
                 )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
 
                 await raid_channel.send(
                     embed=style_embed(embed)
