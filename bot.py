@@ -318,7 +318,9 @@ def find_active_adm():
 
     try:
 
-        filename = os.path.basename(active_adm)ent_size = ftp.size(filename)
+        filename = os.path.basename(active_adm)
+
+        current_size = current_adm_size + 1
 
         if current_size <= current_adm_size:
 
