@@ -31,8 +31,18 @@ CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
 NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
 
-# TRY THIS FIRST
-SEARCH_DIR = "/dayzxb_missions"
+# ================= SEARCH PATHS =================
+
+SEARCH_DIRS = [
+    "/dayzxb/config",
+    "/dayzxb_missions",
+    "/config",
+    "/profiles",
+    "/logs",
+    "/adm",
+    "/mpmissions",
+    "/games/dayzxb/config"
+]
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -157,7 +167,7 @@ def nitrado_headers():
         "Authorization": f"Bearer {NITRADO_API_TOKEN}"
     }
 
-# ================= DEBUG FILE LIST =================
+# ================= FILE LIST =================
 
 def nitrado_file_list():
 
@@ -166,25 +176,42 @@ def nitrado_file_list():
         f"{NITRADO_SERVICE_ID}/gameservers/file_server/list"
     )
 
-    print(f"LIST URL: {url}")
-    print(f"SEARCH DIR: {SEARCH_DIR}")
+    for search_dir in SEARCH_DIRS:
 
-    response = requests.get(
-        url,
-        headers=nitrado_headers(),
-        params={"dir": SEARCH_DIR},
-        timeout=30
-    )
+        try:
 
-    print(f"STATUS: {response.status_code}")
-    print(f"RESPONSE: {response.text}")
+            print(f"TRYING DIR: {search_dir}")
 
-    if response.status_code != 200:
+            response = requests.get(
+                url,
+                headers=nitrado_headers(),
+                params={"dir": search_dir},
+                timeout=30
+            )
 
-        print(f"NITRADO LIST ERROR: {response.status_code}")
-        return []
+            print(f"STATUS: {response.status_code}")
 
-    return response.json().get("data", {}).get("entries", [])
+            if response.status_code != 200:
+                continue
+
+            data = response.json()
+
+            entries = (
+                data.get("data", {})
+                .get("entries", [])
+            )
+
+            if entries:
+
+                print(f"WORKING DIR: {search_dir}")
+
+                return entries, search_dir
+
+        except Exception as e:
+
+            print(f"DIR ERROR: {search_dir} | {e}")
+
+    return [], None
 
 # ================= DOWNLOAD FILE =================
 
@@ -312,7 +339,12 @@ def find_active_adm():
 
     try:
 
-        entries = nitrado_file_list()
+        entries, working_dir = nitrado_file_list()
+
+        if not entries:
+
+            print("NO VALID DIRECTORIES FOUND")
+            return False
 
         adm_files = []
 
@@ -325,7 +357,7 @@ def find_active_adm():
 
             size = int(entry.get("size", 0))
 
-            full_path = f"{SEARCH_DIR}/{name}"
+            full_path = f"{working_dir}/{name}"
 
             adm_files.append({
                 "name": name,
