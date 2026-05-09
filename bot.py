@@ -868,18 +868,30 @@ async def adm_loop():
 
     now = datetime.now(UTC)
 
+    # ================= IDLE MODE =================
+
     if not LIVE_MODE:
 
-        seconds_idle = (
+        idle_seconds = (
             now - LAST_CHANGE_TIME
         ).total_seconds()
 
-        if seconds_idle < 60:
+        # only perform a real ADM check every 60 sec
+
+        if idle_seconds < 60:
             return
+
+        print(
+            "IDLE MODE CHECKING ADM..."
+        )
+
+    # ================= DOWNLOAD =================
 
     success = await asyncio.to_thread(
         download_adm
     )
+
+    # ================= FILE UPDATED =================
 
     if success:
 
@@ -895,13 +907,17 @@ async def adm_loop():
 
         await parse_adm()
 
+    # ================= NO CHANGE =================
+
     else:
 
-        idle_seconds = (
+        idle_time = (
             now - LAST_CHANGE_TIME
         ).total_seconds()
 
-        if idle_seconds > 240:
+        # no activity for 4 mins
+
+        if idle_time >= 240:
 
             if LIVE_MODE:
 
