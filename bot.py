@@ -7,11 +7,11 @@ from datetime import datetime
 # FILL THESE IN
 # =========================
 
-NITRADO_TOKEN = "PASTE_TOKEN_HERE"
+NITRADO_TOKEN = "PASTE_YOUR_NITRADO_API_TOKEN_HERE"
 
-SERVICE_ID = "12768216"        # Goes in API URL
-NITRADO_USER = "ni12248929_1"  # Goes after /games/
-PLATFORM = "dayzxb"            # Goes after /noftp/  example: dayzxb or dayzps
+SERVICE_ID = "12248929"
+NITRADO_USER = "ni12248929_1"
+PLATFORM = "dayzxb"
 
 
 # =========================
@@ -71,6 +71,7 @@ def ping_latest_adm_log():
         if response.status_code == 401:
             print("[ERROR] 401 Unauthorized - token is wrong or expired")
             return None
+
         if response.status_code != 200:
             print("[ERROR] Bad HTTP status from Nitrado")
             print(response.text)
@@ -125,6 +126,7 @@ def ping_latest_adm_log():
         print("")
 
         return latest_log
+
     except requests.Timeout:
         print("[ERROR] Request timed out")
         return None
@@ -136,6 +138,9 @@ def ping_latest_adm_log():
 
 
 if __name__ == "__main__":
+
+    print("SCRIPT STARTED")
+
     latest_log = ping_latest_adm_log()
 
     if latest_log:
@@ -145,3 +150,6 @@ if __name__ == "__main__":
     else:
         print("FINAL RESULT:")
         print("None")
+
+    print("")
+    print("SCRIPT FINISHED")
