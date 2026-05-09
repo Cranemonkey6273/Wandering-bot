@@ -109,6 +109,7 @@ IGNORE_PATTERNS = [
 
 # ================= STATE SAVE =================
 
+
 def save_state():
 
     try:
@@ -138,6 +139,7 @@ def load_state():
 
 
 # ================= HELPERS =================
+
 
 def should_ignore(line):
 
@@ -185,6 +187,7 @@ def connect_ftp():
 
 
 # ================= EVENT CLASSIFIER =================
+
 
 def classify_event(line):
 
@@ -237,6 +240,7 @@ def classify_event(line):
 
 # ================= ACTIVE ADM FINDER =================
 
+
 def extract_filename_datetime(filename):
 
     match = re.search(
@@ -262,3 +266,242 @@ def extract_filename_datetime(filename):
     except Exception:
 
         return None
+
+
+def find_active_adm():
+
+    global current_adm
+    global current_adm_size
+
+    try:
+
+        ftp = connect_ftp()
+
+        ftp.cwd(SEARCH_DIR)
+
+        files = ftp.nlst()
+
+        adm_candidates = []
+
+        for file in files:
+
+            if not re.match(
+                r'^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$',
+                file
+            ):
+                continue
+
+            file_datetime = extract_filename_datetime(file)
+
+            if not file_datetime:
+                continue
+
+            ftp.voidcmd("TYPE I")
+
+            size = ftp.size(file)
+
+            adm_candidates.append({
+                "name": file,
+                "datetime": file_datetime,
+                "size": size
+            })
+
+        ftp.quit()
+
+        if not adm_candidates:
+            return current_adm
+
+        adm_candidates.sort(
+            key=lambda x: x["datetime"],
+            reverse=True
+        )
+
+        best = adm_candidates[0]
+
+        newest_adm = (
+            f"{SEARCH_DIR}/{best['name']}"
+        )
+
+        if current_adm != newest_adm:
+
+            current_adm = newest_adm
+            current_adm_size = best["size"]
+
+            adm_state["last_line"] = 0
+            adm_state["last_text"] = ""
+
+            save_state()
+
+            print(f"ACTIVE ADM: {current_adm}")
+
+        return current_adm
+
+    except Exception as e:
+
+        print(f"ADM SEARCH ERROR: {e}")
+
+        return current_adm
+
+
+# ================= DOWNLOAD ADM =================
+
+
+def download_adm():
+
+    global current_adm_size
+
+    try:
+
+        active_adm = find_active_adm()
+
+        if not active_adm:
+            return False
+
+        ftp = connect_ftp()
+
+        ftp.cwd(SEARCH_DIR)
+
+        filename = os.path.basename(active_adm)
+
+        ftp.voidcmd("TYPE I")
+
+        current_size = ftp.size(filename)
+
+        if current_size <= current_adm_size:
+
+            ftp.quit()
+            return False
+
+        current_adm_size = current_size
+
+        with open(LOCAL_LOG_FILE, "wb") as f:
+
+            ftp.retrbinary(
+                f"RETR {filename}",
+                f.write
+            )
+
+        ftp.quit()
+
+        print(f"ADM UPDATED: {filename}")
+
+        return True
+
+    except Exception as e:
+
+        print(f"DOWNLOAD ERROR: {e}")
+
+        return False
+
+
+# ================= ADM PARSER =================
+
+
+async def parse_adm():
+
+    if not os.path.exists(LOCAL_LOG_FILE):
+        return
+
+    with open(
+        LOCAL_LOG_FILE,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+        lines = f.readlines()
+
+    start_index = adm_state.get("last_line", 0)
+
+    new_lines = lines[start_index:]
+
+    adm_state["last_line"] = len(lines)
+
+    save_state()
+
+    print(f"NEW ADM LINES: {len(new_lines)}")
+
+    for raw_line in new_lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if should_ignore(line):
+            continue
+
+        event_type = classify_event(line)
+
+        if not event_type:
+            continue
+
+        print(f"EVENT: {event_type} | {line}")
+
+
+# ================= TASK LOOP =================
+
+
+@tasks.loop(minutes=5)
+async def adm_loop():
+
+    success = await asyncio.to_thread(
+        download_adm
+    )
+
+    if success:
+        await parse_adm()
+
+
+# ================= READY =================
+
+
+@bot.event
+async def on_ready():
+
+    load_state()
+
+    await bot.tree.sync()
+
+    try:
+        adm_loop.start()
+
+    except RuntimeError:
+        pass
+
+    print(f"✅ Logged in as {bot.user}")
+
+
+# ================= ONLINE =================
+
+
+@bot.tree.command(
+    name="online",
+    description="View online players"
+)
+async def online(interaction: discord.Interaction):
+
+    if online_players:
+
+        players = "\n".join(
+            f"• {x}"
+            for x in sorted(online_players)
+        )
+
+    else:
+
+        players = "No players online."
+
+    embed = discord.Embed(
+        title=f"🟢 Online Players ({len(online_players)})",
+        description=players,
+        color=0x2ECC71
+    )
+
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
+
+
+# ================= START =================
+
+bot.run(DISCORD_TOKEN)
