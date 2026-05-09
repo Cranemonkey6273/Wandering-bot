@@ -193,8 +193,13 @@ def ping_nitrado_for_latest_adm():
 
 if __name__ == "__main__":
 
+    print("SCRIPT STARTED")
+
     latest_log = ping_nitrado_for_latest_adm()
 
     print("")
     print("FINAL RESULT:")
     print(latest_log)
+
+    print("")
+    print("SCRIPT FINISHED")
