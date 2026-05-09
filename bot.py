@@ -667,12 +667,27 @@ async def territory_income():
 @bot.event
 async def on_ready():
 
-    await bot.tree.sync()
+    try:
 
-    adm_loop.start()
-    world_events.start()
-    territory_income.start()
-    ai_radio.start()
+        synced = await bot.tree.sync()
+
+        print(f"SYNCED {len(synced)} COMMANDS")
+
+    except Exception as e:
+
+        print(f"COMMAND SYNC ERROR: {e}")
+
+    if not adm_loop.is_running():
+        adm_loop.start()
+
+    if not world_events.is_running():
+        world_events.start()
+
+    if not territory_income.is_running():
+        territory_income.start()
+
+    if not ai_radio.is_running():
+        ai_radio.start()
 
     print(f"✅ Logged in as {bot.user}")
 
@@ -755,7 +770,8 @@ async def shop(interaction: discord.Interaction):
     desc = ""
 
     for item, price in SHOP_ITEMS.items():
-        desc += f"{item} — ${price}\n"
+        desc += f"{item} — ${price}
+"
 
     embed = discord.Embed(
         title="🛒 Survivor Shop",
@@ -831,8 +847,10 @@ async def buy(
     embed = discord.Embed(
         title="📦 Purchase Successful",
         description=(
-            f"Bought: {item}\n"
-            f"Cost: ${cost}\n"
+            f"Bought: {item}
+"
+            f"Cost: ${cost}
+"
             f"Added to delivery queue"
         ),
         color=0x3498DB
@@ -863,7 +881,8 @@ async def inventory(interaction: discord.Interaction):
     if not inventory_items:
         inventory_text = "Empty"
     else:
-        inventory_text = "\n".join(inventory_items)
+        inventory_text = "
+".join(inventory_items)
 
     embed = discord.Embed(
         title="🎒 Inventory",
