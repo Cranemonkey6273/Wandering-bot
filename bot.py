@@ -44,9 +44,7 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_PATHS = [
     ".",
-    "config",
-    "profiles",
-    "logs"
+    "dayzxb_missions"
 ]
 
 LOCAL_LOG_FILE = "live.ADM"
@@ -259,6 +257,11 @@ def find_active_adm():
                 files = []
 
                 ftp.retrlines("NLST", files.append)
+
+                print(f"FILES IN {path}:")
+
+                for f in files:
+                    print(f)
 
                 for file in files:
 
