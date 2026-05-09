@@ -313,150 +313,6 @@ async def get_player(discord_id):
     return None
 
 
-# ================= TASKS =================
-
-@tasks.loop(seconds=60)
-async def adm_loop():
-
-    success = download_adm()
-
-    if success:
-        await parse_adm()
-
-
-@tasks.loop(minutes=20)
-async def world_events():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    events = [
-        "🚁 Helicopter crash reported.",
-        "☣️ Toxic gas spreading.",
-        "📻 Convoy entering Chernarus.",
-        "💥 Heavy fighting near NWAF.",
-        "🏴 Faction conflict escalating.",
-        "📦 Supply crate detected."
-    ]
-
-    embed = discord.Embed(
-        title="📡 World Event",
-        description=random.choice(events),
-        color=0x9B59B6
-    )
-
-    await channel.send(embed=style_embed(embed))
-
-
-@tasks.loop(minutes=60)
-async def dynamic_economy():
-
-    for item in SHOP_ITEMS:
-
-        SHOP_ITEMS[item] += random.randint(-5, 20)
-
-        if SHOP_ITEMS[item] < 5:
-            SHOP_ITEMS[item] = 5
-
-
-@tasks.loop(hours=2)
-async def territory_income():
-
-    results = supabase.table(
-        "player_data"
-    ).select("*").neq(
-        "territory",
-        ""
-    ).execute()
-
-    for player in results.data:
-
-        income = random.randint(100, 300)
-
-        supabase.table(
-            "player_data"
-        ).update({
-            "scrap": player["scrap"] + income
-        }).eq(
-            "discord_id",
-            player["discord_id"]
-        ).execute()
-
-
-@tasks.loop(minutes=25)
-async def ai_radio():
-
-    channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    if not channel:
-        return
-
-    chatter = [
-        "📻 Gunfire heard near Tisy.",
-        "📻 Survivors spotted near Vybor.",
-        "📻 Trader convoy requesting escort.",
-        "📻 Black market trader active tonight.",
-        "📻 Toxic storm approaching."
-    ]
-
-    embed = discord.Embed(
-        title="📻 Radio Chatter",
-        description=random.choice(chatter),
-        color=0x3498DB
-    )
-
-    await channel.send(embed=style_embed(embed))
-
-
-# ================= READY =================
-
-@bot.event
-async def on_ready():
-
-    await bot.tree.sync()
-
-    world_events.start()
-    adm_loop.start()
-    dynamic_economy.start()
-    territory_income.start()
-    ai_radio.start()
-
-    print(f"✅ Logged in as {bot.user}")
-
-
-# ================= MESSAGE SWEAR TRACKER =================
-
-@bot.event
-async def on_message(message):
-
-    if message.author.bot:
-        return
-
-    lower = message.content.lower()
-
-    count = 0
-
-    for swear in SWEAR_WORDS:
-        count += lower.count(swear)
-
-    if count > 0:
-
-        user_id = str(message.author.id)
-
-        if user_id not in swear_tracker:
-
-            swear_tracker[user_id] = {
-                "name": message.author.name,
-                "count": 0
-            }
-
-        swear_tracker[user_id]["count"] += count
-
-    await bot.process_commands(message)
-
-
 # ================= ADM PARSER =================
 
 async def parse_adm():
@@ -485,6 +341,192 @@ async def parse_adm():
         return
 
     print(f"ADM LINES READ: {len(lines)}")
+
+    killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
+    raid_channel = bot.get_channel(RAID_CHANNEL_ID)
+    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
+    deploy_channel = bot.get_channel(DEPLOY_CHANNEL_ID)
+    connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
+
+    for raw_line in lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        line_hash = hash(line)
+
+        if line_hash in processed_lines:
+            continue
+
+        processed_lines.add(line_hash)
+
+        if len(processed_lines) > MAX_PROCESSED_LINES:
+            processed_lines.clear()
+
+        if should_ignore(line):
+            continue
+
+        lower = line.lower()
+
+        if (
+            "is connecting" in lower
+            or "connecting" in lower
+        ):
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"🛰️ {player_name} connecting\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x9C8A00
+                )
+
+                await connect_channel.send(embed=embed)
+
+        elif (
+            "is connected" in lower
+            or "connected" in lower
+        ):
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☣️ {player_name} connected\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x4E7F3D
+                )
+
+                await connect_channel.send(embed=embed)
+
+        elif (
+            "killed by player" in lower
+            or "killed" in lower
+        ):
+
+            victim_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            killer_match = re.search(
+                r'by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if (
+                victim_match
+                and killer_match
+                and killfeed_channel
+            ):
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☠️ {killer} killed {victim}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xC0392B
+                )
+
+                await killfeed_channel.send(embed=embed)
+
+
+# ================= TASKS =================
+
+@tasks.loop(seconds=60)
+async def adm_loop():
+
+    success = download_adm()
+
+    if success:
+        await parse_adm()
+
+
+@tasks.loop(minutes=20)
+async def world_events():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    events = [
+        "🚁 Helicopter crash reported.",
+        "☣️ Toxic gas spreading.",
+        "📻 Convoy entering Chernarus.",
+        "💥 Heavy fighting near NWAF."
+    ]
+
+    embed = discord.Embed(
+        title="📡 World Event",
+        description=random.choice(events),
+        color=0x9B59B6
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
+@tasks.loop(minutes=25)
+async def ai_radio():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    chatter = [
+        "📻 Gunfire heard near Tisy.",
+        "📻 Survivors spotted near Vybor.",
+        "📻 Trader convoy requesting escort."
+    ]
+
+    embed = discord.Embed(
+        title="📻 Radio Chatter",
+        description=random.choice(chatter),
+        color=0x3498DB
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
+# ================= READY =================
+
+@bot.event
+async def on_ready():
+
+    await bot.tree.sync()
+
+    world_events.start()
+    adm_loop.start()
+    ai_radio.start()
+
+    print(f"✅ Logged in as {bot.user}")
 
 
 # ================= START =================
