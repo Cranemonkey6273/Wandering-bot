@@ -5,6 +5,7 @@ import discord
 import json
 import requests
 
+# FTP REMOVED - USING NITRADO API ONLY
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from supabase import create_client
@@ -26,25 +27,22 @@ RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
-# ================= NITRADO =================
+# ================= FTP =================
+
+FTP_HOST = os.getenv("FTP_HOST")
+FTP_USER = os.getenv("FTP_USER")
+FTP_PASS = os.getenv("FTP_PASS")
+FTP_PORT = int(os.getenv("FTP_PORT", 21))
+
+SEARCH_DIR = "/dayzxb/config"
+LOCAL_LOG_FILE = "live.ADM"
+
+# ================= NITRADO API =================
 
 NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
 NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
-
-# ================= SEARCH PATHS =================
-
-SEARCH_DIRS = [
-    "/dayzxb/config",
-    "/dayzxb_missions",
-    "/config",
-    "/profiles",
-    "/logs",
-    "/adm",
-    "/mpmissions",
-    "/games/dayzxb/config"
-]
-
-LOCAL_LOG_FILE = "live.ADM"
+NITRADO_USER = os.getenv("NITRADO_USER")
+NITRADO_PLATFORM = os.getenv("NITRADO_PLATFORM")
 
 # ================= SAVE FILE =================
 
@@ -113,6 +111,7 @@ IGNORE_PATTERNS = [
 
 # ================= STATE SAVE =================
 
+
 def save_state():
 
     try:
@@ -140,7 +139,9 @@ def load_state():
     except Exception as e:
         print(f"STATE LOAD ERROR: {e}")
 
+
 # ================= HELPERS =================
+
 
 def should_ignore(line):
 
@@ -167,7 +168,6 @@ def nitrado_headers():
         "Authorization": f"Bearer {NITRADO_API_TOKEN}"
     }
 
-# ================= FILE LIST =================
 
 def nitrado_file_list():
 
@@ -176,49 +176,24 @@ def nitrado_file_list():
         f"{NITRADO_SERVICE_ID}/gameservers/file_server/list"
     )
 
-    print(f"URL: {url}")
-    print(f"TOKEN EXISTS: {bool(NITRADO_API_TOKEN)}")
-    print(f"SERVICE ID: {NITRADO_SERVICE_ID}")
+    response = requests.get(
+        url,
+        headers=nitrado_headers(),
+        params={
+            "dir": f"/games/{NITRADO_USER}/noftp/{NITRADO_PLATFORM}/config/",
+            "search": "*DayZServer*"
+        },
+        timeout=30
+    )
 
-    for search_dir in SEARCH_DIRS:
+    if response.status_code != 200:
 
-        try:
+        print(f"NITRADO LIST ERROR: {response.status_code}")
+        print(response.text)
+        return []
 
-            print(f"TRYING DIR: {search_dir}")
+    return response.json().get("data", {}).get("entries", [])
 
-            response = requests.get(
-                url,
-                headers=nitrado_headers(),
-                params={"dir": search_dir},
-                timeout=30
-            )
-
-            print(f"STATUS: {response.status_code}")
-            print(f"BODY: {response.text}")
-
-            if response.status_code != 200:
-                continue
-
-            data = response.json()
-
-            entries = (
-                data.get("data", {})
-                .get("entries", [])
-            )
-
-            if entries:
-
-                print(f"WORKING DIR: {search_dir}")
-
-                return entries, search_dir
-
-        except Exception as e:
-
-            print(f"DIR ERROR: {search_dir} | {e}")
-
-    return [], None
-
-# ================= DOWNLOAD FILE =================
 
 def nitrado_download_file(filepath):
 
@@ -237,8 +212,6 @@ def nitrado_download_file(filepath):
     if response.status_code != 200:
 
         print(f"NITRADO DOWNLOAD ERROR: {response.status_code}")
-        print(response.text)
-
         return False
 
     download_url = (
@@ -249,209 +222,110 @@ def nitrado_download_file(filepath):
     )
 
     if not download_url:
-
-        print("NO DOWNLOAD URL")
         return False
 
     file_response = requests.get(download_url, timeout=60)
 
     if file_response.status_code != 200:
-
-        print("DOWNLOAD FAILED")
         return False
 
-    with open(LOCAL_LOG_FILE, "wb") as f:
-        f.write(file_response.content)
+    download_success = nitrado_download_file(active_adm)
 
-    print("ADM DOWNLOADED")
-
-    return True
-
-# ================= EVENT CLASSIFIER =================
-
-def classify_event(line):
-
-    lower = line.lower()
-
-    if "disconnected" in lower:
-        return "disconnect"
-
-    if "connecting" in lower or "connected" in lower:
-        return "connect"
-
-    if "killed" in lower:
-        return "kill"
-
-    if "hit by" in lower or "hit player" in lower:
-        return "hit"
-
-    if (
-        "placed" in lower
-        or "packed" in lower
-        or "built" in lower
-        or "mounted" in lower
-        or "folded" in lower
-    ):
-        return "build"
-
-    if (
-        "unconscious" in lower
-        or "regained consciousness" in lower
-        or "bled out" in lower
-    ):
-        return "combat"
-
-    if (
-        "destroyed" in lower
-        or "dismantled" in lower
-        or "breached" in lower
-        or "explosive" in lower
-    ):
-        return "raid"
-
-    return None
-
-# ================= ACTIVE ADM FINDER =================
-
-def extract_filename_datetime(filename):
-
-    match = re.search(
-        r'_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$',
-        filename
-    )
-
-    if not match:
-        return None
-
-    iso = (
-        f"{match.group(1)} "
-        f"{match.group(2).replace('-', ':')}"
-    )
-
-    try:
-
-        return datetime.strptime(
-            iso,
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-    except Exception:
-        return None
-
-
-def find_active_adm():
-
-    global current_adm
-    global current_adm_size
-
-    try:
-
-        entries, working_dir = nitrado_file_list()
-
-        if not entries:
-
-            print("NO VALID DIRECTORIES FOUND")
+        if not download_success:
             return False
 
-        adm_files = []
+        
 
-        for entry in entries:
-
-            name = entry.get("name", "")
-
-            if not name.endswith(".ADM"):
-                continue
-
-            size = int(entry.get("size", 0))
-
-            full_path = f"{working_dir}/{name}"
-
-            adm_files.append({
-                "name": name,
-                "path": full_path,
-                "size": size,
-                "dt": extract_filename_datetime(name)
-            })
-
-        if not adm_files:
-
-            print("NO ADM FILES FOUND")
-            return False
-
-        adm_files.sort(
-            key=lambda x: (
-                x["dt"] or datetime.min,
-                x["size"]
-            ),
-            reverse=True
-        )
-
-        active = adm_files[0]
-
-        current_adm = active["path"]
-
-        if active["size"] <= current_adm_size:
-
-            print("ADM NOT GROWING")
-            return False
-
-        current_adm_size = active["size"]
-
-        success = nitrado_download_file(current_adm)
-
-        if not success:
-
-            print("ADM DOWNLOAD FAILED")
-            return False
-
-        print(f"ACTIVE ADM: {active['name']}")
-        print(f"ADM SIZE: {active['size']}")
+        print(f"ADM UPDATED: {filename}")
 
         return True
 
     except Exception as e:
 
-        print(f"ACTIVE ADM ERROR: {e}")
+        print(f"DOWNLOAD ERROR: {e}")
+
         return False
 
-# ================= ADM MONITOR =================
 
-@tasks.loop(seconds=30)
-async def monitor_adm():
+# ================= ADM PARSER =================
 
-    print("CHECKING ADM...")
 
-    success = find_active_adm()
+async def parse_adm():
+
+    if not os.path.exists(LOCAL_LOG_FILE):
+        return
+
+    with open(
+        LOCAL_LOG_FILE,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+        lines = f.readlines()
+
+    start_index = adm_state.get("last_line", 0)
+
+    new_lines = lines[start_index:]
+
+    adm_state["last_line"] = len(lines)
+
+    save_state()
+
+    print(f"NEW ADM LINES: {len(new_lines)}")
+
+    for raw_line in new_lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if should_ignore(line):
+            continue
+
+        event_type = classify_event(line)
+
+        if not event_type:
+            continue
+
+        print(f"EVENT: {event_type} | {line}")
+
+
+# ================= TASK LOOP =================
+
+
+@tasks.loop(minutes=5)
+async def adm_loop():
+
+    success = await asyncio.to_thread(
+        download_adm
+    )
 
     if success:
+        await parse_adm()
 
-        print("ADM UPDATED")
-
-    else:
-
-        print("NO NEW ADM DATA")
 
 # ================= READY =================
+
 
 @bot.event
 async def on_ready():
 
-    print(f"LOGGED IN AS {bot.user}")
+    load_state()
+
+    await bot.tree.sync()
 
     try:
+        adm_loop.start()
 
-        synced = await bot.tree.sync()
+    except RuntimeError:
+        pass
 
-        print(f"SYNCED {len(synced)} COMMANDS")
+    print(f"✅ Logged in as {bot.user}")
 
-    except Exception as e:
-
-        print(f"COMMAND SYNC ERROR: {e}")
-
-    if not monitor_adm.is_running():
-        monitor_adm.start()
 
 # ================= ONLINE =================
+
 
 @bot.tree.command(
     name="online",
@@ -480,8 +354,7 @@ async def online(interaction: discord.Interaction):
         embed=style_embed(embed)
     )
 
-# ================= START =================
 
-load_state()
+# ================= START =================
 
 bot.run(DISCORD_TOKEN)
