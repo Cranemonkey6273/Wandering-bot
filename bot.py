@@ -5,7 +5,7 @@ import discord
 import json
 
 from ftplib import FTP_TLS
-from datetime import datetime, UTC, timedelta
+from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from supabase import create_client
 from openai import AsyncOpenAI
@@ -81,7 +81,6 @@ current_adm = None
 current_adm_size = 0
 
 online_players = set()
-player_hits = {}
 player_sessions = {}
 territory_heat = {}
 
@@ -110,11 +109,9 @@ def save_state():
     try:
 
         with open(STATE_FILE, "w") as f:
-
             json.dump(adm_state, f)
 
     except Exception as e:
-
         print(f"STATE SAVE ERROR: {e}")
 
 
@@ -127,13 +124,11 @@ def load_state():
         if os.path.exists(STATE_FILE):
 
             with open(STATE_FILE, "r") as f:
-
                 adm_state = json.load(f)
 
             print("STATE LOADED")
 
     except Exception as e:
-
         print(f"STATE LOAD ERROR: {e}")
 
 
@@ -413,43 +408,11 @@ def find_active_adm():
             current_adm = newest_adm
             current_adm_size = best["size"]
 
+            adm_state["last_line"] = 0
+            adm_state["last_text"] = ""
             adm_state["file"] = None
             adm_state["last_modified"] = ""
             adm_state["last_logged_file"] = current_adm
-
-            # ================= IMPORTANT =================
-            # Sync to END of newly created ADM
-            # Prevents replaying old startup events
-            # Nitrado writes old events before new ADM becomes live
-            # =================================================
-
-            try:
-
-                ftp_sync = connect_ftp()
-                ftp_sync.cwd(SEARCH_DIR)
-
-                sync_lines = []
-
-                ftp_sync.retrlines(
-                    f"RETR {best['name']}",
-                    sync_lines.append
-                )
-
-                ftp_sync.quit()
-
-                adm_state["last_line"] = len(sync_lines)
-
-                if sync_lines:
-                    adm_state["last_text"] = sync_lines[-1].strip()
-                else:
-                    adm_state["last_text"] = ""
-
-            except Exception as e:
-
-                print(f"NEW ADM SYNC ERROR: {e}")
-
-                adm_state["last_line"] = 0
-                adm_state["last_text"] = ""
 
             save_state()
 
@@ -488,6 +451,9 @@ def download_adm():
         modified = ftp.sendcmd(f"MDTM {filename}")
 
         timestamp = modified[4:].strip()
+
+        # FIXED ASCII MODE ISSUE
+        ftp.voidcmd("TYPE I")
 
         current_size = ftp.size(filename)
 
@@ -533,7 +499,12 @@ async def parse_adm():
     if not os.path.exists(LOCAL_LOG_FILE):
         return
 
-    with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+    with open(
+        LOCAL_LOG_FILE,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
         lines = f.readlines()
 
     start_index = adm_state.get("last_line", 0)
@@ -545,6 +516,7 @@ async def parse_adm():
         found_index = None
 
         for i, line in enumerate(lines):
+
             if last_text in line:
                 found_index = i
 
@@ -594,15 +566,22 @@ async def parse_adm():
 
         print(f"EVENT: {event_type} | {line}")
 
+        # ================= CONNECT =================
+
         if event_type == "connect" and connect_channel:
 
-            player_match = re.search(r'Player\s+"([^"]+)"', line, re.IGNORECASE)
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
 
             if player_match:
 
                 player_name = player_match.group(1)
 
                 online_players.add(player_name)
+
                 player_sessions[player_name] = datetime.now(UTC)
 
                 embed = discord.Embed(
@@ -613,11 +592,19 @@ async def parse_adm():
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
-                await connect_channel.send(embed=style_embed(embed))
+                await connect_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # ================= DISCONNECT =================
 
         elif event_type == "disconnect" and connect_channel:
 
-            player_match = re.search(r'Player\s+"([^"]+)"', line, re.IGNORECASE)
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
 
             if player_match:
 
@@ -628,8 +615,16 @@ async def parse_adm():
                 session_hours = 0
 
                 if player_name in player_sessions:
-                    session_length = (datetime.now(UTC) - player_sessions[player_name]).total_seconds()
-                    session_hours = round(session_length / 3600, 2)
+
+                    session_length = (
+                        datetime.now(UTC)
+                        - player_sessions[player_name]
+                    ).total_seconds()
+
+                    session_hours = round(
+                        session_length / 3600,
+                        2
+                    )
 
                 embed = discord.Embed(
                     title="🔴 Survivor Disconnected",
@@ -642,7 +637,11 @@ async def parse_adm():
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
-                await connect_channel.send(embed=style_embed(embed))
+                await connect_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # ================= BUILD =================
 
         elif event_type == "build" and build_channel:
 
@@ -654,7 +653,11 @@ async def parse_adm():
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
-            await build_channel.send(embed=style_embed(embed))
+            await build_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= COMBAT =================
 
         elif event_type == "combat" and killfeed_channel:
 
@@ -666,15 +669,28 @@ async def parse_adm():
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
-            await killfeed_channel.send(embed=style_embed(embed))
+            await killfeed_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= RAID =================
 
         elif event_type == "raid" and raid_channel:
 
-            coords_match = re.search(r'pos=<([^>]+)>', line, re.IGNORECASE)
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line,
+                re.IGNORECASE
+            )
 
-            coords = coords_match.group(1) if coords_match else "Unknown"
+            coords = (
+                coords_match.group(1)
+                if coords_match else "Unknown"
+            )
 
-            territory_heat[coords] = territory_heat.get(coords, 0) + 1
+            territory_heat[coords] = (
+                territory_heat.get(coords, 0) + 1
+            )
 
             embed = discord.Embed(
                 title="🚨 RAID DETECTED",
@@ -682,11 +698,17 @@ async def parse_adm():
                 color=0xFF0000
             )
 
-            embed.add_field(name="🔥 Territory Heat", value=str(territory_heat[coords]), inline=False)
+            embed.add_field(
+                name="🔥 Territory Heat",
+                value=str(territory_heat[coords]),
+                inline=False
+            )
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
-            await raid_channel.send(embed=style_embed(embed))
+            await raid_channel.send(
+                embed=style_embed(embed)
+            )
 
 
 # ================= TASK LOOP =================
@@ -700,18 +722,23 @@ async def adm_loop():
 
     now = datetime.now(UTC)
 
-    success = await asyncio.to_thread(download_adm)
+    success = await asyncio.to_thread(
+        download_adm
+    )
 
     if success:
 
         LAST_CHANGE_TIME = now
+
         LIVE_MODE = True
 
         await parse_adm()
 
     else:
 
-        idle_time = (now - LAST_CHANGE_TIME).total_seconds()
+        idle_time = (
+            now - LAST_CHANGE_TIME
+        ).total_seconds()
 
         if idle_time >= 240:
             LIVE_MODE = False
@@ -727,7 +754,13 @@ async def on_ready():
 
     if os.path.exists(LOCAL_LOG_FILE):
 
-        with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        with open(
+            LOCAL_LOG_FILE,
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+
             existing_lines = f.readlines()
 
         if adm_state["last_line"] == 0:
@@ -739,12 +772,16 @@ async def on_ready():
 
             save_state()
 
-            print(f"STARTUP SYNCED TO {len(existing_lines)} LINES")
+            print(
+                f"STARTUP SYNCED TO "
+                f"{len(existing_lines)} LINES"
+            )
 
     await bot.tree.sync()
 
     try:
         adm_loop.start()
+
     except RuntimeError:
         pass
 
@@ -754,12 +791,21 @@ async def on_ready():
 # ================= ONLINE =================
 
 
-@bot.tree.command(name="online", description="View online players")
+@bot.tree.command(
+    name="online",
+    description="View online players"
+)
 async def online(interaction: discord.Interaction):
 
     if online_players:
-        players = "\n".join(f"• {x}" for x in sorted(online_players))
+
+        players = "\n".join(
+            f"• {x}"
+            for x in sorted(online_players)
+        )
+
     else:
+
         players = "No players online."
 
     embed = discord.Embed(
@@ -768,7 +814,9 @@ async def online(interaction: discord.Interaction):
         color=0x2ECC71
     )
 
-    await interaction.response.send_message(embed=style_embed(embed))
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
 
 
 # ================= START =================
