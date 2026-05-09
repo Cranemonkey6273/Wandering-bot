@@ -31,7 +31,9 @@ CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
 NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
 
-SEARCH_DIR = "/dayzxb/config"
+# TRY THIS FIRST
+SEARCH_DIR = "/dayzxb_missions"
+
 LOCAL_LOG_FILE = "live.ADM"
 
 # ================= SAVE FILE =================
@@ -155,6 +157,7 @@ def nitrado_headers():
         "Authorization": f"Bearer {NITRADO_API_TOKEN}"
     }
 
+# ================= DEBUG FILE LIST =================
 
 def nitrado_file_list():
 
@@ -163,12 +166,18 @@ def nitrado_file_list():
         f"{NITRADO_SERVICE_ID}/gameservers/file_server/list"
     )
 
+    print(f"LIST URL: {url}")
+    print(f"SEARCH DIR: {SEARCH_DIR}")
+
     response = requests.get(
         url,
         headers=nitrado_headers(),
         params={"dir": SEARCH_DIR},
         timeout=30
     )
+
+    print(f"STATUS: {response.status_code}")
+    print(f"RESPONSE: {response.text}")
 
     if response.status_code != 200:
 
@@ -177,6 +186,7 @@ def nitrado_file_list():
 
     return response.json().get("data", {}).get("entries", [])
 
+# ================= DOWNLOAD FILE =================
 
 def nitrado_download_file(filepath):
 
@@ -205,15 +215,21 @@ def nitrado_download_file(filepath):
     )
 
     if not download_url:
+
+        print("NO DOWNLOAD URL")
         return False
 
     file_response = requests.get(download_url, timeout=60)
 
     if file_response.status_code != 200:
+
+        print("DOWNLOAD FAILED")
         return False
 
     with open(LOCAL_LOG_FILE, "wb") as f:
         f.write(file_response.content)
+
+    print("ADM DOWNLOADED")
 
     return True
 
