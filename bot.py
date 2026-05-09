@@ -413,11 +413,43 @@ def find_active_adm():
             current_adm = newest_adm
             current_adm_size = best["size"]
 
-            adm_state["last_line"] = 0
-            adm_state["last_text"] = ""
             adm_state["file"] = None
             adm_state["last_modified"] = ""
             adm_state["last_logged_file"] = current_adm
+
+            # ================= IMPORTANT =================
+            # Sync to END of newly created ADM
+            # Prevents replaying old startup events
+            # Nitrado writes old events before new ADM becomes live
+            # =================================================
+
+            try:
+
+                ftp_sync = connect_ftp()
+                ftp_sync.cwd(SEARCH_DIR)
+
+                sync_lines = []
+
+                ftp_sync.retrlines(
+                    f"RETR {best['name']}",
+                    sync_lines.append
+                )
+
+                ftp_sync.quit()
+
+                adm_state["last_line"] = len(sync_lines)
+
+                if sync_lines:
+                    adm_state["last_text"] = sync_lines[-1].strip()
+                else:
+                    adm_state["last_text"] = ""
+
+            except Exception as e:
+
+                print(f"NEW ADM SYNC ERROR: {e}")
+
+                adm_state["last_line"] = 0
+                adm_state["last_text"] = ""
 
             save_state()
 
