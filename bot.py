@@ -69,6 +69,8 @@ processed_lines = set()
 MAX_PROCESSED_LINES = 5000
 
 current_adm = None
+current_adm_size = 0
+
 online_players = set()
 
 # ================= SWEAR TRACKER =================
@@ -169,6 +171,7 @@ def connect_ftp():
 def find_active_adm():
 
     global current_adm
+    global current_adm_size
 
     try:
 
@@ -178,47 +181,149 @@ def find_active_adm():
 
         files = ftp.nlst()
 
-        adm_files = []
+        candidates = []
 
         for file in files:
 
-            if file.endswith(".ADM"):
+            if not file.endswith(".ADM"):
+                continue
 
-                try:
+            try:
 
-                    modified = ftp.sendcmd(f"MDTM {file}")
+                ftp.voidcmd("TYPE I")
 
-                    timestamp = modified[4:].strip()
+                size = ftp.size(file)
 
-                    adm_files.append((file, timestamp))
+                modified = ftp.sendcmd(
+                    f"MDTM {file}"
+                )
 
-                    print(f"FOUND ADM: {file} | {timestamp}")
+                timestamp = modified[4:].strip()
 
-                except Exception as e:
+                # IGNORE EMPTY FILES
+                if size < 500:
+                    continue
 
-                    print(f"FAILED MDTM: {file} | {e}")
+                candidates.append({
+                    "name": file,
+                    "size": size,
+                    "timestamp": timestamp
+                })
 
-        if not adm_files:
+                print(
+                    f"FOUND ADM: {file} | "
+                    f"SIZE: {size} | "
+                    f"{timestamp}"
+                )
+
+            except Exception as e:
+
+                print(
+                    f"FAILED ADM: {file} | {e}"
+                )
+
+        if not candidates:
 
             ftp.quit()
             return None
 
-        adm_files.sort(
-            key=lambda x: x[1],
+        # =========================
+        # SORT NEWEST FIRST
+        # =========================
+
+        candidates.sort(
+            key=lambda x: x["timestamp"],
             reverse=True
         )
 
-        newest_file = adm_files[0][0]
+        best = None
 
-        new_path = f"{SEARCH_DIR}/{newest_file}"
+        for adm in candidates:
+
+            filename = adm["name"]
+
+            temp_lines = []
+
+            try:
+
+                ftp.retrlines(
+                    f"RETR {filename}",
+                    temp_lines.append
+                )
+
+                recent = "\n".join(
+                    temp_lines[-50:]
+                )
+
+                # =========================
+                # DEAD FILE CHECK
+                # =========================
+
+                if (
+                    "Termination successfully completed"
+                    in recent
+                ):
+
+                    print(
+                        f"DEAD ADM: {filename}"
+                    )
+
+                    continue
+
+                # =========================
+                # ACTIVE FILE CHECK
+                # =========================
+
+                if (
+                    "AdminLog started on"
+                    in recent
+                    or len(temp_lines) > 100
+                ):
+
+                    best = adm
+
+                    break
+
+            except Exception as e:
+
+                print(
+                    f"READ CHECK FAILED: "
+                    f"{filename} | {e}"
+                )
+
+        # FALLBACK TO BIGGEST
+        if not best:
+
+            candidates.sort(
+                key=lambda x: x["size"],
+                reverse=True
+            )
+
+            best = candidates[0]
+
+        new_path = (
+            f"{SEARCH_DIR}/{best['name']}"
+        )
+
+        # =========================
+        # SWITCH TO NEW ACTIVE ADM
+        # =========================
 
         if current_adm != new_path:
 
-            print(f"NEWER ADM DETECTED: {new_path}")
+            print(
+                f"NEW ACTIVE ADM: {new_path}"
+            )
 
             current_adm = new_path
+            current_adm_size = best["size"]
 
-        print(f"ACTIVE ADM: {current_adm}")
+            processed_lines.clear()
+
+        print(
+            f"ACTIVE ADM: {current_adm} | "
+            f"SIZE: {current_adm_size}"
+        )
 
         ftp.quit()
 
