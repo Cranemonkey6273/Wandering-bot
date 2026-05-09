@@ -494,10 +494,7 @@ async def inventory(interaction: discord.Interaction):
     inventory_items = player.get("inventory", [])
 
     if not inventory_items:
-        inventory_text = "Empty"
-    else:
-        inventory_text = "
-".join(inventory_items)
+        inventory_text = "\n".join(inventory_items)
 
     embed = discord.Embed(
         title="🎒 Inventory",
