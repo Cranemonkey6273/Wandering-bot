@@ -71,7 +71,8 @@ adm_state = {
     "file": None,
     "last_line": 0,
     "last_text": "",
-    "last_modified": ""
+    "last_modified": "",
+    "last_logged_file": ""
 }
 
 current_adm = None
@@ -306,12 +307,6 @@ def find_active_adm():
                     "size": size
                 })
 
-                print(
-                    f"VALID ADM: {file} | "
-                    f"{file_datetime} | "
-                    f"SIZE: {size}"
-                )
-
             except Exception as e:
 
                 print(
@@ -338,9 +333,13 @@ def find_active_adm():
 
         current_adm_size = best["size"]
 
-        print(
-            f"ACTIVE ADM: {current_adm}"
-        )
+        if current_adm != adm_state.get("last_logged_file"):
+
+            print(
+                f"ACTIVE ADM: {current_adm}"
+            )
+
+            adm_state["last_logged_file"] = current_adm
 
         return current_adm
 
