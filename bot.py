@@ -230,8 +230,7 @@ def find_active_adm():
                 except Exception:
                     continue
 
-                recent_text = "
-".join(
+                recent_text = "\n".join(
                     temp_lines[-50:]
                 )
 
