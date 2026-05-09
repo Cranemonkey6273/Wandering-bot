@@ -176,6 +176,10 @@ def nitrado_file_list():
         f"{NITRADO_SERVICE_ID}/gameservers/file_server/list"
     )
 
+    print(f"URL: {url}")
+    print(f"TOKEN EXISTS: {bool(NITRADO_API_TOKEN)}")
+    print(f"SERVICE ID: {NITRADO_SERVICE_ID}")
+
     for search_dir in SEARCH_DIRS:
 
         try:
@@ -190,6 +194,7 @@ def nitrado_file_list():
             )
 
             print(f"STATUS: {response.status_code}")
+            print(f"BODY: {response.text}")
 
             if response.status_code != 200:
                 continue
@@ -232,6 +237,8 @@ def nitrado_download_file(filepath):
     if response.status_code != 200:
 
         print(f"NITRADO DOWNLOAD ERROR: {response.status_code}")
+        print(response.text)
+
         return False
 
     download_url = (
