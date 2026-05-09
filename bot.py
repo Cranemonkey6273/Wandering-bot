@@ -5,7 +5,6 @@ import discord
 import json
 import requests
 
-# FTP REMOVED - USING NITRADO API ONLY
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from supabase import create_client
@@ -27,20 +26,13 @@ RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
-# ================= FTP =================
-
-FTP_HOST = os.getenv("FTP_HOST")
-FTP_USER = os.getenv("FTP_USER")
-FTP_PASS = os.getenv("FTP_PASS")
-FTP_PORT = int(os.getenv("FTP_PORT", 21))
-
-SEARCH_DIR = "/dayzxb/config"
-LOCAL_LOG_FILE = "live.ADM"
-
 # ================= NITRADO API =================
 
 NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
 NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
+
+SEARCH_DIR = "/dayzxb/config"
+LOCAL_LOG_FILE = "live.ADM"
 
 # ================= SAVE FILE =================
 
@@ -109,7 +101,6 @@ IGNORE_PATTERNS = [
 
 # ================= STATE SAVE =================
 
-
 def save_state():
 
     try:
@@ -137,9 +128,7 @@ def load_state():
     except Exception as e:
         print(f"STATE LOAD ERROR: {e}")
 
-
 # ================= HELPERS =================
-
 
 def should_ignore(line):
 
@@ -228,9 +217,7 @@ def nitrado_download_file(filepath):
 
     return True
 
-
 # ================= EVENT CLASSIFIER =================
-
 
 def classify_event(line):
 
@@ -239,19 +226,13 @@ def classify_event(line):
     if "disconnected" in lower:
         return "disconnect"
 
-    if (
-        "connecting" in lower
-        or "connected" in lower
-    ):
+    if "connecting" in lower or "connected" in lower:
         return "connect"
 
     if "killed" in lower:
         return "kill"
 
-    if (
-        "hit by" in lower
-        or "hit player" in lower
-    ):
+    if "hit by" in lower or "hit player" in lower:
         return "hit"
 
     if (
@@ -280,9 +261,7 @@ def classify_event(line):
 
     return None
 
-
 # ================= ACTIVE ADM FINDER =================
-
 
 def extract_filename_datetime(filename):
 
@@ -307,7 +286,6 @@ def extract_filename_datetime(filename):
         )
 
     except Exception:
-
         return None
 
 
@@ -318,39 +296,76 @@ def find_active_adm():
 
     try:
 
-        filename = os.path.basename(active_adm)
+        entries = nitrado_file_list()
 
-        current_size = current_adm_size + 1
+        adm_files = []
 
-        if current_size <= current_adm_size:
+        for entry in entries:
 
-            ftp.quit()
+            name = entry.get("name", "")
+
+            if not name.endswith(".ADM"):
+                continue
+
+            size = int(entry.get("size", 0))
+
+            full_path = f"{SEARCH_DIR}/{name}"
+
+            adm_files.append({
+                "name": name,
+                "path": full_path,
+                "size": size,
+                "dt": extract_filename_datetime(name)
+            })
+
+        if not adm_files:
+
+            print("NO ADM FILES FOUND")
             return False
 
-        current_adm_size = current_size
+        adm_files.sort(
+            key=lambda x: (
+                x["dt"] or datetime.min,
+                x["size"]
+            ),
+            reverse=True
+        )
 
-        download_success = nitrado_download_file(active_adm)
+        active = adm_files[0]
 
-        if not download_success:
+        current_adm = active["path"]
+
+        if active["size"] <= current_adm_size:
+
+            print("ADM NOT GROWING")
             return False
 
-        ftp.quit()
+        current_adm_size = active["size"]
 
-        print(f"ADM UPDATED: {filename}")
+        success = nitrado_download_file(current_adm)
+
+        if not success:
+
+            print("ADM DOWNLOAD FAILED")
+            return False
+
+        print(f"ACTIVE ADM: {active['name']}")
+        print(f"ADM SIZE: {active['size']}")
 
         return True
 
- current_size = current_adm_size + 1t.user}")
+    except Exception as e:
 
+        print(f"ACTIVE ADM ERROR: {e}")
+        return False
 
 # ================= ONLINE =================
-
 
 @bot.tree.command(
     name="online",
     description="View online players"
 )
-async def online(in discord.Interaction):
+async def online(interaction: discord.Interaction):
 
     if online_players:
 
@@ -372,7 +387,6 @@ async def online(in discord.Interaction):
     await interaction.response.send_message(
         embed=style_embed(embed)
     )
-
 
 # ================= START =================
 
