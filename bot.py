@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 from supabase import create_client
 from openai import AsyncOpenAI
 
-#================= CONFIG =================
+# ================= CONFIG =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
