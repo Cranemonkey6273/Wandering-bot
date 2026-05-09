@@ -213,9 +213,27 @@ def find_active_adm():
 
         files = ftp.nlst()
 
+        today = datetime.utcnow().strftime(
+            "%Y-%m-%d"
+        )
+
+        yesterday = (
+            datetime.utcnow()
+        ).replace(
+            day=datetime.utcnow().day - 1
+        ).strftime(
+            "%Y-%m-%d"
+        )
+
         adm_candidates = []
 
         for file in files:
+
+            if not (
+                today in file
+                or yesterday in file
+            ):
+                continue
 
             if not re.match(
                 r'^DayZServer_[A-Z0-9]+_x64_'
