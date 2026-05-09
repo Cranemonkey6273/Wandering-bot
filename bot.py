@@ -35,7 +35,12 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-SEARCH_DIR = "/dayzxb/config"
+# IMPORTANT:
+# Nitrado FTP already starts
+# inside your server root
+
+SEARCH_DIR = "config"
+
 LOCAL_LOG_FILE = "live.ADM"
 
 # ================= DISCORD =================
@@ -79,7 +84,6 @@ current_adm_size = 0
 online_players = set()
 swear_tracker = {}
 delivery_queue = []
-adm_growth_tracker = {}
 
 SHOP_ITEMS = {
     "water": 10,
@@ -132,13 +136,11 @@ def should_ignore(line):
     return False
 
 
-
 def style_embed(embed):
 
     embed.timestamp = datetime.now(UTC)
 
     return embed
-
 
 
 def connect_ftp():
@@ -168,10 +170,6 @@ def connect_ftp():
 
 
 # ================= ACTIVE ADM FINDER =================
-
-
-import re
-from datetime import datetime
 
 
 def extract_filename_datetime(filename):
@@ -356,45 +354,6 @@ def find_active_adm():
 
         return current_adm
 
-        active_candidates.sort(
-            key=lambda x: x["score"],
-            reverse=True
-        )
-
-        best = active_candidates[0]
-
-        new_path = (
-            f"{SEARCH_DIR}/{best['name']}"
-        )
-
-        if current_adm != new_path:
-
-            print(
-                f"NEW ACTIVE ADM DETECTED: {new_path}"
-            )
-
-            processed_lines.clear()
-            adm_state["last_line"] = 0
-
-        current_adm = new_path
-        current_adm_size = best["size"]
-
-        print(
-            f"ACTIVE ADM: {current_adm} | "
-            f"SIZE: {current_adm_size} | "
-            f"GROWTH: {best['growth']}"
-        )
-
-        ftp.quit()
-
-        return current_adm
-
-    except Exception as e:
-
-        print(f"ADM SEARCH ERROR: {e}")
-
-        return current_adm
-
 
 # ================= DOWNLOAD ADM =================
 
@@ -412,7 +371,11 @@ def download_adm():
 
         ftp = connect_ftp()
 
-        filename = os.path.basename(active_adm)
+        ftp.cwd("config")
+
+        filename = os.path.basename(
+            active_adm
+        )
 
         modified = ftp.sendcmd(
             f"MDTM {filename}"
@@ -431,10 +394,13 @@ def download_adm():
 
             return False
 
-        with open(LOCAL_LOG_FILE, "wb") as f:
+        with open(
+            LOCAL_LOG_FILE,
+            "wb"
+        ) as f:
 
             ftp.retrbinary(
-                f"RETR {active_adm}",
+                f"RETR {filename}",
                 f.write
             )
 
@@ -443,7 +409,9 @@ def download_adm():
         adm_state["file"] = active_adm
         adm_state["last_modified"] = timestamp
 
-        print("ADM UPDATED AND DOWNLOADED")
+        print(
+            f"ADM UPDATED AND DOWNLOADED: {filename}"
+        )
 
         return True
 
