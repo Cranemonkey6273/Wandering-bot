@@ -448,28 +448,43 @@ def download_adm():
 
         filename = os.path.basename(active_adm)
 
-        modified = ftp.sendcmd(f"MDTM {filename}")
+        # FORCE BINARY MODE
+        ftp.voidcmd("TYPE I")
+
+        # GET LIVE FILE SIZE
+        current_size = ftp.size(filename)
+
+        # GET LAST MODIFIED
+        modified = ftp.sendcmd(
+            f"MDTM {filename}"
+        )
 
         timestamp = modified[4:].strip()
 
-        # FIXED ASCII MODE ISSUE
-        ftp.voidcmd("TYPE I")
-
-        current_size = ftp.size(filename)
-
+        # ONLY SKIP IF FILE HAS NOT GROWN
         if (
             adm_state["file"] == active_adm
-            and adm_state["last_modified"] == timestamp
-            and current_size == current_adm_size
+            and current_size <= current_adm_size
         ):
 
             ftp.quit()
+
             return False
+
+        print(
+            f"ADM GROWTH DETECTED | "
+            f"{current_adm_size} -> {current_size}"
+        )
 
         current_adm_size = current_size
 
+        # DOWNLOAD UPDATED ADM
         with open(LOCAL_LOG_FILE, "wb") as f:
-            ftp.retrbinary(f"RETR {filename}", f.write)
+
+            ftp.retrbinary(
+                f"RETR {filename}",
+                f.write
+            )
 
         ftp.quit()
 
