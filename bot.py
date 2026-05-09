@@ -592,8 +592,10 @@ async def parse_adm():
 
                 embed = discord.Embed(
                     title="🔴 Survivor Disconnected",
-                    description=f"`{player_name}`
-⏱️ Session: {session_hours} hrs",
+                    description=(
+                        f"`{player_name}`\n"
+                        f"⏱️ Session: {session_hours} hrs"
+                    ),
                     color=0xE74C3C
                 )
 
@@ -715,8 +717,7 @@ async def on_ready():
 async def online(interaction: discord.Interaction):
 
     if online_players:
-        players = "
-".join(f"• {x}" for x in sorted(online_players))
+        players = "\n".join(f"• {x}" for x in sorted(online_players))
     else:
         players = "No players online."
 
