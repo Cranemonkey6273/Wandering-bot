@@ -716,6 +716,166 @@ async def balance(interaction: discord.Interaction):
     )
 
 
+# ================= DELIVERY SYSTEM =================
+
+DELIVERY_FILE = "deliveries.json"
+
+
+async def queue_delivery(player_name, item_name):
+
+    import json
+
+    delivery = {
+        "player": player_name,
+        "item": item_name,
+        "time": str(datetime.now(UTC))
+    }
+
+    delivery_queue.append(delivery)
+
+    try:
+
+        with open(DELIVERY_FILE, "w") as f:
+            json.dump(delivery_queue, f, indent=4)
+
+    except Exception as e:
+
+        print(f"DELIVERY WRITE ERROR: {e}")
+
+
+# ================= SHOP COMMANDS =================
+
+
+@bot.tree.command(
+    name="shop",
+    description="View the shop"
+)
+async def shop(interaction: discord.Interaction):
+
+    desc = ""
+
+    for item, price in SHOP_ITEMS.items():
+        desc += f"{item} — ${price}\n"
+
+    embed = discord.Embed(
+        title="🛒 Survivor Shop",
+        description=desc,
+        color=0x2ECC71
+    )
+
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
+
+
+@bot.tree.command(
+    name="buy",
+    description="Buy an item"
+)
+@app_commands.describe(item="Item name")
+async def buy(
+    interaction: discord.Interaction,
+    item: str
+):
+
+    item = item.lower()
+
+    if item not in SHOP_ITEMS:
+
+        await interaction.response.send_message(
+            "❌ Item not found.",
+            ephemeral=True
+        )
+
+        return
+
+    await ensure_player(
+        str(interaction.user.id),
+        interaction.user.name
+    )
+
+    player = await get_player(
+        str(interaction.user.id)
+    )
+
+    cost = SHOP_ITEMS[item]
+
+    if player["scrap"] < cost:
+
+        await interaction.response.send_message(
+            "❌ Not enough scrap.",
+            ephemeral=True
+        )
+
+        return
+
+    inventory = player.get("inventory", [])
+
+    inventory.append(item)
+
+    supabase.table(
+        "player_data"
+    ).update({
+        "scrap": player["scrap"] - cost,
+        "inventory": inventory
+    }).eq(
+        "discord_id",
+        str(interaction.user.id)
+    ).execute()
+
+    await queue_delivery(
+        interaction.user.name,
+        item
+    )
+
+    embed = discord.Embed(
+        title="📦 Purchase Successful",
+        description=(
+            f"Bought: {item}\n"
+            f"Cost: ${cost}\n"
+            f"Added to delivery queue"
+        ),
+        color=0x3498DB
+    )
+
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
+
+
+@bot.tree.command(
+    name="inventory",
+    description="View inventory"
+)
+async def inventory(interaction: discord.Interaction):
+
+    await ensure_player(
+        str(interaction.user.id),
+        interaction.user.name
+    )
+
+    player = await get_player(
+        str(interaction.user.id)
+    )
+
+    inventory_items = player.get("inventory", [])
+
+    if not inventory_items:
+        inventory_text = "Empty"
+    else:
+        inventory_text = "\n".join(inventory_items)
+
+    embed = discord.Embed(
+        title="🎒 Inventory",
+        description=inventory_text,
+        color=0x9B59B6
+    )
+
+    await interaction.response.send_message(
+        embed=style_embed(embed)
+    )
+
+
 # ================= START =================
 
 bot.run(DISCORD_TOKEN)
