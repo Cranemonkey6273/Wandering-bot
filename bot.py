@@ -37,6 +37,11 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 SEARCH_DIR = "/dayzxb/config"
 LOCAL_LOG_FILE = "live.ADM"
 
+# ================= NITRADO API =================
+
+NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
+NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
+
 # ================= SAVE FILE =================
 
 STATE_FILE = "adm_state.json"
