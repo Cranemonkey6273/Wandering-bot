@@ -470,6 +470,7 @@ def find_active_adm():
 def download_adm():
 
     global adm_state
+    global current_adm_size
 
     try:
 
@@ -488,10 +489,18 @@ def download_adm():
 
         timestamp = modified[4:].strip()
 
-        if adm_state["file"] == active_adm and adm_state["last_modified"] == timestamp:
+        current_size = ftp.size(filename)
+
+        if (
+            adm_state["file"] == active_adm
+            and adm_state["last_modified"] == timestamp
+            and current_size == current_adm_size
+        ):
 
             ftp.quit()
             return False
+
+        current_adm_size = current_size
 
         with open(LOCAL_LOG_FILE, "wb") as f:
             ftp.retrbinary(f"RETR {filename}", f.write)
@@ -683,7 +692,7 @@ async def parse_adm():
 # ================= TASK LOOP =================
 
 
-@tasks.loop(seconds=5)
+@tasks.loop(seconds=2)
 async def adm_loop():
 
     global LAST_CHANGE_TIME
