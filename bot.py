@@ -43,10 +43,10 @@ FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
 SEARCH_PATHS = [
-    "/dayzxb/config",
-    "/dayzxb",
-    "/config",
-    "/profiles"
+    ".",
+    "config",
+    "profiles",
+    "logs"
 ]
 
 LOCAL_LOG_FILE = "live.ADM"
@@ -87,8 +87,13 @@ def home():
     """
 
 def run_web():
+
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+
+    app.run(
+        host="0.0.0.0",
+        port=port
+    )
 
 # ================= OPENAI =================
 
@@ -166,6 +171,27 @@ def connect_ftp():
 
     ftp.prot_p()
 
+    print("FTP CONNECTED")
+
+    try:
+
+        current_dir = ftp.pwd()
+
+        print(f"CURRENT DIR: {current_dir}")
+
+        files = []
+
+        ftp.retrlines("NLST", files.append)
+
+        print("ROOT FILES/FOLDERS:")
+
+        for f in files:
+            print(f)
+
+    except Exception as e:
+
+        print(f"FTP ROOT DEBUG ERROR: {e}")
+
     return ftp
 
 # ================= RCON =================
@@ -206,7 +232,7 @@ async def rcon_loop():
 
             await asyncio.sleep(15)
 
-# ================= ADM FINDER =================
+# ================= ADM HELPERS =================
 
 def reset_parser_state():
 
@@ -217,6 +243,8 @@ def reset_parser_state():
     processed_lines.clear()
 
     print("PARSER RESET")
+
+# ================= ADM FINDER =================
 
 def find_active_adm():
 
@@ -285,6 +313,8 @@ def find_active_adm():
                     })
 
                     print(f"FOUND ADM: {file} | SIZE: {size}")
+
+                ftp.cwd("/")
 
             except Exception as e:
 
