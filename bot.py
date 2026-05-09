@@ -47,8 +47,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(
-command_prefix="!",
-intents=intents
+    command_prefix="!",
+    intents=intents
 )
 
 # ================= OPENAI =================
@@ -58,8 +58,8 @@ client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 # ================= SUPABASE =================
 
 supabase = create_client(
-SUPABASE_URL,
-SUPABASE_KEY
+    SUPABASE_URL,
+    SUPABASE_KEY
 )
 
 # ================= GLOBALS =================
@@ -68,11 +68,11 @@ processed_lines = set()
 MAX_PROCESSED_LINES = 10000
 
 adm_state = {
-"file": None,
-"last_line": 0,
-"last_text": "",
-"last_modified": "",
-"last_logged_file": ""
+    "file": None,
+    "last_line": 0,
+    "last_text": "",
+    "last_modified": "",
+    "last_logged_file": ""
 }
 
 LAST_CHANGE_TIME = datetime.now(UTC)
@@ -88,87 +88,92 @@ territory_heat = {}
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 IGNORE_PATTERNS = [
-"[CE]",
-"LootRespawner",
-"PRIDummy",
-"causing search overtime",
-"Ammo_40mm_Explosive",
-"ConstructionHelmet",
-"script",
-"crash",
-"weather",
-"storage",
-"economy",
-"infected"
+    "[CE]",
+    "LootRespawner",
+    "PRIDummy",
+    "causing search overtime",
+    "Ammo_40mm_Explosive",
+    "ConstructionHelmet",
+    "script",
+    "crash",
+    "weather",
+    "storage",
+    "economy",
+    "infected"
 ]
 
 # ================= STATE SAVE =================
 
 def save_state():
 
-try:
+    try:
 
-    with open(STATE_FILE, "w") as f:
-        json.dump(adm_state, f)
+        with open(STATE_FILE, "w") as f:
+            json.dump(adm_state, f)
 
-except Exception as e:
-    print(f"STATE SAVE ERROR: {e}")
+    except Exception as e:
+        print(f"STATE SAVE ERROR: {e}")
+
 
 def load_state():
 
-global adm_state
+    global adm_state
 
-try:
+    try:
 
-    if os.path.exists(STATE_FILE):
+        if os.path.exists(STATE_FILE):
 
-        with open(STATE_FILE, "r") as f:
-            adm_state = json.load(f)
+            with open(STATE_FILE, "r") as f:
+                adm_state = json.load(f)
 
-        print("STATE LOADED")
+            print("STATE LOADED")
 
-except Exception as e:
-    print(f"STATE LOAD ERROR: {e}")
+    except Exception as e:
+        print(f"STATE LOAD ERROR: {e}")
+
+
 # ================= HELPERS =================
 
 def should_ignore(line):
 
-lower = line.lower()
+    lower = line.lower()
 
-for pattern in IGNORE_PATTERNS:
+    for pattern in IGNORE_PATTERNS:
 
-    if pattern.lower() in lower:
-        return True
+        if pattern.lower() in lower:
+            return True
 
-return False
+    return False
+
 
 def style_embed(embed):
 
-embed.timestamp = datetime.now(UTC)
+    embed.timestamp = datetime.now(UTC)
 
-return embed
+    return embed
+
 
 def connect_ftp():
 
-ftp = FTP_TLS()
+    ftp = FTP_TLS()
 
-ftp.connect(
-    FTP_HOST,
-    FTP_PORT,
-    timeout=30
-)
+    ftp.connect(
+        FTP_HOST,
+        FTP_PORT,
+        timeout=30
+    )
 
-ftp.login(
-    FTP_USER,
-    FTP_PASS
-)
+    ftp.login(
+        FTP_USER,
+        FTP_PASS
+    )
 
-try:
-    ftp.prot_p()
+    try:
+        ftp.prot_p()
 
-except Exception as e:
-    print(f"FTP TLS WARNING: {e}")
+    except Exception as e:
+        print(f"FTP TLS WARNING: {e}")
 
-ftp.set_pasv(True)
+    ftp.set_pasv(True)
 
-return ftp
+    return ftp
