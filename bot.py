@@ -5,7 +5,7 @@ import asyncio
 import discord
 
 from ftplib import FTP_TLS
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from discord.ext import commands, tasks
 from discord import app_commands
 from supabase import create_client
@@ -213,14 +213,14 @@ def find_active_adm():
 
         files = ftp.nlst()
 
-        today = datetime.utcnow().strftime(
+        today_dt = datetime.now(UTC)
+
+        today = today_dt.strftime(
             "%Y-%m-%d"
         )
 
         yesterday = (
-            datetime.utcnow()
-        ).replace(
-            day=datetime.utcnow().day - 1
+            today_dt - timedelta(days=1)
         ).strftime(
             "%Y-%m-%d"
         )
