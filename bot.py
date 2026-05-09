@@ -42,7 +42,12 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-SEARCH_DIR = "/dayzxb/config"
+SEARCH_PATHS = [
+    "/dayzxb/config",
+    "/dayzxb",
+    "/config",
+    "/profiles"
+]
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -107,7 +112,6 @@ current_adm_size = 0
 last_position = 0
 growth_fail_count = 0
 
-MIN_ADM_SIZE = 500
 MAX_FAILS_BEFORE_SWITCH = 8
 
 online_players = set()
@@ -128,20 +132,25 @@ IGNORE_PATTERNS = [
 # ================= HELPERS =================
 
 def should_ignore(line):
+
     lower = line.lower()
 
     for pattern in IGNORE_PATTERNS:
+
         if pattern.lower() in lower:
             return True
 
     return False
 
 def style_embed(embed):
+
     embed.timestamp = datetime.now(UTC)
     embed.set_thumbnail(url=BOT_IMAGE)
+
     return embed
 
 def connect_ftp():
+
     ftp = FTP_TLS()
 
     ftp.connect(
@@ -183,9 +192,10 @@ async def rcon_loop():
 
                         players = await client.command("players")
 
-                        print(players)
+                        print(f"RCON PLAYERS:\n{players}")
 
                     except Exception as e:
+
                         print(f"RCON COMMAND ERROR: {e}")
 
                     await asyncio.sleep(30)
@@ -198,6 +208,16 @@ async def rcon_loop():
 
 # ================= ADM FINDER =================
 
+def reset_parser_state():
+
+    global last_position
+    global processed_lines
+
+    last_position = 0
+    processed_lines.clear()
+
+    print("PARSER RESET")
+
 def find_active_adm():
 
     global current_adm
@@ -208,54 +228,74 @@ def find_active_adm():
 
         ftp = connect_ftp()
 
-        ftp.cwd(SEARCH_DIR)
-
-        files = []
-
-        ftp.retrlines("NLST", files.append)
-
         adm_files = []
 
-        for file in files:
+        for path in SEARCH_PATHS:
 
-            if not file.endswith(".ADM"):
-                continue
+            try:
 
-            match = re.search(
-                r"(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})",
-                file
-            )
+                print(f"CHECKING PATH: {path}")
 
-            if not match:
-                continue
+                ftp.cwd(path)
 
-            dt_str = (
-                match.group(1)
-                + " "
-                + match.group(2).replace("-", ":")
-            )
+                files = []
 
-            file_dt = datetime.strptime(
-                dt_str,
-                "%Y-%m-%d %H:%M:%S"
-            )
+                ftp.retrlines("NLST", files.append)
 
-            ftp.voidcmd("TYPE I")
+                print(f"FILES FOUND: {len(files)}")
 
-            size = ftp.size(file)
+                for file in files:
 
-            adm_files.append({
-                "name": file,
-                "path": f"{SEARCH_DIR}/{file}",
-                "datetime": file_dt,
-                "size": size
-            })
+                    if not file.endswith(".ADM"):
+                        continue
 
-            print(f"FOUND ADM: {file} | SIZE: {size}")
+                    match = re.search(
+                        r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
+                        file
+                    )
+
+                    if not match:
+                        continue
+
+                    dt_str = (
+                        match.group(1)
+                        + " "
+                        + match.group(2).replace("-", ":")
+                    )
+
+                    try:
+
+                        file_dt = datetime.strptime(
+                            dt_str,
+                            "%Y-%m-%d %H:%M:%S"
+                        )
+
+                    except:
+                        continue
+
+                    ftp.voidcmd("TYPE I")
+
+                    size = ftp.size(file)
+
+                    adm_files.append({
+                        "name": file,
+                        "path": f"{path}/{file}",
+                        "datetime": file_dt,
+                        "size": size
+                    })
+
+                    print(f"FOUND ADM: {file} | SIZE: {size}")
+
+            except Exception as e:
+
+                print(f"PATH FAILED: {path} | {e}")
 
         ftp.quit()
 
         if not adm_files:
+
+            print("NO ADM FILES FOUND")
+
             return None
 
         adm_files.sort(
@@ -268,6 +308,8 @@ def find_active_adm():
         newest_path = newest["path"]
         newest_size = newest["size"]
 
+        print(f"NEWEST ADM: {newest_path}")
+
         if current_adm is None:
 
             current_adm = newest_path
@@ -277,28 +319,9 @@ def find_active_adm():
 
             return current_adm
 
-        if newest_path == current_adm:
+        if newest_path != current_adm:
 
-            if newest_size > current_adm_size:
-
-                current_adm_size = newest_size
-                growth_fail_count = 0
-
-                print(f"ADM GROWING: {newest_size}")
-
-            else:
-
-                growth_fail_count += 1
-
-                print(f"ADM NOT GROWING: {growth_fail_count}")
-
-            return current_adm
-
-        print(f"NEW ADM DETECTED: {newest_path}")
-
-        if newest_size >= MIN_ADM_SIZE:
-
-            print(f"SWITCHING TO NEW ADM: {newest_path}")
+            print(f"NEW ADM DETECTED: {newest_path}")
 
             current_adm = newest_path
             current_adm_size = newest_size
@@ -306,15 +329,28 @@ def find_active_adm():
             reset_parser_state()
 
             return current_adm
+
+        if newest_size > current_adm_size:
+
+            growth_fail_count = 0
+            current_adm_size = newest_size
+
+            print(f"ADM GROWING: {newest_size}")
+
+        else:
+
+            growth_fail_count += 1
+
+            print(
+                f"ADM NOT GROWING | FAIL COUNT: {growth_fail_count}"
+            )
 
         if growth_fail_count >= MAX_FAILS_BEFORE_SWITCH:
 
-            current_adm = newest_path
-            current_adm_size = newest_size
+            print("FORCING ADM RECHECK")
 
-            reset_parser_state()
-
-            return current_adm
+            current_adm = None
+            growth_fail_count = 0
 
         return current_adm
 
@@ -322,7 +358,7 @@ def find_active_adm():
 
         print(f"ADM FINDER ERROR: {e}")
 
-        return current_adm
+        return None
 
 # ================= DOWNLOAD =================
 
@@ -333,13 +369,20 @@ def download_adm():
         active_adm = find_active_adm()
 
         if not active_adm:
+
+            print("NO ACTIVE ADM")
+
             return False
+
+        path_parts = active_adm.split("/")
+
+        filename = path_parts[-1]
+
+        folder = "/".join(path_parts[:-1])
 
         ftp = connect_ftp()
 
-        ftp.cwd(SEARCH_DIR)
-
-        filename = os.path.basename(active_adm)
+        ftp.cwd(folder)
 
         with open(LOCAL_LOG_FILE, "wb") as f:
 
@@ -350,7 +393,9 @@ def download_adm():
 
         ftp.quit()
 
-        print(f"ADM DOWNLOADED: {filename}")
+        size = os.path.getsize(LOCAL_LOG_FILE)
+
+        print(f"ADM DOWNLOADED | SIZE: {size}")
 
         return True
 
@@ -360,21 +405,14 @@ def download_adm():
 
         return False
 
-# ================= PARSER =================
-
-def reset_parser_state():
-
-    global last_position
-    global processed_lines
-
-    last_position = 0
-    processed_lines.clear()
-
-    print("PARSER RESET")
+# ================= DISCORD SEND =================
 
 async def send_embed(channel_id, embed):
 
     try:
+
+        if not channel_id:
+            return
 
         channel = bot.get_channel(channel_id)
 
@@ -384,6 +422,8 @@ async def send_embed(channel_id, embed):
     except Exception as e:
 
         print(f"DISCORD SEND ERROR: {e}")
+
+# ================= LINE PROCESSOR =================
 
 async def process_line(line):
 
@@ -400,7 +440,7 @@ async def process_line(line):
 
     print(f"PARSED: {line}")
 
-    # ================= RESTART DETECTION =================
+    # ================= RESTART =================
 
     if "AdminLog started" in line:
 
@@ -519,6 +559,8 @@ async def process_line(line):
             style_embed(embed)
         )
 
+# ================= PARSER =================
+
 async def parse_adm():
 
     global last_position
@@ -526,6 +568,9 @@ async def parse_adm():
     try:
 
         if not os.path.exists(LOCAL_LOG_FILE):
+
+            print("LOCAL ADM FILE MISSING")
+
             return
 
         with open(
@@ -541,6 +586,8 @@ async def parse_adm():
 
             last_position = f.tell()
 
+        print(f"ADM TOTAL LINES READ: {len(lines)}")
+
         for line in lines:
 
             line = line.strip()
@@ -548,7 +595,15 @@ async def parse_adm():
             if not line:
                 continue
 
-            await process_line(line)
+            try:
+
+                await process_line(line)
+
+            except Exception as e:
+
+                print(f"LINE PROCESS ERROR: {e}")
+
+        print("PARSE COMPLETE")
 
     except Exception as e:
 
@@ -561,11 +616,16 @@ async def adm_loop():
 
     try:
 
+        print("ADM LOOP RUNNING")
+
         success = await asyncio.to_thread(
             download_adm
         )
 
+        print(f"DOWNLOAD RESULT: {success}")
+
         if success:
+
             await parse_adm()
 
     except Exception as e:
@@ -587,6 +647,9 @@ async def on_ready():
     print(f"LOGGED IN AS {bot.user}")
 
     if not adm_loop.is_running():
+
+        print("STARTING ADM LOOP")
+
         adm_loop.start()
 
     asyncio.create_task(
