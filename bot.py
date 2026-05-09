@@ -770,8 +770,7 @@ async def shop(interaction: discord.Interaction):
     desc = ""
 
     for item, price in SHOP_ITEMS.items():
-        desc += f"{item} — ${price}\n
-"
+        desc += f"{item} - ${price}\n"
 
     embed = discord.Embed(
         title="🛒 Survivor Shop",
