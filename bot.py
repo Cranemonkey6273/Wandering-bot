@@ -351,30 +351,6 @@ def download_adm():
 
             return False
 
-        with open(LOCAL_LOG_FILE, "wb") as f:
-
-            ftp.retrbinary(
-                f"RETR {active_adm}",
-                f.write
-            )
-
-        ftp.quit()
-
-        adm_state["file"] = active_adm
-        adm_state["last_modified"] = timestamp
-
-        print("ADM UPDATED AND DOWNLOADED")
-
-        return True
-
-    except Exception as e:
-
-        print(f"DOWNLOAD ERROR: {e}")
-
-        return False
-
-        ftp = connect_ftp()
-
         with open(
             LOCAL_LOG_FILE,
             "r",
