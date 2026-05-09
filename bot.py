@@ -26,7 +26,7 @@ RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
-# ================= NITRADO API =================
+# ================= NITRADO =================
 
 NITRADO_API_TOKEN = os.getenv("NITRADO_API_TOKEN")
 NITRADO_SERVICE_ID = os.getenv("NITRADO_SERVICE_ID")
@@ -359,6 +359,43 @@ def find_active_adm():
         print(f"ACTIVE ADM ERROR: {e}")
         return False
 
+# ================= ADM MONITOR =================
+
+@tasks.loop(seconds=30)
+async def monitor_adm():
+
+    print("CHECKING ADM...")
+
+    success = find_active_adm()
+
+    if success:
+
+        print("ADM UPDATED")
+
+    else:
+
+        print("NO NEW ADM DATA")
+
+# ================= READY =================
+
+@bot.event
+async def on_ready():
+
+    print(f"LOGGED IN AS {bot.user}")
+
+    try:
+
+        synced = await bot.tree.sync()
+
+        print(f"SYNCED {len(synced)} COMMANDS")
+
+    except Exception as e:
+
+        print(f"COMMAND SYNC ERROR: {e}")
+
+    if not monitor_adm.is_running():
+        monitor_adm.start()
+
 # ================= ONLINE =================
 
 @bot.tree.command(
@@ -389,5 +426,7 @@ async def online(interaction: discord.Interaction):
     )
 
 # ================= START =================
+
+load_state()
 
 bot.run(DISCORD_TOKEN)
