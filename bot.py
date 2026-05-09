@@ -157,7 +157,6 @@ def connect_ftp():
         ftp.prot_p()
 
     except Exception as e:
-
         print(f"FTP TLS WARNING: {e}")
 
     ftp.set_pasv(True)
@@ -202,7 +201,6 @@ def find_active_adm():
         if not adm_files:
 
             ftp.quit()
-
             return None
 
         adm_files.sort(
@@ -295,10 +293,125 @@ async def parse_adm():
 
     print(f"ADM LINES READ: {len(lines)}")
 
+    killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
+    connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
+
+    for raw_line in lines:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        line_hash = hash(line)
+
+        if line_hash in processed_lines:
+            continue
+
+        processed_lines.add(line_hash)
+
+        if len(processed_lines) > MAX_PROCESSED_LINES:
+            processed_lines.clear()
+
+        if should_ignore(line):
+            continue
+
+        lower = line.lower()
+
+        # ================= CONNECTIONS =================
+
+        if (
+            "is connecting" in lower
+            or "connecting" in lower
+        ):
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"🛰️ {player_name} connecting\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x9C8A00
+                )
+
+                await connect_channel.send(embed=embed)
+
+        elif (
+            "is connected" in lower
+            or "connected" in lower
+        ):
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☣️ {player_name} connected\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0x4E7F3D
+                )
+
+                await connect_channel.send(embed=embed)
+
+        # ================= KILLFEED =================
+
+        elif (
+            "killed by player" in lower
+            or "killed" in lower
+        ):
+
+            victim_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            killer_match = re.search(
+                r'by Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if (
+                victim_match
+                and killer_match
+                and killfeed_channel
+            ):
+
+                victim = victim_match.group(1)
+                killer = killer_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"☠️ {killer} killed {victim}\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xC0392B
+                )
+
+                await killfeed_channel.send(embed=embed)
+
 
 # ================= TASKS =================
 
-@tasks.loop(seconds=60)
+@tasks.loop(seconds=5)
 async def adm_loop():
 
     success = await asyncio.to_thread(
