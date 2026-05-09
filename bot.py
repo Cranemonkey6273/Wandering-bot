@@ -100,8 +100,7 @@ IGNORE_PATTERNS = [
     "crash",
     "weather",
     "storage",
-    "economy",
-    "infected"
+    "economy"
 ]
 
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
@@ -160,7 +159,10 @@ def classify_event(line):
 
     lower = line.lower()
 
-    if "disconnected" in lower:
+    if (
+        "has been disconnected" in lower
+        or "disconnected" in lower
+    ):
         return "disconnect"
 
     if (
@@ -169,7 +171,11 @@ def classify_event(line):
     ):
         return "connect"
 
-    if "killed" in lower:
+    if (
+        "killed" in lower
+        or "bled out" in lower
+        or "died." in lower
+    ):
         return "kill"
 
     if (
@@ -182,6 +188,7 @@ def classify_event(line):
         "placed" in lower
         or "packed" in lower
         or "built" in lower
+        or "mounted" in lower
     ):
         return "build"
 
@@ -192,6 +199,12 @@ def classify_event(line):
         or "explosive" in lower
     ):
         return "raid"
+
+    if (
+        "unconscious" in lower
+        or "regained consciousness" in lower
+    ):
+        return "medical"
 
     return None
 
@@ -239,11 +252,43 @@ def find_active_adm():
         today_dt = datetime.now(UTC)
 
         today = today_dt.strftime("%Y-%m-%d")
+
         yesterday = (
             today_dt - timedelta(days=1)
         ).strftime("%Y-%m-%d")
 
         adm_candidates = []
+
+        gameplay_patterns = [
+
+            "connecting",
+            "connected",
+            "disconnected",
+
+            "killed",
+            "hit by",
+            "bled out",
+            "died",
+            "unconscious",
+            "regained consciousness",
+
+            "killed by zmb",
+            "killed by zombie",
+
+            "placed",
+            "packed",
+            "built",
+            "mounted",
+            "dismantled",
+            "destroyed",
+
+            "barrel",
+            "tent",
+            "fence",
+
+            "playerlist log",
+            "respawn"
+        ]
 
         for file in files:
 
@@ -262,7 +307,40 @@ def find_active_adm():
                 continue
 
             try:
+
+                ftp.voidcmd("TYPE I")
+
                 size = ftp.size(file)
+
+                temp_lines = []
+
+                try:
+
+                    ftp.retrlines(
+                        f"RETR {file}",
+                        temp_lines.append
+                    )
+
+                except Exception:
+                    continue
+
+                recent_lines = temp_lines[-100:]
+
+                gameplay_found = False
+
+                for line in recent_lines:
+
+                    lower = line.lower()
+
+                    if any(
+                        x in lower
+                        for x in gameplay_patterns
+                    ):
+                        gameplay_found = True
+                        break
+
+                if not gameplay_found:
+                    continue
 
                 adm_candidates.append({
                     "name": file,
@@ -360,50 +438,6 @@ def download_adm():
         return False
 
 
-# ================= PLAYER DATA =================
-
-
-async def ensure_player(discord_id, username):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if not result.data:
-
-        supabase.table(
-            "player_data"
-        ).insert({
-            "discord_id": discord_id,
-            "username": username,
-            "scrap": 1000,
-            "bank": 0,
-            "kills": 0,
-            "deaths": 0,
-            "xp": 0,
-            "level": 1,
-            "inventory": []
-        }).execute()
-
-
-async def get_player(discord_id):
-
-    result = supabase.table(
-        "player_data"
-    ).select("*").eq(
-        "discord_id",
-        discord_id
-    ).execute()
-
-    if result.data:
-        return result.data[0]
-
-    return None
-
-
 # ================= ADM PARSER =================
 
 
@@ -473,6 +507,7 @@ async def parse_adm():
                 player_name = player_match.group(1)
 
                 online_players.add(player_name)
+
                 player_sessions[player_name] = datetime.now(UTC)
 
                 embed = discord.Embed(
@@ -562,140 +597,102 @@ async def parse_adm():
 
         elif event_type == "kill":
 
-            victim_match = re.search(
-                r'Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
+            embed = discord.Embed(
+                title="☠️ PLAYER DEATH ☠️",
+                description=line,
+                color=0xC0392B
             )
 
-            killer_match = re.search(
-                r'by Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
             )
 
-            weapon_match = re.search(
-                r'with\s+([^\|]+)',
-                line,
-                re.IGNORECASE
+        # ================= HITS =================
+
+        elif event_type == "hit":
+
+            embed = discord.Embed(
+                title="💥 PLAYER HIT",
+                description=line,
+                color=0xE67E22
             )
 
-            distance_match = re.search(
-                r'from\s+([0-9\.]+)m',
-                line,
-                re.IGNORECASE
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
             )
-
-            if (
-                victim_match
-                and killer_match
-                and killfeed_channel
-            ):
-
-                victim = victim_match.group(1)
-                killer = killer_match.group(1)
-
-                weapon = (
-                    weapon_match.group(1).strip()
-                    if weapon_match else "Unknown"
-                )
-
-                distance = (
-                    distance_match.group(1)
-                    if distance_match else "Unknown"
-                )
-
-                embed = discord.Embed(
-                    title="☠️ PLAYER KILL ☠️",
-                    color=0xC0392B
-                )
-
-                embed.add_field(
-                    name="🔫 Killer",
-                    value=f"`{killer}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="💀 Victim",
-                    value=f"`{victim}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="🪖 Weapon",
-                    value=f"`{weapon}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📏 Distance",
-                    value=f"`{distance}m`",
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await killfeed_channel.send(
-                    embed=style_embed(embed)
-                )
 
         # ================= BUILD =================
 
         elif event_type == "build":
 
-            if build_channel:
+            embed = discord.Embed(
+                title="🏗️ BUILDING ACTIVITY",
+                description=line,
+                color=0xF1C40F
+            )
 
-                embed = discord.Embed(
-                    title="🏗️ BUILDING ACTIVITY",
-                    description=line,
-                    color=0xF1C40F
-                )
+            embed.set_thumbnail(url=BOT_IMAGE)
 
-                embed.set_thumbnail(url=BOT_IMAGE)
+            await build_channel.send(
+                embed=style_embed(embed)
+            )
 
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
+        # ================= MEDICAL =================
+
+        elif event_type == "medical":
+
+            embed = discord.Embed(
+                title="🩸 MEDICAL STATUS",
+                description=line,
+                color=0x9B59B6
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
+            )
 
         # ================= RAID =================
 
         elif event_type == "raid":
 
-            if raid_channel:
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line,
+                re.IGNORECASE
+            )
 
-                coords_match = re.search(
-                    r'pos=<([^>]+)>',
-                    line,
-                    re.IGNORECASE
-                )
+            coords = (
+                coords_match.group(1)
+                if coords_match else "Unknown"
+            )
 
-                coords = (
-                    coords_match.group(1)
-                    if coords_match else "Unknown"
-                )
+            territory_heat[coords] = (
+                territory_heat.get(coords, 0) + 1
+            )
 
-                territory_heat[coords] = (
-                    territory_heat.get(coords, 0) + 1
-                )
+            embed = discord.Embed(
+                title="🚨 RAID ACTIVITY DETECTED 🚨",
+                description=line,
+                color=0xFF0000
+            )
 
-                embed = discord.Embed(
-                    title="🚨 RAID ACTIVITY DETECTED 🚨",
-                    description=line,
-                    color=0xFF0000
-                )
+            embed.add_field(
+                name="🔥 Territory Heat",
+                value=f"`{territory_heat[coords]}`",
+                inline=False
+            )
 
-                embed.add_field(
-                    name="🔥 Territory Heat",
-                    value=f"`{territory_heat[coords]}`",
-                    inline=False
-                )
+            embed.set_thumbnail(url=BOT_IMAGE)
 
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await raid_channel.send(
-                    embed=style_embed(embed)
-                )
+            await raid_channel.send(
+                embed=style_embed(embed)
+            )
 
 
 # ================= TASK LOOP =================
