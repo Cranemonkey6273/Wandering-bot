@@ -229,7 +229,8 @@ def nitrado_download_file(filepath):
     if file_response.status_code != 200:
         return False
 
-    download_success = nitrado_download_file(active_adm)
+    # DOWNLOAD ADM THROUGH API
+        download_success = nitrado_download_file(active_adm)
 
         if not download_success:
             return False
