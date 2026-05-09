@@ -243,7 +243,7 @@ def classify_event(line):
 def extract_filename_datetime(filename):
 
     match = re.search(
-        r'_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$',
+        r'_(\\d{4}-\\d{2}-\\d{2})_(\\d{2}-\\d{2}-\\d{2})\\.ADM$',
         filename
     )
 
@@ -280,25 +280,14 @@ def find_active_adm():
 
         files = ftp.nlst()
 
-        today_dt = datetime.now(UTC)
-
-        today = today_dt.strftime("%Y-%m-%d")
-
-        yesterday = (
-            today_dt - timedelta(days=1)
-        ).strftime("%Y-%m-%d")
-
         adm_candidates = []
 
         for file in files:
 
-            if not (
-                today in file
-                or yesterday in file
+            if not re.match(
+                r'^DayZServer_[A-Z0-9]+_x64_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.ADM$',
+                file
             ):
-                continue
-
-            if not file.endswith(".ADM"):
                 continue
 
             file_datetime = extract_filename_datetime(file)
@@ -312,6 +301,9 @@ def find_active_adm():
 
                 size = ftp.size(file)
 
+                if size <= 0:
+                    continue
+
                 temp_lines = []
 
                 try:
@@ -324,12 +316,15 @@ def find_active_adm():
                 except Exception:
                     continue
 
-                recent_lines = temp_lines[-100:]
+                if not temp_lines:
+                    continue
 
-                recent_text = "\n".join(recent_lines)
+                recent_lines = temp_lines[-150:]
+
+                recent_text = "\\n".join(recent_lines).lower()
 
                 if (
-                    "Termination successfully completed"
+                    "termination successfully completed"
                     in recent_text
                 ):
                     continue
@@ -337,6 +332,7 @@ def find_active_adm():
                 gameplay_patterns = [
                     "connecting",
                     "connected",
+                    "disconnected",
                     "killed",
                     "placed",
                     "packed",
@@ -345,11 +341,12 @@ def find_active_adm():
                     "folded",
                     "hit by",
                     "unconscious",
-                    "bled out"
+                    "bled out",
+                    "regained consciousness"
                 ]
 
                 gameplay_found = any(
-                    x in recent_text.lower()
+                    x in recent_text
                     for x in gameplay_patterns
                 )
 
@@ -375,29 +372,56 @@ def find_active_adm():
             return current_adm
 
         adm_candidates.sort(
-            key=lambda x: (
-                x["size"],
-                x["datetime"]
-            ),
+            key=lambda x: x["datetime"],
             reverse=True
         )
 
         best = adm_candidates[0]
 
-        current_adm = f"{SEARCH_DIR}/{best['name']}"
+        newest_adm = (
+            f"{SEARCH_DIR}/{best['name']}"
+        )
 
-        current_adm_size = best["size"]
+        newest_datetime = best["datetime"]
 
-        if current_adm != adm_state["last_logged_file"]:
+        if current_adm is None:
 
-            print(f"ACTIVE ADM: {current_adm}")
+            current_adm = newest_adm
+            current_adm_size = best["size"]
 
             adm_state["last_logged_file"] = current_adm
 
+            save_state()
+
+            print(f"INITIAL ACTIVE ADM: {current_adm}")
+
+            return current_adm
+
+        current_filename = os.path.basename(current_adm)
+
+        current_datetime = extract_filename_datetime(
+            current_filename
+        )
+
+        if (
+            current_datetime is None
+            or newest_datetime > current_datetime
+        ):
+
+            print(f"NEWER ADM DETECTED | SWITCHING -> {newest_adm}")
+
+            current_adm = newest_adm
+            current_adm_size = best["size"]
+
             adm_state["last_line"] = 0
             adm_state["last_text"] = ""
+            adm_state["file"] = None
+            adm_state["last_modified"] = ""
+            adm_state["last_logged_file"] = current_adm
 
             save_state()
+
+            return current_adm
 
         return current_adm
 
@@ -406,518 +430,6 @@ def find_active_adm():
         print(f"ADM SEARCH ERROR: {e}")
 
         return current_adm
-
-
-# ================= DOWNLOAD ADM =================
-
-
-def download_adm():
-
-    global adm_state
-
-    try:
-
-        active_adm = find_active_adm()
-
-        if not active_adm:
-            return False
-
-        ftp = connect_ftp()
-
-        ftp.cwd(SEARCH_DIR)
-
-        filename = os.path.basename(active_adm)
-
-        modified = ftp.sendcmd(
-            f"MDTM {filename}"
-        )
-
-        timestamp = modified[4:].strip()
-
-        if (
-            adm_state["file"] == active_adm
-            and adm_state["last_modified"] == timestamp
-        ):
-
-            ftp.quit()
-
-            return False
-
-        with open(LOCAL_LOG_FILE, "wb") as f:
-
-            ftp.retrbinary(
-                f"RETR {filename}",
-                f.write
-            )
-
-        ftp.quit()
-
-        adm_state["file"] = active_adm
-        adm_state["last_modified"] = timestamp
-
-        save_state()
-
-        print(f"ADM UPDATED: {filename}")
-
-        return True
-
-    except Exception as e:
-
-        print(f"DOWNLOAD ERROR: {e}")
-
-        return False
-
-
-# ================= ADM PARSER =================
-
-
-async def parse_adm():
-
-    global processed_lines
-
-    if not os.path.exists(LOCAL_LOG_FILE):
-        return
-
-    with open(
-        LOCAL_LOG_FILE,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
-
-        lines = f.readlines()
-
-    start_index = adm_state.get(
-        "last_line",
-        0
-    )
-
-    last_text = adm_state.get(
-        "last_text",
-        ""
-    )
-
-    if last_text:
-
-        found_index = None
-
-        for i, line in enumerate(lines):
-
-            if last_text in line:
-                found_index = i
-
-        if found_index is not None:
-            start_index = found_index + 1
-
-    new_lines = lines[start_index:]
-
-    adm_state["last_line"] = len(lines)
-
-    if lines:
-        adm_state["last_text"] = lines[-1].strip()
-
-    save_state()
-
-    print(f"NEW ADM LINES: {len(new_lines)}")
-
-    killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
-    connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
-    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
-    raid_channel = bot.get_channel(RAID_CHANNEL_ID)
-
-    for raw_line in new_lines:
-
-        line = raw_line.strip()
-
-        if not line:
-            continue
-
-        if should_ignore(line):
-            continue
-
-        line_hash = hash(line)
-
-        if line_hash in processed_lines:
-            continue
-
-        processed_lines.add(line_hash)
-
-        if len(processed_lines) > MAX_PROCESSED_LINES:
-            processed_lines.clear()
-
-        event_type = classify_event(line)
-
-        if not event_type:
-            continue
-
-        print(f"EVENT: {event_type} | {line}")
-
-        # ================= CONNECT =================
-
-        if event_type == "connect":
-
-            player_match = re.search(
-                r'Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            if player_match and connect_channel:
-
-                player_name = player_match.group(1)
-
-                online_players.add(player_name)
-
-                player_sessions[player_name] = datetime.now(UTC)
-
-                embed = discord.Embed(
-                    title="🟢 Survivor Connected",
-                    description=f"`{player_name}`",
-                    color=0x2ECC71
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await connect_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # ================= DISCONNECT =================
-
-        elif event_type == "disconnect":
-
-            player_match = re.search(
-                r'Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            if player_match and connect_channel:
-
-                player_name = player_match.group(1)
-
-                online_players.discard(player_name)
-
-                if player_name in player_sessions:
-
-                    session_length = (
-                        datetime.now(UTC)
-                        - player_sessions[player_name]
-                    ).total_seconds()
-
-                    session_hours = round(
-                        session_length / 3600,
-                        2
-                    )
-
-                else:
-                    session_hours = 0
-
-                embed = discord.Embed(
-                    title="🔴 Survivor Disconnected",
-                    description=(
-                        f"`{player_name}`\n"
-                        f"⏱️ Session: {session_hours} hrs"
-                    ),
-                    color=0xE74C3C
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await connect_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # ================= BUILD =================
-
-        elif event_type == "build":
-
-            if build_channel:
-
-                player_match = re.search(
-                    r'Player\s+"([^"]+)"',
-                    line,
-                    re.IGNORECASE
-                )
-
-                coords_match = re.search(
-                    r'pos=<([^>]+)>',
-                    line,
-                    re.IGNORECASE
-                )
-
-                action_match = re.search(
-                    r'(placed|packed|built|mounted|folded)',
-                    line,
-                    re.IGNORECASE
-                )
-
-                object_match = re.search(
-                    r'(FenceKit|Fence|BarbedWire|LargeTent|CarTent|GardenPlot|Barrel_[A-Za-z]+|wall_[a-z_]+|base)',
-                    line,
-                    re.IGNORECASE
-                )
-
-                player_name = (
-                    player_match.group(1)
-                    if player_match else "Unknown"
-                )
-
-                coords = (
-                    coords_match.group(1)
-                    if coords_match else "Unknown"
-                )
-
-                action = (
-                    action_match.group(1).title()
-                    if action_match else "Activity"
-                )
-
-                object_name = (
-                    object_match.group(1)
-                    if object_match else "Structure"
-                )
-
-                if "mounted" in line.lower():
-
-                    title_text = "🪤 DEFENSE DEPLOYED 🪤"
-                    color = 0xE67E22
-
-                elif "placed" in line.lower():
-
-                    title_text = "🏗️ STRUCTURE PLACED 🏗️"
-                    color = 0x2ECC71
-
-                elif "packed" in line.lower():
-
-                    title_text = "📦 STRUCTURE PACKED 📦"
-                    color = 0x3498DB
-
-                elif "folded" in line.lower():
-
-                    title_text = "📁 STRUCTURE FOLDED 📁"
-                    color = 0x9B59B6
-
-                else:
-
-                    title_text = "🛠️ BUILDING ACTIVITY 🛠️"
-                    color = 0xF1C40F
-
-                embed = discord.Embed(
-                    title=title_text,
-                    color=color
-                )
-
-                embed.set_author(
-                    name="☢️ Wandering Bot Intelligence"
-                )
-
-                embed.add_field(
-                    name="👤 Survivor",
-                    value=f"`{player_name}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="🔨 Action",
-                    value=f"`{action}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="🏗️ Structure",
-                    value=f"`{object_name}`",
-                    inline=False
-                )
-
-                embed.add_field(
-                    name="📍 Position",
-                    value=f"`{coords}`",
-                    inline=False
-                )
-
-                embed.set_thumbnail(
-                    url=BOT_IMAGE
-                )
-
-                embed.set_footer(
-                    text=(
-                        "☢️ Live DayZ Intelligence • "
-                        "Wandering Bot"
-                    )
-                )
-
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # ================= COMBAT =================
-
-        elif event_type == "combat":
-
-            if killfeed_channel:
-
-                embed = discord.Embed(
-                    title="⚔️ COMBAT EVENT",
-                    description=line,
-                    color=0xE67E22
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await killfeed_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # ================= RAID =================
-
-        elif event_type == "raid":
-
-            if raid_channel:
-
-                coords_match = re.search(
-                    r'pos=<([^>]+)>',
-                    line,
-                    re.IGNORECASE
-                )
-
-                coords = (
-                    coords_match.group(1)
-                    if coords_match else "Unknown"
-                )
-
-                territory_heat[coords] = (
-                    territory_heat.get(coords, 0) + 1
-                )
-
-                embed = discord.Embed(
-                    title="🚨 RAID DETECTED",
-                    description=line,
-                    color=0xFF0000
-                )
-
-                embed.add_field(
-                    name="🔥 Territory Heat",
-                    value=str(territory_heat[coords]),
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await raid_channel.send(
-                    embed=style_embed(embed)
-                )
-
-
-# ================= TASK LOOP =================
-
-
-@tasks.loop(seconds=5)
-async def adm_loop():
-
-    global LAST_CHANGE_TIME
-    global LIVE_MODE
-
-    now = datetime.now(UTC)
-
-    success = await asyncio.to_thread(
-        download_adm
-    )
-
-    if success:
-
-        LAST_CHANGE_TIME = now
-
-        LIVE_MODE = True
-
-        await parse_adm()
-
-    else:
-
-        idle_time = (
-            now - LAST_CHANGE_TIME
-        ).total_seconds()
-
-        if idle_time >= 240:
-
-            LIVE_MODE = False
-
-
-# ================= READY =================
-
-
-@bot.event
-async def on_ready():
-
-    load_state()
-
-    if os.path.exists(LOCAL_LOG_FILE):
-
-        with open(
-            LOCAL_LOG_FILE,
-            "r",
-            encoding="utf-8",
-            errors="ignore"
-        ) as f:
-
-            existing_lines = f.readlines()
-
-        if adm_state["last_line"] == 0:
-
-            adm_state["last_line"] = len(existing_lines)
-
-            if existing_lines:
-
-                adm_state["last_text"] = (
-                    existing_lines[-1].strip()
-                )
-
-            save_state()
-
-            print(
-                f"STARTUP SYNCED TO "
-                f"{len(existing_lines)} LINES"
-            )
-
-    await bot.tree.sync()
-
-    try:
-        adm_loop.start()
-    except RuntimeError:
-        pass
-
-    print(f"✅ Logged in as {bot.user}")
-
-
-# ================= ONLINE =================
-
-
-@bot.tree.command(
-    name="online",
-    description="View online players"
-)
-async def online(interaction: discord.Interaction):
-
-    if online_players:
-
-        players = "\n".join(
-            f"• {x}"
-            for x in sorted(online_players)
-        )
-
-    else:
-
-        players = "No players online."
-
-    embed = discord.Embed(
-        title=f"🟢 Online Players ({len(online_players)})",
-        description=players,
-        color=0x2ECC71
-    )
-
-    await interaction.response.send_message(
-        embed=style_embed(embed)
-    )
 
 
 # ================= START =================
