@@ -3,12 +3,13 @@ import re
 import asyncio
 import discord
 import json
+import requests
 
 from ftplib import FTP_TLS
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from supabase import create_client
-from openai import AsyncOpenAI
+from openai import AsyncOpenA
 
 # ================= CONFIG =================
 
@@ -106,14 +107,29 @@ IGNORE_PATTERNS = [
 
 def save_state():
 
-    try:
+try:
 
-        with open(STATE_FILE, "w") as f:
-            json.dump(adm_state, f)
+    with open(STATE_FILE, "w") as f:
+        json.dump(adm_state, f)
 
-    except Exception as e:
-        print(f"STATE SAVE ERROR: {e}")
+except Exception as e:
+    print(f"STATE SAVE ERROR: {e}")
 
+def load_state():
+
+global adm_state
+
+try:
+
+    if os.path.exists(STATE_FILE):
+
+        with open(STATE_FILE, "r") as f:
+            adm_state = json.load(f)
+
+        print("STATE LOADED")
+
+except Exception as e:
+    print(f"STATE LOAD ERROR: {e}")
 
 def load_state():
 
@@ -448,10 +464,12 @@ def download_adm():
 
         filename = os.path.basename(active_adm)
 
-        # FORCE BINARY MODE
+        FORCE BINARY MODE
+
         ftp.voidcmd("TYPE I")
 
-        # GET LIVE FILE SIZE
+        GET LIVE FILE SIZE
+
         current_size = ftp.size(filename)
 
         # GET LAST MODIFIED
