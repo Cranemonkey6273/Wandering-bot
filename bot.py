@@ -42,11 +42,6 @@ FTP_USER = os.getenv("FTP_USER")
 FTP_PASS = os.getenv("FTP_PASS")
 FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-SEARCH_PATHS = [
-    ".",
-    "dayzxb_missions"
-]
-
 LOCAL_LOG_FILE = "live.ADM"
 
 # ================= RCON =================
@@ -236,6 +231,92 @@ def reset_parser_state():
 
     print("PARSER RESET")
 
+def scan_for_adm(ftp, path=".", depth=0):
+
+    adm_files = []
+
+    if depth > 5:
+        return adm_files
+
+    try:
+
+        ftp.cwd(path)
+
+        files = []
+
+        ftp.retrlines("NLST", files.append)
+
+        print(f"SCANNING: {path}")
+
+        for item in files:
+
+            print(f"FOUND ITEM: {item}")
+
+            full_path = f"{path}/{item}".replace("//", "/")
+
+            # ================= ADM FILE =================
+
+            if item.endswith(".ADM"):
+
+                match = re.search(
+                    r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
+                    item
+                )
+
+                if not match:
+                    continue
+
+                dt_str = (
+                    match.group(1)
+                    + " "
+                    + match.group(2).replace("-", ":")
+                )
+
+                try:
+
+                    file_dt = datetime.strptime(
+                        dt_str,
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+
+                except:
+                    continue
+
+                adm_files.append({
+                    "name": item,
+                    "path": full_path,
+                    "datetime": file_dt
+                })
+
+                print(f"FOUND ADM: {full_path}")
+
+            # ================= DIRECTORY =================
+
+            else:
+
+                try:
+
+                    ftp.cwd(full_path)
+
+                    adm_files.extend(
+                        scan_for_adm(
+                            ftp,
+                            full_path,
+                            depth + 1
+                        )
+                    )
+
+                    ftp.cwd("/")
+
+                except:
+                    pass
+
+    except Exception as e:
+
+        print(f"SCAN ERROR: {path} | {e}")
+
+    return adm_files
+
 def find_active_adm():
 
     global current_adm
@@ -244,67 +325,7 @@ def find_active_adm():
 
         ftp = connect_ftp()
 
-        adm_files = []
-
-        for path in SEARCH_PATHS:
-
-            try:
-
-                print(f"CHECKING PATH: {path}")
-
-                ftp.cwd(path)
-
-                files = []
-
-                ftp.retrlines("NLST", files.append)
-
-                print(f"FILES IN {path}:")
-
-                for f in files:
-                    print(f)
-
-                for file in files:
-
-                    if not file.endswith(".ADM"):
-                        continue
-
-                    match = re.search(
-                        r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})",
-                        file
-                    )
-
-                    if not match:
-                        continue
-
-                    dt_str = (
-                        match.group(1)
-                        + " "
-                        + match.group(2).replace("-", ":")
-                    )
-
-                    try:
-
-                        file_dt = datetime.strptime(
-                            dt_str,
-                            "%Y-%m-%d %H:%M:%S"
-                        )
-
-                    except:
-                        continue
-
-                    adm_files.append({
-                        "name": file,
-                        "path": f"{path}/{file}",
-                        "datetime": file_dt
-                    })
-
-                    print(f"FOUND ADM: {file}")
-
-                ftp.cwd("/")
-
-            except Exception as e:
-
-                print(f"PATH FAILED: {path} | {e}")
+        adm_files = scan_for_adm(ftp)
 
         ftp.quit()
 
@@ -322,6 +343,8 @@ def find_active_adm():
         newest = adm_files[0]
 
         newest_path = newest["path"]
+
+        print(f"NEWEST ADM: {newest_path}")
 
         if newest_path != current_adm:
 
