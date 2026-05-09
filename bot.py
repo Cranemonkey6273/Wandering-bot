@@ -69,6 +69,7 @@ MAX_PROCESSED_LINES = 5000
 adm_state = {
     "file": None,
     "last_line": 0,
+    "last_text": "",
     "last_modified": ""
 }
 
@@ -167,6 +168,50 @@ def connect_ftp():
 
 
 # ================= ACTIVE ADM FINDER =================
+
+
+def extract_latest_activity(lines):
+
+    activity_patterns = [
+        "connecting",
+        "connected",
+        "killed",
+        "placed",
+        "packed",
+        "built",
+        "destroyed",
+        "hit by",
+        "unconscious",
+        "raid"
+    ]
+
+    latest_seconds = -1
+
+    for line in lines:
+
+        lower = line.lower()
+
+        if not any(x in lower for x in activity_patterns):
+            continue
+
+        match = re.search(
+            r"(\d{2}):(\d{2}):(\d{2})",
+            line
+        )
+
+        if not match:
+            continue
+
+        h = int(match.group(1))
+        m = int(match.group(2))
+        s = int(match.group(3))
+
+        total = (h * 3600) + (m * 60) + s
+
+        if total > latest_seconds:
+            latest_seconds = total
+
+    return latest_seconds
 
 
 def find_active_adm():
@@ -456,9 +501,29 @@ async def parse_adm():
         0
     )
 
+    last_text = adm_state.get(
+        "last_text",
+        ""
+    )
+
+    if last_text:
+
+        found_index = None
+
+        for i, line in enumerate(lines):
+
+            if last_text in line:
+                found_index = i
+
+        if found_index is not None:
+            start_index = found_index + 1
+
     new_lines = lines[start_index:]
 
     adm_state["last_line"] = len(lines)
+
+    if lines:
+        adm_state["last_text"] = lines[-1].strip()
 
     print(f"NEW ADM LINES: {len(new_lines)}")
 
