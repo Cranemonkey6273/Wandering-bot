@@ -161,6 +161,8 @@ def connect_ftp():
 
 # ================= ACTIVE ADM FINDER =================
 
+adm_growth_tracker = {}
+
 
 def find_active_adm():
 
@@ -175,7 +177,7 @@ def find_active_adm():
 
         files = ftp.nlst()
 
-        candidates = []
+        active_candidates = []
 
         for file in files:
 
@@ -194,20 +196,69 @@ def find_active_adm():
 
                 timestamp = modified[4:].strip()
 
-                if size < 500:
-                    continue
+                previous_size = adm_growth_tracker.get(
+                    file,
+                    size
+                )
 
-                candidates.append({
-                    "name": file,
-                    "size": size,
-                    "timestamp": timestamp
-                })
+                growth = size - previous_size
+
+                adm_growth_tracker[file] = size
 
                 print(
                     f"FOUND ADM: {file} | "
                     f"SIZE: {size} | "
+                    f"GROWTH: {growth} | "
                     f"{timestamp}"
                 )
+
+                temp_lines = []
+
+                try:
+
+                    ftp.retrlines(
+                        f"RETR {file}",
+                        temp_lines.append
+                    )
+
+                except Exception:
+                    continue
+
+                recent_text = "
+".join(
+                    temp_lines[-50:]
+                )
+
+                terminated = (
+                    "Termination successfully completed"
+                    in recent_text
+                )
+
+                started = (
+                    "AdminLog started on"
+                    in recent_text
+                )
+
+                if terminated:
+                    continue
+
+                active_score = 0
+
+                if growth > 0:
+                    active_score += 1000
+
+                active_score += size
+
+                if started:
+                    active_score += 500
+
+                active_candidates.append({
+                    "name": file,
+                    "size": size,
+                    "growth": growth,
+                    "score": active_score,
+                    "timestamp": timestamp
+                })
 
             except Exception as e:
 
@@ -215,66 +266,17 @@ def find_active_adm():
                     f"FAILED ADM: {file} | {e}"
                 )
 
-        if not candidates:
+        if not active_candidates:
 
             ftp.quit()
-            return None
+            return current_adm
 
-        candidates.sort(
-            key=lambda x: x["timestamp"],
+        active_candidates.sort(
+            key=lambda x: x["score"],
             reverse=True
         )
 
-        best = None
-
-        for adm in candidates:
-
-            filename = adm["name"]
-
-            temp_lines = []
-
-            try:
-
-                ftp.retrlines(
-                    f"RETR {filename}",
-                    temp_lines.append
-                )
-
-                recent = "\n".join(
-                    temp_lines[-50:]
-                )
-
-                if (
-                    "Termination successfully completed"
-                    in recent
-                ):
-
-                    continue
-
-                if (
-                    "AdminLog started on"
-                    in recent
-                    or len(temp_lines) > 100
-                ):
-
-                    best = adm
-                    break
-
-            except Exception as e:
-
-                print(
-                    f"READ CHECK FAILED: "
-                    f"{filename} | {e}"
-                )
-
-        if not best:
-
-            candidates.sort(
-                key=lambda x: x["size"],
-                reverse=True
-            )
-
-            best = candidates[0]
+        best = active_candidates[0]
 
         new_path = (
             f"{SEARCH_DIR}/{best['name']}"
@@ -283,17 +285,18 @@ def find_active_adm():
         if current_adm != new_path:
 
             print(
-                f"NEW ACTIVE ADM: {new_path}"
+                f"NEW ACTIVE ADM DETECTED: {new_path}"
             )
-
-            current_adm = new_path
-            current_adm_size = best["size"]
 
             processed_lines.clear()
 
+        current_adm = new_path
+        current_adm_size = best["size"]
+
         print(
             f"ACTIVE ADM: {current_adm} | "
-            f"SIZE: {current_adm_size}"
+            f"SIZE: {current_adm_size} | "
+            f"GROWTH: {best['growth']}"
         )
 
         ftp.quit()
@@ -304,7 +307,7 @@ def find_active_adm():
 
         print(f"ADM SEARCH ERROR: {e}")
 
-        return None
+        return current_adm
 
 
 # ================= DOWNLOAD ADM =================
