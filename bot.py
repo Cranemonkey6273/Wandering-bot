@@ -75,6 +75,10 @@ adm_state = {
     "last_logged_file": ""
 }
 
+LAST_CHANGE_TIME = datetime.now(UTC)
+
+LIVE_MODE = False
+
 current_adm = None
 current_adm_size = 0
 
@@ -385,8 +389,6 @@ def download_adm():
 
             ftp.quit()
 
-            print("ADM UNCHANGED")
-
             return False
 
         with open(
@@ -554,8 +556,6 @@ async def parse_adm():
 
         print(f"PARSING: {line}")
 
-        # ================= CONNECTION EVENTS =================
-
         if (
             "connecting" in lower
             or "is connected" in lower
@@ -584,8 +584,6 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
-        # ================= DISCONNECT EVENTS =================
-
         elif (
             "disconnected" in lower
             or "has been disconnected" in lower
@@ -612,8 +610,6 @@ async def parse_adm():
                 await connect_channel.send(
                     embed=style_embed(embed)
                 )
-
-        # ================= KILL EVENTS =================
 
         elif "killed" in lower:
 
@@ -650,8 +646,6 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
-        # ================= BUILD EVENTS =================
-
         elif (
             "placed" in lower
             or "packed" in lower
@@ -675,15 +669,65 @@ async def parse_adm():
 # ================= TASK LOOP =================
 
 
-@tasks.loop(seconds=10)
+@tasks.loop(seconds=5)
 async def adm_loop():
+
+    global LAST_CHANGE_TIME
+    global LIVE_MODE
+
+    now = datetime.now(UTC)
+
+    # ================= IDLE MODE =================
+
+    if not LIVE_MODE:
+
+        seconds_idle = (
+            now - LAST_CHANGE_TIME
+        ).total_seconds()
+
+        if seconds_idle < 60:
+            return
+
+    # ================= DOWNLOAD =================
 
     success = await asyncio.to_thread(
         download_adm
     )
 
+    # ================= FILE UPDATED =================
+
     if success:
+
+        LAST_CHANGE_TIME = now
+
+        if not LIVE_MODE:
+
+            print(
+                "LIVE MODE ENABLED"
+            )
+
+        LIVE_MODE = True
+
         await parse_adm()
+
+    # ================= NO CHANGE =================
+
+    else:
+
+        idle_seconds = (
+            now - LAST_CHANGE_TIME
+        ).total_seconds()
+
+        if idle_seconds > 240:
+
+            if LIVE_MODE:
+
+                print(
+                    "NO ACTIVITY - "
+                    "SWITCHING TO IDLE MODE"
+                )
+
+            LIVE_MODE = False
 
 
 # ================= READY =================
