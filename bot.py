@@ -170,48 +170,34 @@ def connect_ftp():
 # ================= ACTIVE ADM FINDER =================
 
 
-def extract_latest_activity(lines):
+import re
+from datetime import datetime
 
-    activity_patterns = [
-        "connecting",
-        "connected",
-        "killed",
-        "placed",
-        "packed",
-        "built",
-        "destroyed",
-        "hit by",
-        "unconscious",
-        "raid"
-    ]
 
-    latest_seconds = -1
+def extract_filename_datetime(filename):
 
-    for line in lines:
+    match = re.search(
+        r'_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$',
+        filename
+    )
 
-        lower = line.lower()
+    if not match:
+        return None
 
-        if not any(x in lower for x in activity_patterns):
-            continue
+    try:
 
-        match = re.search(
-            r"(\d{2}):(\d{2}):(\d{2})",
-            line
+        iso = (
+            f"{match.group(1)} "
+            f"{match.group(2).replace('-', ':')}"
         )
 
-        if not match:
-            continue
+        return datetime.strptime(
+            iso,
+            "%Y-%m-%d %H:%M:%S"
+        )
 
-        h = int(match.group(1))
-        m = int(match.group(2))
-        s = int(match.group(3))
-
-        total = (h * 3600) + (m * 60) + s
-
-        if total > latest_seconds:
-            latest_seconds = total
-
-    return latest_seconds
+    except Exception:
+        return None
 
 
 def find_active_adm():
@@ -227,11 +213,23 @@ def find_active_adm():
 
         files = ftp.nlst()
 
-        active_candidates = []
+        adm_candidates = []
 
         for file in files:
 
-            if not file.endswith(".ADM"):
+            if not re.match(
+                r'^DayZServer_[A-Z0-9]+_x64_'
+                r'\d{4}-\d{2}-\d{2}_'
+                r'\d{2}-\d{2}-\d{2}\.ADM$',
+                file
+            ):
+                continue
+
+            file_datetime = extract_filename_datetime(
+                file
+            )
+
+            if not file_datetime:
                 continue
 
             try:
@@ -239,28 +237,6 @@ def find_active_adm():
                 ftp.voidcmd("TYPE I")
 
                 size = ftp.size(file)
-
-                modified = ftp.sendcmd(
-                    f"MDTM {file}"
-                )
-
-                timestamp = modified[4:].strip()
-
-                previous_size = adm_growth_tracker.get(
-                    file,
-                    size
-                )
-
-                growth = size - previous_size
-
-                adm_growth_tracker[file] = size
-
-                print(
-                    f"FOUND ADM: {file} | "
-                    f"SIZE: {size} | "
-                    f"GROWTH: {growth} | "
-                    f"{timestamp}"
-                )
 
                 temp_lines = []
 
@@ -274,40 +250,55 @@ def find_active_adm():
                 except Exception:
                     continue
 
+                recent_lines = temp_lines[-100:]
+
                 recent_text = "\n".join(
-                    temp_lines[-50:]
+                    recent_lines
                 )
 
-                terminated = (
+                if (
                     "Termination successfully completed"
                     in recent_text
-                )
-
-                started = (
-                    "AdminLog started on"
-                    in recent_text
-                )
-
-                if terminated:
+                ):
                     continue
 
-                active_score = 0
+                gameplay_found = False
 
-                if growth > 0:
-                    active_score += 1000
+                gameplay_patterns = [
+                    "connecting",
+                    "connected",
+                    "killed",
+                    "placed",
+                    "packed",
+                    "built",
+                    "destroyed"
+                ]
 
-                active_score += size
+                for line in recent_lines:
 
-                if started:
-                    active_score += 500
+                    lower = line.lower()
 
-                active_candidates.append({
+                    if any(
+                        x in lower
+                        for x in gameplay_patterns
+                    ):
+                        gameplay_found = True
+                        break
+
+                if not gameplay_found:
+                    continue
+
+                adm_candidates.append({
                     "name": file,
-                    "size": size,
-                    "growth": growth,
-                    "score": active_score,
-                    "timestamp": timestamp
+                    "datetime": file_datetime,
+                    "size": size
                 })
+
+                print(
+                    f"VALID ADM: {file} | "
+                    f"{file_datetime} | "
+                    f"SIZE: {size}"
+                )
 
             except Exception as e:
 
@@ -315,10 +306,37 @@ def find_active_adm():
                     f"FAILED ADM: {file} | {e}"
                 )
 
-        if not active_candidates:
+        ftp.quit()
 
-            ftp.quit()
+        if not adm_candidates:
+
+            print("NO VALID ACTIVE ADM FOUND")
             return current_adm
+
+        adm_candidates.sort(
+            key=lambda x: x["datetime"],
+            reverse=True
+        )
+
+        best = adm_candidates[0]
+
+        current_adm = (
+            f"{SEARCH_DIR}/{best['name']}"
+        )
+
+        current_adm_size = best["size"]
+
+        print(
+            f"ACTIVE ADM: {current_adm}"
+        )
+
+        return current_adm
+
+    except Exception as e:
+
+        print(f"ADM SEARCH ERROR: {e}")
+
+        return current_adm
 
         active_candidates.sort(
             key=lambda x: x["score"],
