@@ -112,6 +112,7 @@ IGNORE_PATTERNS = [
     "infected"
 ]
 
+
 def should_ignore(line):
 
     lower = line.lower()
@@ -202,8 +203,6 @@ def find_active_adm():
             ftp.quit()
 
             return None
-
-        # ================= FIXED ADM LOGIC =================
 
         adm_files.sort(
             key=lambda x: x[1],
@@ -314,6 +313,103 @@ async def get_player(discord_id):
     return None
 
 
+# ================= TASKS =================
+
+@tasks.loop(seconds=60)
+async def adm_loop():
+
+    success = download_adm()
+
+    if success:
+        await parse_adm()
+
+
+@tasks.loop(minutes=20)
+async def world_events():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    events = [
+        "🚁 Helicopter crash reported.",
+        "☣️ Toxic gas spreading.",
+        "📻 Convoy entering Chernarus.",
+        "💥 Heavy fighting near NWAF.",
+        "🏴 Faction conflict escalating.",
+        "📦 Supply crate detected."
+    ]
+
+    embed = discord.Embed(
+        title="📡 World Event",
+        description=random.choice(events),
+        color=0x9B59B6
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
+@tasks.loop(minutes=60)
+async def dynamic_economy():
+
+    for item in SHOP_ITEMS:
+
+        SHOP_ITEMS[item] += random.randint(-5, 20)
+
+        if SHOP_ITEMS[item] < 5:
+            SHOP_ITEMS[item] = 5
+
+
+@tasks.loop(hours=2)
+async def territory_income():
+
+    results = supabase.table(
+        "player_data"
+    ).select("*").neq(
+        "territory",
+        ""
+    ).execute()
+
+    for player in results.data:
+
+        income = random.randint(100, 300)
+
+        supabase.table(
+            "player_data"
+        ).update({
+            "scrap": player["scrap"] + income
+        }).eq(
+            "discord_id",
+            player["discord_id"]
+        ).execute()
+
+
+@tasks.loop(minutes=25)
+async def ai_radio():
+
+    channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    if not channel:
+        return
+
+    chatter = [
+        "📻 Gunfire heard near Tisy.",
+        "📻 Survivors spotted near Vybor.",
+        "📻 Trader convoy requesting escort.",
+        "📻 Black market trader active tonight.",
+        "📻 Toxic storm approaching."
+    ]
+
+    embed = discord.Embed(
+        title="📻 Radio Chatter",
+        description=random.choice(chatter),
+        color=0x3498DB
+    )
+
+    await channel.send(embed=style_embed(embed))
+
+
 # ================= READY =================
 
 @bot.event
@@ -328,6 +424,67 @@ async def on_ready():
     ai_radio.start()
 
     print(f"✅ Logged in as {bot.user}")
+
+
+# ================= MESSAGE SWEAR TRACKER =================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    lower = message.content.lower()
+
+    count = 0
+
+    for swear in SWEAR_WORDS:
+        count += lower.count(swear)
+
+    if count > 0:
+
+        user_id = str(message.author.id)
+
+        if user_id not in swear_tracker:
+
+            swear_tracker[user_id] = {
+                "name": message.author.name,
+                "count": 0
+            }
+
+        swear_tracker[user_id]["count"] += count
+
+    await bot.process_commands(message)
+
+
+# ================= ADM PARSER =================
+
+async def parse_adm():
+
+    global processed_lines
+
+    if not os.path.exists(LOCAL_LOG_FILE):
+
+        print("LOCAL ADM MISSING")
+        return
+
+    try:
+
+        with open(
+            LOCAL_LOG_FILE,
+            "r",
+            encoding="utf-8",
+            errors="ignore"
+        ) as f:
+
+            lines = f.readlines()
+
+    except Exception as e:
+
+        print(f"ADM READ ERROR: {e}")
+        return
+
+    print(f"ADM LINES READ: {len(lines)}")
 
 
 # ================= START =================
