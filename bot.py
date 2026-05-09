@@ -528,6 +528,7 @@ async def parse_adm():
 
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
+    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
 
     for raw_line in new_lines:
 
@@ -551,7 +552,15 @@ async def parse_adm():
 
         lower = line.lower()
 
-        if "connecting" in lower:
+        print(f"PARSING: {line}")
+
+        # ================= CONNECTION EVENTS =================
+
+        if (
+            "connecting" in lower
+            or "is connected" in lower
+            or "has been connected" in lower
+        ):
 
             player_match = re.search(
                 r'Player\s+"([^"]+)"',
@@ -565,31 +574,7 @@ async def parse_adm():
 
                 embed = discord.Embed(
                     description=(
-                        f"🛰️ {player_name} connecting\n"
-                        f"🕒 {line[:8]}"
-                    ),
-                    color=0x9C8A00
-                )
-
-                await connect_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        elif "connected" in lower:
-
-            player_match = re.search(
-                r'Player\s+"([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            if player_match and connect_channel:
-
-                player_name = player_match.group(1)
-
-                embed = discord.Embed(
-                    description=(
-                        f"☣️ {player_name} connected\n"
+                        f"🟢 {player_name} connected\n"
                         f"🕒 {line[:8]}"
                     ),
                     color=0x2ECC71
@@ -598,6 +583,37 @@ async def parse_adm():
                 await connect_channel.send(
                     embed=style_embed(embed)
                 )
+
+        # ================= DISCONNECT EVENTS =================
+
+        elif (
+            "disconnected" in lower
+            or "has been disconnected" in lower
+        ):
+
+            player_match = re.search(
+                r'Player\s+"([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match and connect_channel:
+
+                player_name = player_match.group(1)
+
+                embed = discord.Embed(
+                    description=(
+                        f"🔴 {player_name} disconnected\n"
+                        f"🕒 {line[:8]}"
+                    ),
+                    color=0xE74C3C
+                )
+
+                await connect_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # ================= KILL EVENTS =================
 
         elif "killed" in lower:
 
@@ -631,6 +647,27 @@ async def parse_adm():
                 )
 
                 await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # ================= BUILD EVENTS =================
+
+        elif (
+            "placed" in lower
+            or "packed" in lower
+            or "built" in lower
+        ):
+
+            if build_channel:
+
+                embed = discord.Embed(
+                    description=(
+                        f"🏗️ {line}"
+                    ),
+                    color=0xF1C40F
+                )
+
+                await build_channel.send(
                     embed=style_embed(embed)
                 )
 
