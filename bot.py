@@ -5,6 +5,7 @@ import asyncio
 import requests
 import discord
 
+from supabase import create_client
 from datetime import datetime
 
 try:
@@ -25,6 +26,15 @@ NITRADO_TOKEN = os.getenv("NITRADO_API_TOKEN")
 SERVICE_ID = "18965708"
 NITRADO_USER = "ni12248929_1"
 PLATFORM = "dayzxb"
+
+# =========================
+# SUPABASE
+# =========================
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
 # CHANNEL IDS
