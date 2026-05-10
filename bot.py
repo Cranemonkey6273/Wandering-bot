@@ -645,70 +645,280 @@ async def parse_adm():
 
         print(f"EVENT: {event_type} | {line}")
 
+               print(f"EVENT: {event_type} | {line}")
+
+        # =========================================
+        # CONNECT
+        # =========================================
+
         if event_type == "connect" and connect_channel:
 
-    player_match = re.search(r'Player "([^"]+)"', line)
-    player_name = player_match.group(1) if player_match else "Unknown"
+            player_match = re.search(r'Player "([^"]+)"', line)
+            player_name = player_match.group(1) if player_match else "Unknown"
 
-    online_players.add(player_name)
-    update_player_status(player_name, "online")
+            online_players.add(player_name)
+            update_player_status(player_name, "online")
 
-    embed = discord.Embed(
-        title="🟢 SURVIVOR CONNECTED",
-        description=f"**{player_name}** joined the server.",
-        color=0x39FF14
-    )
+            embed = discord.Embed(
+                title="🟢 SURVIVOR CONNECTED",
+                description=f"**{player_name}** joined the server.",
+                color=0x39FF14
+            )
 
-    embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_thumbnail(url=BOT_IMAGE)
 
-    await connect_channel.send(
-        embed=style_embed(embed)
-    )
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
 
-# =========================================
+        # =========================================
+        # DISCONNECT
+        # =========================================
 
-elif event_type == "disconnect" and connect_channel:
+        elif event_type == "disconnect" and connect_channel:
 
-    player_match = re.search(r'Player "([^"]+)"', line)
-    player_name = player_match.group(1) if player_match else "Unknown"
+            player_match = re.search(r'Player "([^"]+)"', line)
+            player_name = player_match.group(1) if player_match else "Unknown"
 
-    online_players.discard(player_name)
-    update_player_status(player_name, "offline")
+            online_players.discard(player_name)
+            update_player_status(player_name, "offline")
 
-    coord_match = POSITION_REGEX.search(line)
+            coord_match = POSITION_REGEX.search(line)
 
-    if coord_match:
-        x = float(coord_match.group(2))
-        z = float(coord_match.group(3))
+            if coord_match:
+                x = float(coord_match.group(2))
+                z = float(coord_match.group(3))
 
-        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+                map_url = (
+                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+                )
 
-        coord_text = (
-            f"**X:** {x:.1f}\n"
-            f"**Z:** {z:.1f}\n\n"
-            f"[🗺️ Open Map]({map_url})"
-        )
+                coord_text = (
+                    f"**X:** {x:.1f}\n"
+                    f"**Z:** {z:.1f}\n\n"
+                    f"[🗺️ Open Map]({map_url})"
+                )
 
-    else:
-        coord_text = "Coordinates unavailable."
+            else:
+                coord_text = "Coordinates unavailable."
 
-    embed = discord.Embed(
-        title="🔴 SURVIVOR DISCONNECTED",
-        description=f"**{player_name}** left the server.",
-        color=0xFF3131
-    )
+            embed = discord.Embed(
+                title="🔴 SURVIVOR DISCONNECTED",
+                description=f"**{player_name}** left the server.",
+                color=0xFF3131
+            )
 
-    embed.add_field(
-        name="📍 Last Known Location",
-        value=coord_text,
-        inline=False
-    )
+            embed.add_field(
+                name="📍 Last Known Location",
+                value=coord_text,
+                inline=False
+            )
 
-    embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_thumbnail(url=BOT_IMAGE)
 
-    await connect_channel.send(
-        embed=style_embed(embed)
-    )
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # =========================================
+        # UNCONSCIOUS
+        # =========================================
+
+        elif event_type == "unconscious" and event_channel:
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
+            )
+
+            coord_match = POSITION_REGEX.search(line)
+
+            if coord_match:
+
+                x = float(coord_match.group(2))
+                z = float(coord_match.group(3))
+
+                map_url = (
+                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+                )
+
+                coord_text = (
+                    f"**X:** {x:.1f}\n"
+                    f"**Z:** {z:.1f}\n\n"
+                    f"[🗺️ Open Map]({map_url})"
+                )
+
+            else:
+                coord_text = "Unknown"
+
+            embed = discord.Embed(
+                title="🩸 PLAYER UNCONSCIOUS",
+                description=f"**{player_name}** has been knocked unconscious.",
+                color=0xFFD000
+            )
+
+            embed.add_field(
+                name="📍 Location",
+                value=coord_text,
+                inline=False
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await event_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # =========================================
+        # CONSCIOUS
+        # =========================================
+
+        elif event_type == "conscious" and event_channel:
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
+            )
+
+            embed = discord.Embed(
+                title="💚 PLAYER RECOVERED",
+                description=f"**{player_name}** regained consciousness.",
+                color=0x00FFCC
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await event_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # =========================================
+        # BUILD
+        # =========================================
+
+        elif event_type == "build" and build_channel:
+
+            build_match = re.search(
+                r'Player "([^"]+)".*?built ([^<]+)',
+                line,
+                re.IGNORECASE
+            )
+
+            if build_match:
+
+                player_name = build_match.group(1)
+                build_item = build_match.group(2).strip()
+
+                coord_match = POSITION_REGEX.search(line)
+
+                if coord_match:
+                    x = float(coord_match.group(2))
+                    z = float(coord_match.group(3))
+                else:
+                    x = 0
+                    z = 0
+
+                map_url = (
+                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+                )
+
+                embed = discord.Embed(
+                    title="🔨 BUILD EVENT",
+                    description=f"**{player_name}** built **{build_item}**",
+                    color=0x57F287
+                )
+
+                embed.add_field(
+                    name="📍 Coordinates",
+                    value=(
+                        f"**X:** {x:.1f}\n"
+                        f"**Z:** {z:.1f}\n\n"
+                        f"[🗺️ Open Map]({map_url})"
+                    ),
+                    inline=False
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await build_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        # =========================================
+        # DISMANTLE
+        # =========================================
+
+        elif event_type == "dismantle" and raid_channel:
+
+            embed = discord.Embed(
+                title="🪓 DISMANTLED",
+                description=line,
+                color=0xFF9900
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await raid_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # =========================================
+        # KILLFEED
+        # =========================================
+
+        elif event_type == "kill" and killfeed_channel:
+
+            kill_match = re.search(
+                r'Player "([^"]+)".*?killed by Player "([^"]+)".*?with ([^ ]+).*?from ([\d\.]+)',
+                line,
+                re.IGNORECASE
+            )
+
+            if kill_match:
+
+                victim = kill_match.group(1)
+                killer = kill_match.group(2)
+                weapon = kill_match.group(3)
+                distance = kill_match.group(4)
+
+                embed = discord.Embed(
+                    title="☠️ PLAYER KILL",
+                    color=0xBB00FF
+                )
+
+                embed.add_field(
+                    name="🔫 Killer",
+                    value=killer,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="💀 Victim",
+                    value=victim,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="🪖 Weapon",
+                    value=f"{weapon} ({distance}m)",
+                    inline=False
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
 
 # =========================================
 
@@ -841,13 +1051,13 @@ elif event_type == "build" and build_channel:
 
 elif event_type == "dismantle" and raid_channel:
 
-    dismantle_match = re.search(
+dismantle_match = re.search(
         r'Player "([^"]+)".*?Dismantled ([^ ]+) from ([^ ]+) with ([^ ]+)',
         line,
         re.IGNORECASE
     )
 
-    if dismantle_match:
+if dismantle_match:
 
         player_name = dismantle_match.group(1)
         dismantled_piece = dismantle_match.group(2)
