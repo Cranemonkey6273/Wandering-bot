@@ -47,11 +47,12 @@ BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", "0"))
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))
 
 # =========================
-# DEBUG CHANNEL CHECK
+# READY EVENT
 # =========================
 
 @bot.event
 async def on_ready():
+
     print(f"LOGGED IN AS: {bot.user}")
 
     online_channel = bot.get_channel(ONLINE_CHANNEL_ID)
