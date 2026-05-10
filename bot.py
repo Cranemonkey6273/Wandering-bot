@@ -6,11 +6,13 @@ import requests
 import discord
 
 from datetime import datetime
+
 try:
     from datetime import UTC
 except ImportError:
     from datetime import timezone
     UTC = timezone.utc
+
 from discord.ext import commands, tasks
 
 # =========================
@@ -19,6 +21,7 @@ from discord.ext import commands, tasks
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 NITRADO_TOKEN = os.getenv("NITRADO_API_TOKEN")
+
 SERVICE_ID = "18965708"
 NITRADO_USER = "ni12248929_1"
 PLATFORM = "dayzxb"
@@ -30,11 +33,353 @@ PLATFORM = "dayzxb"
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
+PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", 0))
+DISMANTLE_CHANNEL_ID = int(os.getenv("DISMANTLE_CHANNEL_ID", 0))
+FLAG_CHANNEL_ID = int(os.getenv("FLAG_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", 0))
 
 # =========================
 # DISCORD
+# =========================
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
+
+# =========================
+# FILES
+# =========================
+
+LOCAL_LOG_FILE = "live.ADM"
+STATE_FILE = "adm_state.json"
+SWEAR_JAR_FILE = "swear_jar.json"
+PLAYER_STATS_FILE = "player_stats.json"
+HEATMAP_FILE = "heatmap.json"
+
+# =========================
+# GLOBALS
+# =========================
+
+adm_state = {
+    "last_modified": "",
+    "last_line": 0,
+    "last_text": ""
+}
+
+processed_lines = set()
+online_players = set()
+
+territory_heat = {}
+player_stats = {}
+swear_jar = {}
+
+# =========================
+# RADAR SYSTEM
+# =========================
+
+RADAR_ZONES = [
+    {"name": "TEST", "x": 7500, "z": 7500, "radius": 20000},
+    {"name": "NEAF", "x": 12100, "z": 12500, "radius": 500},
+    {"name": "TISY", "x": 1700, "z": 14100, "radius": 700},
+    {"name": "KOMETA", "x": 10350, "z": 2450, "radius": 500},
+]
+
+player_last_radar_ping = {}
+player_positions = {}
+
+# =========================
+# SWEAR WORDS
+# =========================
+
+SWEAR_WORDS = [
+    "fuck",
+    "shit",
+    "bitch",
+    "cunt",
+    "wanker",
+    "bollocks"
+]
+
+BOT_IMAGE = (
+    "https://media.discordapp.net/"
+    "attachments/1499787777636831324/"
+    "1501685742433206342/"
+    "7A382429-B666-4A9F-B890-17C0F7981709.png"
+)
+
+# =========================
+# SAVE / LOAD
+# =========================
+
+def save_state():
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(adm_state, f)
+
+    except Exception as error:
+        print("STATE SAVE ERROR")
+        print(error)
+
+
+def load_state():
+    global adm_state
+
+    try:
+        if os.path.exists(STATE_FILE):
+
+            with open(STATE_FILE, "r") as f:
+                adm_state = json.load(f)
+
+            print("STATE LOADED")
+
+    except Exception as error:
+        print("STATE LOAD ERROR")
+        print(error)
+
+
+def load_swear_jar():
+    global swear_jar
+
+    try:
+        if os.path.exists(SWEAR_JAR_FILE):
+
+            with open(SWEAR_JAR_FILE, "r") as f:
+                swear_jar = json.load(f)
+
+            print("SWEAR JAR LOADED")
+
+    except Exception as error:
+        print("SWEAR JAR LOAD ERROR")
+        print(error)
+
+
+def save_swear_jar():
+    try:
+        with open(SWEAR_JAR_FILE, "w") as f:
+            json.dump(swear_jar, f, indent=4)
+
+    except Exception as error:
+        print("SWEAR JAR SAVE ERROR")
+        print(error)
+
+
+def load_player_stats():
+    global player_stats
+
+    try:
+        if os.path.exists(PLAYER_STATS_FILE):
+
+            with open(PLAYER_STATS_FILE, "r") as f:
+                player_stats = json.load(f)
+
+            print("PLAYER STATS LOADED")
+
+    except Exception as error:
+        print("PLAYER STATS LOAD ERROR")
+        print(error)
+
+
+def save_player_stats():
+    try:
+        with open(PLAYER_STATS_FILE, "w") as f:
+            json.dump(player_stats, f, indent=4)
+
+    except Exception as error:
+        print("PLAYER STATS SAVE ERROR")
+        print(error)
+
+
+def load_heatmap():
+    global territory_heat
+
+    try:
+        if os.path.exists(HEATMAP_FILE):
+
+            with open(HEATMAP_FILE, "r") as f:
+                territory_heat = json.load(f)
+
+            print("HEATMAP LOADED")
+
+    except Exception as error:
+        print("HEATMAP LOAD ERROR")
+        print(error)
+
+
+def save_heatmap():
+    try:
+        with open(HEATMAP_FILE, "w") as f:
+            json.dump(territory_heat, f, indent=4)
+
+    except Exception as error:
+        print("HEATMAP SAVE ERROR")
+        print(error)
+
+# =========================
+# HELPERS
+# =========================
+
+def style_embed(embed):
+    embed.timestamp = datetime.now(UTC)
+    return embed
+
+
+def extract_timestamp(filename):
+
+    match = re.search(
+        r"_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$",
+        filename,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return datetime.fromtimestamp(0)
+
+    date_part = match.group(1)
+    time_part = match.group(2).replace("-", ":")
+
+    return datetime.fromisoformat(
+        f"{date_part}T{time_part}"
+    )
+
+
+def parse_kill_event(line):
+
+    match = re.search(
+        r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return None
+
+    return {
+        "killer": match.group(1),
+        "victim": match.group(2),
+        "weapon": match.group(3)
+    }
+
+
+def ensure_player(player_name):
+
+    if player_name not in player_stats:
+
+        player_stats[player_name] = {
+            "kills": 0,
+            "deaths": 0,
+            "raids": 0,
+            "builds": 0
+        }
+
+
+def get_zone_from_line(line):
+
+    lower = line.lower()
+
+    if "nwaf" in lower or "airfield" in lower:
+        return "NWAF"
+
+    if "tisy" in lower:
+        return "Tisy"
+
+    if "zeleno" in lower:
+        return "Zelenogorsk"
+
+    if "cherno" in lower:
+        return "Chernogorsk"
+
+    if "electro" in lower:
+        return "Elektrozavodsk"
+
+    if "vybor" in lower:
+        return "Vybor"
+
+    return "Unknown"
+
+
+def increase_heat(zone):
+
+    territory_heat[zone] = (
+        territory_heat.get(zone, 0) + 1
+    )
+
+    save_heatmap()
+
+# =========================
+# RADAR HELPERS
+# =========================
+
+def distance(x1, z1, x2, z2):
+
+    return (
+        ((x2 - x1) ** 2)
+        +
+        ((z2 - z1) ** 2)
+    ) ** 0.5
+
+
+def get_nearest_zone(x, z):
+
+    closest_zone = None
+    closest_distance = float("inf")
+
+    for zone in RADAR_ZONES:
+
+        dist = distance(
+            x,
+            z,
+            zone["x"],
+            zone["z"]
+        )
+
+        if dist < closest_distance:
+
+            closest_distance = dist
+            closest_zone = zone["name"]
+
+    return closest_zone, round(closest_distance)
+
+# =========================
+# EVENT CLASSIFIER
+# =========================
+
+def classify_event(line):
+
+    lower = line.lower()
+
+    if "disconnected" in lower:
+        return "disconnect"
+
+    if "connecting" in lower or "connected" in lower:
+        return "connect"
+
+    if "killed" in lower:
+        return "kill"
+
+    if "dismantled" in lower:
+        return "dismantle"
+
+    if "lowered flag" in lower:
+        return "flag_lower"
+
+    if "hoisted flag" in lower or "raised flag" in lower:
+        return "flag_hoist"
+
+    if "built" in lower:
+        return "build"
+
+    if "placed" in lower:
+        return "place"
+
+    if "destroyed" in lower or "explosive" in lower:
+        return "raid"
+
+    return None# DISCORD
 # =========================
 
 intents = discord.Intents.default()
