@@ -62,6 +62,10 @@ STATE_FILE = "adm_state.json"
 
 SWEAR_JAR_FILE = "swear_jar.json"
 
+PLAYER_STATS_FILE = "player_stats.json"
+
+HEATMAP_FILE = "heatmap.json"
+
 # =========================
 # GLOBALS
 # =========================
@@ -77,6 +81,8 @@ processed_lines = set()
 online_players = set()
 
 territory_heat = {}
+
+player_stats = {}
 
 swear_jar = {}
 
@@ -180,6 +186,100 @@ def save_swear_jar():
         print(error)
 
 # =========================
+# PLAYER STATS
+# =========================
+
+def load_player_stats():
+
+    global player_stats
+
+    try:
+
+        if os.path.exists(PLAYER_STATS_FILE):
+
+            with open(
+                PLAYER_STATS_FILE,
+                "r"
+            ) as f:
+
+                player_stats = json.load(f)
+
+            print("PLAYER STATS LOADED")
+
+    except Exception as error:
+
+        print("PLAYER STATS LOAD ERROR")
+        print(error)
+
+
+def save_player_stats():
+
+    try:
+
+        with open(
+            PLAYER_STATS_FILE,
+            "w"
+        ) as f:
+
+            json.dump(
+                player_stats,
+                f,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("PLAYER STATS SAVE ERROR")
+        print(error)
+
+# =========================
+# HEATMAP
+# =========================
+
+def load_heatmap():
+
+    global territory_heat
+
+    try:
+
+        if os.path.exists(HEATMAP_FILE):
+
+            with open(
+                HEATMAP_FILE,
+                "r"
+            ) as f:
+
+                territory_heat = json.load(f)
+
+            print("HEATMAP LOADED")
+
+    except Exception as error:
+
+        print("HEATMAP LOAD ERROR")
+        print(error)
+
+
+def save_heatmap():
+
+    try:
+
+        with open(
+            HEATMAP_FILE,
+            "w"
+        ) as f:
+
+            json.dump(
+                territory_heat,
+                f,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("HEATMAP SAVE ERROR")
+        print(error)
+
+# =========================
 # HELPERS
 # =========================
 
@@ -226,6 +326,55 @@ def parse_kill_event(line):
         "victim": match.group(2),
         "weapon": match.group(3)
     }
+
+
+def ensure_player(player_name):
+
+    if player_name not in player_stats:
+
+        player_stats[player_name] = {
+            "kills": 0,
+            "deaths": 0,
+            "raids": 0,
+            "builds": 0
+        }
+
+
+def get_zone_from_line(line):
+
+    lower = line.lower()
+
+    if (
+        "nwaf" in lower
+        or "airfield" in lower
+    ):
+        return "NWAF"
+
+    if "tisy" in lower:
+        return "Tisy"
+
+    if "zeleno" in lower:
+        return "Zelenogorsk"
+
+    if "cherno" in lower:
+        return "Chernogorsk"
+
+    if "electro" in lower:
+        return "Elektrozavodsk"
+
+    if "vybor" in lower:
+        return "Vybor"
+
+    return "Unknown"
+
+
+def increase_heat(zone):
+
+    territory_heat[zone] = (
+        territory_heat.get(zone, 0) + 1
+    )
+
+    save_heatmap()
 
 # =========================
 # API ADM CHECK
@@ -585,10 +734,36 @@ async def parse_adm():
             and build_channel
         ):
 
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match:
+
+                player_name = player_match.group(1)
+
+                ensure_player(player_name)
+
+                player_stats[player_name]["builds"] += 1
+
+                save_player_stats()
+
             embed = discord.Embed(
                 title="🏗️ BUILD EVENT",
                 description=line,
                 color=0xF1C40F
+            )
+
+            embed.add_field(
+                name="📍 Zone",
+                value=zone,
+                inline=False
             )
 
             embed.set_thumbnail(
@@ -606,10 +781,36 @@ async def parse_adm():
             and raid_channel
         ):
 
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match:
+
+                player_name = player_match.group(1)
+
+                ensure_player(player_name)
+
+                player_stats[player_name]["raids"] += 1
+
+                save_player_stats()
+
             embed = discord.Embed(
                 title="🚨 RAID EVENT",
                 description=line,
                 color=0xFF0000
+            )
+
+            embed.add_field(
+                name="📍 Zone",
+                value=zone,
+                inline=False
             )
 
             embed.set_thumbnail(
@@ -627,9 +828,24 @@ async def parse_adm():
             and killfeed_channel
         ):
 
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
             kill_data = parse_kill_event(line)
 
             if kill_data:
+
+                killer = kill_data["killer"]
+                victim = kill_data["victim"]
+
+                ensure_player(killer)
+                ensure_player(victim)
+
+                player_stats[killer]["kills"] += 1
+                player_stats[victim]["deaths"] += 1
+
+                save_player_stats()
 
                 embed = discord.Embed(
                     title="☠️ PLAYER KILL",
@@ -638,19 +854,25 @@ async def parse_adm():
 
                 embed.add_field(
                     name="🔫 Killer",
-                    value=kill_data["killer"],
+                    value=killer,
                     inline=True
                 )
 
                 embed.add_field(
                     name="💀 Victim",
-                    value=kill_data["victim"],
+                    value=victim,
                     inline=True
                 )
 
                 embed.add_field(
                     name="🪖 Weapon",
                     value=kill_data["weapon"],
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Zone",
+                    value=zone,
                     inline=False
                 )
 
@@ -802,6 +1024,8 @@ async def on_ready():
 
     load_state()
     load_swear_jar()
+    load_player_stats()
+    load_heatmap()
 
     try:
 
@@ -881,6 +1105,86 @@ async def swearjar(ctx):
         title="💸 SWEAR JAR LEADERBOARD",
         description="\n".join(leaderboard),
         color=0xF1C40F
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def topkills(ctx):
+
+    if not player_stats:
+
+        await ctx.send(
+            "No stats available."
+        )
+
+        return
+
+    sorted_players = sorted(
+        player_stats.items(),
+        key=lambda x: x[1]["kills"],
+        reverse=True
+    )
+
+    lines = []
+
+    for index, (
+        player,
+        stats
+    ) in enumerate(
+        sorted_players[:10],
+        start=1
+    ):
+
+        lines.append(
+            f"{index}. "
+            f"{player} - "
+            f"{stats['kills']} kills"
+        )
+
+    embed = discord.Embed(
+        title="☠️ TOP KILLS",
+        description="\n".join(lines),
+        color=0x992D22
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def heatmap(ctx):
+
+    if not territory_heat:
+
+        await ctx.send(
+            "No territory activity yet."
+        )
+
+        return
+
+    sorted_zones = sorted(
+        territory_heat.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    lines = []
+
+    for zone, count in sorted_zones:
+
+        lines.append(
+            f"🔥 {zone} - {count}"
+        )
+
+    embed = discord.Embed(
+        title="🗺️ TERRITORY HEATMAP",
+        description="\n".join(lines),
+        color=0xE74C3C
     )
 
     await ctx.send(
