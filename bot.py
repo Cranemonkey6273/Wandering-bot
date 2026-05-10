@@ -60,6 +60,8 @@ LOCAL_LOG_FILE = "live.ADM"
 
 STATE_FILE = "adm_state.json"
 
+SWEAR_JAR_FILE = "swear_jar.json"
+
 # =========================
 # GLOBALS
 # =========================
@@ -75,6 +77,17 @@ processed_lines = set()
 online_players = set()
 
 territory_heat = {}
+
+swear_jar = {}
+
+SWEAR_WORDS = [
+    "fuck",
+    "shit",
+    "bitch",
+    "cunt",
+    "wanker",
+    "bollocks"
+]
 
 BOT_IMAGE = (
     "https://media.discordapp.net/"
@@ -120,6 +133,53 @@ def load_state():
         print(error)
 
 # =========================
+# SWEAR JAR
+# =========================
+
+def load_swear_jar():
+
+    global swear_jar
+
+    try:
+
+        if os.path.exists(SWEAR_JAR_FILE):
+
+            with open(
+                SWEAR_JAR_FILE,
+                "r"
+            ) as f:
+
+                swear_jar = json.load(f)
+
+            print("SWEAR JAR LOADED")
+
+    except Exception as error:
+
+        print("SWEAR JAR LOAD ERROR")
+        print(error)
+
+
+def save_swear_jar():
+
+    try:
+
+        with open(
+            SWEAR_JAR_FILE,
+            "w"
+        ) as f:
+
+            json.dump(
+                swear_jar,
+                f,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("SWEAR JAR SAVE ERROR")
+        print(error)
+
+# =========================
 # HELPERS
 # =========================
 
@@ -148,6 +208,24 @@ def extract_timestamp(filename):
     return datetime.fromisoformat(
         f"{date_part}T{time_part}"
     )
+
+
+def parse_kill_event(line):
+
+    match = re.search(
+        r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return None
+
+    return {
+        "killer": match.group(1),
+        "victim": match.group(2),
+        "weapon": match.group(3)
+    }
 
 # =========================
 # API ADM CHECK
@@ -512,11 +590,40 @@ async def parse_adm():
             and killfeed_channel
         ):
 
-            embed = discord.Embed(
-                title="☠️ KILL EVENT",
-                description=line,
-                color=0x992D22
-            )
+            kill_data = parse_kill_event(line)
+
+            if kill_data:
+
+                embed = discord.Embed(
+                    title="☠️ PLAYER KILL",
+                    color=0x992D22
+                )
+
+                embed.add_field(
+                    name="🔫 Killer",
+                    value=kill_data["killer"],
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="💀 Victim",
+                    value=kill_data["victim"],
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="🪖 Weapon",
+                    value=kill_data["weapon"],
+                    inline=False
+                )
+
+            else:
+
+                embed = discord.Embed(
+                    title="☠️ KILL EVENT",
+                    description=line,
+                    color=0x992D22
+                )
 
             embed.set_thumbnail(
                 url=BOT_IMAGE
@@ -525,6 +632,78 @@ async def parse_adm():
             await killfeed_channel.send(
                 embed=style_embed(embed)
             )
+
+# =========================
+# MESSAGE EVENT
+# =========================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    lower = message.content.lower()
+
+    found_words = [
+
+        word for word in SWEAR_WORDS
+
+        if word in lower
+    ]
+
+    if found_words:
+
+        user_id = str(message.author.id)
+
+        if user_id not in swear_jar:
+
+            swear_jar[user_id] = {
+                "name": str(message.author),
+                "count": 0,
+                "balance": 0
+            }
+
+        swear_jar[user_id]["count"] += len(found_words)
+
+        swear_jar[user_id]["balance"] += (
+            len(found_words) * 100
+        )
+
+        save_swear_jar()
+
+        embed = discord.Embed(
+            title="💸 SWEAR JAR",
+            description=(
+                f"{message.author.mention} "
+                f"was fined "
+                f"£{len(found_words) * 100}"
+            ),
+            color=0xE67E22
+        )
+
+        embed.add_field(
+            name="Total Swears",
+            value=str(
+                swear_jar[user_id]["count"]
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Debt",
+            value=(
+                f"£"
+                f"{swear_jar[user_id]['balance']}"
+            ),
+            inline=True
+        )
+
+        await message.channel.send(
+            embed=style_embed(embed)
+        )
+
+    await bot.process_commands(message)
 
 # =========================
 # LOOP
@@ -585,6 +764,7 @@ async def on_ready():
     print(f"LOGGED IN AS {bot.user}")
 
     load_state()
+    load_swear_jar()
 
     try:
 
@@ -594,7 +774,7 @@ async def on_ready():
         pass
 
 # =========================
-# ONLINE COMMAND
+# COMMANDS
 # =========================
 
 @bot.command()
@@ -614,6 +794,48 @@ async def online(ctx):
         title="🟢 ONLINE PLAYERS",
         description=players,
         color=0x2ECC71
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def swearjar(ctx):
+
+    if not swear_jar:
+
+        await ctx.send(
+            "Swear jar is empty."
+        )
+
+        return
+
+    sorted_users = sorted(
+        swear_jar.values(),
+        key=lambda x: x["balance"],
+        reverse=True
+    )
+
+    leaderboard = []
+
+    for index, user in enumerate(
+        sorted_users[:10],
+        start=1
+    ):
+
+        leaderboard.append(
+            f"{index}. "
+            f"{user['name']} "
+            f"- £{user['balance']} "
+            f"({user['count']} swears)"
+        )
+
+    embed = discord.Embed(
+        title="💸 SWEAR JAR LEADERBOARD",
+        description="\n".join(leaderboard),
+        color=0xF1C40F
     )
 
     await ctx.send(
