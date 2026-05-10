@@ -46,28 +46,9 @@ RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", "0"))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", "0"))
 EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))
 
-# =========================
-# READY EVENT
-# =========================
-
-@bot.event
-async def on_ready():
-
-    print(f"LOGGED IN AS: {bot.user}")
-
-    online_channel = bot.get_channel(ONLINE_CHANNEL_ID)
-    killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
-    radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
-    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
-    event_channel = bot.get_channel(EVENT_CHANNEL_ID)
-
-    print("========== CHANNEL DEBUG ==========")
-    print("ONLINE CHANNEL:", online_channel)
-    print("KILLFEED CHANNEL:", killfeed_channel)
-    print("RADAR CHANNEL:", radar_channel)
-    print("BUILD CHANNEL:", build_channel)
-    print("EVENT CHANNEL:", event_channel)
-    print("===================================")
+RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", "0"))
+CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", "0"))
+PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", "0"))
 
 # =========================
 # DISCORD
@@ -925,6 +906,17 @@ async def adm_loop():
 async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
+
+    print("========== CHANNEL DEBUG ==========")
+    print("ONLINE:", bot.get_channel(ONLINE_CHANNEL_ID))
+    print("KILLFEED:", bot.get_channel(KILLFEED_CHANNEL_ID))
+    print("RADAR:", bot.get_channel(RADAR_CHANNEL_ID))
+    print("BUILD:", bot.get_channel(BUILD_CHANNEL_ID))
+    print("EVENT:", bot.get_channel(EVENT_CHANNEL_ID))
+    print("RAID:", bot.get_channel(RAID_CHANNEL_ID))
+    print("CONNECT:", bot.get_channel(CONNECT_CHANNEL_ID))
+    print("PLACE:", bot.get_channel(PLACE_CHANNEL_ID))
+    print("===================================")
 
     load_state()
     load_swear_jar()
