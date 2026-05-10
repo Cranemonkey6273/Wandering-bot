@@ -617,10 +617,7 @@ async def parse_adm():
 
                 embed.add_field(
                     name="📍 Coordinates",
-                    value=f"X: {x:.1f}
-Z: {z:.1f}
-
-[🗺️ Open Map]({map_url})",
+                    value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
                     inline=False
                 )
 
@@ -659,10 +656,7 @@ Z: {z:.1f}
 
                 embed.add_field(
                     name="📍 Coordinates",
-                    value=f"X: {x:.1f}
-Z: {z:.1f}
-
-[🗺️ Open Map]({map_url})",
+                    value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
                     inline=False
                 )
 
