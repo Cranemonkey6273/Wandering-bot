@@ -555,7 +555,7 @@ async def parse_adm():
 
             embed = discord.Embed(
                 title="🟢 Survivor Connected",
-                color=0x2ECC71
+                color=0x00FF88
             )
 
             embed.add_field(
@@ -575,7 +575,7 @@ async def parse_adm():
 
             embed = discord.Embed(
                 title="🔴 Survivor Disconnected",
-                color=0xE74C3C
+                color=0xFF0000
             )
 
             embed.add_field(
@@ -598,11 +598,33 @@ async def parse_adm():
                 player_name = place_match.group(1)
                 item_name = place_match.group(2).strip()
 
+                coord_match = POSITION_REGEX.search(line)
+
+                if coord_match:
+                    x = float(coord_match.group(2))
+                    z = float(coord_match.group(3))
+                else:
+                    x = 0
+                    z = 0
+
+                map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
                 embed = discord.Embed(
                     title="📦 ITEM PLACED",
                     description=f"**{player_name}** placed **{item_name}**",
                     color=0x3498DB
                 )
+
+                embed.add_field(
+                    name="📍 Coordinates",
+                    value=f"X: {x:.1f}
+Z: {z:.1f}
+
+[🗺️ Open Map]({map_url})",
+                    inline=False
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
 
                 await place_channel.send(embed=style_embed(embed))
 
@@ -618,11 +640,33 @@ async def parse_adm():
                 player_name = build_match.group(1)
                 build_item = build_match.group(2).strip()
 
+                coord_match = POSITION_REGEX.search(line)
+
+                if coord_match:
+                    x = float(coord_match.group(2))
+                    z = float(coord_match.group(3))
+                else:
+                    x = 0
+                    z = 0
+
+                map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
                 embed = discord.Embed(
                     title="🔨 BUILD EVENT",
                     description=f"**{player_name}** built **{build_item}**",
                     color=0x57F287
                 )
+
+                embed.add_field(
+                    name="📍 Coordinates",
+                    value=f"X: {x:.1f}
+Z: {z:.1f}
+
+[🗺️ Open Map]({map_url})",
+                    inline=False
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
 
                 await build_channel.send(embed=style_embed(embed))
 
@@ -631,7 +675,7 @@ async def parse_adm():
             embed = discord.Embed(
                 title="🪓 DISMANTLED",
                 description=line,
-                color=0xE67E22
+                color=0xFF8800
             )
 
             await raid_channel.send(embed=style_embed(embed))
@@ -663,7 +707,7 @@ async def parse_adm():
             if kill_data:
                 embed = discord.Embed(
                     title="☠️ PLAYER KILL",
-                    color=0x992D22
+                    color=0x8B0000
                 )
 
                 embed.add_field(
