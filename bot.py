@@ -731,8 +731,8 @@ async def parse_adm():
             )
 
             z = float(
-                position_match.group(4)
-            )
+                position_match.group(3)
+           )
 
             player_positions[player_name] = {
                 "x": x,
