@@ -99,7 +99,7 @@ def style_embed(embed):
     return embed
 
 
-async def parse
+async def parse():
 
     lower = line.lower()
 
