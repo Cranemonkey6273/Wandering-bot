@@ -645,8 +645,6 @@ async def parse_adm():
 
         print(f"EVENT: {event_type} | {line}")
 
-               print(f"EVENT: {event_type} | {line}")
-
         # =========================================
         # CONNECT
         # =========================================
@@ -924,7 +922,7 @@ async def parse_adm():
 
 # =========================================
 
-elif event_type == "unconscious" and event_channel:
+    if event_type == "unconscious" and event_channel:
 
     player_match = re.search(
         r'Player "([^"]+)"',
@@ -977,7 +975,7 @@ elif event_type == "unconscious" and event_channel:
 
 elif event_type == "conscious" and event_channel:
 
-    player_match = re.search(
+player_match = re.search(
         r'Player "([^"]+)"',
         line
     )
@@ -1003,7 +1001,7 @@ elif event_type == "conscious" and event_channel:
 
 elif event_type == "build" and build_channel:
 
-    build_match = re.search(
+ build_match = re.search(
         r'Player "([^"]+)".*?built ([^<]+)',
         line,
         re.IGNORECASE
