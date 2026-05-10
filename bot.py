@@ -99,41 +99,86 @@ def style_embed(embed):
     return embed
 
 
-def classify_event(line):
+async def parse
 
     lower = line.lower()
 
-    if "disconnected" in lower:
+    # ================= PLAYER CONNECT =================
+
+    if (
+        'player ' in lower
+        and ' connecting' in lower
+    ):
+        return "connect"
+
+    if (
+        'player ' in lower
+        and 'has connected' in lower
+    ):
+        return "connect"
+
+    # ================= PLAYER DISCONNECT =================
+
+    if (
+        'player ' in lower
+        and 'disconnected' in lower
+    ):
         return "disconnect"
 
-    if "connecting" in lower or "connected" in lower:
-        return "connect"
+    # ================= UNCON =================
+
+    if "is unconscious" in lower:
+        return "uncon"
 
     if "regained consciousness" in lower:
         return "recon"
 
-    if "unconscious" in lower:
-        return "uncon"
-
-    if "lowered flag" in lower:
-        return "flag_lower"
+    # ================= FLAG EVENTS =================
 
     if "hoisted flag" in lower:
         return "flag_hoist"
 
-    if "dismantled" in lower:
+    if "lowered flag" in lower:
+        return "flag_lower"
+
+    # ================= DISMANTLE =================
+
+    if (
+        'player "' in lower
+        and 'dismantled' in lower
+    ):
         return "dismantle"
 
-    if "placed" in lower:
+    # ================= PLACE =================
+
+    if (
+        'player "' in lower
+        and ' placed ' in lower
+    ):
         return "place"
 
-    if "built" in lower or "mounted" in lower:
+    # ================= BUILD =================
+
+    if (
+        'player "' in lower
+        and (
+            ' built ' in lower
+            or ' mounted ' in lower
+        )
+    ):
         return "build"
 
-    if "destroyed" in lower or "explosive" in lower:
+    # ================= RAID =================
+
+    if (
+        "destroyed" in lower
+        or "explosive" in lower
+    ):
         return "raid"
 
-    if "killed" in lower:
+    # ================= KILL =================
+
+    if " killed " in lower:
         return "kill"
 
     return None
@@ -288,26 +333,22 @@ async def parse_adm():
         lines = f.readlines()
 
     start_index = adm_state.get("last_line", 0)
+
     new_lines = lines[start_index:]
 
     adm_state["last_line"] = len(lines)
 
+    save_state()
+
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
     raid_channel = bot.get_channel(RAID_CHANNEL_ID)
     build_channel = bot.get_channel(BUILD_CHANNEL_ID)
-    place_channel = bot.get_channel(PLACE_CHANNEL_ID)
-    dismantle_channel = bot.get_channel(DISMANTLE_CHANNEL_ID)
-    flag_channel = bot.get_channel(FLAG_CHANNEL_ID)
-    uncon_channel = bot.get_channel(UNCON_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
     radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
 
     for raw_line in new_lines:
 
         line = raw_line.strip()
-
-        if not line:
-            continue
 
         # ================= RADAR =================
 
@@ -320,36 +361,40 @@ async def parse_adm():
             x = float(position_match.group(2))
             z = float(position_match.group(3))
 
+            player_positions[player_name] = {
+                "x": x,
+                "z": z
+            }
+
             for zone in RADAR_ZONES:
 
-                dist = (
-                    (
-                        (zone["x"] - x) ** 2
-                        +
-                        (zone["z"] - z) ** 2
-                    ) ** 0.5
+                dist = distance(
+                    x,
+                    z,
+                    zone["x"],
+                    zone["z"]
                 )
 
                 if dist <= zone["radius"]:
 
                     key = f"{player_name}_{zone['name']}"
+
                     now = datetime.now().timestamp()
 
                     if key not in player_last_radar_ping:
                         player_last_radar_ping[key] = 0
 
                     cooldown = (
-                        now -
-                        player_last_radar_ping[key]
+                        now
+                        - player_last_radar_ping[key]
                     )
 
                     if cooldown >= 300:
 
                         player_last_radar_ping[key] = now
 
-                        izurvive_url = (
-                            f"https://dayz.ginfo.gg/chernarusplus/"
-                            f"#c={int(x)};{int(z)};3"
+                        nearest_zone, nearest_dist = (
+                            get_nearest_zone(x, z)
                         )
 
                         embed = discord.Embed(
@@ -364,7 +409,7 @@ async def parse_adm():
                         )
 
                         embed.add_field(
-                            name="📍 Zone",
+                            name="📍 Radar Zone",
                             value=zone["name"],
                             inline=True
                         )
@@ -373,6 +418,17 @@ async def parse_adm():
                             name="📏 Distance",
                             value=f"{dist:.1f}m",
                             inline=True
+                        )
+
+                        embed.add_field(
+                            name="🗺️ Nearest Area",
+                            value=f"{nearest_zone} ({nearest_dist}m)",
+                            inline=False
+                        )
+
+                        izurvive_url = (
+                            f"https://dayz.ginfo.gg/chernarusplus/"
+                            f"#c={int(x)};{int(z)};3"
                         )
 
                         embed.add_field(
@@ -385,15 +441,14 @@ async def parse_adm():
                             inline=False
                         )
 
-                        embed.set_thumbnail(
-                            url=BOT_IMAGE
-                        )
+                        embed.set_thumbnail(url=BOT_IMAGE)
 
                         await radar_channel.send(
                             embed=style_embed(embed)
                         )
 
-        # ================= EVENTS =================
+        if not line:
+            continue
 
         line_hash = hash(line)
 
@@ -411,11 +466,15 @@ async def parse_adm():
 
         # ================= CONNECT =================
 
-        if event_type == "connect" and connect_channel:
+        if (
+            event_type == "connect"
+            and connect_channel
+        ):
 
             player_match = re.search(
                 r'Player "([^"]+)"',
-                line
+                line,
+                re.IGNORECASE
             )
 
             player_name = (
@@ -428,13 +487,16 @@ async def parse_adm():
 
             embed = discord.Embed(
                 title="🟢 Survivor Connected",
-                description=player_name,
                 color=0x2ECC71
             )
 
-            embed.set_thumbnail(
-                url=BOT_IMAGE
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
             )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
 
             await connect_channel.send(
                 embed=style_embed(embed)
@@ -442,11 +504,15 @@ async def parse_adm():
 
         # ================= DISCONNECT =================
 
-        elif event_type == "disconnect" and connect_channel:
+        elif (
+            event_type == "disconnect"
+            and connect_channel
+        ):
 
             player_match = re.search(
                 r'Player "([^"]+)"',
-                line
+                line,
+                re.IGNORECASE
             )
 
             player_name = (
@@ -459,13 +525,16 @@ async def parse_adm():
 
             embed = discord.Embed(
                 title="🔴 Survivor Disconnected",
-                description=player_name,
                 color=0xE74C3C
             )
 
-            embed.set_thumbnail(
-                url=BOT_IMAGE
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
             )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
 
             await connect_channel.send(
                 embed=style_embed(embed)
@@ -473,241 +542,117 @@ async def parse_adm():
 
         # ================= PLACE =================
 
-        elif event_type == "place" and place_channel:
+        elif (
+            event_type == "place"
+            and build_channel
+        ):
 
             place_match = re.search(
-                r'Player "([^"]+)".*?placed ([^<]+)',
+                r'Player "([^"]+)".*?placed\s+(.+)',
                 line,
                 re.IGNORECASE
             )
 
             if place_match:
+
                 player_name = place_match.group(1)
-                item = place_match.group(2).strip()
-            else:
-                player_name = "Unknown"
-                item = "Object"
 
-            embed = discord.Embed(
-                title="📦 ITEM PLACED",
-                description=(
-                    f"**{player_name}** "
-                    f"placed **{item}**"
-                ),
-                color=0x3498DB
-            )
+                placed_item = (
+                    place_match.group(2)
+                    .split("<")[0]
+                    .strip()
+                )
 
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
+                embed = discord.Embed(
+                    title="📦 ITEM PLACED",
+                    description=(
+                        f"**{player_name}** placed "
+                        f"**{placed_item}**"
+                    ),
+                    color=0x3498DB
+                )
 
-            await place_channel.send(
-                embed=style_embed(embed)
-            )
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await build_channel.send(
+                    embed=style_embed(embed)
+                )
 
         # ================= BUILD =================
 
-        elif event_type == "build" and build_channel:
+        elif (
+            event_type == "build"
+            and build_channel
+        ):
 
-            embed = discord.Embed(
-                title="🔨 BUILD EVENT",
-                description=line,
-                color=0x57F287
+            build_match = re.search(
+                r'Player "([^"]+)".*?(built|mounted)\s+(.+)',
+                line,
+                re.IGNORECASE
             )
 
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
+            if build_match:
 
-            await build_channel.send(
-                embed=style_embed(embed)
-            )
+                player_name = build_match.group(1)
+
+                build_item = (
+                    build_match.group(3)
+                    .split("<")[0]
+                    .strip()
+                )
+
+                embed = discord.Embed(
+                    title="🔨 BUILD EVENT",
+                    description=(
+                        f"**{player_name}** built "
+                        f"**{build_item}**"
+                    ),
+                    color=0x57F287
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await build_channel.send(
+                    embed=style_embed(embed)
+                )
 
         # ================= DISMANTLE =================
 
-        elif event_type == "dismantle" and dismantle_channel:
+        elif (
+            event_type == "dismantle"
+            and raid_channel
+        ):
 
-            embed = discord.Embed(
-                title="🪓 DISMANTLED",
-                description=line,
-                color=0xE67E22
+            dismantle_match = re.search(
+                r'Player "([^"]+)".*?dismantled\s+(.+)',
+                line,
+                re.IGNORECASE
             )
 
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
+            if dismantle_match:
 
-            await dismantle_channel.send(
-                embed=style_embed(embed)
-            )
+                player_name = dismantle_match.group(1)
 
-        # ================= FLAG HOIST =================
-
-        elif event_type == "flag_hoist" and flag_channel:
-
-            embed = discord.Embed(
-                title="🚩 FLAG HOISTED",
-                description=line,
-                color=0x2ECC71
-            )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await flag_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= FLAG LOWER =================
-
-        elif event_type == "flag_lower" and flag_channel:
-
-            embed = discord.Embed(
-                title="🏴 FLAG LOWERED",
-                description=line,
-                color=0xE74C3C
-            )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await flag_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= UNCON =================
-
-        elif event_type == "uncon" and uncon_channel:
-
-            embed = discord.Embed(
-                title="😵 PLAYER UNCONSCIOUS",
-                description=line,
-                color=0xE67E22
-            )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await uncon_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= REGAINED =================
-
-        elif event_type == "recon" and uncon_channel:
-
-            embed = discord.Embed(
-                title="🩺 PLAYER RECOVERED",
-                description=line,
-                color=0x2ECC71
-            )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await uncon_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= RAID =================
-
-        elif event_type == "raid" and raid_channel:
-
-            embed = discord.Embed(
-                title="🚨 RAID EVENT",
-                description=line,
-                color=0xFF0000
-            )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await raid_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= KILL =================
-
-        elif event_type == "kill" and killfeed_channel:
-
-            kill_data = parse_kill_event(line)
-
-            if kill_data:
+                dismantled_item = (
+                    dismantle_match.group(2)
+                    .split("<")[0]
+                    .strip()
+                )
 
                 embed = discord.Embed(
-                    title="☠️ PLAYER KILL",
-                    color=0x992D22
+                    title="🪓 DISMANTLE EVENT",
+                    description=(
+                        f"**{player_name}** dismantled "
+                        f"**{dismantled_item}**"
+                    ),
+                    color=0xE67E22
                 )
 
-                embed.add_field(
-                    name="🔫 Killer",
-                    value=kill_data["killer"],
-                    inline=True
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await raid_channel.send(
+                    embed=style_embed(embed)
                 )
-
-                embed.add_field(
-                    name="💀 Victim",
-                    value=kill_data["victim"],
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="🪖 Weapon",
-                    value=kill_data["weapon"],
-                    inline=False
-                )
-
-            else:
-
-                embed = discord.Embed(
-                    title="☠️ KILL EVENT",
-                    description=line,
-                    color=0x992D22
-                )
-
-            embed.set_thumbnail(
-                url=BOT_IMAGE
-            )
-
-            await killfeed_channel.send(
-                embed=style_embed(embed)
-            )
-
-# =========================
-# LOOP
-# =========================
-
-@tasks.loop(minutes=3)
-async def adm_loop():
-
-    latest_log = await asyncio.to_thread(
-        ping_latest_adm_log
-    )
-
-    if not latest_log:
-        return
-
-    modified_at = latest_log.get("modified_at")
-
-    if modified_at == adm_state.get("last_modified"):
-        return
-
-    download_success = await asyncio.to_thread(
-        download_latest_adm,
-        latest_log
-    )
-
-    if not download_success:
-        return
-
-    adm_state["last_modified"] = modified_at
-
-    await parse_adm()
 
 # =========================
 # READY
