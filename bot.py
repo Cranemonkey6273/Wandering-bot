@@ -647,6 +647,7 @@ async def parse_adm():
             player_name = player_match.group(1) if player_match else "Unknown"
 
             online_players.add(player_name)
+            update_player_status(player_name, "online")
 
             print(f"ONLINE ADD: {player_name}")
             print(f"ONLINE TOTAL: {len(online_players)}")
@@ -670,6 +671,7 @@ async def parse_adm():
             player_name = player_match.group(1) if player_match else "Unknown"
 
             online_players.discard(player_name)
+            update_player_status(player_name, "offline")
 
             print(f"ONLINE REMOVE: {player_name}")
             print(f"ONLINE TOTAL: {len(online_players)}")
