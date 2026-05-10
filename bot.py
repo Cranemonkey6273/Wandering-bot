@@ -82,6 +82,7 @@ player_stats = {}
 player_sessions = {}
 swear_jar = {}
 kill_streaks = {}
+recent_pvp_events = []
 
 SWEAR_WORDS = [
     "fuck",
@@ -223,6 +224,30 @@ def get_zone_from_line(line):
         return "Vybor"
 
     return "Unknown"
+
+
+def check_warzone(zone):
+
+    current_time = datetime.now(UTC)
+
+    recent_pvp_events.append({
+        "zone": zone,
+        "time": current_time
+    })
+
+    cutoff = current_time.timestamp() - 600
+
+    recent_pvp_events[:] = [
+        event for event in recent_pvp_events
+        if event["time"].timestamp() > cutoff
+    ]
+
+    zone_count = len([
+        event for event in recent_pvp_events
+        if event["zone"] == zone
+    ])
+
+    return zone_count
 
 
 def increase_heat(zone):
@@ -587,7 +612,10 @@ async def parse_adm():
             )
 
             embed = discord.Embed(
-                title="🟢 Survivor Connected",
+                title="🟢 SURVIVOR ENTERED CHERNARUS",
+                description=(
+                    f"🌍 {len(online_players)} Survivors Online"
+                ),
                 color=0x2ECC71
             )
 
@@ -667,7 +695,10 @@ async def parse_adm():
                 online_players.remove(player_name)
 
             embed = discord.Embed(
-                title="🔴 Survivor Disconnected",
+                title="🔴 SURVIVOR LEFT CHERNARUS",
+                description=(
+                    f"🌍 {len(online_players)} Survivors Remaining"
+                ),
                 color=0xE74C3C
             )
 
@@ -859,7 +890,7 @@ async def topkills(ctx):
         )
 
     embed = discord.Embed(
-        title="☠️ TOP KILLS",
+        title="☠️ MOST DEADLY SURVIVORS",
         description="\n".join(lines),
         color=0x992D22
     )
@@ -895,7 +926,7 @@ async def heatmap(ctx):
         )
 
     embed = discord.Embed(
-        title="🗺️ TERRITORY HEATMAP",
+        title="🔥 CHERNARUS HEATMAP",
         description="\n".join(lines),
         color=0xE74C3C
     )
@@ -964,6 +995,89 @@ async def lastseen(ctx, *, player_name):
     )
 
 # =========================
+@bot.command()
+async def streaks(ctx):
+
+    if not kill_streaks:
+
+        await ctx.send(
+            "No active streaks."
+        )
+
+        return
+
+    sorted_streaks = sorted(
+        kill_streaks.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    lines = []
+
+    for player, streak in sorted_streaks[:10]:
+
+        lines.append(
+            f"🔥 {player} - {streak}"
+        )
+
+    embed = discord.Embed(
+        title="🔥 ACTIVE KILL STREAKS",
+        description="
+".join(lines),
+        color=0xFF0000
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def wars(ctx):
+
+    zone_totals = {}
+
+    for event in recent_pvp_events:
+
+        zone = event["zone"]
+
+        zone_totals[zone] = (
+            zone_totals.get(zone, 0) + 1
+        )
+
+    if not zone_totals:
+
+        await ctx.send(
+            "No active warzones detected."
+        )
+
+        return
+
+    sorted_zones = sorted(
+        zone_totals.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    lines = []
+
+    for zone, amount in sorted_zones:
+
+        lines.append(
+            f"⚔️ {zone} - {amount} PvP events"
+        )
+
+    embed = discord.Embed(
+        title="🚨 ACTIVE WARZONES",
+        description="
+".join(lines),
+        color=0xE74C3C
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
 # START
 # =========================
 
