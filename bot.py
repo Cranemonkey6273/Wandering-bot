@@ -918,13 +918,13 @@ async def parse_adm():
                     embed=style_embed(embed)
                 )
 
-# =========================================
-
-# =========================================
+        # =========================================
+        # UNCONSCIOUS
+        # =========================================
 
     if event_type == "unconscious" and event_channel:
 
-    player_match = re.search(
+        player_match = re.search(
         r'Player "([^"]+)"',
         line
     )
@@ -980,20 +980,20 @@ player_match = re.search(
         line
     )
 
-    player_name = (
+player_name = (
         player_match.group(1)
         if player_match else "Unknown"
     )
 
-    embed = discord.Embed(
+embed = discord.Embed(
         title="💚 PLAYER RECOVERED",
         description=f"**{player_name}** regained consciousness.",
         color=0x00FFCC
     )
 
-    embed.set_thumbnail(url=BOT_IMAGE)
+embed.set_thumbnail(url=BOT_IMAGE)
 
-    await event_channel.send(
+await event_channel.send(
         embed=style_embed(embed)
     )
 
@@ -1001,13 +1001,13 @@ player_match = re.search(
 
 elif event_type == "build" and build_channel:
 
- build_match = re.search(
+build_match = re.search(
         r'Player "([^"]+)".*?built ([^<]+)',
         line,
         re.IGNORECASE
     )
 
-    if build_match:
+if build_match:
 
         player_name = build_match.group(1)
         build_item = build_match.group(2).strip()
@@ -1049,7 +1049,7 @@ elif event_type == "build" and build_channel:
 
 elif event_type == "dismantle" and raid_channel:
 
-dismantle_match = re.search(
+  dismantle_match = re.search(
         r'Player "([^"]+)".*?Dismantled ([^ ]+) from ([^ ]+) with ([^ ]+)',
         line,
         re.IGNORECASE
