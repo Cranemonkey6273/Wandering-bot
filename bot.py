@@ -33,12 +33,9 @@ PLATFORM = "dayzxb"
 KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
 RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
-PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", 0))
-DISMANTLE_CHANNEL_ID = int(os.getenv("DISMANTLE_CHANNEL_ID", 0))
-FLAG_CHANNEL_ID = int(os.getenv("FLAG_CHANNEL_ID", 0))
-UNCON_CHANNEL_ID = int(os.getenv("UNCON_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", 0))
+PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", 0))
 
 # =========================
 # DISCORD
@@ -57,6 +54,10 @@ bot = commands.Bot(
 # =========================
 
 LOCAL_LOG_FILE = "live.ADM"
+STATE_FILE = "adm_state.json"
+SWEAR_JAR_FILE = "swear_jar.json"
+PLAYER_STATS_FILE = "player_stats.json"
+HEATMAP_FILE = "heatmap.json"
 
 # =========================
 # GLOBALS
@@ -64,11 +65,15 @@ LOCAL_LOG_FILE = "live.ADM"
 
 adm_state = {
     "last_modified": "",
-    "last_line": 0
+    "last_line": 0,
+    "last_text": ""
 }
 
 processed_lines = set()
 online_players = set()
+territory_heat = {}
+player_stats = {}
+swear_jar = {}
 
 # =========================
 # RADAR SYSTEM
@@ -82,13 +87,118 @@ RADAR_ZONES = [
 ]
 
 player_last_radar_ping = {}
+player_positions = {}
 
-BOT_IMAGE = (
-    "https://media.discordapp.net/"
-    "attachments/1499787777636831324/"
-    "1501685742433206342/"
-    "7A382429-B666-4A9F-B890-17C0F7981709.png"
-)
+SWEAR_WORDS = [
+    "fuck",
+    "shit",
+    "bitch",
+    "cunt",
+    "wanker",
+    "bollocks"
+]
+
+BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
+
+# =========================
+# SAVE STATE
+# =========================
+
+def save_state():
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(adm_state, f)
+    except Exception as error:
+        print("STATE SAVE ERROR")
+        print(error)
+
+
+def load_state():
+    global adm_state
+
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, "r") as f:
+                adm_state = json.load(f)
+            print("STATE LOADED")
+    except Exception as error:
+        print("STATE LOAD ERROR")
+        print(error)
+
+# =========================
+# SWEAR JAR
+# =========================
+
+def load_swear_jar():
+    global swear_jar
+
+    try:
+        if os.path.exists(SWEAR_JAR_FILE):
+            with open(SWEAR_JAR_FILE, "r") as f:
+                swear_jar = json.load(f)
+            print("SWEAR JAR LOADED")
+    except Exception as error:
+        print("SWEAR JAR LOAD ERROR")
+        print(error)
+
+
+def save_swear_jar():
+    try:
+        with open(SWEAR_JAR_FILE, "w") as f:
+            json.dump(swear_jar, f, indent=4)
+    except Exception as error:
+        print("SWEAR JAR SAVE ERROR")
+        print(error)
+
+# =========================
+# PLAYER STATS
+# =========================
+
+def load_player_stats():
+    global player_stats
+
+    try:
+        if os.path.exists(PLAYER_STATS_FILE):
+            with open(PLAYER_STATS_FILE, "r") as f:
+                player_stats = json.load(f)
+            print("PLAYER STATS LOADED")
+    except Exception as error:
+        print("PLAYER STATS LOAD ERROR")
+        print(error)
+
+
+def save_player_stats():
+    try:
+        with open(PLAYER_STATS_FILE, "w") as f:
+            json.dump(player_stats, f, indent=4)
+    except Exception as error:
+        print("PLAYER STATS SAVE ERROR")
+        print(error)
+
+# =========================
+# HEATMAP
+# =========================
+
+def load_heatmap():
+    global territory_heat
+
+    try:
+        if os.path.exists(HEATMAP_FILE):
+            with open(HEATMAP_FILE, "r") as f:
+                territory_heat = json.load(f)
+            print("HEATMAP LOADED")
+    except Exception as error:
+        print("HEATMAP LOAD ERROR")
+        print(error)
+
+
+def save_heatmap():
+    try:
+        with open(HEATMAP_FILE, "w") as f:
+            json.dump(territory_heat, f, indent=4)
+    except Exception as error:
+        print("HEATMAP SAVE ERROR")
+        print(error)
 
 # =========================
 # HELPERS
@@ -99,97 +209,27 @@ def style_embed(embed):
     return embed
 
 
-async def parse():
+def extract_timestamp(filename):
+    match = re.search(
+        r"_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$",
+        filename,
+        re.IGNORECASE,
+    )
 
-    lower = line.lower()
+    if not match:
+        return datetime.fromtimestamp(0)
 
-    # ================= PLAYER CONNECT =================
+    date_part = match.group(1)
+    time_part = match.group(2).replace("-", ":")
 
-    if (
-        'player ' in lower
-        and ' connecting' in lower
-    ):
-        return "connect"
-
-    if (
-        'player ' in lower
-        and 'has connected' in lower
-    ):
-        return "connect"
-
-    # ================= PLAYER DISCONNECT =================
-
-    if (
-        'player ' in lower
-        and 'disconnected' in lower
-    ):
-        return "disconnect"
-
-    # ================= UNCON =================
-
-    if "is unconscious" in lower:
-        return "uncon"
-
-    if "regained consciousness" in lower:
-        return "recon"
-
-    # ================= FLAG EVENTS =================
-
-    if "hoisted flag" in lower:
-        return "flag_hoist"
-
-    if "lowered flag" in lower:
-        return "flag_lower"
-
-    # ================= DISMANTLE =================
-
-    if (
-        'player "' in lower
-        and 'dismantled' in lower
-    ):
-        return "dismantle"
-
-    # ================= PLACE =================
-
-    if (
-        'player "' in lower
-        and ' placed ' in lower
-    ):
-        return "place"
-
-    # ================= BUILD =================
-
-    if (
-        'player "' in lower
-        and (
-            ' built ' in lower
-            or ' mounted ' in lower
-        )
-    ):
-        return "build"
-
-    # ================= RAID =================
-
-    if (
-        "destroyed" in lower
-        or "explosive" in lower
-    ):
-        return "raid"
-
-    # ================= KILL =================
-
-    if " killed " in lower:
-        return "kill"
-
-    return None
+    return datetime.fromisoformat(f"{date_part}T{time_part}")
 
 
 def parse_kill_event(line):
-
     match = re.search(
         r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
         line,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     if not match:
@@ -198,79 +238,126 @@ def parse_kill_event(line):
     return {
         "killer": match.group(1),
         "victim": match.group(2),
-        "weapon": match.group(3)
+        "weapon": match.group(3),
     }
 
+
+def ensure_player(player_name):
+    if player_name not in player_stats:
+        player_stats[player_name] = {
+            "kills": 0,
+            "deaths": 0,
+            "raids": 0,
+            "builds": 0,
+        }
+
+
+def get_zone_from_line(line):
+    lower = line.lower()
+
+    if "nwaf" in lower or "airfield" in lower:
+        return "NWAF"
+    if "tisy" in lower:
+        return "Tisy"
+    if "zeleno" in lower:
+        return "Zelenogorsk"
+    if "cherno" in lower:
+        return "Chernogorsk"
+    if "electro" in lower:
+        return "Elektrozavodsk"
+    if "vybor" in lower:
+        return "Vybor"
+
+    return "Unknown"
+
+
+def increase_heat(zone):
+    territory_heat[zone] = territory_heat.get(zone, 0) + 1
+    save_heatmap()
+
 # =========================
-# RADAR POSITION PARSER
+# RADAR HELPERS
 # =========================
 
-POSITION_REGEX = re.compile(
-    r'Player "([^"]+)".*?pos=<([\d\.\-]+),\s*([\d\.\-]+),\s*([\d\.\-]+)>',
-    re.IGNORECASE
-)
+def distance(x1, z1, x2, z2):
+    return ((x2 - x1) ** 2 + (z2 - z1) ** 2) ** 0.5
+
+
+def get_nearest_zone(x, z):
+    closest_zone = None
+    closest_distance = float("inf")
+
+    for zone in RADAR_ZONES:
+        dist = distance(x, z, zone["x"], zone["z"])
+        if dist < closest_distance:
+            closest_distance = dist
+            closest_zone = zone["name"]
+
+    return closest_zone, round(closest_distance)
 
 # =========================
-# API
+# API ADM CHECK
 # =========================
 
 def ping_latest_adm_log():
-
     url = (
-        f"https://api.nitrado.net/services/"
-        f"{SERVICE_ID}/gameservers/file_server/list"
+        f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/list"
     )
 
     headers = {
         "Authorization": f"Bearer {NITRADO_TOKEN}",
-        "Accept": "application/json"
+        "Accept": "application/json",
     }
 
     params = {
-        "dir": (
-            f"/games/{NITRADO_USER}/"
-            f"noftp/{PLATFORM}/config/"
-        ),
-        "search": "*DayZServer*"
+        "dir": f"/games/{NITRADO_USER}/noftp/{PLATFORM}/config/",
+        "search": "*DayZServer*",
     }
 
     try:
-
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=20
-        )
+        response = requests.get(url, headers=headers, params=params, timeout=20)
 
         if response.status_code != 200:
+            print(response.text)
             return None
 
         data = response.json()
 
         entries = data.get("data", {}).get("entries", [])
 
-        if not entries:
+        matching_logs = [
+            entry
+            for entry in entries
+            if re.match(
+                r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
+                entry.get("name", ""),
+                re.IGNORECASE,
+            )
+        ]
+
+        if not matching_logs:
             return None
 
-        return sorted(
-            entries,
-            key=lambda x: x.get("modified_at", ""),
-            reverse=True
-        )[0]
+        matching_logs.sort(
+            key=lambda entry: extract_timestamp(entry.get("name", "")),
+            reverse=True,
+        )
+
+        return matching_logs[0]
 
     except Exception as error:
+        print("API ERROR")
         print(error)
         return None
 
+# =========================
+# DOWNLOAD ADM
+# =========================
 
 def download_latest_adm(latest_log):
-
     try:
-
         download_url = (
-            f"https://api.nitrado.net/services/"
-            f"{SERVICE_ID}/gameservers/file_server/download"
+            f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download"
         )
 
         headers = {
@@ -288,22 +375,16 @@ def download_latest_adm(latest_log):
             timeout=30
         )
 
-        data = response.json()
+        if response.status_code != 200:
+            return False
 
-        token_url = (
-            data
-            .get("data", {})
-            .get("token", {})
-            .get("url")
-        )
+        data = response.json()
+        token_url = data.get("data", {}).get("token", {}).get("url")
 
         if not token_url:
             return False
 
-        file_response = requests.get(
-            token_url,
-            timeout=30
-        )
+        file_response = requests.get(token_url, timeout=30)
 
         with open(LOCAL_LOG_FILE, "wb") as f:
             f.write(file_response.content)
@@ -311,8 +392,59 @@ def download_latest_adm(latest_log):
         return True
 
     except Exception as error:
+        print("DOWNLOAD ERROR")
         print(error)
         return False
+
+# =========================
+# EVENT CLASSIFIER
+# =========================
+
+def classify_event(line):
+    lower = line.lower()
+
+    if "deloot not placed" in lower:
+        return None
+
+    if "disconnected" in lower:
+        return "disconnect"
+
+    if "connecting" in lower or "has connected" in lower:
+        return "connect"
+
+    if "unconscious" in lower:
+        return "unconscious"
+
+    if "regained consciousness" in lower:
+        return "conscious"
+
+    if "built" in lower:
+        return "build"
+
+    if "placed" in lower:
+        return "place"
+
+    if "dismantled" in lower:
+        return "dismantle"
+
+    if "hoisted" in lower:
+        return "flag_hoist"
+
+    if "lowered" in lower:
+        return "flag_lower"
+
+    if "destroyed" in lower or "explosive" in lower:
+        return "raid"
+
+    if "killed" in lower:
+        return "kill"
+
+    return None
+
+POSITION_REGEX = re.compile(
+    r'Player "([^"]+)".*?pos=<([\d\.\-]+),\s*([\d\.\-]+),\s*([\d\.\-]+)>',
+    re.IGNORECASE,
+)
 
 # =========================
 # ADM PARSER
@@ -323,21 +455,13 @@ async def parse_adm():
     if not os.path.exists(LOCAL_LOG_FILE):
         return
 
-    with open(
-        LOCAL_LOG_FILE,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
-
+    with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
     start_index = adm_state.get("last_line", 0)
-
     new_lines = lines[start_index:]
 
     adm_state["last_line"] = len(lines)
-
     save_state()
 
     killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
@@ -345,38 +469,26 @@ async def parse_adm():
     build_channel = bot.get_channel(BUILD_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
     radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
+    place_channel = bot.get_channel(PLACE_CHANNEL_ID)
 
     for raw_line in new_lines:
 
         line = raw_line.strip()
 
-        # ================= RADAR =================
+        if not line:
+            continue
 
         position_match = POSITION_REGEX.search(line)
 
         if position_match and radar_channel:
-
             player_name = position_match.group(1)
-
             x = float(position_match.group(2))
             z = float(position_match.group(3))
 
-            player_positions[player_name] = {
-                "x": x,
-                "z": z
-            }
-
             for zone in RADAR_ZONES:
-
-                dist = distance(
-                    x,
-                    z,
-                    zone["x"],
-                    zone["z"]
-                )
+                dist = distance(x, z, zone["x"], zone["z"])
 
                 if dist <= zone["radius"]:
-
                     key = f"{player_name}_{zone['name']}"
 
                     now = datetime.now().timestamp()
@@ -384,18 +496,12 @@ async def parse_adm():
                     if key not in player_last_radar_ping:
                         player_last_radar_ping[key] = 0
 
-                    cooldown = (
-                        now
-                        - player_last_radar_ping[key]
-                    )
+                    cooldown = now - player_last_radar_ping[key]
 
                     if cooldown >= 300:
-
                         player_last_radar_ping[key] = now
 
-                        nearest_zone, nearest_dist = (
-                            get_nearest_zone(x, z)
-                        )
+                        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
 
                         embed = discord.Embed(
                             title="📡 RADAR PING",
@@ -409,35 +515,14 @@ async def parse_adm():
                         )
 
                         embed.add_field(
-                            name="📍 Radar Zone",
+                            name="📍 Zone",
                             value=zone["name"],
                             inline=True
                         )
 
                         embed.add_field(
-                            name="📏 Distance",
-                            value=f"{dist:.1f}m",
-                            inline=True
-                        )
-
-                        embed.add_field(
-                            name="🗺️ Nearest Area",
-                            value=f"{nearest_zone} ({nearest_dist}m)",
-                            inline=False
-                        )
-
-                        izurvive_url = (
-                            f"https://dayz.ginfo.gg/chernarusplus/"
-                            f"#c={int(x)};{int(z)};3"
-                        )
-
-                        embed.add_field(
                             name="📌 Coordinates",
-                            value=(
-                                f"X: {x:.1f}\n"
-                                f"Z: {z:.1f}\n\n"
-                                f"[🗺️ Open Map]({izurvive_url})"
-                            ),
+                            value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
                             inline=False
                         )
 
@@ -446,9 +531,6 @@ async def parse_adm():
                         await radar_channel.send(
                             embed=style_embed(embed)
                         )
-
-        if not line:
-            continue
 
         line_hash = hash(line)
 
@@ -464,24 +546,10 @@ async def parse_adm():
 
         print(f"EVENT: {event_type} | {line}")
 
-        # ================= CONNECT =================
+        if event_type == "connect" and connect_channel:
 
-        if (
-            event_type == "connect"
-            and connect_channel
-        ):
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match
-                else "Unknown"
-            )
+            player_match = re.search(r'Player "([^"]+)"', line)
+            player_name = player_match.group(1) if player_match else "Unknown"
 
             online_players.add(player_name)
 
@@ -496,30 +564,12 @@ async def parse_adm():
                 inline=False
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
+            await connect_channel.send(embed=style_embed(embed))
 
-            await connect_channel.send(
-                embed=style_embed(embed)
-            )
+        elif event_type == "disconnect" and connect_channel:
 
-        # ================= DISCONNECT =================
-
-        elif (
-            event_type == "disconnect"
-            and connect_channel
-        ):
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line,
-                re.IGNORECASE
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match
-                else "Unknown"
-            )
+            player_match = re.search(r'Player "([^"]+)"', line)
+            player_name = player_match.group(1) if player_match else "Unknown"
 
             online_players.discard(player_name)
 
@@ -534,125 +584,175 @@ async def parse_adm():
                 inline=False
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
+            await connect_channel.send(embed=style_embed(embed))
 
-            await connect_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # ================= PLACE =================
-
-        elif (
-            event_type == "place"
-            and build_channel
-        ):
+        elif event_type == "place" and place_channel:
 
             place_match = re.search(
-                r'Player "([^"]+)".*?placed\s+(.+)',
+                r'Player "([^"]+)".*?placed ([^<]+)',
                 line,
                 re.IGNORECASE
             )
 
             if place_match:
-
                 player_name = place_match.group(1)
-
-                placed_item = (
-                    place_match.group(2)
-                    .split("<")[0]
-                    .strip()
-                )
+                item_name = place_match.group(2).strip()
 
                 embed = discord.Embed(
                     title="📦 ITEM PLACED",
-                    description=(
-                        f"**{player_name}** placed "
-                        f"**{placed_item}**"
-                    ),
+                    description=f"**{player_name}** placed **{item_name}**",
                     color=0x3498DB
                 )
 
-                embed.set_thumbnail(url=BOT_IMAGE)
+                await place_channel.send(embed=style_embed(embed))
 
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # ================= BUILD =================
-
-        elif (
-            event_type == "build"
-            and build_channel
-        ):
+        elif event_type == "build" and build_channel:
 
             build_match = re.search(
-                r'Player "([^"]+)".*?(built|mounted)\s+(.+)',
+                r'Player "([^"]+)".*?built ([^<]+)',
                 line,
                 re.IGNORECASE
             )
 
             if build_match:
-
                 player_name = build_match.group(1)
-
-                build_item = (
-                    build_match.group(3)
-                    .split("<")[0]
-                    .strip()
-                )
+                build_item = build_match.group(2).strip()
 
                 embed = discord.Embed(
                     title="🔨 BUILD EVENT",
-                    description=(
-                        f"**{player_name}** built "
-                        f"**{build_item}**"
-                    ),
+                    description=f"**{player_name}** built **{build_item}**",
                     color=0x57F287
                 )
 
-                embed.set_thumbnail(url=BOT_IMAGE)
+                await build_channel.send(embed=style_embed(embed))
 
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
+        elif event_type == "dismantle" and raid_channel:
 
-        # ================= DISMANTLE =================
-
-        elif (
-            event_type == "dismantle"
-            and raid_channel
-        ):
-
-            dismantle_match = re.search(
-                r'Player "([^"]+)".*?dismantled\s+(.+)',
-                line,
-                re.IGNORECASE
+            embed = discord.Embed(
+                title="🪓 DISMANTLED",
+                description=line,
+                color=0xE67E22
             )
 
-            if dismantle_match:
+            await raid_channel.send(embed=style_embed(embed))
 
-                player_name = dismantle_match.group(1)
+        elif event_type == "flag_hoist" and build_channel:
 
-                dismantled_item = (
-                    dismantle_match.group(2)
-                    .split("<")[0]
-                    .strip()
-                )
+            embed = discord.Embed(
+                title="🚩 FLAG HOISTED",
+                description=line,
+                color=0xF1C40F
+            )
 
+            await build_channel.send(embed=style_embed(embed))
+
+        elif event_type == "flag_lower" and build_channel:
+
+            embed = discord.Embed(
+                title="🏴 FLAG LOWERED",
+                description=line,
+                color=0x95A5A6
+            )
+
+            await build_channel.send(embed=style_embed(embed))
+
+        elif event_type == "kill" and killfeed_channel:
+
+            kill_data = parse_kill_event(line)
+
+            if kill_data:
                 embed = discord.Embed(
-                    title="🪓 DISMANTLE EVENT",
-                    description=(
-                        f"**{player_name}** dismantled "
-                        f"**{dismantled_item}**"
-                    ),
-                    color=0xE67E22
+                    title="☠️ PLAYER KILL",
+                    color=0x992D22
                 )
 
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await raid_channel.send(
-                    embed=style_embed(embed)
+                embed.add_field(
+                    name="🔫 Killer",
+                    value=kill_data["killer"],
+                    inline=True
                 )
+
+                embed.add_field(
+                    name="💀 Victim",
+                    value=kill_data["victim"],
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="🪖 Weapon",
+                    value=kill_data["weapon"],
+                    inline=False
+                )
+
+                await killfeed_channel.send(embed=style_embed(embed))
+
+# =========================
+# MESSAGE EVENT
+# =========================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    lower = message.content.lower()
+
+    found_words = [
+        word for word in SWEAR_WORDS
+        if word in lower
+    ]
+
+    if found_words:
+
+        user_id = str(message.author.id)
+
+        if user_id not in swear_jar:
+            swear_jar[user_id] = {
+                "name": str(message.author),
+                "count": 0,
+                "balance": 0
+            }
+
+        swear_jar[user_id]["count"] += len(found_words)
+        swear_jar[user_id]["balance"] += len(found_words) * 100
+
+        save_swear_jar()
+
+    await bot.process_commands(message)
+
+# =========================
+# LOOP
+# =========================
+
+@tasks.loop(minutes=3)
+async def adm_loop():
+
+    latest_log = await asyncio.to_thread(
+        ping_latest_adm_log
+    )
+
+    if not latest_log:
+        return
+
+    modified_at = latest_log.get("modified_at")
+
+    if modified_at == adm_state.get("last_modified"):
+        return
+
+    download_success = await asyncio.to_thread(
+        download_latest_adm,
+        latest_log
+    )
+
+    if not download_success:
+        return
+
+    adm_state["last_modified"] = modified_at
+
+    save_state()
+
+    await parse_adm()
 
 # =========================
 # READY
@@ -663,40 +763,38 @@ async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
 
+    load_state()
+    load_swear_jar()
+    load_player_stats()
+    load_heatmap()
+
     try:
         adm_loop.start()
     except RuntimeError:
         pass
 
 # =========================
-# ONLINE COMMAND
+# COMMANDS
 # =========================
 
 @bot.command()
 async def online(ctx):
 
     if online_players:
-
         player_list = "\n".join(
-            sorted(online_players)
+            f"• {player}"
+            for player in sorted(online_players)
         )
-
     else:
-
         player_list = "No players online."
 
     embed = discord.Embed(
-        title=(
-            f"🟢 ONLINE PLAYERS "
-            f"({len(online_players)})"
-        ),
+        title=f"🟢 ONLINE PLAYERS ({len(online_players)})",
         description=player_list,
         color=0x2ECC71
     )
 
-    await ctx.send(
-        embed=style_embed(embed)
-    )
+    await ctx.send(embed=style_embed(embed))
 
 # =========================
 # START
