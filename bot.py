@@ -712,51 +712,82 @@ elif event_type == "disconnect" and connect_channel:
 
 # =========================================
 
-elif event_type == "place" and place_channel:
+# =========================================
 
-    place_match = re.search(
-        r'Player "([^"]+)".*?placed ([^<]+)',
-        line,
-        re.IGNORECASE
+elif event_type == "unconscious" and event_channel:
+
+    player_match = re.search(
+        r'Player "([^"]+)"',
+        line
     )
 
-    if place_match:
+    player_name = (
+        player_match.group(1)
+        if player_match else "Unknown"
+    )
 
-        player_name = place_match.group(1)
-        item_name = place_match.group(2).strip()
+    coord_match = POSITION_REGEX.search(line)
 
-        coord_match = POSITION_REGEX.search(line)
+    if coord_match:
+        x = float(coord_match.group(2))
+        z = float(coord_match.group(3))
 
-        if coord_match:
-            x = float(coord_match.group(2))
-            z = float(coord_match.group(3))
-        else:
-            x = 0
-            z = 0
-
-        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-        embed = discord.Embed(
-            title="📦 ITEM PLACED",
-            description=f"**{player_name}** placed **{item_name}**",
-            color=0x3498DB
+        map_url = (
+            f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
         )
 
-        embed.add_field(
-            name="📍 Coordinates",
-            value=(
-                f"**X:** {x:.1f}\n"
-                f"**Z:** {z:.1f}\n\n"
-                f"[🗺️ Open Map]({map_url})"
-            ),
-            inline=False
+        coord_text = (
+            f"**X:** {x:.1f}\n"
+            f"**Z:** {z:.1f}\n\n"
+            f"[🗺️ Open Map]({map_url})"
         )
 
-        embed.set_thumbnail(url=BOT_IMAGE)
+    else:
+        coord_text = "Unknown"
 
-        await place_channel.send(
-            embed=style_embed(embed)
-        )
+    embed = discord.Embed(
+        title="🩸 PLAYER UNCONSCIOUS",
+        description=f"**{player_name}** has been knocked unconscious.",
+        color=0xFFD000
+    )
+
+    embed.add_field(
+        name="📍 Location",
+        value=coord_text,
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await event_channel.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================
+
+elif event_type == "conscious" and event_channel:
+
+    player_match = re.search(
+        r'Player "([^"]+)"',
+        line
+    )
+
+    player_name = (
+        player_match.group(1)
+        if player_match else "Unknown"
+    )
+
+    embed = discord.Embed(
+        title="💚 PLAYER RECOVERED",
+        description=f"**{player_name}** regained consciousness.",
+        color=0x00FFCC
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await event_channel.send(
+        embed=style_embed(embed)
+    )
 
 # =========================================
 
