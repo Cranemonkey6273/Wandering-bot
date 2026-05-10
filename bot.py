@@ -89,14 +89,39 @@ swear_jar = {}
 # RADAR SYSTEM
 # =========================
 
-RADAR_ZONES = [
-    {"name": "TEST", "x": 7500, "z": 7500, "radius": 20000},
-    {"name": "NEAF", "x": 12100, "z": 12500, "radius": 500},
-    {"name": "TISY", "x": 1700, "z": 14100, "radius": 700},
-    {"name": "KOMETA", "x": 10350, "z": 2450, "radius": 500},
-]
+RADAR_ZONES = []
+
+def load_radar_zones():
+    global RADAR_ZONES
+
+    try:
+        response = (
+            supabase.table("radar_zones")
+            .select("*")
+            .eq("enabled", True)
+            .execute()
+        )
+
+        RADAR_ZONES = []
+
+        for zone in response.data:
+            RADAR_ZONES.append({
+                "name": zone["name"],
+                "x": zone["x"],
+                "z": zone["z"],
+                "radius": zone["radius"]
+            })
+
+        print(
+            f"LOADED {len(RADAR_ZONES)} RADAR ZONES FROM SUPABASE"
+        )
+
+    except Exception as error:
+        print("RADAR ZONE LOAD ERROR")
+        print(error)
 
 player_last_radar_ping = {}
+
 player_positions = {}
 
 SWEAR_WORDS = [
