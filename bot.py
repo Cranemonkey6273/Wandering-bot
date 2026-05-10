@@ -63,6 +63,7 @@ SWEAR_JAR_FILE = "swear_jar.json"
 PLAYER_STATS_FILE = "player_stats.json"
 HEATMAP_FILE = "heatmap.json"
 PLAYER_SESSIONS_FILE = "player_sessions.json"
+FACTIONS_FILE = "factions.json"
 
 # =========================
 # GLOBALS
@@ -82,6 +83,12 @@ player_stats = {}
 player_sessions = {}
 swear_jar = {}
 kill_streaks = {}
+
+factions = {}
+
+ADMIN_ROLE_IDS = [
+    123456789012345678
+]
 recent_pvp_events = []
 
 SWEAR_WORDS = [
@@ -813,6 +820,13 @@ async def on_ready():
         {}
     )
 
+    global factions
+
+    factions = load_json(
+        FACTIONS_FILE,
+        {}
+    )
+
     try:
 
         adm_loop.start()
@@ -1078,7 +1092,147 @@ async def wars(ctx):
         embed=style_embed(embed)
     )
 
-# START
+@bot.command()
+async def factionslist(ctx):
+
+    if not factions:
+
+        await ctx.send(
+            "No factions created."
+        )
+
+        return
+
+    lines = []
+
+    for faction_name, members in factions.items():
+
+        member_text = (
+            ", ".join(members)
+            if members
+            else "No members"
+        )
+
+        lines.append(
+            f"⚔️ {faction_name}: {member_text}"
+        )
+
+    embed = discord.Embed(
+        title="🏴 SERVER FACTIONS",
+        description="\n\n".join(lines),
+        color=0x5865F2
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def createfaction(ctx, faction_name):
+
+    if not any(
+        role.id in ADMIN_ROLE_IDS
+        for role in ctx.author.roles
+    ):
+
+        await ctx.send(
+            "You do not have permission."
+        )
+
+        return
+
+    if faction_name in factions:
+
+        await ctx.send(
+            "Faction already exists."
+        )
+
+        return
+
+    factions[faction_name] = []
+
+    save_json(
+        FACTIONS_FILE,
+        factions
+    )
+
+    embed = discord.Embed(
+        title="🏴 FACTION CREATED",
+        description=f"{faction_name} created successfully.",
+        color=0x2ECC71
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def addtofaction(ctx, player_name, faction_name):
+
+    if not any(
+        role.id in ADMIN_ROLE_IDS
+        for role in ctx.author.roles
+    ):
+
+        await ctx.send(
+            "You do not have permission."
+        )
+
+        return
+
+    if faction_name not in factions:
+
+        await ctx.send(
+            "Faction does not exist."
+        )
+
+        return
+
+    for faction in factions:
+
+        if player_name in factions[faction]:
+
+            factions[faction].remove(player_name)
+
+    factions[faction_name].append(player_name)
+
+    save_json(
+        FACTIONS_FILE,
+        factions
+    )
+
+    embed = discord.Embed(
+        title="⚔️ PLAYER ASSIGNED",
+        description=(
+            f"{player_name} joined {faction_name}"
+        ),
+        color=0x3498DB
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def removefromfaction(ctx, player_name):
+
+    if not any(
+        role.id in ADMIN_ROLE_IDS
+        for role in ctx.author.roles
+    ):
+
+        await ctx.send(
+            "You do not have permission."
+        )
+
+        return
+
+    removed = False
+
+    for faction in f
 # =========================
 
 bot.run(DISCORD_TOKEN)
