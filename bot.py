@@ -948,11 +948,40 @@ async def parse_adm():
 
                 save_player_stats()
 
-            embed = discord.Embed(
-                title="🏗️ BUILD EVENT",
-                description=line,
-                color=0xF1C40F
-            )
+            build_match = re.search(
+    r'Player "([^"]+)".*?(Built|placed) ([^<]+)',
+    line,
+    re.IGNORECASE
+)
+
+player_name = "Unknown"
+build_item = "Structure"
+
+if build_match:
+
+    player_name = build_match.group(1)
+
+    build_item = build_match.group(3).strip()
+
+time_match = re.search(
+    r'(\d{2}:\d{2}:\d{2})',
+    line
+)
+
+event_time = (
+    time_match.group(1)
+    if time_match
+    else "Unknown"
+)
+
+embed = discord.Embed(
+    description=(
+        f"🔨 **{player_name}** built "
+        f"**{build_item}**\n"
+        f"🕒 {event_time}"
+    ),
+    color=0x57F287
+)
 
             embed.add_field(
                 name="📍 Zone",
