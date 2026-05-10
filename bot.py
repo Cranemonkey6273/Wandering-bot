@@ -209,23 +209,23 @@ print(error)
 
 def save_swear_jar():
 
-try:
+    try:
 
-with open(
-SWEAR_JAR_FILE,
-"w"
-) as f:
+        with open(
+            SWEAR_JAR_FILE,
+            "w"
+        ) as f:
 
-json.dump(
-swear_jar,
-f,
-indent=4
-)
+            json.dump(
+                swear_jar,
+                f,
+                indent=4
+            )
 
-except Exception as error:
+    except Exception as error:
 
-print("SWEAR JAR SAVE ERROR")
-print(error)
+        print("SWEAR JAR SAVE ERROR")
+        print(error)
 
 # =========================
 # PLAYER STATS
