@@ -59,11 +59,12 @@ bot = commands.Bot(
 LOCAL_LOG_FILE = "live.ADM"
 
 STATE_FILE = "adm_state.json"
+
 SWEAR_JAR_FILE = "swear_jar.json"
+
 PLAYER_STATS_FILE = "player_stats.json"
+
 HEATMAP_FILE = "heatmap.json"
-PLAYER_SESSIONS_FILE = "player_sessions.json"
-FACTIONS_FILE = "factions.json"
 
 # =========================
 # GLOBALS
@@ -78,20 +79,12 @@ adm_state = {
 processed_lines = set()
 
 online_players = set()
+
 territory_heat = {}
+
 player_stats = {}
-player_sessions = {}
+
 swear_jar = {}
-kill_streaks = {}
-
-factions = {}
-
-ADMIN_ROLE_IDS = [
-    1493101990618730547,
-    1491767865811009749,
-    1500825706094006294
-]
-recent_pvp_events = []
 
 SWEAR_WORDS = [
     "fuck",
@@ -110,43 +103,181 @@ BOT_IMAGE = (
 )
 
 # =========================
-# SAVE / LOAD
+# SAVE STATE
 # =========================
 
-def save_json(file_name, data):
+def save_state():
 
     try:
 
-        with open(file_name, "w") as f:
+        with open(STATE_FILE, "w") as f:
+            json.dump(adm_state, f)
+
+    except Exception as error:
+
+        print("STATE SAVE ERROR")
+        print(error)
+
+
+def load_state():
+
+    global adm_state
+
+    try:
+
+        if os.path.exists(STATE_FILE):
+
+            with open(STATE_FILE, "r") as f:
+
+                adm_state = json.load(f)
+
+            print("STATE LOADED")
+
+    except Exception as error:
+
+        print("STATE LOAD ERROR")
+        print(error)
+
+# =========================
+# SWEAR JAR
+# =========================
+
+def load_swear_jar():
+
+    global swear_jar
+
+    try:
+
+        if os.path.exists(SWEAR_JAR_FILE):
+
+            with open(
+                SWEAR_JAR_FILE,
+                "r"
+            ) as f:
+
+                swear_jar = json.load(f)
+
+            print("SWEAR JAR LOADED")
+
+    except Exception as error:
+
+        print("SWEAR JAR LOAD ERROR")
+        print(error)
+
+
+def save_swear_jar():
+
+    try:
+
+        with open(
+            SWEAR_JAR_FILE,
+            "w"
+        ) as f:
 
             json.dump(
-                data,
+                swear_jar,
                 f,
                 indent=4
             )
 
     except Exception as error:
 
-        print(f"SAVE ERROR {file_name}")
+        print("SWEAR JAR SAVE ERROR")
         print(error)
 
+# =========================
+# PLAYER STATS
+# =========================
 
-def load_json(file_name, default):
+def load_player_stats():
+
+    global player_stats
 
     try:
 
-        if os.path.exists(file_name):
+        if os.path.exists(PLAYER_STATS_FILE):
 
-            with open(file_name, "r") as f:
+            with open(
+                PLAYER_STATS_FILE,
+                "r"
+            ) as f:
 
-                return json.load(f)
+                player_stats = json.load(f)
+
+            print("PLAYER STATS LOADED")
 
     except Exception as error:
 
-        print(f"LOAD ERROR {file_name}")
+        print("PLAYER STATS LOAD ERROR")
         print(error)
 
-    return default
+
+def save_player_stats():
+
+    try:
+
+        with open(
+            PLAYER_STATS_FILE,
+            "w"
+        ) as f:
+
+            json.dump(
+                player_stats,
+                f,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("PLAYER STATS SAVE ERROR")
+        print(error)
+
+# =========================
+# HEATMAP
+# =========================
+
+def load_heatmap():
+
+    global territory_heat
+
+    try:
+
+        if os.path.exists(HEATMAP_FILE):
+
+            with open(
+                HEATMAP_FILE,
+                "r"
+            ) as f:
+
+                territory_heat = json.load(f)
+
+            print("HEATMAP LOADED")
+
+    except Exception as error:
+
+        print("HEATMAP LOAD ERROR")
+        print(error)
+
+
+def save_heatmap():
+
+    try:
+
+        with open(
+            HEATMAP_FILE,
+            "w"
+        ) as f:
+
+            json.dump(
+                territory_heat,
+                f,
+                indent=4
+            )
+
+    except Exception as error:
+
+        print("HEATMAP SAVE ERROR")
+        print(error)
 
 # =========================
 # HELPERS
@@ -179,6 +310,24 @@ def extract_timestamp(filename):
     )
 
 
+def parse_kill_event(line):
+
+    match = re.search(
+        r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return None
+
+    return {
+        "killer": match.group(1),
+        "victim": match.group(2),
+        "weapon": match.group(3)
+    }
+
+
 def ensure_player(player_name):
 
     if player_name not in player_stats:
@@ -191,30 +340,14 @@ def ensure_player(player_name):
         }
 
 
-def ensure_session(player_name):
-
-    if player_name not in player_sessions:
-
-        player_sessions[player_name] = {
-            "total_seconds": 0,
-            "last_seen": "",
-            "connected_at": "",
-            "sessions": 0
-        }
-
-
-def ensure_kill_streak(player_name):
-
-    if player_name not in kill_streaks:
-
-        kill_streaks[player_name] = 0
-
-
 def get_zone_from_line(line):
 
     lower = line.lower()
 
-    if "nwaf" in lower or "airfield" in lower:
+    if (
+        "nwaf" in lower
+        or "airfield" in lower
+    ):
         return "NWAF"
 
     if "tisy" in lower:
@@ -235,80 +368,13 @@ def get_zone_from_line(line):
     return "Unknown"
 
 
-def check_warzone(zone):
-
-    current_time = datetime.now(UTC)
-
-    recent_pvp_events.append({
-        "zone": zone,
-        "time": current_time
-    })
-
-    cutoff = current_time.timestamp() - 600
-
-    recent_pvp_events[:] = [
-        event for event in recent_pvp_events
-        if event["time"].timestamp() > cutoff
-    ]
-
-    zone_count = len([
-        event for event in recent_pvp_events
-        if event["zone"] == zone
-    ])
-
-    return zone_count
-
-
 def increase_heat(zone):
 
     territory_heat[zone] = (
         territory_heat.get(zone, 0) + 1
     )
 
-    save_json(
-        HEATMAP_FILE,
-        territory_heat
-    )
-
-
-def parse_kill_event(line):
-
-    match = re.search(
-        r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
-        line,
-        re.IGNORECASE
-    )
-
-    if not match:
-        return None
-
-    return {
-        "killer": match.group(1),
-        "victim": match.group(2),
-        "weapon": match.group(3)
-    }
-
-
-def parse_advanced_kill(line):
-
-    distance_match = re.search(
-        r'from ([\d\.]+) meters',
-        line,
-        re.IGNORECASE
-    )
-
-    headshot = (
-        "head" in line.lower()
-    )
-
-    return {
-        "distance": (
-            distance_match.group(1)
-            if distance_match
-            else "Unknown"
-        ),
-        "headshot": headshot
-    }
+    save_heatmap()
 
 # =========================
 # API ADM CHECK
@@ -435,6 +501,7 @@ def download_latest_adm(latest_log):
         if response.status_code != 200:
 
             print("DOWNLOAD FAILED")
+
             print(response.text)
 
             return False
@@ -540,10 +607,7 @@ async def parse_adm():
 
     adm_state["last_line"] = len(lines)
 
-    save_json(
-        STATE_FILE,
-        adm_state
-    )
+    save_state()
 
     killfeed_channel = bot.get_channel(
         KILLFEED_CHANNEL_ID
@@ -584,7 +648,7 @@ async def parse_adm():
             f"EVENT: {event_type} | {line}"
         )
 
-        # CONNECT
+        # ================= CONNECT =================
 
         if (
             event_type == "connect"
@@ -597,121 +661,408 @@ async def parse_adm():
                 re.IGNORECASE
             )
 
-            player_name = (
-                player_match.group(1)
-                if player_match
-                else "Unknown"
-            )
+            player_name = "Unknown"
+
+            if player_match:
+                player_name = player_match.group(1)
 
             online_players.add(player_name)
 
-            ensure_session(player_name)
-
-            player_sessions[player_name][
-                "connected_at"
-            ] = datetime.now(UTC).isoformat()
-
-            player_sessions[player_name][
-                "sessions"
-            ] += 1
-
-            save_json(
-                PLAYER_SESSIONS_FILE,
-                player_sessions
+            embed = discord.Embed(
+                title="🟢 Survivor Connected",
+                color=0x2ECC71
             )
 
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
+            )
+
+            embed.set_thumbnail(
+                url=BOT_IMAGE
+            )
+
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= DISCONNECT =================
+
+        elif (
+            event_type == "disconnect"
+            and connect_channel
+        ):
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            player_name = "Unknown"
+
+            if player_match:
+                player_name = player_match.group(1)
+
+            if player_name in online_players:
+                online_players.remove(player_name)
+
             embed = discord.Embed(
-        title="🏴 SERVER FACTIONS",
-        description="\n\n".join(lines),
-        color=0x5865F2
+                title="🔴 Survivor Disconnected",
+                color=0xE74C3C
+            )
+
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
+            )
+
+            embed.set_thumbnail(
+                url=BOT_IMAGE
+            )
+
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= BUILD =================
+
+        elif (
+            event_type == "build"
+            and build_channel
+        ):
+
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match:
+
+                player_name = player_match.group(1)
+
+                ensure_player(player_name)
+
+                player_stats[player_name]["builds"] += 1
+
+                save_player_stats()
+
+            embed = discord.Embed(
+                title="🏗️ BUILD EVENT",
+                description=line,
+                color=0xF1C40F
+            )
+
+            embed.add_field(
+                name="📍 Zone",
+                value=zone,
+                inline=False
+            )
+
+            embed.set_thumbnail(
+                url=BOT_IMAGE
+            )
+
+            await build_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= RAID =================
+
+        elif (
+            event_type == "raid"
+            and raid_channel
+        ):
+
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            if player_match:
+
+                player_name = player_match.group(1)
+
+                ensure_player(player_name)
+
+                player_stats[player_name]["raids"] += 1
+
+                save_player_stats()
+
+            embed = discord.Embed(
+                title="🚨 RAID EVENT",
+                description=line,
+                color=0xFF0000
+            )
+
+            embed.add_field(
+                name="📍 Zone",
+                value=zone,
+                inline=False
+            )
+
+            embed.set_thumbnail(
+                url=BOT_IMAGE
+            )
+
+            await raid_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= KILLFEED =================
+
+        elif (
+            event_type == "kill"
+            and killfeed_channel
+        ):
+
+            zone = get_zone_from_line(line)
+
+            increase_heat(zone)
+
+            kill_data = parse_kill_event(line)
+
+            if kill_data:
+
+                killer = kill_data["killer"]
+                victim = kill_data["victim"]
+
+                ensure_player(killer)
+                ensure_player(victim)
+
+                player_stats[killer]["kills"] += 1
+                player_stats[victim]["deaths"] += 1
+
+                save_player_stats()
+
+                embed = discord.Embed(
+                    title="☠️ PLAYER KILL",
+                    color=0x992D22
+                )
+
+                embed.add_field(
+                    name="🔫 Killer",
+                    value=killer,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="💀 Victim",
+                    value=victim,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="🪖 Weapon",
+                    value=kill_data["weapon"],
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📍 Zone",
+                    value=zone,
+                    inline=False
+                )
+
+            else:
+
+                embed = discord.Embed(
+                    title="☠️ KILL EVENT",
+                    description=line,
+                    color=0x992D22
+                )
+
+            embed.set_thumbnail(
+                url=BOT_IMAGE
+            )
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
+            )
+
+# =========================
+# MESSAGE EVENT
+# =========================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    lower = message.content.lower()
+
+    found_words = [
+
+        word for word in SWEAR_WORDS
+
+        if word in lower
+    ]
+
+    if found_words:
+
+        user_id = str(message.author.id)
+
+        if user_id not in swear_jar:
+
+            swear_jar[user_id] = {
+                "name": str(message.author),
+                "count": 0,
+                "balance": 0
+            }
+
+        swear_jar[user_id]["count"] += len(found_words)
+
+        swear_jar[user_id]["balance"] += (
+            len(found_words) * 100
+        )
+
+        save_swear_jar()
+
+        embed = discord.Embed(
+            title="💸 SWEAR JAR",
+            description=(
+                f"{message.author.mention} "
+                f"was fined "
+                f"£{len(found_words) * 100}"
+            ),
+            color=0xE67E22
+        )
+
+        embed.add_field(
+            name="Total Swears",
+            value=str(
+                swear_jar[user_id]["count"]
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Debt",
+            value=(
+                f"£"
+                f"{swear_jar[user_id]['balance']}"
+            ),
+            inline=True
+        )
+
+        await message.channel.send(
+            embed=style_embed(embed)
+        )
+
+    await bot.process_commands(message)
+
+# =========================
+# LOOP
+# =========================
+
+@tasks.loop(minutes=3)
+async def adm_loop():
+
+    print("CHECKING ADM...")
+
+    latest_log = await asyncio.to_thread(
+        ping_latest_adm_log
     )
 
-    await ctx.send(
-        embed=style_embed(embed)
+    if not latest_log:
+
+        print("NO ADM FOUND")
+
+        return
+
+    modified_at = latest_log.get(
+        "modified_at"
     )
 
-
-@bot.command()
-async def createfaction(ctx, faction_name):
-
-    if not any(
-        role.id in ADMIN_ROLE_IDS
-        for role in ctx.author.roles
+    if (
+        modified_at
+        == adm_state.get("last_modified")
     ):
 
-        await ctx.send(
-            "You do not have permission."
-        )
+        print("ADM NOT MODIFIED")
 
         return
 
-    if faction_name in factions:
+    print("NEW ADM UPDATE FOUND")
 
-        await ctx.send(
-            "Faction already exists."
-        )
-
-        return
-
-    factions[faction_name] = []
-
-    save_json(
-        FACTIONS_FILE,
-        factions
+    download_success = await asyncio.to_thread(
+        download_latest_adm,
+        latest_log
     )
 
+    if not download_success:
+
+        return
+
+    adm_state["last_modified"] = modified_at
+
+    save_state()
+
+    await parse_adm()
+
+# =========================
+# READY
+# =========================
+
+@bot.event
+async def on_ready():
+
+    print(f"LOGGED IN AS {bot.user}")
+
+    load_state()
+    load_swear_jar()
+    load_player_stats()
+    load_heatmap()
+
+    try:
+
+        adm_loop.start()
+
+    except RuntimeError:
+        pass
+
+# =========================
+# COMMANDS
+# =========================
+
+@bot.command()
+async def online(ctx):
+
+    if online_players:
+
+        player_list = "\n".join(
+            f"• {player}"
+            for player in sorted(online_players)
+        )
+
+    else:
+
+        player_list = "No players online."
+
     embed = discord.Embed(
-        title="🏴 FACTION CREATED",
-        description=f"{faction_name} created successfully.",
+        title=(
+            f"🟢 ONLINE PLAYERS "
+            f"({len(online_players)})"
+        ),
+        description=player_list,
         color=0x2ECC71
     )
 
-    await ctx.send(
-        embed=style_embed(embed)
-    )
-
-
-@bot.command()
-async def addtofaction(ctx, player_name, faction_name):
-
-    if not any(
-        role.id in ADMIN_ROLE_IDS
-        for role in ctx.author.roles
-    ):
-
-        await ctx.send(
-            "You do not have permission."
-        )
-
-        return
-
-    if faction_name not in factions:
-
-        await ctx.send(
-            "Faction does not exist."
-        )
-
-        return
-
-    for faction in factions:
-
-        if player_name in factions[faction]:
-
-            factions[faction].remove(player_name)
-
-    factions[faction_name].append(player_name)
-
-    save_json(
-        FACTIONS_FILE,
-        factions
-    )
-
-    embed = discord.Embed(
-        title="⚔️ PLAYER ASSIGNED",
-        description=(
-            f"{player_name} joined {faction_name}"
-        ),
-        color=0x3498DB
+    embed.set_thumbnail(
+        url=BOT_IMAGE
     )
 
     await ctx.send(
@@ -720,47 +1071,119 @@ async def addtofaction(ctx, player_name, faction_name):
 
 
 @bot.command()
-async def removefromfaction(ctx, player_name):
+async def swearjar(ctx):
 
-    if not any(
-        role.id in ADMIN_ROLE_IDS
-        for role in ctx.author.roles
-    ):
+    if not swear_jar:
 
         await ctx.send(
-            "You do not have permission."
+            "Swear jar is empty."
         )
 
         return
 
-    removed = False
-
-    for faction in factions:
-
-        if player_name in factions[faction]:
-
-            factions[faction].remove(player_name)
-
-            removed = True
-
-    save_json(
-        FACTIONS_FILE,
-        factions
+    sorted_users = sorted(
+        swear_jar.values(),
+        key=lambda x: x["balance"],
+        reverse=True
     )
 
-    if not removed:
+    leaderboard = []
+
+    for index, user in enumerate(
+        sorted_users[:10],
+        start=1
+    ):
+
+        leaderboard.append(
+            f"{index}. "
+            f"{user['name']} "
+            f"- £{user['balance']} "
+            f"({user['count']} swears)"
+        )
+
+    embed = discord.Embed(
+        title="💸 SWEAR JAR LEADERBOARD",
+        description="\n".join(leaderboard),
+        color=0xF1C40F
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def topkills(ctx):
+
+    if not player_stats:
 
         await ctx.send(
-            "Player was not in a faction."
+            "No stats available."
         )
 
         return
 
+    sorted_players = sorted(
+        player_stats.items(),
+        key=lambda x: x[1]["kills"],
+        reverse=True
+    )
+
+    lines = []
+
+    for index, (
+        player,
+        stats
+    ) in enumerate(
+        sorted_players[:10],
+        start=1
+    ):
+
+        lines.append(
+            f"{index}. "
+            f"{player} - "
+            f"{stats['kills']} kills"
+        )
+
     embed = discord.Embed(
-        title="❌ PLAYER REMOVED",
-        description=(
-            f"{player_name} removed from faction"
-        ),
+        title="☠️ TOP KILLS",
+        description="\n".join(lines),
+        color=0x992D22
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def heatmap(ctx):
+
+    if not territory_heat:
+
+        await ctx.send(
+            "No territory activity yet."
+        )
+
+        return
+
+    sorted_zones = sorted(
+        territory_heat.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    lines = []
+
+    for zone, count in sorted_zones:
+
+        lines.append(
+            f"🔥 {zone} - {count}"
+        )
+
+    embed = discord.Embed(
+        title="🗺️ TERRITORY HEATMAP",
+        description="\n".join(lines),
         color=0xE74C3C
     )
 
@@ -768,6 +1191,7 @@ async def removefromfaction(ctx, player_name):
         embed=style_embed(embed)
     )
 
+# =========================
 # START
 # =========================
 
