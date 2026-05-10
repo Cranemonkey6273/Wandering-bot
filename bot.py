@@ -429,6 +429,22 @@ async def parse_adm():
     build_channel = bot.get_channel(BUILD_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
     radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
+    
+    place_channel = bot.get_channel(
+    PLACE_CHANNEL_ID
+)
+
+dismantle_channel = bot.get_channel(
+    DISMANTLE_CHANNEL_ID
+)
+
+flag_channel = bot.get_channel(
+    FLAG_CHANNEL_ID
+)
+
+online_channel = bot.get_channel(
+    ONLINE_CHANNEL_ID
+)
 
     for raw_line in new_lines:
         line = raw_line.strip()
