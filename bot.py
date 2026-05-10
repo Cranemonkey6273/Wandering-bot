@@ -446,7 +446,7 @@ online_channel = bot.get_channel(
     ONLINE_CHANNEL_ID
 )
 
-    for raw_line in new_lines:
+for raw_line in new_lines:
         line = raw_line.strip()
 
         position_match = POSITION_REGEX.search(line)
