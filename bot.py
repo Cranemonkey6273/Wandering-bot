@@ -547,21 +547,20 @@ async def parse_adm():
         print(f"EVENT: {event_type} | {line}")
 
         if event_type == "connect" and connect_channel:
+            player_match = re.search(r'Player "([^"]+)"', line)
+            player_name = player_match.group(1) if player_match else "Unknown"
 
-          player_match = re.search(r'Player "([^"]+)"', line)
-player_name = player_match.group(1) if player_match else "Unknown"
+            online_players.add(player_name)
 
-online_players.add(player_name)
+            print(f"ONLINE ADD: {player_name}")
+            print(f"ONLINE TOTAL: {len(online_players)}")
 
-print(f"ONLINE ADD: {player_name}")
-print(f"ONLINE TOTAL: {len(online_players)}")
+            embed = discord.Embed(
+                title="🟢 Survivor Connected",
+                color=0x00FF88
+            )
 
-embed = discord.Embed(
-    title="🟢 Survivor Connected",
-    color=0x00FF88
-)
-
-embed.add_field(
+            embed.add_field(
                 name="Player",
                 value=player_name,
                 inline=False
@@ -574,15 +573,15 @@ embed.add_field(
             player_match = re.search(r'Player "([^"]+)"', line)
             player_name = player_match.group(1) if player_match else "Unknown"
 
-online_players.discard(player_name)
+            online_players.discard(player_name)
 
-print(f"ONLINE REMOVE: {player_name}")
-print(f"ONLINE TOTAL: {len(online_players)}")
+            print(f"ONLINE REMOVE: {player_name}")
+            print(f"ONLINE TOTAL: {len(online_players)}")
 
-embed = discord.Embed(
-    title="🔴 Survivor Disconnected",
-    color=0xFF0000
-)
+            embed = discord.Embed(
+                title="🔴 Survivor Disconnected",
+                color=0xFF0000
+            )
 
             embed.add_field(
                 name="Player",
