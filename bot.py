@@ -5,15 +5,12 @@ import asyncio
 import requests
 import discord
 
-from supabase import create_client
 from datetime import datetime
-
 try:
     from datetime import UTC
 except ImportError:
     from datetime import timezone
     UTC = timezone.utc
-
 from discord.ext import commands, tasks
 
 # =========================
@@ -22,33 +19,19 @@ from discord.ext import commands, tasks
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 NITRADO_TOKEN = os.getenv("NITRADO_API_TOKEN")
-
 SERVICE_ID = "18965708"
 NITRADO_USER = "ni12248929_1"
 PLATFORM = "dayzxb"
 
 # =========================
-# SUPABASE
-# =========================
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# =========================
 # CHANNEL IDS
 # =========================
 
-ONLINE_CHANNEL_ID = int(os.getenv("ONLINE_CHANNEL_ID", "0"))
-KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", "0"))
-RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", "0"))
-BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", "0"))
-EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))
-
-RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", "0"))
-CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", "0"))
-PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", "0"))
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
+RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
+BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
+CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
+RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", 0))
 
 # =========================
 # DISCORD
@@ -57,10 +40,7 @@ PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", "0"))
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents
-)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # =========================
 # FILES
@@ -92,39 +72,14 @@ swear_jar = {}
 # RADAR SYSTEM
 # =========================
 
-RADAR_ZONES = []
-
-def load_radar_zones():
-    global RADAR_ZONES
-
-    try:
-        response = (
-            supabase.table("radar_zones")
-            .select("*")
-            .eq("enabled", True)
-            .execute()
-        )
-
-        RADAR_ZONES = []
-
-        for zone in response.data:
-            RADAR_ZONES.append({
-                "name": zone["name"],
-                "x": zone["x"],
-                "z": zone["z"],
-                "radius": zone["radius"]
-            })
-
-        print(
-            f"LOADED {len(RADAR_ZONES)} RADAR ZONES FROM SUPABASE"
-        )
-
-    except Exception as error:
-        print("RADAR ZONE LOAD ERROR")
-        print(error)
+RADAR_ZONES = [
+    {"name": "TEST", "x": 7500, "z": 7500, "radius": 20000},
+    {"name": "NEAF", "x": 12100, "z": 12500, "radius": 500},
+    {"name": "TISY", "x": 1700, "z": 14100, "radius": 700},
+    {"name": "KOMETA", "x": 10350, "z": 2450, "radius": 500},
+]
 
 player_last_radar_ping = {}
-
 player_positions = {}
 
 SWEAR_WORDS = [
@@ -242,81 +197,32 @@ def save_heatmap():
 # HELPERS
 # =========================
 
-def update_player_status(player_name, status):
-
-    try:
-
-        existing = (
-            supabase
-            .table("online_players")
-            .select("*")
-            .eq("player_name", player_name)
-            .execute()
-        )
-
-        if existing.data:
-
-            (
-                supabase
-                .table("online_players")
-                .update({
-                    "status": status,
-                    "last_seen": datetime.now(UTC).isoformat()
-                })
-                .eq("player_name", player_name)
-                .execute()
-            )
-
-        else:
-
-            (
-                supabase
-                .table("online_players")
-                .insert({
-                    "player_name": player_name,
-                    "status": status,
-                    "last_seen": datetime.now(UTC).isoformat()
-                })
-                .execute()
-            )
-
-    except Exception as error:
-
-        print("PLAYER STATUS ERROR")
-        print(error)
-
-
 def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
     return embed
 
 
 def extract_timestamp(filename):
-
     match = re.search(
         r"_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$",
         filename,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     if not match:
         return datetime.fromtimestamp(0)
 
     date_part = match.group(1)
-
     time_part = match.group(2).replace("-", ":")
 
-    return datetime.fromisoformat(
-        f"{date_part}T{time_part}"
-    )
+    return datetime.fromisoformat(f"{date_part}T{time_part}")
 
 
 def parse_kill_event(line):
-
     match = re.search(
         r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
         line,
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     if not match:
@@ -325,41 +231,33 @@ def parse_kill_event(line):
     return {
         "killer": match.group(1),
         "victim": match.group(2),
-        "weapon": match.group(3)
+        "weapon": match.group(3),
     }
 
 
 def ensure_player(player_name):
-
     if player_name not in player_stats:
-
         player_stats[player_name] = {
             "kills": 0,
             "deaths": 0,
             "raids": 0,
-            "builds": 0
+            "builds": 0,
         }
 
 
 def get_zone_from_line(line):
-
     lower = line.lower()
 
     if "nwaf" in lower or "airfield" in lower:
         return "NWAF"
-
     if "tisy" in lower:
         return "Tisy"
-
     if "zeleno" in lower:
         return "Zelenogorsk"
-
     if "cherno" in lower:
         return "Chernogorsk"
-
     if "electro" in lower:
         return "Elektrozavodsk"
-
     if "vybor" in lower:
         return "Vybor"
 
@@ -367,11 +265,7 @@ def get_zone_from_line(line):
 
 
 def increase_heat(zone):
-
-    territory_heat[zone] = (
-        territory_heat.get(zone, 0) + 1
-    )
-
+    territory_heat[zone] = territory_heat.get(zone, 0) + 1
     save_heatmap()
 
 # =========================
@@ -415,6 +309,7 @@ def ping_latest_adm_log():
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
+        print("[PING] HTTP Status:", response.status_code)
 
         if response.status_code != 200:
             print(response.text)
@@ -422,8 +317,11 @@ def ping_latest_adm_log():
 
         data = response.json()
 
-        entries = data.get("data", {}).get("entries", [])
+        if data.get("status") != "success":
+            print(data)
+            return None
 
+        entries = data.get("data", {}).get("entries", [])
         matching_logs = [
             entry
             for entry in entries
@@ -435,6 +333,7 @@ def ping_latest_adm_log():
         ]
 
         if not matching_logs:
+            print("NO ADM LOGS FOUND")
             return None
 
         matching_logs.sort(
@@ -443,7 +342,6 @@ def ping_latest_adm_log():
         )
 
         return matching_logs[0]
-
     except Exception as error:
         print("API ERROR")
         print(error)
@@ -459,37 +357,28 @@ def download_latest_adm(latest_log):
             f"https://api.nitrado.net/services/{SERVICE_ID}/gameservers/file_server/download"
         )
 
-        headers = {
-            "Authorization": f"Bearer {NITRADO_TOKEN}"
-        }
+        headers = {"Authorization": f"Bearer {NITRADO_TOKEN}"}
+        params = {"file": latest_log.get("path")}
 
-        params = {
-            "file": latest_log.get("path")
-        }
-
-        response = requests.get(
-            download_url,
-            headers=headers,
-            params=params,
-            timeout=30
-        )
-
+        response = requests.get(download_url, headers=headers, params=params, timeout=30)
         if response.status_code != 200:
+            print("DOWNLOAD FAILED")
+            print(response.text)
             return False
 
         data = response.json()
         token_url = data.get("data", {}).get("token", {}).get("url")
 
         if not token_url:
+            print("NO DOWNLOAD URL")
             return False
 
         file_response = requests.get(token_url, timeout=30)
-
         with open(LOCAL_LOG_FILE, "wb") as f:
             f.write(file_response.content)
 
+        print("ADM DOWNLOADED")
         return True
-
     except Exception as error:
         print("DOWNLOAD ERROR")
         print(error)
@@ -502,43 +391,22 @@ def download_latest_adm(latest_log):
 def classify_event(line):
     lower = line.lower()
 
-    if "deloot not placed" in lower:
-        return None
-
     if "disconnected" in lower:
         return "disconnect"
-
-    if "connecting" in lower or "has connected" in lower:
+    if "connecting" in lower or "connected" in lower:
         return "connect"
-
-    if "unconscious" in lower:
-        return "unconscious"
-
-    if "regained consciousness" in lower:
-        return "conscious"
-
-    if "built" in lower:
-        return "build"
-
-    if "placed" in lower:
-        return "place"
-
-    if "dismantled" in lower:
-        return "dismantle"
-
-    if "hoisted" in lower:
-        return "flag_hoist"
-
-    if "lowered" in lower:
-        return "flag_lower"
-
-    if "destroyed" in lower or "explosive" in lower:
-        return "raid"
-
     if "killed" in lower:
         return "kill"
+    if "placed" in lower or "built" in lower or "mounted" in lower:
+        return "build"
+    if "destroyed" in lower or "dismantled" in lower or "explosive" in lower:
+        return "raid"
 
     return None
+
+# =========================
+# RADAR POSITION PARSER
+# =========================
 
 POSITION_REGEX = re.compile(
     r'Player "([^"]+)".*?pos=<([\d\.\-]+),\s*([\d\.\-]+),\s*([\d\.\-]+)>',
@@ -550,7 +418,6 @@ POSITION_REGEX = re.compile(
 # =========================
 
 async def parse_adm():
-
     if not os.path.exists(LOCAL_LOG_FILE):
         return
 
@@ -559,7 +426,6 @@ async def parse_adm():
 
     start_index = adm_state.get("last_line", 0)
     new_lines = lines[start_index:]
-
     adm_state["last_line"] = len(lines)
     save_state()
 
@@ -568,728 +434,264 @@ async def parse_adm():
     build_channel = bot.get_channel(BUILD_CHANNEL_ID)
     connect_channel = bot.get_channel(CONNECT_CHANNEL_ID)
     radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
-    place_channel = bot.get_channel(PLACE_CHANNEL_ID)
 
     for raw_line in new_lines:
-
         line = raw_line.strip()
 
-        if not line:
-            continue
-
         position_match = POSITION_REGEX.search(line)
-
         if position_match and radar_channel:
             player_name = position_match.group(1)
             x = float(position_match.group(2))
             z = float(position_match.group(3))
+            player_positions[player_name] = {"x": x, "z": z}
 
             for zone in RADAR_ZONES:
                 dist = distance(x, z, zone["x"], zone["z"])
-
                 if dist <= zone["radius"]:
                     key = f"{player_name}_{zone['name']}"
-
                     now = datetime.now().timestamp()
-
                     if key not in player_last_radar_ping:
                         player_last_radar_ping[key] = 0
-
                     cooldown = now - player_last_radar_ping[key]
-
                     if cooldown >= 300:
                         player_last_radar_ping[key] = now
-
-                        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-                        embed = discord.Embed(
-                            title="📡 RADAR PING",
-                            color=0x00FFFF
-                        )
-
+                        nearest_zone, nearest_dist = get_nearest_zone(x, z)
+                        embed = discord.Embed(title="📡 RADAR PING", color=0x00FFFF)
+                        embed.add_field(name="👤 Player", value=player_name, inline=False)
+                        embed.add_field(name="📍 Radar Zone", value=zone["name"], inline=True)
+                        embed.add_field(name="📏 Distance", value=f"{dist:.1f}m", inline=True)
                         embed.add_field(
-                            name="👤 Player",
-                            value=player_name,
-                            inline=False
+                            name="🗺️ Nearest Area",
+                            value=f"{nearest_zone} ({nearest_dist}m)",
+                            inline=False,
                         )
-
-                        embed.add_field(
-                            name="📍 Zone",
-                            value=zone["name"],
-                            inline=True
-                        )
-
+                        izurvive_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
                         embed.add_field(
                             name="📌 Coordinates",
-                            value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
-                            inline=False
+                            value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({izurvive_url})",
+                            inline=False,
                         )
-
                         embed.set_thumbnail(url=BOT_IMAGE)
+                        await radar_channel.send(embed=style_embed(embed))
 
-                        await radar_channel.send(
-                            embed=style_embed(embed)
-                        )
+        if not line:
+            continue
 
         line_hash = hash(line)
-
         if line_hash in processed_lines:
             continue
 
         processed_lines.add(line_hash)
-
         event_type = classify_event(line)
-
         if not event_type:
             continue
 
         print(f"EVENT: {event_type} | {line}")
 
-        # =========================================
-        # CONNECT
-        # =========================================
-
         if event_type == "connect" and connect_channel:
-
-            player_match = re.search(r'Player "([^"]+)"', line)
+            player_match = re.search(r'Player "([^"]+)"', line, re.IGNORECASE)
             player_name = player_match.group(1) if player_match else "Unknown"
-
             online_players.add(player_name)
-            update_player_status(player_name, "online")
-
-            embed = discord.Embed(
-                title="🟢 SURVIVOR CONNECTED",
-                description=f"**{player_name}** joined the server.",
-                color=0x39FF14
-            )
-
+            embed = discord.Embed(title="🟢 Survivor Connected", color=0x2ECC71)
+            embed.add_field(name="Player", value=player_name, inline=False)
             embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connect_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =========================================
-        # DISCONNECT
-        # =========================================
+            await connect_channel.send(embed=style_embed(embed))
 
         elif event_type == "disconnect" and connect_channel:
-
-            player_match = re.search(r'Player "([^"]+)"', line)
+            player_match = re.search(r'Player "([^"]+)"', line, re.IGNORECASE)
             player_name = player_match.group(1) if player_match else "Unknown"
-
             online_players.discard(player_name)
-            update_player_status(player_name, "offline")
-
-            coord_match = POSITION_REGEX.search(line)
-
-            if coord_match:
-                x = float(coord_match.group(2))
-                z = float(coord_match.group(3))
-
-                map_url = (
-                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-                )
-
-                coord_text = (
-                    f"**X:** {x:.1f}\n"
-                    f"**Z:** {z:.1f}\n\n"
-                    f"[🗺️ Open Map]({map_url})"
-                )
-
-            else:
-                coord_text = "Coordinates unavailable."
-
-            embed = discord.Embed(
-                title="🔴 SURVIVOR DISCONNECTED",
-                description=f"**{player_name}** left the server.",
-                color=0xFF3131
-            )
-
-            embed.add_field(
-                name="📍 Last Known Location",
-                value=coord_text,
-                inline=False
-            )
-
+            embed = discord.Embed(title="🔴 Survivor Disconnected", color=0xE74C3C)
+            embed.add_field(name="Player", value=player_name, inline=False)
             embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connect_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =========================================
-        # UNCONSCIOUS
-        # =========================================
-
-        elif event_type == "unconscious" and event_channel:
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match else "Unknown"
-            )
-
-            coord_match = POSITION_REGEX.search(line)
-
-            if coord_match:
-
-                x = float(coord_match.group(2))
-                z = float(coord_match.group(3))
-
-                map_url = (
-                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-                )
-
-                coord_text = (
-                    f"**X:** {x:.1f}\n"
-                    f"**Z:** {z:.1f}\n\n"
-                    f"[🗺️ Open Map]({map_url})"
-                )
-
-            else:
-                coord_text = "Unknown"
-
-            embed = discord.Embed(
-                title="🩸 PLAYER UNCONSCIOUS",
-                description=f"**{player_name}** has been knocked unconscious.",
-                color=0xFFD000
-            )
-
-            embed.add_field(
-                name="📍 Location",
-                value=coord_text,
-                inline=False
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await event_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =========================================
-        # CONSCIOUS
-        # =========================================
-
-        elif event_type == "conscious" and event_channel:
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match else "Unknown"
-            )
-
-            embed = discord.Embed(
-                title="💚 PLAYER RECOVERED",
-                description=f"**{player_name}** regained consciousness.",
-                color=0x00FFCC
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await event_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =========================================
-        # BUILD
-        # =========================================
+            await connect_channel.send(embed=style_embed(embed))
 
         elif event_type == "build" and build_channel:
+            zone = get_zone_from_line(line)
+            increase_heat(zone)
+            player_match = re.search(r'Player "([^"]+)"', line, re.IGNORECASE)
+            if player_match:
+                player_name = player_match.group(1)
+                ensure_player(player_name)
+                player_stats[player_name]["builds"] += 1
+                save_player_stats()
 
-            build_match = re.search(
-                r'Player "([^"]+)".*?built ([^<]+)',
-                line,
-                re.IGNORECASE
-            )
-
-            if build_match:
-
-                player_name = build_match.group(1)
-                build_item = build_match.group(2).strip()
-
-                coord_match = POSITION_REGEX.search(line)
-
-                if coord_match:
-                    x = float(coord_match.group(2))
-                    z = float(coord_match.group(3))
-                else:
-                    x = 0
-                    z = 0
-
-                map_url = (
-                    f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-                )
-
-                embed = discord.Embed(
-                    title="🔨 BUILD EVENT",
-                    description=f"**{player_name}** built **{build_item}**",
-                    color=0x57F287
-                )
-
-                embed.add_field(
-                    name="📍 Coordinates",
-                    value=(
-                        f"**X:** {x:.1f}\n"
-                        f"**Z:** {z:.1f}\n\n"
-                        f"[🗺️ Open Map]({map_url})"
-                    ),
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await build_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # =========================================
-        # DISMANTLE
-        # =========================================
-
-        elif event_type == "dismantle" and raid_channel:
-
+            build_match = re.search(r'Player "([^"]+)".*?(Built|placed) ([^<]+)', line, re.IGNORECASE)
+            player_name = build_match.group(1) if build_match else "Unknown"
+            build_item = build_match.group(3).strip() if build_match else "Structure"
+            time_match = re.search(r'(\d{2}:\d{2}:\d{2})', line)
+            event_time = time_match.group(1) if time_match else "Unknown"
             embed = discord.Embed(
-                title="🪓 DISMANTLED",
-                description=line,
-                color=0xFF9900
+                description=f"🔨 **{player_name}** built **{build_item}**\n🕒 {event_time}",
+                color=0x57F287,
             )
-
+            embed.add_field(name="📍 Zone", value=zone, inline=False)
             embed.set_thumbnail(url=BOT_IMAGE)
+            await build_channel.send(embed=style_embed(embed))
 
-            await raid_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =========================================
-        # KILLFEED
-        # =========================================
+        elif event_type == "raid" and raid_channel:
+            zone = get_zone_from_line(line)
+            increase_heat(zone)
+            player_match = re.search(r'Player "([^"]+)"', line, re.IGNORECASE)
+            if player_match:
+                player_name = player_match.group(1)
+                ensure_player(player_name)
+                player_stats[player_name]["raids"] += 1
+                save_player_stats()
+            embed = discord.Embed(title="🚨 RAID EVENT", description=line, color=0xFF0000)
+            embed.add_field(name="📍 Zone", value=zone, inline=False)
+            embed.set_thumbnail(url=BOT_IMAGE)
+            await raid_channel.send(embed=style_embed(embed))
 
         elif event_type == "kill" and killfeed_channel:
-
-            kill_match = re.search(
-                r'Player "([^"]+)".*?killed by Player "([^"]+)".*?with ([^ ]+).*?from ([\d\.]+)',
-                line,
-                re.IGNORECASE
-            )
-
-            if kill_match:
-
-                victim = kill_match.group(1)
-                killer = kill_match.group(2)
-                weapon = kill_match.group(3)
-                distance = kill_match.group(4)
-
-                embed = discord.Embed(
-                    title="☠️ PLAYER KILL",
-                    color=0xBB00FF
-                )
-
-                embed.add_field(
-                    name="🔫 Killer",
-                    value=killer,
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="💀 Victim",
-                    value=victim,
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="🪖 Weapon",
-                    value=f"{weapon} ({distance}m)",
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await killfeed_channel.send(
-                    embed=style_embed(embed)
-                )
-
-        # =========================================
-        # UNCONSCIOUS
-        # =========================================
-
-    if event_type == "unconscious" and event_channel:
-
-        player_match = re.search(
-        r'Player "([^"]+)"',
-        line
-    )
-
-    player_name = (
-        player_match.group(1)
-        if player_match else "Unknown"
-    )
-
-    coord_match = POSITION_REGEX.search(line)
-
-    if coord_match:
-        x = float(coord_match.group(2))
-        z = float(coord_match.group(3))
-
-        map_url = (
-            f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-        )
-
-        coord_text = (
-            f"**X:** {x:.1f}\n"
-            f"**Z:** {z:.1f}\n\n"
-            f"[🗺️ Open Map]({map_url})"
-        )
-
-    else:
-        coord_text = "Unknown"
-
-    embed = discord.Embed(
-        title="🩸 PLAYER UNCONSCIOUS",
-        description=f"**{player_name}** has been knocked unconscious.",
-        color=0xFFD000
-    )
-
-    embed.add_field(
-        name="📍 Location",
-        value=coord_text,
-        inline=False
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await event_channel.send(
-        embed=style_embed(embed)
-    )
-
-# =========================================
-
-elif event_type == "conscious" and event_channel:
-
-player_match = re.search(
-        r'Player "([^"]+)"',
-        line
-    )
-
-player_name = (
-        player_match.group(1)
-        if player_match else "Unknown"
-    )
-
-embed = discord.Embed(
-        title="💚 PLAYER RECOVERED",
-        description=f"**{player_name}** regained consciousness.",
-        color=0x00FFCC
-    )
-
-embed.set_thumbnail(url=BOT_IMAGE)
-
-await event_channel.send(
-        embed=style_embed(embed)
-    )
-
-# =========================================
-
-elif event_type == "build" and build_channel:
-
-build_match = re.search(
-        r'Player "([^"]+)".*?built ([^<]+)',
-        line,
-        re.IGNORECASE
-    )
-
-if build_match:
-
-        player_name = build_match.group(1)
-        build_item = build_match.group(2).strip()
-
-        coord_match = POSITION_REGEX.search(line)
-
-        if coord_match:
-            x = float(coord_match.group(2))
-            z = float(coord_match.group(3))
-        else:
-            x = 0
-            z = 0
-
-        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-        embed = discord.Embed(
-            title="🔨 BUILD EVENT",
-            description=f"**{player_name}** built **{build_item}**",
-            color=0x57F287
-        )
-
-        embed.add_field(
-            name="📍 Coordinates",
-            value=(
-                f"**X:** {x:.1f}\n"
-                f"**Z:** {z:.1f}\n\n"
-                f"[🗺️ Open Map]({map_url})"
-            ),
-            inline=False
-        )
-
-        embed.set_thumbnail(url=BOT_IMAGE)
-
-        await build_channel.send(
-            embed=style_embed(embed)
-        )
-
-# =========================================
-
-elif event_type == "dismantle" and raid_channel:
-
-  dismantle_match = re.search(
-        r'Player "([^"]+)".*?Dismantled ([^ ]+) from ([^ ]+) with ([^ ]+)',
-        line,
-        re.IGNORECASE
-    )
-
-if dismantle_match:
-
-        player_name = dismantle_match.group(1)
-        dismantled_piece = dismantle_match.group(2)
-        dismantled_from = dismantle_match.group(3)
-        tool_used = dismantle_match.group(4)
-
-        coord_match = POSITION_REGEX.search(line)
-
-        if coord_match:
-            x = float(coord_match.group(2))
-            z = float(coord_match.group(3))
-
-            map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-            coord_text = (
-                f"**X:** {x:.1f}\n"
-                f"**Z:** {z:.1f}\n\n"
-                f"[🗺️ Open Map]({map_url})"
-            )
-
-        else:
-            coord_text = "Coordinates unavailable."
-
-        embed = discord.Embed(
-            title="🪓 DISMANTLED",
-            description=(
-                f"**{player_name}** dismantled "
-                f"**{dismantled_piece}** from "
-                f"**{dismantled_from}** using "
-                f"**{tool_used}**"
-            ),
-            color=0xFF9900
-        )
-
-        embed.add_field(
-            name="📍 Location",
-            value=coord_text,
-            inline=False
-        )
-
-        embed.set_thumbnail(url=BOT_IMAGE)
-
-        await raid_channel.send(
-            embed=style_embed(embed)
-        )
-
-# =========================================
-
-elif event_type == "kill" and killfeed_channel:
-
-    kill_match = re.search(
-        r'Player "([^"]+)".*?killed by Player "([^"]+)".*?with ([^ ]+).*?from ([\d\.]+)',
-        line,
-        re.IGNORECASE
-    )
-
-    if kill_match:
-
-        victim = kill_match.group(1)
-        killer = kill_match.group(2)
-        weapon = kill_match.group(3)
-        distance = kill_match.group(4)
-
-        coord_match = POSITION_REGEX.search(line)
-
-        if coord_match:
-            x = float(coord_match.group(2))
-            z = float(coord_match.group(3))
-
-            map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-            coord_text = (
-                f"**X:** {x:.1f}\n"
-                f"**Z:** {z:.1f}\n\n"
-                f"[🗺️ Open Map]({map_url})"
-            )
-        else:
-            coord_text = "Unknown"
-
-        embed = discord.Embed(
-            title="☠️ PLAYER KILL",
-            color=0xBB00FF
-        )
-
-        embed.add_field(
-            name="🔫 Killer",
-            value=killer,
-            inline=True
-        )
-
-        embed.add_field(
-            name="💀 Victim",
-            value=victim,
-            inline=True
-        )
-
-        embed.add_field(
-            name="🪖 Weapon",
-            value=f"{weapon} ({distance}m)",
-            inline=False
-        )
-
-        embed.add_field(
-            name="📍 Location",
-            value=coord_text,
-            inline=False
-        )
-
-        embed.set_thumbnail(url=BOT_IMAGE)
-
-        await killfeed_channel.send(
-            embed=style_embed(embed)
-        )
-
-# =========================
-# MESSAGE EVENT
-# =========================
+            zone = get_zone_from_line(line)
+            increase_heat(zone)
+            kill_data = parse_kill_event(line)
+            if kill_data:
+                killer = kill_data["killer"]
+                victim = kill_data["victim"]
+                ensure_player(killer)
+                ensure_player(victim)
+                player_stats[killer]["kills"] += 1
+                player_stats[victim]["deaths"] += 1
+                save_player_stats()
+                embed = discord.Embed(title="☠️ PLAYER KILL", color=0x992D22)
+                embed.add_field(name="🔫 Killer", value=killer, inline=True)
+                embed.add_field(name="💀 Victim", value=victim, inline=True)
+                embed.add_field(name="🪖 Weapon", value=kill_data["weapon"], inline=False)
+                embed.add_field(name="📍 Zone", value=zone, inline=False)
+            else:
+                embed = discord.Embed(title="☠️ KILL EVENT", description=line, color=0x992D22)
+            embed.set_thumbnail(url=BOT_IMAGE)
+            await killfeed_channel.send(embed=style_embed(embed))
 
 @bot.event
 async def on_message(message):
-
     if message.author.bot:
         return
 
     lower = message.content.lower()
-
-    found_words = [
-        word for word in SWEAR_WORDS
-        if word in lower
-    ]
+    found_words = [word for word in SWEAR_WORDS if word in lower]
 
     if found_words:
-
         user_id = str(message.author.id)
-
         if user_id not in swear_jar:
             swear_jar[user_id] = {
                 "name": str(message.author),
                 "count": 0,
-                "balance": 0
+                "balance": 0,
             }
-
         swear_jar[user_id]["count"] += len(found_words)
         swear_jar[user_id]["balance"] += len(found_words) * 100
-
         save_swear_jar()
+
+        embed = discord.Embed(
+            title="💸 SWEAR JAR",
+            description=f"{message.author.mention} was fined £{len(found_words) * 100}",
+            color=0xE67E22,
+        )
+        embed.add_field(name="Total Swears", value=str(swear_jar[user_id]["count"]), inline=True)
+        embed.add_field(name="Debt", value=f"£{swear_jar[user_id]['balance']}", inline=True)
+        await message.channel.send(embed=style_embed(embed))
 
     await bot.process_commands(message)
 
-# =========================
-# LOOP
-# =========================
-
 @tasks.loop(minutes=3)
 async def adm_loop():
-
-    latest_log = await asyncio.to_thread(
-        ping_latest_adm_log
-    )
+    print("CHECKING ADM...")
+    latest_log = await asyncio.to_thread(ping_latest_adm_log)
 
     if not latest_log:
+        print("NO ADM FOUND")
         return
 
     modified_at = latest_log.get("modified_at")
-
     if modified_at == adm_state.get("last_modified"):
+        print("ADM NOT MODIFIED")
         return
 
-    download_success = await asyncio.to_thread(
-        download_latest_adm,
-        latest_log
-    )
+    print("NEW ADM UPDATE FOUND")
+    download_success = await asyncio.to_thread(download_latest_adm, latest_log)
 
     if not download_success:
         return
 
     adm_state["last_modified"] = modified_at
-
     save_state()
-
     await parse_adm()
-
-# =========================
-# READY
-# =========================
 
 @bot.event
 async def on_ready():
-
     print(f"LOGGED IN AS {bot.user}")
-
-    print("========== CHANNEL DEBUG ==========")
-    print("ONLINE:", bot.get_channel(ONLINE_CHANNEL_ID))
-    print("KILLFEED:", bot.get_channel(KILLFEED_CHANNEL_ID))
-    print("RADAR:", bot.get_channel(RADAR_CHANNEL_ID))
-    print("BUILD:", bot.get_channel(BUILD_CHANNEL_ID))
-    print("EVENT:", bot.get_channel(EVENT_CHANNEL_ID))
-    print("RAID:", bot.get_channel(RAID_CHANNEL_ID))
-    print("CONNECT:", bot.get_channel(CONNECT_CHANNEL_ID))
-    print("PLACE:", bot.get_channel(PLACE_CHANNEL_ID))
-    print("===================================")
-
     load_state()
     load_swear_jar()
     load_player_stats()
     load_heatmap()
-    load_radar_zones()
 
     try:
         adm_loop.start()
     except RuntimeError:
         pass
 
-# =========================
-# COMMANDS
-# =========================
-
 @bot.command()
 async def online(ctx):
-
     if online_players:
-        player_list = "\n".join(
-            f"• {player}"
-            for player in sorted(online_players)
-        )
+        player_list = "\n".join(f"• {player}" for player in sorted(online_players))
     else:
         player_list = "No players online."
 
     embed = discord.Embed(
         title=f"🟢 ONLINE PLAYERS ({len(online_players)})",
         description=player_list,
-        color=0x2ECC71
+        color=0x2ECC71,
     )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await ctx.send(embed=style_embed(embed))
 
+@bot.command()
+async def swearjar(ctx):
+    if not swear_jar:
+        await ctx.send("Swear jar is empty.")
+        return
+
+    sorted_users = sorted(swear_jar.values(), key=lambda x: x["balance"], reverse=True)
+    leaderboard = [
+        f"{index}. {user['name']} - £{user['balance']} ({user['count']} swears)"
+        for index, user in enumerate(sorted_users[:10], start=1)
+    ]
+
+    embed = discord.Embed(
+        title="💸 SWEAR JAR LEADERBOARD",
+        description="\n".join(leaderboard),
+        color=0xF1C40F,
+    )
+    await ctx.send(embed=style_embed(embed))
+
+@bot.command()
+async def topkills(ctx):
+    if not player_stats:
+        await ctx.send("No stats available.")
+        return
+
+    sorted_players = sorted(player_stats.items(), key=lambda x: x[1]["kills"], reverse=True)
+    lines = [
+        f"{index}. {player} - {stats['kills']} kills"
+        for index, (player, stats) in enumerate(sorted_players[:10], start=1)
+    ]
+
+    embed = discord.Embed(title="☠️ TOP KILLS", description="\n".join(lines), color=0x992D22)
+    await ctx.send(embed=style_embed(embed))
+
+@bot.command()
+async def heatmap(ctx):
+    if not territory_heat:
+        await ctx.send("No territory activity yet.")
+        return
+
+    sorted_zones = sorted(territory_heat.items(), key=lambda x: x[1], reverse=True)
+    lines = [f"🔥 {zone} - {count}" for zone, count in sorted_zones]
+
+    embed = discord.Embed(title="🗺️ TERRITORY HEATMAP", description="\n".join(lines), color=0xE74C3C)
     await ctx.send(embed=style_embed(embed))
 
 # =========================
