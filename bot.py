@@ -646,189 +646,290 @@ async def parse_adm():
         print(f"EVENT: {event_type} | {line}")
 
         if event_type == "connect" and connect_channel:
-            player_match = re.search(r'Player "([^"]+)"', line)
-            player_name = player_match.group(1) if player_match else "Unknown"
 
-            online_players.add(player_name)
-            update_player_status(player_name, "online")
+    player_match = re.search(r'Player "([^"]+)"', line)
+    player_name = player_match.group(1) if player_match else "Unknown"
 
-            print(f"ONLINE ADD: {player_name}")
-            print(f"ONLINE TOTAL: {len(online_players)}")
+    online_players.add(player_name)
+    update_player_status(player_name, "online")
 
-            embed = discord.Embed(
-                title="🟢 Survivor Connected",
-                color=0x00FF88
+    embed = discord.Embed(
+        title="🟢 SURVIVOR CONNECTED",
+        description=f"**{player_name}** joined the server.",
+        color=0x39FF14
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await connect_channel.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================
+
+elif event_type == "disconnect" and connect_channel:
+
+    player_match = re.search(r'Player "([^"]+)"', line)
+    player_name = player_match.group(1) if player_match else "Unknown"
+
+    online_players.discard(player_name)
+    update_player_status(player_name, "offline")
+
+    coord_match = POSITION_REGEX.search(line)
+
+    if coord_match:
+        x = float(coord_match.group(2))
+        z = float(coord_match.group(3))
+
+        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
+        coord_text = (
+            f"**X:** {x:.1f}\n"
+            f"**Z:** {z:.1f}\n\n"
+            f"[🗺️ Open Map]({map_url})"
+        )
+
+    else:
+        coord_text = "Coordinates unavailable."
+
+    embed = discord.Embed(
+        title="🔴 SURVIVOR DISCONNECTED",
+        description=f"**{player_name}** left the server.",
+        color=0xFF3131
+    )
+
+    embed.add_field(
+        name="📍 Last Known Location",
+        value=coord_text,
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await connect_channel.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================
+
+elif event_type == "place" and place_channel:
+
+    place_match = re.search(
+        r'Player "([^"]+)".*?placed ([^<]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if place_match:
+
+        player_name = place_match.group(1)
+        item_name = place_match.group(2).strip()
+
+        coord_match = POSITION_REGEX.search(line)
+
+        if coord_match:
+            x = float(coord_match.group(2))
+            z = float(coord_match.group(3))
+        else:
+            x = 0
+            z = 0
+
+        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
+        embed = discord.Embed(
+            title="📦 ITEM PLACED",
+            description=f"**{player_name}** placed **{item_name}**",
+            color=0x3498DB
+        )
+
+        embed.add_field(
+            name="📍 Coordinates",
+            value=(
+                f"**X:** {x:.1f}\n"
+                f"**Z:** {z:.1f}\n\n"
+                f"[🗺️ Open Map]({map_url})"
+            ),
+            inline=False
+        )
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+
+        await place_channel.send(
+            embed=style_embed(embed)
+        )
+
+# =========================================
+
+elif event_type == "build" and build_channel:
+
+    build_match = re.search(
+        r'Player "([^"]+)".*?built ([^<]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if build_match:
+
+        player_name = build_match.group(1)
+        build_item = build_match.group(2).strip()
+
+        coord_match = POSITION_REGEX.search(line)
+
+        if coord_match:
+            x = float(coord_match.group(2))
+            z = float(coord_match.group(3))
+        else:
+            x = 0
+            z = 0
+
+        map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
+        embed = discord.Embed(
+            title="🔨 BUILD EVENT",
+            description=f"**{player_name}** built **{build_item}**",
+            color=0x57F287
+        )
+
+        embed.add_field(
+            name="📍 Coordinates",
+            value=(
+                f"**X:** {x:.1f}\n"
+                f"**Z:** {z:.1f}\n\n"
+                f"[🗺️ Open Map]({map_url})"
+            ),
+            inline=False
+        )
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+
+        await build_channel.send(
+            embed=style_embed(embed)
+        )
+
+# =========================================
+
+elif event_type == "dismantle" and raid_channel:
+
+    dismantle_match = re.search(
+        r'Player "([^"]+)".*?Dismantled ([^ ]+) from ([^ ]+) with ([^ ]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if dismantle_match:
+
+        player_name = dismantle_match.group(1)
+        dismantled_piece = dismantle_match.group(2)
+        dismantled_from = dismantle_match.group(3)
+        tool_used = dismantle_match.group(4)
+
+        coord_match = POSITION_REGEX.search(line)
+
+        if coord_match:
+            x = float(coord_match.group(2))
+            z = float(coord_match.group(3))
+
+            map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
+            coord_text = (
+                f"**X:** {x:.1f}\n"
+                f"**Z:** {z:.1f}\n\n"
+                f"[🗺️ Open Map]({map_url})"
             )
 
-            embed.add_field(
-                name="Player",
-                value=player_name,
-                inline=False
+        else:
+            coord_text = "Coordinates unavailable."
+
+        embed = discord.Embed(
+            title="🪓 DISMANTLED",
+            description=(
+                f"**{player_name}** dismantled "
+                f"**{dismantled_piece}** from "
+                f"**{dismantled_from}** using "
+                f"**{tool_used}**"
+            ),
+            color=0xFF9900
+        )
+
+        embed.add_field(
+            name="📍 Location",
+            value=coord_text,
+            inline=False
+        )
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+
+        await raid_channel.send(
+            embed=style_embed(embed)
+        )
+
+# =========================================
+
+elif event_type == "kill" and killfeed_channel:
+
+    kill_match = re.search(
+        r'Player "([^"]+)".*?killed by Player "([^"]+)".*?with ([^ ]+).*?from ([\d\.]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if kill_match:
+
+        victim = kill_match.group(1)
+        killer = kill_match.group(2)
+        weapon = kill_match.group(3)
+        distance = kill_match.group(4)
+
+        coord_match = POSITION_REGEX.search(line)
+
+        if coord_match:
+            x = float(coord_match.group(2))
+            z = float(coord_match.group(3))
+
+            map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
+
+            coord_text = (
+                f"**X:** {x:.1f}\n"
+                f"**Z:** {z:.1f}\n\n"
+                f"[🗺️ Open Map]({map_url})"
             )
+        else:
+            coord_text = "Unknown"
 
-            await connect_channel.send(embed=style_embed(embed))
+        embed = discord.Embed(
+            title="☠️ PLAYER KILL",
+            color=0xBB00FF
+        )
 
-        elif event_type == "disconnect" and connect_channel:
+        embed.add_field(
+            name="🔫 Killer",
+            value=killer,
+            inline=True
+        )
 
-            player_match = re.search(r'Player "([^"]+)"', line)
-            player_name = player_match.group(1) if player_match else "Unknown"
+        embed.add_field(
+            name="💀 Victim",
+            value=victim,
+            inline=True
+        )
 
-            online_players.discard(player_name)
-            update_player_status(player_name, "offline")
+        embed.add_field(
+            name="🪖 Weapon",
+            value=f"{weapon} ({distance}m)",
+            inline=False
+        )
 
-            print(f"ONLINE REMOVE: {player_name}")
-            print(f"ONLINE TOTAL: {len(online_players)}")
+        embed.add_field(
+            name="📍 Location",
+            value=coord_text,
+            inline=False
+        )
 
-            embed = discord.Embed(
-                title="🔴 Survivor Disconnected",
-                color=0xFF0000
-            )
+        embed.set_thumbnail(url=BOT_IMAGE)
 
-            embed.add_field(
-                name="Player",
-                value=player_name,
-                inline=False
-            )
-
-            await connect_channel.send(embed=style_embed(embed))
-
-        elif event_type == "place" and place_channel:
-
-            place_match = re.search(
-                r'Player "([^"]+)".*?placed ([^<]+)',
-                line,
-                re.IGNORECASE
-            )
-
-            if place_match:
-                player_name = place_match.group(1)
-                item_name = place_match.group(2).strip()
-
-                coord_match = POSITION_REGEX.search(line)
-
-                if coord_match:
-                    x = float(coord_match.group(2))
-                    z = float(coord_match.group(3))
-                else:
-                    x = 0
-                    z = 0
-
-                map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-                embed = discord.Embed(
-                    title="📦 ITEM PLACED",
-                    description=f"**{player_name}** placed **{item_name}**",
-                    color=0x3498DB
-                )
-
-                embed.add_field(
-                    name="📍 Coordinates",
-                    value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await place_channel.send(embed=style_embed(embed))
-
-        elif event_type == "build" and build_channel:
-
-            build_match = re.search(
-                r'Player "([^"]+)".*?built ([^<]+)',
-                line,
-                re.IGNORECASE
-            )
-
-            if build_match:
-                player_name = build_match.group(1)
-                build_item = build_match.group(2).strip()
-
-                coord_match = POSITION_REGEX.search(line)
-
-                if coord_match:
-                    x = float(coord_match.group(2))
-                    z = float(coord_match.group(3))
-                else:
-                    x = 0
-                    z = 0
-
-                map_url = f"https://dayz.ginfo.gg/chernarusplus/#c={int(x)};{int(z)};3"
-
-                embed = discord.Embed(
-                    title="🔨 BUILD EVENT",
-                    description=f"**{player_name}** built **{build_item}**",
-                    color=0x57F287
-                )
-
-                embed.add_field(
-                    name="📍 Coordinates",
-                    value=f"X: {x:.1f}\nZ: {z:.1f}\n\n[🗺️ Open Map]({map_url})",
-                    inline=False
-                )
-
-                embed.set_thumbnail(url=BOT_IMAGE)
-
-                await build_channel.send(embed=style_embed(embed))
-
-        elif event_type == "dismantle" and raid_channel:
-
-            embed = discord.Embed(
-                title="🪓 DISMANTLED",
-                description=line,
-                color=0xFF8800
-            )
-
-            await raid_channel.send(embed=style_embed(embed))
-
-        elif event_type == "flag_hoist" and build_channel:
-
-            embed = discord.Embed(
-                title="🚩 FLAG HOISTED",
-                description=line,
-                color=0xF1C40F
-            )
-
-            await build_channel.send(embed=style_embed(embed))
-
-        elif event_type == "flag_lower" and build_channel:
-
-            embed = discord.Embed(
-                title="🏴 FLAG LOWERED",
-                description=line,
-                color=0x95A5A6
-            )
-
-            await build_channel.send(embed=style_embed(embed))
-
-        elif event_type == "kill" and killfeed_channel:
-
-            kill_data = parse_kill_event(line)
-
-            if kill_data:
-                embed = discord.Embed(
-                    title="☠️ PLAYER KILL",
-                    color=0x8B0000
-                )
-
-                embed.add_field(
-                    name="🔫 Killer",
-                    value=kill_data["killer"],
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="💀 Victim",
-                    value=kill_data["victim"],
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="🪖 Weapon",
-                    value=kill_data["weapon"],
-                    inline=False
-                )
-
-                await killfeed_channel.send(embed=style_embed(embed))
+        await killfeed_channel.send(
+            embed=style_embed(embed)
+        )
 
 # =========================
 # MESSAGE EVENT
