@@ -85,6 +85,48 @@ territory_heat = {}
 player_stats = {}
 
 swear_jar = {}
+# =========================
+# RADAR SYSTEM
+# =========================
+
+RADAR_CHANNEL_ID = int(
+    os.getenv("RADAR_CHANNEL_ID", 0)
+)
+
+RADAR_ZONES = [
+
+    {
+        "name": "NWAF",
+        "x": 4700,
+        "z": 10200,
+        "radius": 600
+    },
+
+    {
+        "name": "NEAF",
+        "x": 12100,
+        "z": 12500,
+        "radius": 500
+    },
+
+    {
+        "name": "TISY",
+        "x": 1700,
+        "z": 14100,
+        "radius": 700
+    },
+
+    {
+        "name": "KOMETA",
+        "x": 10350,
+        "z": 2450,
+        "radius": 500
+    }
+]
+
+player_last_radar_ping = {}
+
+player_positions = {}
 
 SWEAR_WORDS = [
     "fuck",
@@ -375,7 +417,43 @@ def increase_heat(zone):
     )
 
     save_heatmap()
+# =========================
+# RADAR HELPERS
+# =========================
 
+def distance(x1, z1, x2, z2):
+
+    return (
+        (
+            (x2 - x1) ** 2
+            +
+            (z2 - z1) ** 2
+        ) ** 0.5
+    )
+
+
+def get_nearest_zone(x, z):
+
+    closest_zone = None
+
+    closest_distance = 999999
+
+    for zone in RADAR_ZONES:
+
+        dist = distance(
+            x,
+            z,
+            zone["x"],
+            zone["z"]
+        )
+
+        if dist < closest_distance:
+
+            closest_distance = dist
+
+            closest_zone = zone["name"]
+
+    return closest_zone, round(closest_distance)
 # =========================
 # API ADM CHECK
 # =========================
@@ -579,7 +657,14 @@ def classify_event(line):
         return "raid"
 
     return None
+# =========================
+# RADAR POSITION PARSER
+# =========================
 
+POSITION_REGEX = re.compile(
+    r'Player "([^"]+)".*?pos=<([\d\.\-]+),\s*([\d\.\-]+),\s*([\d\.\-]+)>',
+    re.IGNORECASE
+)
 # =========================
 # ADM PARSER
 # =========================
@@ -624,11 +709,120 @@ async def parse_adm():
     connect_channel = bot.get_channel(
         CONNECT_CHANNEL_ID
     )
-
+    radar_channel = bot.get_channel(
+        RADAR_CHANNEL_ID
+    )
     for raw_line in new_lines:
 
         line = raw_line.strip()
+        # ================= RADAR =================
 
+        position_match = POSITION_REGEX.search(line)
+
+        if (
+            position_match
+            and radar_channel
+        ):
+
+            player_name = position_match.group(1)
+
+            x = float(
+                position_match.group(2)
+            )
+
+            z = float(
+                position_match.group(4)
+            )
+
+            player_positions[player_name] = {
+                "x": x,
+                "z": z
+            }
+
+            for zone in RADAR_ZONES:
+
+                dist = distance(
+                    x,
+                    z,
+                    zone["x"],
+                    zone["z"]
+                )
+
+                if dist <= zone["radius"]:
+
+                    key = (
+                        f"{player_name}_"
+                        f"{zone['name']}"
+                    )
+
+                    now = datetime.now().timestamp()
+
+                    if key not in player_last_radar_ping:
+
+                        player_last_radar_ping[key] = 0
+
+                    cooldown = (
+                        now
+                        -
+                        player_last_radar_ping[key]
+                    )
+
+                    if cooldown >= 300:
+
+                        player_last_radar_ping[key] = now
+
+                        nearest_zone, nearest_dist = (
+                            get_nearest_zone(x, z)
+                        )
+
+                        embed = discord.Embed(
+                            title="📡 RADAR PING",
+                            color=0x00FFFF
+                        )
+
+                        embed.add_field(
+                            name="👤 Player",
+                            value=player_name,
+                            inline=False
+                        )
+
+                        embed.add_field(
+                            name="📍 Radar Zone",
+                            value=zone["name"],
+                            inline=True
+                        )
+
+                        embed.add_field(
+                            name="📏 Distance",
+                            value=f"{dist:.1f}m",
+                            inline=True
+                        )
+
+                        embed.add_field(
+                            name="🗺️ Nearest Area",
+                            value=(
+                                f"{nearest_zone} "
+                                f"({nearest_dist}m)"
+                            ),
+                            inline=False
+                        )
+
+                        embed.add_field(
+                            name="📌 Coordinates",
+                            value=(
+                                f"X: {x:.1f}\n"
+                                f"Z: {z:.1f}"
+                            ),
+                            inline=False
+                        )
+
+                        embed.set_thumbnail(
+                            url=BOT_IMAGE
+                        )
+
+                        await radar_channel.send(
+                            embed=style_embed(embed)
+                        )
         if not line:
             continue
 
