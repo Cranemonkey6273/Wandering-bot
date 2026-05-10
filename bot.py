@@ -40,12 +40,33 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # CHANNEL IDS
 # =========================
 
-KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-RAID_CHANNEL_ID = int(os.getenv("RAID_CHANNEL_ID", 0))
-BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
-CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
-RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", 0))
-PLACE_CHANNEL_ID = int(os.getenv("PLACE_CHANNEL_ID", 0))
+ONLINE_CHANNEL_ID = int(os.getenv("ONLINE_CHANNEL_ID", "0"))
+KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", "0"))
+RADAR_CHANNEL_ID = int(os.getenv("RADAR_CHANNEL_ID", "0"))
+BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", "0"))
+EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", "0"))
+
+# =========================
+# DEBUG CHANNEL CHECK
+# =========================
+
+@bot.event
+async def on_ready():
+    print(f"LOGGED IN AS: {bot.user}")
+
+    online_channel = bot.get_channel(ONLINE_CHANNEL_ID)
+    killfeed_channel = bot.get_channel(KILLFEED_CHANNEL_ID)
+    radar_channel = bot.get_channel(RADAR_CHANNEL_ID)
+    build_channel = bot.get_channel(BUILD_CHANNEL_ID)
+    event_channel = bot.get_channel(EVENT_CHANNEL_ID)
+
+    print("========== CHANNEL DEBUG ==========")
+    print("ONLINE CHANNEL:", online_channel)
+    print("KILLFEED CHANNEL:", killfeed_channel)
+    print("RADAR CHANNEL:", radar_channel)
+    print("BUILD CHANNEL:", build_channel)
+    print("EVENT CHANNEL:", event_channel)
+    print("===================================")
 
 # =========================
 # DISCORD
