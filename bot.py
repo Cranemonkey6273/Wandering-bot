@@ -87,7 +87,9 @@ kill_streaks = {}
 factions = {}
 
 ADMIN_ROLE_IDS = [
-    123456789012345678
+    1493101990618730547,
+    1491767865811009749,
+    1500825706094006294
 ]
 recent_pvp_events = []
 
@@ -620,7 +622,7 @@ async def parse_adm():
 
             embed = discord.Embed(
         title="🏴 SERVER FACTIONS",
-        description="\\n\\n".join(lines),
+        description="\n\n".join(lines),
         color=0x5865F2
     )
 
