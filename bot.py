@@ -96,10 +96,10 @@ RADAR_CHANNEL_ID = int(
 RADAR_ZONES = [
 
     {
-        "name": "NWAF",
-        "x": 4700,
-        "z": 10200,
-        "radius": 600
+        "name": "TEST",
+        "x": 7500,
+        "z": 7500,
+        "radius": 20000
     },
 
     {
