@@ -239,32 +239,81 @@ def save_heatmap():
 # HELPERS
 # =========================
 
+def update_player_status(player_name, status):
+
+    try:
+
+        existing = (
+            supabase
+            .table("online_players")
+            .select("*")
+            .eq("player_name", player_name)
+            .execute()
+        )
+
+        if existing.data:
+
+            (
+                supabase
+                .table("online_players")
+                .update({
+                    "status": status,
+                    "last_seen": datetime.now(UTC).isoformat()
+                })
+                .eq("player_name", player_name)
+                .execute()
+            )
+
+        else:
+
+            (
+                supabase
+                .table("online_players")
+                .insert({
+                    "player_name": player_name,
+                    "status": status,
+                    "last_seen": datetime.now(UTC).isoformat()
+                })
+                .execute()
+            )
+
+    except Exception as error:
+
+        print("PLAYER STATUS ERROR")
+        print(error)
+
+
 def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
     return embed
 
 
 def extract_timestamp(filename):
+
     match = re.search(
         r"_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$",
         filename,
-        re.IGNORECASE,
+        re.IGNORECASE
     )
 
     if not match:
         return datetime.fromtimestamp(0)
 
     date_part = match.group(1)
+
     time_part = match.group(2).replace("-", ":")
 
-    return datetime.fromisoformat(f"{date_part}T{time_part}")
+    return datetime.fromisoformat(
+        f"{date_part}T{time_part}"
+    )
 
 
 def parse_kill_event(line):
+
     match = re.search(
         r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
         line,
-        re.IGNORECASE,
+        re.IGNORECASE
     )
 
     if not match:
@@ -273,33 +322,41 @@ def parse_kill_event(line):
     return {
         "killer": match.group(1),
         "victim": match.group(2),
-        "weapon": match.group(3),
+        "weapon": match.group(3)
     }
 
 
 def ensure_player(player_name):
+
     if player_name not in player_stats:
+
         player_stats[player_name] = {
             "kills": 0,
             "deaths": 0,
             "raids": 0,
-            "builds": 0,
+            "builds": 0
         }
 
 
 def get_zone_from_line(line):
+
     lower = line.lower()
 
     if "nwaf" in lower or "airfield" in lower:
         return "NWAF"
+
     if "tisy" in lower:
         return "Tisy"
+
     if "zeleno" in lower:
         return "Zelenogorsk"
+
     if "cherno" in lower:
         return "Chernogorsk"
+
     if "electro" in lower:
         return "Elektrozavodsk"
+
     if "vybor" in lower:
         return "Vybor"
 
@@ -307,7 +364,11 @@ def get_zone_from_line(line):
 
 
 def increase_heat(zone):
-    territory_heat[zone] = territory_heat.get(zone, 0) + 1
+
+    territory_heat[zone] = (
+        territory_heat.get(zone, 0) + 1
+    )
+
     save_heatmap()
 
 # =========================
