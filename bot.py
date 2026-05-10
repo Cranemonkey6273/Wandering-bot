@@ -845,6 +845,7 @@ async def on_ready():
     load_swear_jar()
     load_player_stats()
     load_heatmap()
+    load_radar_zones()
 
     try:
         adm_loop.start()
