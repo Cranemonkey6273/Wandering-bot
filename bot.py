@@ -506,10 +506,28 @@ async def parse_adm():
             and connect_channel
         ):
 
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            player_name = "Unknown"
+
+            if player_match:
+                player_name = player_match.group(1)
+
+            online_players.add(player_name)
+
             embed = discord.Embed(
                 title="🟢 Survivor Connected",
-                description=line,
                 color=0x2ECC71
+            )
+
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
             )
 
             embed.set_thumbnail(
@@ -527,10 +545,29 @@ async def parse_adm():
             and connect_channel
         ):
 
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line,
+                re.IGNORECASE
+            )
+
+            player_name = "Unknown"
+
+            if player_match:
+                player_name = player_match.group(1)
+
+            if player_name in online_players:
+                online_players.remove(player_name)
+
             embed = discord.Embed(
                 title="🔴 Survivor Disconnected",
-                description=line,
                 color=0xE74C3C
+            )
+
+            embed.add_field(
+                name="Player",
+                value=player_name,
+                inline=False
             )
 
             embed.set_thumbnail(
@@ -782,18 +819,26 @@ async def online(ctx):
 
     if online_players:
 
-        players = "\n".join(
-            sorted(online_players)
+        player_list = "\n".join(
+            f"• {player}"
+            for player in sorted(online_players)
         )
 
     else:
 
-        players = "No players online."
+        player_list = "No players online."
 
     embed = discord.Embed(
-        title="🟢 ONLINE PLAYERS",
-        description=players,
+        title=(
+            f"🟢 ONLINE PLAYERS "
+            f"({len(online_players)})"
+        ),
+        description=player_list,
         color=0x2ECC71
+    )
+
+    embed.set_thumbnail(
+        url=BOT_IMAGE
     )
 
     await ctx.send(
