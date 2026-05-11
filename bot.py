@@ -897,6 +897,158 @@ async def scheduled_restart_loop():
             print(error)
 
 # =========================================================
+# AI ALERT SYSTEM
+# =========================================================
+
+AI_KEYWORDS = [
+    "raid",
+    "explosive",
+    "helicrash",
+    "admin",
+    "cheater",
+    "speedhack",
+    "base damage"
+]
+
+async def send_ai_alert(guild_id, config, line):
+
+    channels = config.get("channels", {})
+
+    ai_channel = bot.get_channel(
+        channels.get("connections")
+    )
+
+    if not ai_channel:
+        return
+
+    embed = discord.Embed(
+        title="🧠 AI ALERT",
+        description=line,
+        color=0x9B59B6
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ai_channel.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================================
+# LIVE SERVER STATUS
+# =========================================================
+
+@bot.command()
+async def serverstatus(ctx):
+
+    total_guilds = len(guild_configs)
+
+    total_players = len(online_players)
+
+    embed = discord.Embed(
+        title="📡 WANDERING BOT STATUS",
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="Connected Servers",
+        value=str(total_guilds),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Tracked Players",
+        value=str(total_players),
+        inline=True
+    )
+
+    embed.add_field(
+        name="ADM Parser",
+        value="🟢 ONLINE",
+        inline=False
+    )
+
+    embed.add_field(
+        name="API Status",
+        value="🟢 CONNECTED",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================================
+# PLAYER LOOKUP
+# =========================================================
+
+@bot.command()
+async def playerstats(ctx, *, player_name: str):
+
+    if player_name not in player_stats:
+
+        await ctx.send(
+            "Player not found."
+        )
+
+        return
+
+    stats = player_stats[player_name]
+
+    embed = discord.Embed(
+        title=f"📊 PLAYER STATS - {player_name}",
+        color=0x1ABC9C
+    )
+
+    embed.add_field(
+        name="Kills",
+        value=str(stats.get("kills", 0)),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Deaths",
+        value=str(stats.get("deaths", 0)),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Raids",
+        value=str(stats.get("raids", 0)),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Builds",
+        value=str(stats.get("builds", 0)),
+        inline=True
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================================
+# AUTO START TASKS
+# =========================================================
+
+async def start_background_tasks():
+
+    try:
+
+        if not adm_loop.is_running():
+            adm_loop.start()
+
+        if not scheduled_restart_loop.is_running():
+            scheduled_restart_loop.start()
+
+    except RuntimeError:
+        pass
+
+# =========================================================
 # READY
 # =========================================================
 
@@ -911,8 +1063,6 @@ async def on_ready():
     load_player_stats()
     load_heatmap()
     load_swear_jar()
-
-await start_background_tasks()
 
 # =========================================================
 # START
