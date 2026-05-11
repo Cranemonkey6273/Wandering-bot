@@ -1098,7 +1098,9 @@ async def on_member_join(member):
 
     embed = discord.Embed(
         title="👋 NEW SURVIVOR ARRIVED",
-        description=f"{member.mention}\n\n{welcome_text}",
+        description=f"{member.mention}
+
+{welcome_text}",
         color=0x1ABC9C
     )
 
@@ -1197,51 +1199,94 @@ async def helpme(ctx):
 
     embed.add_field(
         name="📡 Server",
-      value=(
-            "!serverstatus\\n"
-            "!online\\n"
+        value=(
+            "!serverstatus\n"
+            "!online\n"
             "!playerstats <name>"
-        )   "!topkills
-"
-            "!heatmap
-"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Stats",
+        value=(
+            "!topkills\n"
+            "!heatmap\n"
             "!swearjar"
         ),
-        ivalue=(
-            "!topkills\\n"
-            "!heatmap\\n"
-            "!swearjar"
-        )art <hour>
-"
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Admin",
+        value=(
+            "!restartserver\n"
+            "!setrestartinterval <hours>\n"
+            "!setrestartstart <hour>\n"
             "!listrestarts"
         ),
         inline=False
     )
 
-    value=(
-            "!restartserver\\n"
-            "!setrestartinterval <hours>\\n"
-            "!setrestartstart <hour>\\n"
-            "!listrestarts"
-        )er
-"
-            "• Smart welcome system
-"
-            "• Live online dashboards
-"
-    value=(
-            "• Live raid feed\\n"
-            "• PvP heatmaps\\n"
-            "• Online tracking\\n"
-            "• AI chatter\\n"
-            "• Welcome system\\n"
-            "• Leaderboards\\n"
-            "• Restart automation\\n"
-            "• AI survivor chatter\\n"
-            "• Smart welcome system\\n"
-            "• Live online dashboards\\n"
+    embed.add_field(
+        name="🧠 Features",
+        value=(
+            "• Live raid feed\n"
+            "• PvP heatmaps\n"
+            "• Online tracking\n"
+            "• AI chatter\n"
+            "• Welcome system\n"
+            "• Leaderboards\n"
+            "• Restart automation\n"
+            "• AI survivor chatter\n"
+            "• Smart welcome system\n"
+            "• Live online dashboards\n"
             "• Real Nitrado restart control"
+        ),
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Help System"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def online(ctx):
+
+    if online_players:
+
+        player_list = "\n".join(
+            f"• {player}"
+            for player in sorted(online_players)
         )
+
+    else:
+
+        player_list = "No players online."
+
+    embed = discord.Embed(
+        title=f"🟢 ONLINE PLAYERS ({len(online_players)})",
+        description=player_list,
+        color=0x2ECC71
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def swearjar(ctx):
+
+    if not swear_jar:
+
         await ctx.send(
             "Swear jar is empty."
         )
@@ -2042,6 +2087,9 @@ async def on_ready():
     load_player_stats()
     load_heatmap()
     load_swear_jar()
+    load_shop()
+    load_wallets()
+    load_delivery_queue()
 
     await start_background_tasks()
 
@@ -2081,12 +2129,13 @@ def load_delivery_queue():
 
     if os.path.exists(DELIVERY_QUEUE_FILE):
 
-        with open(DELload_swear_jar()
-    load_shop()
-    load_wallets()
-    load_delivery_queue()
+        with open(DELIVERY_QUEUE_FILE, "r") as f:
+            delivery_queue = json.load(f)
 
-    await start_background_tasks() with open(DELIVERY_QUEUE_FILE, "w") as f:
+
+def save_delivery_queue():
+
+    with open(DELIVERY_QUEUE_FILE, "w") as f:
         json.dump(delivery_queue, f, indent=4)
 
 
@@ -2143,8 +2192,7 @@ async def shop(ctx):
 
     embed = discord.Embed(
         title="🛒 BLACK MARKET SHOP",
-        description="
-".join(lines[:25]),
+        description="\n".join(lines[:25]),
         color=0x9B59B6
     )
 
@@ -2181,10 +2229,10 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
     if wallet["daily_transactions"] >= limit:
 
-        await ctx.send.")
+        await ctx.send("❌ Daily delivery limit reached.")
         return
 
-    price = sdescription="\\n".join(lines[:25]), 0)
+    price = shop_items[item_name].get("price", 0)
 
     if wallet["balance"] < price:
 
