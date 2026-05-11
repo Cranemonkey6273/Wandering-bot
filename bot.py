@@ -342,6 +342,7 @@ async def on_guild_join(guild):
     leaderboards = await make_channel("🏆・leaderboards")
     heatmap_channel = await make_channel("🔥・heatmap🔥")
     restart_alerts = await make_channel("📢・restart-alerts")
+    welcome_channel = await make_channel("👋・welcome")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -357,7 +358,8 @@ async def on_guild_join(guild):
             "online": online.id,
             "leaderboards": leaderboards.id,
             "heatmap": heatmap_channel.id,
-            "restart_alerts": restart_alerts.id
+            "restart_alerts": restart_alerts.id,
+            "welcome": welcome_channel.id
         }
     }
 
@@ -438,6 +440,7 @@ async def setup_command(
     await ensure_channel("leaderboards", "🏆・leaderboards")
     await ensure_channel("heatmap", "🔥・heatmap🔥")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
+    await ensure_channel("welcome", "👋・welcome")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -1074,6 +1077,43 @@ async def adm_loop():
 # =========================================================
 
 @bot.event
+async def on_member_join(member):
+
+    guild_id = str(member.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    channels = config.get("channels", {})
+
+    welcome_channel = bot.get_channel(
+        channels.get("welcome")
+    )
+
+    if not welcome_channel:
+        return
+
+    import random
+
+    welcome_text = random.choice(WELCOME_MESSAGES)
+
+    embed = discord.Embed(
+        title="👋 NEW SURVIVOR ARRIVED",
+        description=f"{member.mention}
+
+{welcome_text}",
+        color=0x1ABC9C
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Welcome System"
+    )
+
+    await welcome_channel.send(embed=style_embed(embed))
+
+
+@bot.event
 async def on_message(message):
 
     if message.author.bot:
@@ -1104,13 +1144,15 @@ async def on_message(message):
             len(found_words) * 100
         )
 
+        pennies_total = swear_jar[user_id]["balance"]
+
         save_swear_jar()
 
         embed = discord.Embed(
             title="💸 SWEAR JAR",
             description=(
                 f"{message.author.mention} "
-                f"was fined £{len(found_words) * 100}"
+                f"was fined {len(found_words) * 100} pennies 🪙"
             ),
             color=0xE67E22
         )
@@ -1125,7 +1167,7 @@ async def on_message(message):
 
         embed.add_field(
             name="Debt",
-            value=f"£{swear_jar[user_id]['balance']}",
+            value=f"{pennies_total} pennies 🪙",
             inline=True
         )
 
@@ -1133,11 +1175,102 @@ async def on_message(message):
             embed=style_embed(embed)
         )
 
+    for keyword, response in AI_RESPONSES.items():
+
+        if keyword in lower:
+
+            await message.channel.send(response)
+
+            break
+
     await bot.process_commands(message)
 
 # =========================================================
 # COMMANDS
 # =========================================================
+
+@bot.command()
+async def helpme(ctx):
+
+    embed = discord.Embed(
+        title="🤖 WANDERING BOT ALPHA COMMANDS",
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="📡 Server",
+        value=(
+            "!serverstatus
+"
+            "!online
+"
+            "!playerstats <name>"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🏆 Stats",
+        value=(
+            "!topkills
+"
+            "!heatmap
+"
+            "!swearjar"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚙️ Admin",
+        value=(
+            "!restartserver
+"
+            "!setrestartinterval <hours>
+"
+            "!setrestartstart <hour>
+"
+            "!listrestarts"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🧠 Features",
+        value=(
+            "• Live raid feed
+"
+            "• PvP heatmaps
+"
+            "• Online tracking
+"
+            "• AI chatter
+"
+            "• Welcome system
+"
+            "• Leaderboards
+"
+            "• Restart automation
+"
+            "• AI survivor chatter
+"
+            "• Smart welcome system
+"
+            "• Live online dashboards
+"
+            "• Real Nitrado restart control"
+        ),
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Help System"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
 
 @bot.command()
 async def online(ctx):
@@ -1581,6 +1714,35 @@ async def scheduled_restart_loop():
 # AI ALERT SYSTEM
 # =========================================================
 
+WELCOME_MESSAGES = [
+    "Welcome to the apocalypse, survivor. Trust nobody. Especially Dave.",
+    "Fresh spawn detected. Someone hide the baked beans.",
+    "Welcome in survivor. The wolves can smell fear already.",
+    "Another poor soul has entered Chernarus willingly.",
+    "Welcome survivor. If you hear footsteps, start panicking.",
+
+    "Welcome to the wasteland, survivor. Try not to die immediately.",
+    "Fresh meat has arrived. Someone hide the loot.",
+    "Another survivor enters Chernarus with terrible decision making.",
+    "Welcome in. Watch out for wolves, snipers, and your own teammates.",
+    "Good luck survivor. You're absolutely going to need it."
+]
+
+AI_RESPONSES = {
+    "angry": "🧠 Maybe log off before you challenge a door to a fist fight.",
+    "trash": "💀 DayZ humbles everybody eventually.",
+    "lag": "📡 AI Notice: If desync hits, avoid driving unless you enjoy orbiting into space.",
+    "hungry": "🥫 Tip: Fishing gear is more valuable than most guns early game.",
+    "bear": "🐻 AI Warning: If you hear the bear first, it's probably too late.",
+    "raid": "🧠 Tip: Metal doors buy time. Hidden loot buys survival.",
+    "loot": "🧠 Tip: Medical buildings and hunting camps are usually worth checking.",
+    "base": "🧠 Tip: Small hidden stashes survive longer than giant compounds.",
+    "cheater": "🧠 AI Watch: Record clips and timestamps before reporting suspicious activity.",
+    "dead": "💀 DayZ teaches lessons the painful way.",
+    "fuck": "💸 Calm down survivor, the swear jar is getting rich.",
+    "shit": "🧠 Tactical advice: panicking rarely improves aim."
+}
+
 AI_KEYWORDS = [
     "raid",
     "explosive",
@@ -1840,7 +2002,7 @@ async def heatmap_loop():
                 )
 
             embed = discord.Embed(
-                title="🔥 LIVE PVP HEATMAP",
+                title="🔥 LIVE CONFLICT HEATMAP",
                 description=(
                     "\n".join(lines)
                     if lines else "No PvP activity detected yet."
@@ -1909,7 +2071,7 @@ async def leaderboard_loop():
                 )
 
             embed = discord.Embed(
-                title="🏆 SERVER LEADERBOARDS",
+                title="🏆 LIVE SURVIVOR LEADERBOARDS",
                 description="\n".join(lines) if lines else "No stats yet.",
                 color=0xF1C40F
             )
@@ -1944,6 +2106,269 @@ async def on_ready():
     load_swear_jar()
 
     await start_background_tasks()
+
+# =========================================================
+# ECONOMY SYSTEM FOUNDATION
+# =========================================================
+
+SHOP_FILE = "shop.json"
+WALLETS_FILE = "wallets.json"
+DELIVERY_QUEUE_FILE = "delivery_queue.json"
+
+shop_items = {}
+wallets = {}
+delivery_queue = []
+
+
+def load_shop():
+    global shop_items
+    shop_items = load_json(SHOP_FILE)
+
+
+def save_shop():
+    save_json(SHOP_FILE, shop_items)
+
+
+def load_wallets():
+    global wallets
+    wallets = load_json(WALLETS_FILE)
+
+
+def save_wallets():
+    save_json(WALLETS_FILE, wallets)
+
+
+def load_delivery_queue():
+    global delivery_queue
+
+    if os.path.exists(DELIVERY_QUEUE_FILE):
+
+        with open(DELIVERY_QUEUE_FILE, "r") as f:
+            delivery_queue = json.load(f)
+
+
+def save_delivery_queue():
+
+    with open(DELIVERY_QUEUE_FILE, "w") as f:
+        json.dump(delivery_queue, f, indent=4)
+
+
+DEFAULT_DAILY_TRANSACTION_LIMIT = 5
+
+
+# =========================================================
+# BASIC SHOP COMMANDS
+# =========================================================
+
+@bot.command()
+async def wallet(ctx):
+
+    user_id = str(ctx.author.id)
+
+    if user_id not in wallets:
+
+        wallets[user_id] = {
+            "name": str(ctx.author),
+            "balance": 0,
+            "daily_transactions": 0
+        }
+
+        save_wallets()
+
+    balance = wallets[user_id]["balance"]
+
+    embed = discord.Embed(
+        title="💰 SURVIVOR WALLET",
+        description=f"{balance} pennies 🪙",
+        color=0x2ECC71
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def shop(ctx):
+
+    if not shop_items:
+
+        await ctx.send("Shop is currently empty.")
+        return
+
+    lines = []
+
+    for item_name, data in shop_items.items():
+
+        lines.append(
+            f"• {item_name} — {data.get('price', 0)} pennies 🪙"
+        )
+
+    embed = discord.Embed(
+        title="🛒 BLACK MARKET SHOP",
+        description="
+".join(lines[:25]),
+        color=0x9B59B6
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Black Market"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def buy(ctx, item_name: str, x: str, y: str):
+
+    user_id = str(ctx.author.id)
+
+    if item_name not in shop_items:
+
+        await ctx.send("That item does not exist in the shop.")
+        return
+
+    if user_id not in wallets:
+
+        wallets[user_id] = {
+            "name": str(ctx.author),
+            "balance": 0,
+            "daily_transactions": 0
+        }
+
+    wallet = wallets[user_id]
+
+    limit = DEFAULT_DAILY_TRANSACTION_LIMIT
+
+    if wallet["daily_transactions"] >= limit:
+
+        await ctx.send("❌ Daily delivery limit reached.")
+        return
+
+    price = shop_items[item_name].get("price", 0)
+
+    if wallet["balance"] < price:
+
+        await ctx.send("❌ Not enough pennies.")
+        return
+
+    wallet["balance"] -= price
+    wallet["daily_transactions"] += 1
+
+    delivery_queue.append({
+        "player": str(ctx.author),
+        "discord_id": user_id,
+        "item": item_name,
+        "x": x,
+        "y": y,
+        "status": "queued",
+        "created": str(datetime.now(UTC))
+    })
+
+    save_wallets()
+    save_delivery_queue()
+
+    map_link = f"https://dayz.ginfo.gg/#location={x};{y}"
+
+    embed = discord.Embed(
+        title="📦 DELIVERY QUEUED",
+        description=(
+            f"Your order has been added to the next restart delivery queue."
+        ),
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="📦 Item",
+        value=item_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="💰 Cost",
+        value=f"{price} pennies 🪙",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📍 Delivery Location",
+        value=f"[🔵 Open Map](<{map_link}>)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="⏰ Delivery ETA",
+        value="Next server restart",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Black Market Delivery"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+# =========================================================
+# ADMIN SHOP MANAGEMENT
+# =========================================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def addshopitem(ctx, item_name: str, price: int):
+
+    shop_items[item_name] = {
+        "price": price
+    }
+
+    save_shop()
+
+    await ctx.send(
+        f"✅ Added {item_name} to black market shop for {price} pennies."
+    )
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removeshopitem(ctx, *, item_name: str):
+
+    if item_name not in shop_items:
+
+        await ctx.send("Item not found.")
+        return
+
+    del shop_items[item_name]
+
+    save_shop()
+
+    await ctx.send(f"🗑️ Removed {item_name} from the shop.")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def givepennies(ctx, member: discord.Member, amount: int):
+
+    user_id = str(member.id)
+
+    if user_id not in wallets:
+
+        wallets[user_id] = {
+            "name": str(member),
+            "balance": 0,
+            "daily_transactions": 0
+        }
+
+    wallets[user_id]["balance"] += amount
+
+    save_wallets()
+
+    await ctx.send(
+        f"💰 Added {amount} pennies 🪙 to {member.mention}"
+    )
 
 # =========================================================
 # START
