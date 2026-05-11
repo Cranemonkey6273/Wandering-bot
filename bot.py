@@ -7,6 +7,7 @@ import re
 import json
 import asyncio
 import requests
+from ftplib import FTP_TLS
 import discord
 
 from datetime import datetime, UTC
@@ -149,89 +150,7 @@ def load_guild_configs():
     guild_configs = load_json(GUILD_CONFIG_FILE)
 
 
-def save_guild_configs()
-
-    try:
-
-        help_channel_obj = bot.get_channel(
-            guild_configs[guild_id]["channels"].get("help_channel")
-        )
-
-        faction_list_obj = bot.get_channel(
-            guild_configs[guild_id]["channels"].get("faction_list")
-        )
-
-        clips_channel_obj = bot.get_channel(
-            guild_configs[guild_id]["channels"].get("clips_channel")
-        )
-
-        if help_channel_obj:
-
-            help_embed = discord.Embed(
-                title="❓ WELCOME TO WANDERING BOT",
-                description=(
-                    "Use `!helpme` to view all commands and systems.
-
-"
-                    "🎯 PvP tracking
-"
-                    "🏴 Raid alerts
-"
-                    "🛒 Black market
-"
-                    "🎬 Clip sharing
-"
-                    "🏆 Leaderboards
-"
-                    "🧠 AI survivor systems"
-                ),
-                color=0x3498DB
-            )
-
-            help_embed.set_thumbnail(url=BOT_IMAGE)
-
-            await help_channel_obj.send(
-                embed=style_embed(help_embed)
-            )
-
-        if faction_list_obj:
-
-            faction_embed = discord.Embed(
-                title="🏴 SERVER FACTIONS",
-                description=(
-                    "Approved factions will appear here.
-
-"
-                    "Use `!factionticket NAME` to apply for a faction."
-                ),
-                color=0x9B59B6
-            )
-
-            faction_embed.set_thumbnail(url=BOT_IMAGE)
-
-            await faction_list_obj.send(
-                embed=style_embed(faction_embed)
-            )
-
-        if clips_channel_obj:
-
-            clips_embed = discord.Embed(
-                title="🎬 DAYZ CLIPS & MOMENTS",
-                description=(
-                    "Share your PvP clips, raids, funny moments,"
-                    " betrayals and survival highlights here."
-                ),
-                color=0xE74C3C
-            )
-
-            clips_embed.set_thumbnail(url=BOT_IMAGE)
-
-            await clips_channel_obj.send(
-                embed=style_embed(clips_embed)
-            )
-
-    except Exception as error:
-        print(error):
+def save_guild_configs():
     save_json(GUILD_CONFIG_FILE, guild_configs)
 
 
@@ -503,6 +422,8 @@ async def on_guild_join(guild):
     admin_logs = await make_channel("🛡️・admin-logs")
     command_logs = await make_channel("📜・command-logs")
     purchase_logs = await make_channel("💳・purchase-logs")
+    vehicle_rentals = await make_channel("🚗・vehicle-rentals")
+    rental_logs = await make_channel("🛻・rental-logs")
     faction_tickets = await make_channel("🎫・faction-tickets")
     faction_staff = await make_channel("🛡️・faction-staff")
 
@@ -513,6 +434,8 @@ async def on_guild_join(guild):
         "nitrado_token": "",
         "service_id": "",
         "nitrado_user": "",
+        "ftp_user": "",
+        "ftp_password": "",
         "channels": {
             "killfeed": killfeed.id,
             "raids": raids.id,
@@ -535,6 +458,8 @@ async def on_guild_join(guild):
             "admin_logs": admin_logs.id,
             "command_logs": command_logs.id,
             "purchase_logs": purchase_logs.id,
+            "vehicle_rentals": vehicle_rentals.id,
+            "rental_logs": rental_logs.id,
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id
         }
@@ -553,13 +478,17 @@ async def on_guild_join(guild):
 @app_commands.describe(
     nitrado_token="Your Nitrado API token",
     service_id="Your Nitrado service ID",
-    nitrado_user="Example: ni12248929_2"
+    nitrado_user="Example: ni12248929_2",
+    ftp_user="Your Nitrado FTP username",
+    ftp_password="Your Nitrado FTP password"
 )
 async def setup_command(
     interaction: discord.Interaction,
     nitrado_token: str,
     service_id: str,
-    nitrado_user: str
+    nitrado_user: str,
+    ftp_user: str,
+    ftp_password: str
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -630,19 +559,180 @@ async def setup_command(
     await ensure_channel("admin_logs", "🛡️・admin-logs")
     await ensure_channel("command_logs", "📜・command-logs")
     await ensure_channel("purchase_logs", "💳・purchase-logs")
+    await ensure_channel("vehicle_rentals", "🚗・vehicle-rentals")
+    await ensure_channel("rental_logs", "🛻・rental-logs")
     await ensure_channel("faction_tickets", "🎫・faction-tickets")
     await ensure_channel("faction_staff", "🛡️・faction-staff")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
     guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
+    guild_configs[guild_id]["ftp_user"] = ftp_user
+    guild_configs[guild_id]["ftp_password"] = ftp_password
 
     save_guild_configs()
+
+    help_channel = bot.get_channel(
+        guild_configs[guild_id]["channels"].get("help_channel")
+    )
+
+    if help_channel:
+
+        setup_embed = discord.Embed(
+            title="🤖 WANDERING BOT SETUP & COMMAND GUIDE",
+            description=(
+                "Welcome to Wandering Bot Alpha.\\n\\n"
+                "Below are the most important commands and systems available on your server."
+            ),
+            color=0x3498DB
+        )
+
+        setup_embed.add_field(
+            name="📡 Core Server Commands",
+            value=(
+                "`!online` — Show live online survivors\n"
+                "`!serverstatus` — Bot/server status\n"
+                "`!heatmap` — PvP heatmap\n"
+                "`!topkills` — Kill leaderboard\n"
+                "`!toplongshots` — Longshot leaderboard"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="💰 Economy Commands",
+            value=(
+                "`!wallet` — Check pennies\n"
+                "`!shop` — Open black market\n"
+                "`!buy item x y` — Buy restart delivery\n"
+                "`!rentvehicle vehicle hours x y` — Rent vehicles"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="🛡️ Staff Commands",
+            value=(
+                "`!restartserver` — Restart DayZ server\\n"
+                "`!togglebasedamage on/off`
+"
+                "`!purge amount`
+"
+                "`!setradarchannel #channel`
+"
+                "`!radarping x y reason`"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="🏴 Factions & Tickets",
+            value=(
+                "`!factionticket Name` — Create faction request
+"
+                "`!factionapprove ID` — Approve faction ticket"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="🎮 Identity Commands",
+            value=(
+                "`!linkgamer Gamertag` — Link Xbox gamertag
+"
+                "`!mylink` — View linked account"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="🧠 Automated Features",
+            value=(
+                "• Live killfeed
+"
+                "• Raid detection
+"
+                "• Heatmaps
+"
+                "• AI chatter
+"
+                "• Restart scheduling
+"
+                "• Delivery spawning
+"
+                "• Radar intelligence
+"
+                "• Welcome messages
+"
+                "• Swear jar economy"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="⚙️ Final Setup Step",
+            value=(
+                "Add the provided `SpawnWanderingDeliveries();` code into your DayZ `init.c` file to enable restart item spawning."
+            ),
+            inline=False
+        )
+
+        setup_embed.set_thumbnail(url=BOT_IMAGE)
+
+        setup_embed.set_footer(
+            text="Wandering Bot Alpha • Automated Help System"
+        )
+
+        await help_channel.send(embed=style_embed(setup_embed))
 
     await interaction.followup.send(
         "✅ Wandering Bot fully connected and operational.",
         ephemeral=True
     )
+
+# =========================================================
+# NITRADO XML DELIVERY BRIDGE
+# =========================================================
+
+def upload_delivery_xml_to_nitrado(config, xml_path):
+
+    try:
+
+        ftp_host = "ftp.nitrado.net"
+        ftp_user = config.get("ftp_user")
+        ftp_pass = config.get("ftp_password")
+
+        if not ftp_user or not ftp_pass:
+
+            print("FTP DETAILS NOT CONFIGURED")
+            return False
+
+        ftp = FTP_TLS(ftp_host)
+
+        ftp.login(ftp_user, ftp_pass)
+        ftp.prot_p()
+
+        target_path = (
+            "/dayzxb/custom/deliveries.xml"
+        )
+
+        with open(xml_path, "rb") as xml_file:
+
+            ftp.storbinary(
+                f"STOR {target_path}",
+                xml_file
+            )
+
+        ftp.quit()
+
+        print("DELIVERY XML UPLOADED TO NITRADO")
+
+        return True
+
+    except Exception as error:
+
+        print(error)
+        return False
 
 # =========================================================
 # DOWNLOAD ADM
@@ -805,6 +895,10 @@ async def parse_adm(guild_id, config):
 
     connect_channel = bot.get_channel(
         channels.get("connections")
+    )
+
+    disconnect_channel = bot.get_channel(
+        channels.get("disconnects")
     )
 
     for raw_line in lines[-250:]:
@@ -1466,7 +1560,7 @@ async def on_message(message):
 
             break
 
-        user_id = str(message.author.id)
+    user_id = str(message.author.id)
 
     if user_id not in player_chat_tracker:
 
@@ -1704,12 +1798,9 @@ async def helpme(ctx):
     embed.add_field(
         name="🏆 Stats",
         value=(
-            "!topkills
-"
-            "!toplongshots
-"
-            "!heatmap
-"
+            "!topkills\n"
+            "!toplongshots\n"
+            "!heatmap\n"
             "!swearjar"
         ),
         inline=False
@@ -2362,6 +2453,98 @@ async def purgebots(ctx, amount: int = 100):
     await confirmation.delete()
 
 # =========================================================
+# RADAR PING SYSTEM
+# =========================================================
+
+RADAR_PINGS = {}
+
+
+@bot.command()
+async def setradarchannel(ctx, channel: discord.TextChannel):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_configs:
+        return
+
+    guild_configs[guild_id]["channels"]["radar"] = channel.id
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="📡 RADAR CHANNEL CONFIGURED",
+        description=f"Radar alerts will now go to {channel.mention}",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def radarping(ctx, x: str, y: str, *, reason: str = "Survivor Activity"):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    channels = config.get("channels", {})
+
+    radar_channel = bot.get_channel(
+        channels.get("radar")
+    )
+
+    if not radar_channel:
+
+        await ctx.send("❌ Radar channel not configured.")
+        return
+
+    map_link = f"https://dayz.ginfo.gg/#location={x};{y}"
+
+    embed = discord.Embed(
+        title="📡 MANUAL RADAR PING",
+        description="Suspicious activity detected.",
+        color=0xE74C3C
+    )
+
+    embed.add_field(
+        name="🎯 Activity",
+        value=reason,
+        inline=False
+    )
+
+    embed.add_field(
+        name="📍 Coordinates",
+        value=f"[🔵 Open Map](<{map_link}>)",
+        inline=False
+    )
+
+    embed.add_field(
+        name="🛡️ Triggered By",
+        value=ctx.author.mention,
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Radar Intelligence"
+    )
+
+    await radar_channel.send(
+        embed=style_embed(embed)
+    )
+
+    await ctx.send("✅ Radar ping sent.")
+
+# =========================================================
 # ADMIN SERVER CONTROLS
 # =========================================================
 
@@ -2966,6 +3149,9 @@ async def start_background_tasks():
         if not scheduled_restart_loop.is_running():
             scheduled_restart_loop.start()
 
+        if not restart_delivery_processor.is_running():
+            restart_delivery_processor.start()
+
     except RuntimeError:
         pass
 
@@ -3179,6 +3365,7 @@ DELIVERY_QUEUE_FILE = "delivery_queue.json"
 shop_items = {}
 wallets = {}
 delivery_queue = []
+vehicle_rentals_queue = []
 
 
 def load_shop():
@@ -3215,6 +3402,7 @@ def save_delivery_queue():
 
 
 DEFAULT_DAILY_TRANSACTION_LIMIT = 5
+VEHICLE_RENTAL_FILE = "vehicle_rentals.json"
 
 
 # =========================================================
@@ -3290,6 +3478,11 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("That item does not exist in the shop.")
         return
 
+    if not shop_items[item_name].get("enabled", True):
+
+        await ctx.send("❌ That item is currently disabled.")
+        return
+
     if user_id not in wallets:
 
         wallets[user_id] = {
@@ -3318,6 +3511,8 @@ async def buy(ctx, item_name: str, x: str, y: str):
     wallet["daily_transactions"] += 1
 
     delivery_queue.append({
+        "delivery_type": "item",
+        "spawn_ready": False,
         "player": str(ctx.author),
         "discord_id": user_id,
         "item": item_name,
@@ -3372,24 +3567,476 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
     await ctx.send(embed=style_embed(embed))
 
+    # ================= PURCHASE LOG =================
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    purchase_log_channel = bot.get_channel(
+        config.get("channels", {}).get("purchase_logs")
+    )
+
+    if purchase_log_channel:
+
+        log_embed = discord.Embed(
+            title="💳 NEW BLACK MARKET PURCHASE",
+            color=0x9B59B6
+        )
+
+        log_embed.add_field(
+            name="👤 Survivor",
+            value=ctx.author.mention,
+            inline=True
+        )
+
+        log_embed.add_field(
+            name="📦 Item",
+            value=item_name,
+            inline=True
+        )
+
+        log_embed.add_field(
+            name="💰 Price",
+            value=f"{price} pennies 🪙",
+            inline=True
+        )
+
+        log_embed.add_field(
+            name="📍 Delivery Location",
+            value=f"[🔵 Open Map](<{map_link}>)",
+            inline=False
+        )
+
+        log_embed.set_thumbnail(url=BOT_IMAGE)
+
+        log_embed.set_footer(
+            text="Wandering Bot Alpha • Purchase Logs"
+        )
+
+        await purchase_log_channel.send(
+            embed=style_embed(log_embed)
+        )
+
 
 # =========================================================
-# ADMIN SHOP MANAGEMENT
+# VEHICLE RENTAL SYSTEM
+# =========================================================
+
+@bot.command()
+async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str):
+
+    user_id = str(ctx.author.id)
+
+    if vehicle_name not in shop_items:
+
+        await ctx.send("❌ Vehicle not available.")
+        return
+
+    vehicle_data = shop_items[vehicle_name]
+
+    if vehicle_data.get("category", "").lower() != "vehicles":
+
+        await ctx.send("❌ That item is not configured as a rentable vehicle.")
+        return
+
+    rental_price = vehicle_data.get("price", 0) * max(rental_hours, 1)
+
+    if user_id not in wallets:
+
+        wallets[user_id] = {
+            "name": str(ctx.author),
+            "balance": 0,
+            "daily_transactions": 0
+        }
+
+    if wallets[user_id]["balance"] < rental_price:
+
+        await ctx.send("❌ Not enough pennies.")
+        return
+
+    wallets[user_id]["balance"] -= rental_price
+
+    rental_entry = {
+        "player": str(ctx.author),
+        "discord_id": user_id,
+        "vehicle": vehicle_name,
+        "x": x,
+        "y": y,
+        "rental_hours": rental_hours,
+        "status": "queued",
+        "created": str(datetime.now(UTC))
+    }
+
+    vehicle_rentals_queue.append(rental_entry)
+
+    save_wallets()
+    save_delivery_queue()
+
+    map_link = f"https://dayz.ginfo.gg/#location={x};{y}"
+
+    embed = discord.Embed(
+        title="🚗 VEHICLE RENTAL CONFIRMED",
+        description="Vehicle queued for next restart delivery.",
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="🚗 Vehicle",
+        value=vehicle_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="⏰ Rental Period",
+        value=f"{rental_hours} hours",
+        inline=True
+    )
+
+    embed.add_field(
+        name="💰 Cost",
+        value=f"{rental_price} pennies 🪙",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📍 Spawn Location",
+        value=f"[🔵 Open Map](<{map_link}>)",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Vehicle Rental System"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+    # ================= RENTAL LOG =================
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    rental_log_channel = bot.get_channel(
+        config.get("channels", {}).get("rental_logs")
+    )
+
+    if rental_log_channel:
+
+        rental_embed = discord.Embed(
+            title="🚗 NEW VEHICLE RENTAL",
+            color=0x3498DB
+        )
+
+        rental_embed.add_field(
+            name="👤 Survivor",
+            value=ctx.author.mention,
+            inline=True
+        )
+
+        rental_embed.add_field(
+            name="🚗 Vehicle",
+            value=vehicle_name,
+            inline=True
+        )
+
+        rental_embed.add_field(
+            name="⏰ Rental Time",
+            value=f"{rental_hours} hours",
+            inline=True
+        )
+
+        rental_embed.add_field(
+            name="💰 Cost",
+            value=f"{rental_price} pennies 🪙",
+            inline=True
+        )
+
+        rental_embed.add_field(
+            name="📍 Spawn Location",
+            value=f"[🔵 Open Map](<{map_link}>)",
+            inline=False
+        )
+
+        rental_embed.set_thumbnail(url=BOT_IMAGE)
+
+        rental_embed.set_footer(
+            text="Wandering Bot Alpha • Vehicle Rental Logs"
+        )
+
+        await rental_log_channel.send(
+            embed=style_embed(rental_embed)
+        )
+
+
+# =========================================================
+# RESTART DELIVERY PROCESSOR
+# =========================================================
+
+@tasks.loop(minutes=1)
+async def restart_delivery_processor():
+
+    now = datetime.now(UTC)
+
+    for guild_id, config in list(guild_configs.items()):
+
+        try:
+
+            restart_interval = config.get(
+                "restart_interval_hours",
+                DEFAULT_RESTART_INTERVAL_HOURS
+            )
+
+            restart_offset = config.get(
+                "restart_start_hour",
+                0
+            )
+
+            if now.minute != 0:
+                continue
+
+            if (
+                now.hour >= restart_offset
+                and ((now.hour - restart_offset) % restart_interval == 0)
+            ):
+
+                delivery_file = os.path.join(
+                    GUILD_DATA_FOLDER,
+                    f"{guild_id}_deliveries.json"
+                )
+
+                output = {
+                    "items": delivery_queue,
+                    "vehicles": vehicle_rentals_queue,
+                    "generated": str(now)
+                }
+
+                with open(delivery_file, "w") as f:
+                    json.dump(output, f, indent=4)
+
+                print(f"DELIVERY FILE GENERATED FOR {guild_id}")
+
+                # =========================================
+                # XML DELIVERY GENERATION
+                # =========================================
+
+                xml_lines = []
+
+                xml_lines.append('<objects>')
+
+                # ================= ITEMS =================
+
+                for delivery in delivery_queue:
+
+                    item_name = delivery.get("item")
+                    x = delivery.get("x")
+                    y = delivery.get("y")
+
+                    xml_lines.append(
+                        f'<object name="{item_name}" pos="{x} 0 {y}" />'
+                    )
+
+                # ================= VEHICLES =================
+
+                for rental in vehicle_rentals_queue:
+
+                    vehicle_name = rental.get("vehicle")
+                    x = rental.get("x")
+                    y = rental.get("y")
+
+                    xml_lines.append(
+                        f'<object name="{vehicle_name}" pos="{x} 0 {y}" />'
+                    )
+
+                xml_lines.append('</objects>')
+
+                xml_output_path = os.path.join(
+                    GUILD_DATA_FOLDER,
+                    f"{guild_id}_deliveries.xml"
+                )
+
+                with open(xml_output_path, "w") as xml_file:
+
+                    xml_file.write("\n".join(xml_lines))
+
+                print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
+
+                upload_success = upload_delivery_xml_to_nitrado(
+                    config,
+                    xml_output_path
+                )
+
+                if upload_success:
+
+                    print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
+
+                    delivery_queue.clear()
+                    vehicle_rentals_queue.clear()
+
+                    save_delivery_queue()
+
+        except Exception as error:
+            print(error)
+
+
+# =========================================================
+# TYPES.XML SHOP MANAGEMENT SYSTEM
 # =========================================================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def addshopitem(ctx, item_name: str, price: int):
+async def addshopitem(
+    ctx,
+    item_name: str,
+    price: int,
+    category: str = "General"
+):
 
     shop_items[item_name] = {
-        "price": price
+        "price": price,
+        "category": category,
+        "enabled": True
     }
 
     save_shop()
 
-    await ctx.send(
-        f"✅ Added {item_name} to black market shop for {price} pennies."
+    embed = discord.Embed(
+        title="🛒 ITEM ADDED TO BLACK MARKET",
+        color=0x2ECC71
     )
+
+    embed.add_field(
+        name="📦 Item",
+        value=item_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="💰 Price",
+        value=f"{price} pennies 🪙",
+        inline=True
+    )
+
+    embed.add_field(
+        name="📂 Category",
+        value=category,
+        inline=True
+    )
+
+    embed.add_field(
+        name="📡 Delivery",
+        value="Delivered next restart",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Economy Management"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def editshopitem(
+    ctx,
+    item_name: str,
+    price: int = None,
+    category: str = None
+):
+
+    if item_name not in shop_items:
+
+        await ctx.send("❌ Item not found in shop.")
+        return
+
+    if price is not None:
+        shop_items[item_name]["price"] = price
+
+    if category is not None:
+        shop_items[item_name]["category"] = category
+
+    save_shop()
+
+    embed = discord.Embed(
+        title="✏️ SHOP ITEM UPDATED",
+        description=f"Updated `{item_name}` successfully.",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def toggleshopitem(ctx, item_name: str):
+
+    if item_name not in shop_items:
+
+        await ctx.send("❌ Item not found.")
+        return
+
+    current = shop_items[item_name].get("enabled", True)
+
+    shop_items[item_name]["enabled"] = not current
+
+    save_shop()
+
+    state = "ENABLED" if not current else "DISABLED"
+
+    embed = discord.Embed(
+        title="📦 SHOP ITEM STATUS UPDATED",
+        description=f"`{item_name}` is now {state}.",
+        color=0x9B59B6
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def shopcategories(ctx):
+
+    categories = {}
+
+    for item, data in shop_items.items():
+
+        category = data.get("category", "General")
+
+        if category not in categories:
+            categories[category] = []
+
+        categories[category].append(item)
+
+    embed = discord.Embed(
+        title="📂 BLACK MARKET CATEGORIES",
+        color=0xF1C40F
+    )
+
+    for category, items in categories.items():
+
+        embed.add_field(
+            name=f"📦 {category}",
+            value=f"{len(items)} items",
+            inline=False
+        )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+# =========================================================
+# ADMIN SHOP MANAGEMENT
+# =========================================================
 
 
 @bot.command()
@@ -3429,6 +4076,80 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     await ctx.send(
         f"💰 Added {amount} pennies 🪙 to {member.mention}"
     )
+
+# =========================================================
+# DAYZ INIT.C DELIVERY LOADER (NITRADO SIDE)
+# =========================================================
+
+# ADD THIS TO YOUR DAYZ SERVER init.c FILE
+# This loads deliveries.xml on restart.
+# Your bot already uploads the XML automatically.
+# This is the final bridge.
+
+'''
+void SpawnWanderingDeliveries()
+{
+    string path = "$profile:custom/deliveries.xml";
+
+    FileHandle file = OpenFile(path, FileMode.READ);
+
+    if (!file)
+    {
+        Print("[WANDERING BOT] deliveries.xml not found");
+        return;
+    }
+
+    string line;
+
+    while (FGets(file, line) > 0)
+    {
+        if (line.Contains("<object"))
+        {
+            string itemName;
+            string position;
+
+            int nameStart = line.IndexOf("name=\"") + 6;
+            int nameEnd = line.IndexOf("\"", nameStart);
+
+            itemName = line.Substring(nameStart, nameEnd - nameStart);
+
+            int posStart = line.IndexOf("pos=\"") + 5;
+            int posEnd = line.IndexOf("\"", posStart);
+
+            position = line.Substring(posStart, posEnd - posStart);
+
+            TStringArray posSplit = new TStringArray;
+            position.Split(" ", posSplit);
+
+            if (posSplit.Count() >= 3)
+            {
+                vector spawnPos = Vector(
+                    posSplit.Get(0).ToFloat(),
+                    posSplit.Get(1).ToFloat(),
+                    posSplit.Get(2).ToFloat()
+                );
+
+                EntityAI spawned = EntityAI.Cast(
+                    GetGame().CreateObject(itemName, spawnPos)
+                );
+
+                if (spawned)
+                {
+                    Print("[WANDERING BOT] Spawned: " + itemName);
+                }
+            }
+        }
+    }
+
+    CloseFile(file);
+}
+
+// =====================================================
+// CALL THIS INSIDE main() AFTER WEATHER SETUP
+// =====================================================
+
+SpawnWanderingDeliveries();
+'''
 
 # =========================================================
 # START
