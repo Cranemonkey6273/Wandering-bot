@@ -51,8 +51,8 @@ LINKED_PLAYERS_FILE = "linked_players.json"
 # =========================================================
 
 guild_configs = {}
-processed_lines = set()
-online_players = set()
+processed_lines = {}
+online_players = {}
 player_online_times = {}
 territory_heat = {}
 zone_keywords = {
@@ -169,9 +169,28 @@ def get_zone_from_line(line):
     return "Unknown"
 
 
-def increase_heat(zone):
+def ensure_guild_runtime(guild_id):
 
-    territory_heat[zone] = territory_heat.get(zone, 0) + 1
+    if guild_id not in processed_lines:
+        processed_lines[guild_id] = set()
+
+    if guild_id not in online_players:
+        online_players[guild_id] = set()
+
+    if guild_id not in player_online_times:
+        player_online_times[guild_id] = {}
+
+    if guild_id not in territory_heat:
+        territory_heat[guild_id] = {}
+
+
+def increase_heat(guild_id, zone):
+
+    ensure_guild_runtime(guild_id)
+
+    territory_heat[guild_id][zone] = (
+        territory_heat[guild_id].get(zone, 0) + 1
+    )
 
     save_heatmap()
 
@@ -354,6 +373,8 @@ async def on_guild_join(guild):
     heatmap_channel = await make_channel("🔥・heatmap🔥")
     restart_alerts = await make_channel("📢・restart-alerts")
     welcome_channel = await make_channel("👋・welcome")
+    economy_channel = await make_channel("💰・black-market")
+    ai_channel = await make_channel("🧠・survivor-ai")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -370,7 +391,9 @@ async def on_guild_join(guild):
             "leaderboards": leaderboards.id,
             "heatmap": heatmap_channel.id,
             "restart_alerts": restart_alerts.id,
-            "welcome": welcome_channel.id
+            "welcome": welcome_channel.id,
+            "economy": economy_channel.id,
+            "ai_chat": ai_channel.id
         }
     }
 
@@ -452,6 +475,8 @@ async def setup_command(
     await ensure_channel("heatmap", "🔥・heatmap🔥")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
     await ensure_channel("welcome", "👋・welcome")
+    await ensure_channel("economy", "💰・black-market")
+    await ensure_channel("ai_chat", "🧠・survivor-ai")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -636,10 +661,12 @@ async def parse_adm(guild_id, config):
 
         line_hash = hash(line)
 
-        if line_hash in processed_lines:
+        ensure_guild_runtime(guild_id)
+
+        if line_hash in processed_lines[guild_id]:
             continue
 
-        processed_lines.add(line_hash)
+        processed_lines[guild_id].add(line_hash)
 
         event_type = classify_event(line)
 
@@ -648,10 +675,12 @@ async def parse_adm(guild_id, config):
 
         print(f"EVENT: {event_type} | {line}")
 
+        ensure_guild_runtime(guild_id)
+
         zone = get_zone_from_line(line)
 
         if zone != "Unknown":
-            increase_heat(zone)
+            increase_heat(guild_id, zone)
 
         # ================= CONNECT =================
 
@@ -667,8 +696,8 @@ async def parse_adm(guild_id, config):
                 if player_match else "Unknown"
             )
 
-            online_players.add(player_name)
-            player_online_times[player_name] = datetime.now(UTC)
+            online_players[guild_id].add(player_name)
+            player_online_times[guild_id][player_name] = datetime.now(UTC)
 
             embed = discord.Embed(
                 title="🟢 SURVIVOR CONNECTED",
@@ -715,11 +744,11 @@ async def parse_adm(guild_id, config):
                 if coords_match else None
             )
 
-            if player_name in online_players:
-                online_players.remove(player_name)
+            if player_name in online_players[guild_id]:
+                online_players[guild_id].remove(player_name)
 
-            if player_name in player_online_times:
-                del player_online_times[player_name]
+            if player_name in player_online_times[guild_id]:
+                del player_online_times[guild_id][player_name]
 
             embed = discord.Embed(
                 title="🔴 SURVIVOR DISCONNECTED",
@@ -1109,9 +1138,7 @@ async def on_member_join(member):
 
     embed = discord.Embed(
         title="👋 NEW SURVIVOR ARRIVED",
-        description=f"{member.mention}
-
-{welcome_text}",
+        description=f"{member.mention}\\n\\n{welcome_text}",
         color=0x1ABC9C
     )
 
@@ -1269,11 +1296,17 @@ async def helpme(ctx):
 @bot.command()
 async def online(ctx):
 
-    if online_players:
+    guild_id = str(ctx.guild.id)
 
-        player_list = "\n".join(
-            f"• {player}"
-            for player in sorted(online_players)
+    ensure_guild_runtime(guild_id)
+
+    guild_online = online_players[guild_id]
+
+    if guild_online:
+
+        player_list = "\\n".join(
+            f"🟢 {player}"
+            for player in sorted(guild_online)
         )
 
     else:
@@ -1281,7 +1314,7 @@ async def online(ctx):
         player_list = "No players online."
 
     embed = discord.Embed(
-        title=f"🟢 ONLINE PLAYERS ({len(online_players)})",
+        title=f"✅🎮 ONLINE SURVIVORS 🎮✅ ({len(guild_online)})",
         description=player_list,
         color=0x2ECC71
     )
@@ -1335,7 +1368,11 @@ async def swearjar(ctx):
 @bot.command()
 async def heatmap(ctx):
 
-    if not territory_heat:
+    guild_id = str(ctx.guild.id)
+
+    ensure_guild_runtime(guild_id)
+
+    if not territory_heat[guild_id]:
 
         await ctx.send(
             "No territory activity yet."
@@ -1344,7 +1381,7 @@ async def heatmap(ctx):
         return
 
     sorted_zones = sorted(
-        territory_heat.items(),
+        territory_heat[guild_id].items(),
         key=lambda x: x[1],
         reverse=True
     )
@@ -1752,7 +1789,7 @@ async def send_ai_alert(guild_id, config, line):
     channels = config.get("channels", {})
 
     ai_channel = bot.get_channel(
-        channels.get("connections")
+        channels.get("ai_chat")
     )
 
     if not ai_channel:
@@ -1779,7 +1816,7 @@ async def serverstatus(ctx):
 
     total_guilds = len(guild_configs)
 
-    total_players = len(online_players)
+    total_players = sum(len(players) for players in online_players.values())
 
     embed = discord.Embed(
         title="📡 WANDERING BOT STATUS",
@@ -2027,11 +2064,15 @@ async def online_dashboard_loop():
             if not online_channel:
                 continue
 
-            if online_players:
+            ensure_guild_runtime(guild_id)
+
+            guild_online = online_players[guild_id]
+
+            if guild_online:
 
                 player_text = "\n".join([
-                    f"• {player}"
-                    for player in sorted(online_players)
+                    f"🟢 {player}"
+                    for player in sorted(guild_online)
                 ])
 
             else:
@@ -2039,7 +2080,7 @@ async def online_dashboard_loop():
                 player_text = "No survivors online."
 
             embed = discord.Embed(
-                title=f"🟢 CURRENT SURVIVORS ONLINE ({len(online_players)})",
+                title=f"✅🎮 LIVE SURVIVORS ONLINE 🎮✅ ({len(guild_online)})",
                 description=player_text,
                 color=0x2ECC71
             )
@@ -2077,8 +2118,10 @@ async def heatmap_loop():
             if not heatmap_channel:
                 continue
 
+            ensure_guild_runtime(guild_id)
+
             hottest_zones = sorted(
-                territory_heat.items(),
+                territory_heat[guild_id].items(),
                 key=lambda x: x[1],
                 reverse=True
             )[:5]
@@ -2160,7 +2203,7 @@ async def leaderboard_loop():
                 )
 
             embed = discord.Embed(
-                title="🏆 LIVE SURVIVOR LEADERBOARDS",
+                title="🏆 GLOBAL SURVIVOR LEADERBOARDS 🏆",
                 description="\n".join(lines) if lines else "No stats yet.",
                 color=0xF1C40F
             )
