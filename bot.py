@@ -696,8 +696,7 @@ async def swearjar(ctx):
 
     embed = discord.Embed(
         title="💸 SWEAR JAR LEADERBOARD",
-        description="
-".join(leaderboard),
+        description="".join(leaderboard),
         color=0xF1C40F
     )
 
