@@ -54,6 +54,16 @@ processed_lines = set()
 online_players = set()
 player_online_times = {}
 territory_heat = {}
+zone_keywords = {
+    "NWAF": ["nwaf", "airfield"],
+    "Tisy": ["tisy"],
+    "Zelenogorsk": ["zeleno"],
+    "Chernogorsk": ["cherno"],
+    "Elektrozavodsk": ["electro"],
+    "Vybor": ["vybor"],
+    "Berezino": ["berezino"],
+    "Severograd": ["severo"]
+}
 player_stats = {}
 swear_jar = {}
 
@@ -133,6 +143,27 @@ def save_swear_jar():
 # =========================================================
 # EVENT CLASSIFIER
 # =========================================================
+
+def get_zone_from_line(line):
+
+    lower = line.lower()
+
+    for zone, keywords in zone_keywords.items():
+
+        for keyword in keywords:
+
+            if keyword in lower:
+                return zone
+
+    return "Unknown"
+
+
+def increase_heat(zone):
+
+    territory_heat[zone] = territory_heat.get(zone, 0) + 1
+
+    save_heatmap()
+
 
 def classify_event(line):
 
@@ -415,7 +446,7 @@ async def setup_command(
     save_guild_configs()
 
     await interaction.followup.send(
-        "✅ Server connected successfully.",
+        "✅ Wandering Bot fully connected and operational.",
         ephemeral=True
     )
 
@@ -602,6 +633,11 @@ async def parse_adm(guild_id, config):
             continue
 
         print(f"EVENT: {event_type} | {line}")
+
+        zone = get_zone_from_line(line)
+
+        if zone != "Unknown":
+            increase_heat(zone)
 
         # ================= CONNECT =================
 
@@ -1285,11 +1321,13 @@ async def restartserver(ctx):
             "Authorization": f"Bearer {token}"
         }
 
-        requests.post(
+        restart_response = requests.post(
             url,
             headers=headers,
             timeout=30
         )
+
+        print(f"RESTART STATUS: {restart_response.status_code}")
 
     except Exception as error:
         print(error)
@@ -1324,19 +1362,125 @@ async def togglebasedamage(ctx, state: str):
     print(f"BASE DAMAGE {state.upper()}")
 
 # =========================================================
+# RESTART SCHEDULER COMMANDS
+# =========================================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setrestartinterval(ctx, hours: int):
+
+    if hours < 1 or hours > 24:
+
+        await ctx.send(
+            "Restart interval must be between 1 and 24 hours."
+        )
+
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_configs:
+        return
+
+    guild_configs[guild_id]["restart_interval_hours"] = hours
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="⏰ RESTART INTERVAL UPDATED",
+        description=f"Server will now restart every {hours} hours.",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setrestartstart(ctx, hour: int):
+
+    if hour < 0 or hour > 23:
+
+        await ctx.send(
+            "Start hour must be between 0 and 23 UTC."
+        )
+
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_configs:
+        return
+
+    guild_configs[guild_id]["restart_start_hour"] = hour
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="🕒 RESTART START HOUR UPDATED",
+        description=f"Restart schedule now begins at {hour}:00 UTC.",
+        color=0x1ABC9C
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def listrestarts(ctx):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    interval = config.get(
+        "restart_interval_hours",
+        DEFAULT_RESTART_INTERVAL_HOURS
+    )
+
+    start_hour = config.get(
+        "restart_start_hour",
+        0
+    )
+
+    times = []
+
+    current = start_hour
+
+    while current < 24:
+
+        times.append(f"{current:02d}:00 UTC")
+
+        current += interval
+
+    embed = discord.Embed(
+        title="📢 ACTIVE RESTART SCHEDULE",
+        description="\n".join(times),
+        color=0xE67E22
+    )
+
+    embed.add_field(
+        name="Interval",
+        value=f"Every {interval} hours",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+# =========================================================
 # SCHEDULED RESTART LOOP
 # =========================================================
 
-RESTART_HOURS = [
-    0,
-    4,
-    8,
-    12,
-    16,
-    20
-]
+DEFAULT_RESTART_INTERVAL_HOURS = 4
 
-last_restart_hour = None
+last_restart_hour = {}
+restart_warning_tracker = {}
 
 @tasks.loop(minutes=1)
 async def scheduled_restart_loop():
@@ -1346,32 +1490,53 @@ async def scheduled_restart_loop():
     now = datetime.now(UTC)
 
     current_hour = now.hour
-
-    if current_hour not in RESTART_HOURS:
-        return
-
-    if last_restart_hour == current_hour:
-        return
-
-    last_restart_hour = current_hour
-
-    print(f"SCHEDULED RESTART TRIGGERED {current_hour}:00")
+    current_minute = now.minute
 
     for guild_id, config in list(guild_configs.items()):
+
+        restart_interval = config.get(
+            "restart_interval_hours",
+            DEFAULT_RESTART_INTERVAL_HOURS
+        )
+
+        restart_offset = config.get(
+            "restart_start_hour",
+            0
+        )
+
+        should_restart = (
+            current_hour >= restart_offset
+            and ((current_hour - restart_offset) % restart_interval == 0)
+            and current_minute == 0
+        )
+
+        if not should_restart:
+            continue
+
+        if last_restart_hour.get(guild_id) == current_hour:
+            continue
+
+        last_restart_hour[guild_id] = current_hour
+
+        print(f"SCHEDULED RESTART TRIGGERED {guild_id} @ {current_hour}:00")
 
         try:
 
             channels = config.get("channels", {})
 
             announce_channel = bot.get_channel(
-                channels.get("connections")
+                channels.get("restart_alerts")
             )
 
             if announce_channel:
 
                 embed = discord.Embed(
                     title="⚠️ SCHEDULED RESTART",
-                    description="Server restart triggered automatically.",
+                    description=(
+                        f"Automatic restart triggered.\n\n"
+                        f"⏰ Interval: Every {restart_interval} hours\n"
+                        f"🕒 Current Restart: {current_hour}:00 UTC"
+                    ),
                     color=0xE74C3C
                 )
 
@@ -1380,6 +1545,33 @@ async def scheduled_restart_loop():
                 await announce_channel.send(
                     embed=style_embed(embed)
                 )
+
+                token = config.get("nitrado_token")
+                service_id = config.get("service_id")
+
+                if token and service_id:
+
+                    try:
+
+                        url = (
+                            f"https://api.nitrado.net/services/"
+                            f"{service_id}/gameservers/restart"
+                        )
+
+                        headers = {
+                            "Authorization": f"Bearer {token}"
+                        }
+
+                        restart_response = requests.post(
+                            url,
+                            headers=headers,
+                            timeout=30
+                        )
+
+                        print(f"AUTO RESTART STATUS: {restart_response.status_code}")
+
+                    except Exception as restart_error:
+                        print(restart_error)
 
         except Exception as error:
 
