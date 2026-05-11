@@ -1298,13 +1298,13 @@ async def start_background_tasks():
     try:
 
         if not adm_loop.is_running():
-        adm_loop.start()
+            adm_loop.start()
 
-    if not online_dashboard_loop.is_running():
-        online_dashboard_loop.start()
+        if not online_dashboard_loop.is_running():
+            online_dashboard_loop.start()
 
-    if not leaderboard_loop.is_running():
-        leaderboard_loop.start()
+        if not leaderboard_loop.is_running():
+            leaderboard_loop.start()
 
         if not scheduled_restart_loop.is_running():
             scheduled_restart_loop.start()
@@ -1334,8 +1334,7 @@ async def online_dashboard_loop():
 
             if online_players:
 
-                player_text = "
-".join([
+                player_text = "\\n".join([
                     f"• {player}"
                     for player in sorted(online_players)
                 ])
@@ -1402,8 +1401,7 @@ async def leaderboard_loop():
 
             embed = discord.Embed(
                 title="🏆 SERVER LEADERBOARDS",
-                description="
-".join(lines) if lines else "No stats yet.",
+                description="\\n".join(lines) if lines else "No stats yet.",
                 color=0xF1C40F
             )
 
