@@ -979,9 +979,7 @@ async def parse_adm(guild_id, config):
                 welcome_embed = discord.Embed(
                     title="👋 SURVIVOR ENTERED CHERNARUS",
                     description=(
-                        f"**{player_name}** connected to the server.
-
-"
+                        f"**{player_name}** connected to the server.\\n\\n"
                         f"{welcome_text}"
                     ),
                     color=0x1ABC9C
