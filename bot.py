@@ -315,57 +315,80 @@ def ping_latest_adm_log(config):
     if not token or not service_id:
         return None
 
-    url = (
-        f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list"
-    )
-
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
     }
 
-    params = {
-        "dir": "/",
-        "search": ".ADM",
-    }
+    latest_adm = None
 
-    try:
+    def scan_folder(path="/"):
 
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=20
+        nonlocal latest_adm
+
+        url = (
+            f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list"
         )
 
-        print("[PING STATUS]", response.status_code)
+        params = {
+            "dir": path
+        }
 
-        if response.status_code != 200:
-            print(response.text)
-            return None
+        try:
 
-        data = response.json()
+            response = requests.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=20
+            )
 
-        entries = data.get("data", {}).get("entries", [])
+            print(f"[SCAN] {path} -> {response.status_code}")
 
-        matching_logs = [
-            entry for entry in entries
-            if entry.get("name", "").endswith(".ADM")
-        ]
+            if response.status_code != 200:
+                return
 
-        if not matching_logs:
-            return None
+            data = response.json()
 
-        matching_logs.sort(
-            key=lambda x: x.get("modified_at", ""),
-            reverse=True
-        )
+            entries = data.get(
+                "data",
+                {}
+            ).get(
+                "entries",
+                []
+            )
 
-        return matching_logs[0]
+            for entry in entries:
 
-    except Exception as error:
-        print(error)
-        return None
+                name = entry.get("name", "")
+                entry_path = entry.get("path", "")
+                is_dir = entry.get("type") == "directory"
+
+                if is_dir:
+
+                    try:
+                        scan_folder(entry_path)
+                    except Exception as error:
+                        print(error)
+
+                elif name.endswith(".ADM"):
+
+                    if (
+                        latest_adm is None
+                        or entry.get("modified_at", "")
+                        > latest_adm.get("modified_at", "")
+                    ):
+                        latest_adm = entry
+
+        except Exception as error:
+            print(error)
+
+    scan_folder("/")
+
+    if latest_adm:
+        print(f"LATEST ADM FOUND: {latest_adm.get('path')}")
+
+    return latest_adm
 
 
 def download_latest_adm(
