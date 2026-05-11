@@ -773,7 +773,7 @@ async def topkills(ctx):
     embed = discord.Embed(
         title="☠️ TOP KILLS",
         description="
-".join(lines),
+ ".join(lines),
         color=0x992D22
     )
 
