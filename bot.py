@@ -48,21 +48,6 @@ GUILD_DATA_FOLDER = "guild_data"
 guild_configs = {}
 processed_lines = set()
 
-online_players = {}
-player_stats = {}
-territory_heat = {}
-swear_jar = {}
-
-# =========================================================
-# RADAR
-# =========================================================
-
-RADAR_ZONES = [
-    {"name": "NEAF", "x": 12100, "z": 12500, "radius": 500},
-    {"name": "TISY", "x": 1700, "z": 14100, "radius": 700},
-    {"name": "KOMETA", "x": 10350, "z": 2450, "radius": 500},
-]
-
 # =========================================================
 # HELPERS
 # =========================================================
@@ -78,23 +63,14 @@ def ensure_folder(path):
 
 
 def save_json(path, data):
-    try:
-        with open(path, "w") as f:
-            json.dump(data, f, indent=4)
-    except Exception as error:
-        print(f"SAVE ERROR: {path}")
-        print(error)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
 
 
 def load_json(path):
-    try:
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return json.load(f)
-    except Exception as error:
-        print(f"LOAD ERROR: {path}")
-        print(error)
-
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return json.load(f)
     return {}
 
 
@@ -114,17 +90,11 @@ def get_guild_folder(guild_id):
 
 
 def get_state_file(guild_id):
-    return os.path.join(
-        get_guild_folder(guild_id),
-        "state.json"
-    )
+    return os.path.join(get_guild_folder(guild_id), "state.json")
 
 
 def get_adm_file(guild_id):
-    return os.path.join(
-        get_guild_folder(guild_id),
-        "latest.ADM"
-    )
+    return os.path.join(get_guild_folder(guild_id), "latest.ADM")
 
 
 def load_state(guild_id):
@@ -133,10 +103,6 @@ def load_state(guild_id):
 
 def save_state(guild_id, state):
     save_json(get_state_file(guild_id), state)
-
-
-def distance(x1, z1, x2, z2):
-    return ((x2 - x1) ** 2 + (z2 - z1) ** 2) ** 0.5
 
 
 def parse_kill_event(line):
@@ -177,7 +143,6 @@ def classify_event(line):
         return "raid"
 
     return None
-
 
 # =========================================================
 # AUTO DISCORD DEPLOYMENT
@@ -249,21 +214,6 @@ async def on_guild_join(guild):
 
     save_guild_configs()
 
-    embed = discord.Embed(
-        title="📡 WANDERING BOT DEPLOYED",
-        description=(
-            "Your DayZ systems are online.\n\n"
-            "Run `/setup` to connect your Nitrado server."
-        ),
-        color=0x00FFFF
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await killfeed.send(
-        embed=style_embed(embed)
-    )
-
 # =========================================================
 # SETUP COMMAND
 # =========================================================
@@ -287,86 +237,71 @@ async def setup_command(
     guild = interaction.guild
     guild_id = str(guild.id)
 
-await interaction.response.defer(ephemeral=True)
+    if guild_id not in guild_configs:
 
-guild = interaction.guild
-guild_id = str(guild.id)
-
-# =====================================================
-# CREATE CONFIG IF MISSING
-# =====================================================
-
-if guild_id not in guild_configs:
-
-    category = discord.utils.get(
-        guild.categories,
-        name="📡 WANDERING BOT"
-    )
-
-    if not category:
-        category = await guild.create_category(
-            "📡 WANDERING BOT"
+        category = discord.utils.get(
+            guild.categories,
+            name="📡 WANDERING BOT"
         )
 
-    async def create_channel(name):
+        if not category:
+            category = await guild.create_category(
+                "📡 WANDERING BOT"
+            )
 
-        existing = discord.utils.get(
-            guild.text_channels,
-            name=name
-        )
+        async def create_channel(name):
 
-        if existing:
-            return existing
+            existing = discord.utils.get(
+                guild.text_channels,
+                name=name
+            )
 
-        return await guild.create_text_channel(
-            name,
-            category=category
-        )
+            if existing:
+                return existing
 
-    killfeed = await create_channel("🔥・killfeed")
-    deaths = await create_channel("☠️・deaths")
-    connections = await create_channel("🚪・connections")
-    raids = await create_channel("🏴・raids")
-    building = await create_channel("🔨・building")
-    radar = await create_channel("📡・radar")
-    ai = await create_channel("🧠・ai-alerts")
+            return await guild.create_text_channel(
+                name,
+                category=category
+            )
 
-    guild_configs[guild_id] = {
-        "guild_name": guild.name,
-        "nitrado_token": nitrado_token,
-        "service_id": service_id,
-        "channels": {
-            "killfeed": killfeed.id,
-            "deaths": deaths.id,
-            "connections": connections.id,
-            "raids": raids.id,
-            "building": building.id,
-            "radar": radar.id,
-            "ai": ai.id,
+        killfeed = await create_channel("🔥・killfeed")
+        deaths = await create_channel("☠️・deaths")
+        connections = await create_channel("🚪・connections")
+        raids = await create_channel("🏴・raids")
+        building = await create_channel("🔨・building")
+        radar = await create_channel("📡・radar")
+        ai = await create_channel("🧠・ai-alerts")
+
+        guild_configs[guild_id] = {
+            "guild_name": guild.name,
+            "channels": {
+                "killfeed": killfeed.id,
+                "deaths": deaths.id,
+                "connections": connections.id,
+                "raids": raids.id,
+                "building": building.id,
+                "radar": radar.id,
+                "ai": ai.id,
+            }
         }
-    }
-
-else:
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
 
-save_guild_configs()
+    save_guild_configs()
 
-print("GUILD CONFIG SAVED:")
-print(guild_configs)
+    embed = discord.Embed(
+        title="✅ SERVER CONNECTED",
+        description="Nitrado server linked successfully.",
+        color=0x57F287
+    )
 
-embed = discord.Embed(
-    title="✅ SERVER CONNECTED",
-    description="Nitrado server linked successfully.",
-    color=0x57F287
-)
+    embed.set_thumbnail(url=BOT_IMAGE)
 
-embed.set_thumbnail(url=BOT_IMAGE)
-
-await interaction.followup.send(
-    embed=style_embed(embed),
-    ephemeral=True)
+    await interaction.followup.send(
+        embed=style_embed(embed),
+        ephemeral=True
+    )
 
 # =========================================================
 # NITRADO API
@@ -403,19 +338,15 @@ def ping_latest_adm_log(config):
             timeout=20
         )
 
+        print("[PING STATUS]", response.status_code)
+
         if response.status_code != 200:
             print(response.text)
             return None
 
         data = response.json()
 
-        entries = data.get(
-            "data",
-            {}
-        ).get(
-            "entries",
-            []
-        )
+        entries = data.get("data", {}).get("entries", [])
 
         matching_logs = [
             entry for entry in entries
@@ -541,201 +472,10 @@ async def adm_loop():
             state["last_modified"] = modified_at
             save_state(guild_id, state)
 
-            await parse_adm(
-                guild_id,
-                config
-            )
+            print(f"NEW ADM FOR {guild_id}")
 
         except Exception as error:
-            print(f"GUILD LOOP ERROR: {guild_id}")
             print(error)
-
-# =========================================================
-# ADM PARSER
-# =========================================================
-
-async def parse_adm(
-    guild_id,
-    config
-):
-
-    adm_file = get_adm_file(guild_id)
-
-    if not os.path.exists(adm_file):
-        return
-
-    channels = config.get("channels", {})
-
-    killfeed_channel = bot.get_channel(
-        channels.get("killfeed")
-    )
-
-    raids_channel = bot.get_channel(
-        channels.get("raids")
-    )
-
-    connections_channel = bot.get_channel(
-        channels.get("connections")
-    )
-
-    with open(
-        adm_file,
-        "r",
-        encoding="utf-8",
-        errors="ignore"
-    ) as f:
-
-        lines = f.readlines()[-100:]
-
-    for raw_line in lines:
-
-        line = raw_line.strip()
-
-        if not line:
-            continue
-
-        line_hash = f"{guild_id}_{hash(line)}"
-
-        if line_hash in processed_lines:
-            continue
-
-        processed_lines.add(line_hash)
-
-        event_type = classify_event(line)
-
-        if not event_type:
-            continue
-
-        print(f"[{guild_id}] {event_type}")
-
-        # =====================================================
-        # CONNECT
-        # =====================================================
-
-        if event_type == "connect" and connections_channel:
-
-            match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                match.group(1)
-                if match else "Unknown"
-            )
-
-            embed = discord.Embed(
-                title="🟢 Survivor Connected",
-                description=player_name,
-                color=0x2ECC71
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connections_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =====================================================
-        # DISCONNECT
-        # =====================================================
-
-        elif event_type == "disconnect" and connections_channel:
-
-            match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                match.group(1)
-                if match else "Unknown"
-            )
-
-            embed = discord.Embed(
-                title="🔴 Survivor Disconnected",
-                description=player_name,
-                color=0xE74C3C
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connections_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =====================================================
-        # KILLS
-        # =====================================================
-
-        elif event_type == "kill" and killfeed_channel:
-
-            kill_data = parse_kill_event(line)
-
-            if kill_data:
-
-                embed = discord.Embed(
-                    title="☠️ PLAYER KILL",
-                    color=0x992D22
-                )
-
-                embed.add_field(
-                    name="🔫 Killer",
-                    value=kill_data["killer"],
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="💀 Victim",
-                    value=kill_data["victim"],
-                    inline=True
-                )
-
-                embed.add_field(
-                    name="🪖 Weapon",
-                    value=kill_data["weapon"],
-                    inline=False
-                )
-
-            else:
-
-                embed = discord.Embed(
-                    title="☠️ KILL EVENT",
-                    description=line,
-                    color=0x992D22
-                )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await killfeed_channel.send(
-                embed=style_embed(embed)
-            )
-
-        # =====================================================
-        # RAIDS
-        # =====================================================
-
-        elif event_type == "raid" and raids_channel:
-
-            embed = discord.Embed(
-                title="🚨 RAID EVENT",
-                description=line,
-                color=0xFF0000
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await raids_channel.send(
-                embed=style_embed(embed)
-            )
-
-# =========================================================
-# PREFIX COMMANDS
-# =========================================================
-
-@bot.command()
-async def ping(ctx):
-    await ctx.send("🏓 Pong!")
 
 # =========================================================
 # READY
@@ -750,11 +490,9 @@ async def on_ready():
 
     load_guild_configs()
 
-    try:
-        synced = await bot.tree.sync()
-        print(f"SYNCED {len(synced)} SLASH COMMANDS")
-    except Exception as error:
-        print(error)
+    synced = await bot.tree.sync()
+
+    print(f"SYNCED {len(synced)} SLASH COMMANDS")
 
     if not adm_loop.is_running():
         adm_loop.start()
