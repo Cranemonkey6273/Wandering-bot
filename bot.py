@@ -1,7 +1,6 @@
-# =========================
-# WANDERING BOT V2
-# MULTI GUILD EDITION
-# =========================
+# =========================================================
+# WANDERING BOT V2 - MULTI GUILD EDITION
+# =========================================================
 
 import os
 import re
@@ -21,17 +20,11 @@ except ImportError:
 from discord.ext import commands, tasks
 from discord import app_commands
 
-# =========================
-# ENV
-# =========================
+# =========================================================
+# DISCORD
+# =========================================================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-
-BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
-
-# =========================
-# DISCORD
-# =========================
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -39,30 +32,30 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# =========================
-# FILES
-# =========================
+# =========================================================
+# CONSTANTS
+# =========================================================
+
+BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
 GUILD_CONFIG_FILE = "guild_configs.json"
-SWEAR_JAR_FILE = "swear_jar.json"
-PLAYER_STATS_FILE = "player_stats.json"
-HEATMAP_FILE = "heatmap.json"
+GUILD_DATA_FOLDER = "guild_data"
 
-# =========================
+# =========================================================
 # GLOBALS
-# =========================
+# =========================================================
 
 guild_configs = {}
-swear_jar = {}
+processed_lines = set()
+
+online_players = {}
 player_stats = {}
 territory_heat = {}
+swear_jar = {}
 
-processed_lines = set()
-online_players = set()
-
-# =========================
+# =========================================================
 # RADAR
-# =========================
+# =========================================================
 
 RADAR_ZONES = [
     {"name": "NEAF", "x": 12100, "z": 12500, "radius": 500},
@@ -70,46 +63,36 @@ RADAR_ZONES = [
     {"name": "KOMETA", "x": 10350, "z": 2450, "radius": 500},
 ]
 
-player_last_radar_ping = {}
-player_positions = {}
-
-# =========================
-# SWEARS
-# =========================
-
-SWEAR_WORDS = [
-    "fuck",
-    "shit",
-    "bitch",
-    "cunt",
-    "bollocks",
-]
-
-# =========================
+# =========================================================
 # HELPERS
-# =========================
+# =========================================================
 
 def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
     return embed
 
 
-def save_json(filename, data):
+def ensure_folder(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+
+def save_json(path, data):
     try:
-        with open(filename, "w") as f:
+        with open(path, "w") as f:
             json.dump(data, f, indent=4)
     except Exception as error:
-        print(f"SAVE ERROR: {filename}")
+        print(f"SAVE ERROR: {path}")
         print(error)
 
 
-def load_json(filename):
+def load_json(path):
     try:
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
+        if os.path.exists(path):
+            with open(path, "r") as f:
                 return json.load(f)
     except Exception as error:
-        print(f"LOAD ERROR: {filename}")
+        print(f"LOAD ERROR: {path}")
         print(error)
 
     return {}
@@ -119,95 +102,148 @@ def save_guild_configs():
     save_json(GUILD_CONFIG_FILE, guild_configs)
 
 
-def load_all_data():
+def load_guild_configs():
     global guild_configs
-    global swear_jar
-    global player_stats
-    global territory_heat
-
     guild_configs = load_json(GUILD_CONFIG_FILE)
-    swear_jar = load_json(SWEAR_JAR_FILE)
-    player_stats = load_json(PLAYER_STATS_FILE)
-    territory_heat = load_json(HEATMAP_FILE)
 
 
-def ensure_player(player_name):
-    if player_name not in player_stats:
-        player_stats[player_name] = {
-            "kills": 0,
-            "deaths": 0,
-            "raids": 0,
-            "builds": 0,
-        }
+def get_guild_folder(guild_id):
+    folder = os.path.join(GUILD_DATA_FOLDER, str(guild_id))
+    ensure_folder(folder)
+    return folder
+
+
+def get_state_file(guild_id):
+    return os.path.join(
+        get_guild_folder(guild_id),
+        "state.json"
+    )
+
+
+def get_adm_file(guild_id):
+    return os.path.join(
+        get_guild_folder(guild_id),
+        "latest.ADM"
+    )
+
+
+def load_state(guild_id):
+    return load_json(get_state_file(guild_id))
+
+
+def save_state(guild_id, state):
+    save_json(get_state_file(guild_id), state)
 
 
 def distance(x1, z1, x2, z2):
     return ((x2 - x1) ** 2 + (z2 - z1) ** 2) ** 0.5
 
 
-# =========================
-# AUTO GUILD SETUP
-# =========================
+def parse_kill_event(line):
+
+    match = re.search(
+        r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
+        line,
+        re.IGNORECASE
+    )
+
+    if not match:
+        return None
+
+    return {
+        "killer": match.group(1),
+        "victim": match.group(2),
+        "weapon": match.group(3),
+    }
+
+
+def classify_event(line):
+
+    lower = line.lower()
+
+    if "disconnected" in lower:
+        return "disconnect"
+
+    if "connecting" in lower or "connected" in lower:
+        return "connect"
+
+    if "killed" in lower:
+        return "kill"
+
+    if "placed" in lower or "built" in lower:
+        return "build"
+
+    if "destroyed" in lower or "dismantled" in lower:
+        return "raid"
+
+    return None
+
+
+# =========================================================
+# AUTO DISCORD DEPLOYMENT
+# =========================================================
 
 @bot.event
 async def on_guild_join(guild):
 
-    print(f"JOINED NEW GUILD: {guild.name}")
+    print(f"JOINED GUILD: {guild.name}")
 
-    existing = guild_configs.get(str(guild.id))
+    guild_id = str(guild.id)
 
-    if existing:
+    if guild_id in guild_configs:
         return
 
-    category = await guild.create_category("📡 WANDERING BOT")
+    category = await guild.create_category(
+        "📡 WANDERING BOT"
+    )
 
-    killfeed_channel = await guild.create_text_channel(
+    killfeed = await guild.create_text_channel(
         "🔥・killfeed",
         category=category
     )
 
-    deaths_channel = await guild.create_text_channel(
+    deaths = await guild.create_text_channel(
         "☠️・deaths",
         category=category
     )
 
-    connections_channel = await guild.create_text_channel(
+    connections = await guild.create_text_channel(
         "🚪・connections",
         category=category
     )
 
-    raids_channel = await guild.create_text_channel(
+    raids = await guild.create_text_channel(
         "🏴・raids",
         category=category
     )
 
-    building_channel = await guild.create_text_channel(
+    building = await guild.create_text_channel(
         "🔨・building",
         category=category
     )
 
-    radar_channel = await guild.create_text_channel(
+    radar = await guild.create_text_channel(
         "📡・radar",
         category=category
     )
 
-    ai_channel = await guild.create_text_channel(
+    ai = await guild.create_text_channel(
         "🧠・ai-alerts",
         category=category
     )
 
-    guild_configs[str(guild.id)] = {
+    guild_configs[guild_id] = {
         "guild_name": guild.name,
         "nitrado_token": "",
         "service_id": "",
         "channels": {
-            "killfeed": killfeed_channel.id,
-            "deaths": deaths_channel.id,
-            "connections": connections_channel.id,
-            "raids": raids_channel.id,
-            "building": building_channel.id,
-            "radar": radar_channel.id,
-            "ai": ai_channel.id,
+            "killfeed": killfeed.id,
+            "deaths": deaths.id,
+            "connections": connections.id,
+            "raids": raids.id,
+            "building": building.id,
+            "radar": radar.id,
+            "ai": ai.id,
         }
     }
 
@@ -216,23 +252,26 @@ async def on_guild_join(guild):
     embed = discord.Embed(
         title="📡 WANDERING BOT DEPLOYED",
         description=(
-            "Your DayZ Discord systems are now online.\n\n"
-            "Next step:\n"
-            "Use `/setup` to connect your Nitrado server."
+            "Your DayZ systems are online.\n\n"
+            "Run `/setup` to connect your Nitrado server."
         ),
         color=0x00FFFF
     )
 
     embed.set_thumbnail(url=BOT_IMAGE)
 
-    await killfeed_channel.send(embed=style_embed(embed))
+    await killfeed.send(
+        embed=style_embed(embed)
+    )
 
-
-# =========================
+# =========================================================
 # SETUP COMMAND
-# =========================
+# =========================================================
 
-@bot.tree.command(name="setup", description="Connect your Nitrado server")
+@bot.tree.command(
+    name="setup",
+    description="Connect your Nitrado server"
+)
 @app_commands.describe(
     nitrado_token="Your Nitrado API token",
     service_id="Your Nitrado service ID"
@@ -243,10 +282,13 @@ async def setup_command(
     service_id: str
 ):
 
+    await interaction.response.defer(ephemeral=True)
+
     guild_id = str(interaction.guild.id)
 
     if guild_id not in guild_configs:
-        await interaction.response.send_message(
+
+        await interaction.followup.send(
             "Guild config not found.",
             ephemeral=True
         )
@@ -265,15 +307,14 @@ async def setup_command(
 
     embed.set_thumbnail(url=BOT_IMAGE)
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=style_embed(embed),
         ephemeral=True
     )
 
-
-# =========================
+# =========================================================
 # NITRADO API
-# =========================
+# =========================================================
 
 def ping_latest_adm_log(config):
 
@@ -298,6 +339,7 @@ def ping_latest_adm_log(config):
     }
 
     try:
+
         response = requests.get(
             url,
             headers=headers,
@@ -311,7 +353,13 @@ def ping_latest_adm_log(config):
 
         data = response.json()
 
-        entries = data.get("data", {}).get("entries", [])
+        entries = data.get(
+            "data",
+            {}
+        ).get(
+            "entries",
+            []
+        )
 
         matching_logs = [
             entry for entry in entries
@@ -333,18 +381,18 @@ def ping_latest_adm_log(config):
         return None
 
 
-# =========================
-# DOWNLOAD ADM
-# =========================
-
-def download_adm(config, latest_log, guild_id):
+def download_latest_adm(
+    guild_id,
+    config,
+    latest_log
+):
 
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
 
     try:
 
-        url = (
+        download_url = (
             f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/download"
         )
 
@@ -357,14 +405,14 @@ def download_adm(config, latest_log, guild_id):
         }
 
         response = requests.get(
-            url,
+            download_url,
             headers=headers,
             params=params,
             timeout=30
         )
 
         if response.status_code != 200:
-            return None
+            return False
 
         data = response.json()
 
@@ -377,51 +425,27 @@ def download_adm(config, latest_log, guild_id):
         ).get("url")
 
         if not token_url:
-            return None
+            return False
 
-        file_response = requests.get(token_url, timeout=30)
+        file_response = requests.get(
+            token_url,
+            timeout=30
+        )
 
-        local_file = f"{guild_id}.ADM"
+        adm_file = get_adm_file(guild_id)
 
-        with open(local_file, "wb") as f:
+        with open(adm_file, "wb") as f:
             f.write(file_response.content)
 
-        return local_file
+        return True
 
     except Exception as error:
         print(error)
-        return None
+        return False
 
-
-# =========================
-# EVENT PARSER
-# =========================
-
-def classify_event(line):
-
-    lower = line.lower()
-
-    if "disconnected" in lower:
-        return "disconnect"
-
-    if "connecting" in lower or "connected" in lower:
-        return "connect"
-
-    if "killed" in lower:
-        return "kill"
-
-    if "placed" in lower or "built" in lower:
-        return "build"
-
-    if "destroyed" in lower or "explosive" in lower:
-        return "raid"
-
-    return None
-
-
-# =========================
-# MULTI GUILD ADM LOOP
-# =========================
+# =========================================================
+# ADM LOOP
+# =========================================================
 
 @tasks.loop(minutes=3)
 async def adm_loop():
@@ -429,6 +453,9 @@ async def adm_loop():
     for guild_id, config in guild_configs.items():
 
         try:
+
+            if not config.get("nitrado_token"):
+                continue
 
             latest_log = await asyncio.to_thread(
                 ping_latest_adm_log,
@@ -438,34 +465,47 @@ async def adm_loop():
             if not latest_log:
                 continue
 
-            local_file = await asyncio.to_thread(
-                download_adm,
+            state = load_state(guild_id)
+
+            modified_at = latest_log.get("modified_at")
+
+            if modified_at == state.get("last_modified"):
+                continue
+
+            success = await asyncio.to_thread(
+                download_latest_adm,
+                guild_id,
                 config,
-                latest_log,
-                guild_id
+                latest_log
             )
 
-            if not local_file:
+            if not success:
                 continue
+
+            state["last_modified"] = modified_at
+            save_state(guild_id, state)
 
             await parse_adm(
                 guild_id,
-                config,
-                local_file
+                config
             )
 
         except Exception as error:
             print(f"GUILD LOOP ERROR: {guild_id}")
             print(error)
 
+# =========================================================
+# ADM PARSER
+# =========================================================
 
-# =========================
-# PARSE ADM
-# =========================
+async def parse_adm(
+    guild_id,
+    config
+):
 
-async def parse_adm(guild_id, config, local_file):
+    adm_file = get_adm_file(guild_id)
 
-    if not os.path.exists(local_file):
+    if not os.path.exists(adm_file):
         return
 
     channels = config.get("channels", {})
@@ -482,18 +522,14 @@ async def parse_adm(guild_id, config, local_file):
         channels.get("connections")
     )
 
-    radar_channel = bot.get_channel(
-        channels.get("radar")
-    )
-
     with open(
-        local_file,
+        adm_file,
         "r",
         encoding="utf-8",
         errors="ignore"
     ) as f:
 
-        lines = f.readlines()[-50:]
+        lines = f.readlines()[-100:]
 
     for raw_line in lines:
 
@@ -514,11 +550,11 @@ async def parse_adm(guild_id, config, local_file):
         if not event_type:
             continue
 
-        print(f"[{guild_id}] EVENT: {event_type}")
+        print(f"[{guild_id}] {event_type}")
 
-        # =====================
-        # CONNECTS
-        # =====================
+        # =====================================================
+        # CONNECT
+        # =====================================================
 
         if event_type == "connect" and connections_channel:
 
@@ -544,9 +580,9 @@ async def parse_adm(guild_id, config, local_file):
                 embed=style_embed(embed)
             )
 
-        # =====================
-        # DISCONNECTS
-        # =====================
+        # =====================================================
+        # DISCONNECT
+        # =====================================================
 
         elif event_type == "disconnect" and connections_channel:
 
@@ -572,34 +608,15 @@ async def parse_adm(guild_id, config, local_file):
                 embed=style_embed(embed)
             )
 
-        # =====================
+        # =====================================================
         # KILLS
-        # =====================
+        # =====================================================
 
         elif event_type == "kill" and killfeed_channel:
 
-            kill_match = re.search(
-                r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
-                line,
-                re.IGNORECASE
-            )
+            kill_data = parse_kill_event(line)
 
-            if kill_match:
-
-                killer = kill_match.group(1)
-                victim = kill_match.group(2)
-                weapon = kill_match.group(3)
-
-                ensure_player(killer)
-                ensure_player(victim)
-
-                player_stats[killer]["kills"] += 1
-                player_stats[victim]["deaths"] += 1
-
-                save_json(
-                    PLAYER_STATS_FILE,
-                    player_stats
-                )
+            if kill_data:
 
                 embed = discord.Embed(
                     title="☠️ PLAYER KILL",
@@ -608,31 +625,39 @@ async def parse_adm(guild_id, config, local_file):
 
                 embed.add_field(
                     name="🔫 Killer",
-                    value=killer,
+                    value=kill_data["killer"],
                     inline=True
                 )
 
                 embed.add_field(
                     name="💀 Victim",
-                    value=victim,
+                    value=kill_data["victim"],
                     inline=True
                 )
 
                 embed.add_field(
                     name="🪖 Weapon",
-                    value=weapon,
+                    value=kill_data["weapon"],
                     inline=False
                 )
 
-                embed.set_thumbnail(url=BOT_IMAGE)
+            else:
 
-                await killfeed_channel.send(
-                    embed=style_embed(embed)
+                embed = discord.Embed(
+                    title="☠️ KILL EVENT",
+                    description=line,
+                    color=0x992D22
                 )
 
-        # =====================
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # =====================================================
         # RAIDS
-        # =====================
+        # =====================================================
 
         elif event_type == "raid" and raids_channel:
 
@@ -648,122 +673,26 @@ async def parse_adm(guild_id, config, local_file):
                 embed=style_embed(embed)
             )
 
-
-# =========================
-# SWEAR JAR
-# =========================
-
-@bot.event
-async def on_message(message):
-
-    if message.author.bot:
-        return
-
-    lower = message.content.lower()
-
-    found_words = [
-        word for word in SWEAR_WORDS
-        if word in lower
-    ]
-
-    if found_words:
-
-        user_id = str(message.author.id)
-
-        if user_id not in swear_jar:
-            swear_jar[user_id] = {
-                "name": str(message.author),
-                "count": 0,
-                "balance": 0,
-            }
-
-        swear_jar[user_id]["count"] += len(found_words)
-        swear_jar[user_id]["balance"] += len(found_words) * 100
-
-        save_json(
-            SWEAR_JAR_FILE,
-            swear_jar
-        )
-
-        embed = discord.Embed(
-            title="💸 SWEAR JAR",
-            description=(
-                f"{message.author.mention} "
-                f"was fined £{len(found_words) * 100}"
-            ),
-            color=0xE67E22
-        )
-
-        await message.channel.send(
-            embed=style_embed(embed)
-        )
-
-    await bot.process_commands(message)
-
-
-# =========================
-# COMMANDS
-# =========================
+# =========================================================
+# PREFIX COMMANDS
+# =========================================================
 
 @bot.command()
-async def online(ctx):
+async def ping(ctx):
+    await ctx.send("🏓 Pong!")
 
-    if online_players:
-        players = "\n".join(
-            f"• {x}" for x in online_players
-        )
-    else:
-        players = "No players online."
-
-    embed = discord.Embed(
-        title="🟢 ONLINE PLAYERS",
-        description=players,
-        color=0x2ECC71
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-async def topkills(ctx):
-
-    if not player_stats:
-        await ctx.send("No stats available.")
-        return
-
-    sorted_players = sorted(
-        player_stats.items(),
-        key=lambda x: x[1]["kills"],
-        reverse=True
-    )
-
-    lines = [
-        f"{i}. {player} - {stats['kills']} kills"
-        for i, (player, stats)
-        in enumerate(sorted_players[:10], start=1)
-    ]
-
-    embed = discord.Embed(
-        title="☠️ TOP KILLS",
-        description="\n".join(lines),
-        color=0x992D22
-    )
-
-    await ctx.send(embed=style_embed(embed))
-
-
-# =========================
+# =========================================================
 # READY
-# =========================
+# =========================================================
 
 @bot.event
 async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
 
-    load_all_data()
+    ensure_folder(GUILD_DATA_FOLDER)
+
+    load_guild_configs()
 
     try:
         synced = await bot.tree.sync()
@@ -774,9 +703,8 @@ async def on_ready():
     if not adm_loop.is_running():
         adm_loop.start()
 
-
-# =========================
+# =========================================================
 # START
-# =========================
+# =========================================================
 
 bot.run(DISCORD_TOKEN)
