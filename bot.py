@@ -104,6 +104,9 @@ def load_state(guild_id):
 def save_state(guild_id, state):
     save_json(get_state_file(guild_id), state)
 
+# =========================================================
+# HELPERS
+# =========================================================
 
 def parse_kill_event(line):
 
@@ -151,51 +154,26 @@ def classify_event(line):
 @bot.event
 async def on_guild_join(guild):
 
-    print(f"JOINED GUILD: {guild.name}")
-
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
         return
 
-    category = await guild.create_category(
-        "📡 WANDERING BOT"
-    )
+    category = await guild.create_category("📡 WANDERING BOT")
 
-    killfeed = await guild.create_text_channel(
-        "🔥・killfeed",
-        category=category
-    )
+    async def make_channel(name):
+        return await guild.create_text_channel(
+            name,
+            category=category
+        )
 
-    deaths = await guild.create_text_channel(
-        "☠️・deaths",
-        category=category
-    )
-
-    connections = await guild.create_text_channel(
-        "🚪・connections",
-        category=category
-    )
-
-    raids = await guild.create_text_channel(
-        "🏴・raids",
-        category=category
-    )
-
-    building = await guild.create_text_channel(
-        "🔨・building",
-        category=category
-    )
-
-    radar = await guild.create_text_channel(
-        "📡・radar",
-        category=category
-    )
-
-    ai = await guild.create_text_channel(
-        "🧠・ai-alerts",
-        category=category
-    )
+    killfeed = await make_channel("🔥・killfeed")
+    deaths = await make_channel("☠️・deaths")
+    connections = await make_channel("🚪・connections")
+    raids = await make_channel("🏴・raids")
+    building = await make_channel("🔨・building")
+    radar = await make_channel("📡・radar")
+    ai = await make_channel("🧠・ai-alerts")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -242,50 +220,9 @@ async def setup_command(
 
     if guild_id not in guild_configs:
 
-        category = discord.utils.get(
-            guild.categories,
-            name="📡 WANDERING BOT"
-        )
-
-        if not category:
-            category = await guild.create_category(
-                "📡 WANDERING BOT"
-            )
-
-        async def create_channel(name):
-
-            existing = discord.utils.get(
-                guild.text_channels,
-                name=name
-            )
-
-            if existing:
-                return existing
-
-            return await guild.create_text_channel(
-                name,
-                category=category
-            )
-
-        killfeed = await create_channel("🔥・killfeed")
-        deaths = await create_channel("☠️・deaths")
-        connections = await create_channel("🚪・connections")
-        raids = await create_channel("🏴・raids")
-        building = await create_channel("🔨・building")
-        radar = await create_channel("📡・radar")
-        ai = await create_channel("🧠・ai-alerts")
-
         guild_configs[guild_id] = {
             "guild_name": guild.name,
-            "channels": {
-                "killfeed": killfeed.id,
-                "deaths": deaths.id,
-                "connections": connections.id,
-                "raids": raids.id,
-                "building": building.id,
-                "radar": radar.id,
-                "ai": ai.id,
-            }
+            "channels": {}
         }
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
@@ -294,16 +231,8 @@ async def setup_command(
 
     save_guild_configs()
 
-    embed = discord.Embed(
-        title="✅ SERVER CONNECTED",
-        description="Nitrado server linked successfully.",
-        color=0x57F287
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
     await interaction.followup.send(
-        embed=style_embed(embed),
+        "✅ Connected successfully.",
         ephemeral=True
     )
 
@@ -327,28 +256,9 @@ def ping_latest_adm_log(config):
 
     search_paths = [
 
-        # =================================================
-        # METHOD 1 - ORIGINAL V1 METHOD
-        # =================================================
-
         f"/games/{nitrado_user}/noftp/dayzxb/config/",
-
-        # =================================================
-        # METHOD 2
-        # =================================================
-
         f"/games/{nitrado_user}/noftp/dayzxb/",
-
-        # =================================================
-        # METHOD 3
-        # =================================================
-
         f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/",
-
-        # =================================================
-        # METHOD 4
-        # =================================================
-
         f"/games/{nitrado_user}/noftp/",
 
     ]
@@ -365,7 +275,7 @@ def ping_latest_adm_log(config):
 
             params = {
                 "dir": search_path,
-                "search": "*DayZServer*",
+                "search": "*",
             }
 
             response = requests.get(
@@ -393,11 +303,7 @@ def ping_latest_adm_log(config):
             matching_logs = [
                 entry
                 for entry in entries
-                if re.match(
-                    r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
-                    entry.get("name", ""),
-                    re.IGNORECASE,
-                )
+                if entry.get("name", "").lower().endswith(".adm")
             ]
 
             if not matching_logs:
