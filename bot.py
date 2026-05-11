@@ -44,6 +44,7 @@ GUILD_DATA_FOLDER = "guild_data"
 PLAYER_STATS_FILE = "player_stats.json"
 HEATMAP_FILE = "heatmap.json"
 SWEAR_JAR_FILE = "swear_jar.json"
+LINKED_PLAYERS_FILE = "linked_players.json"
 
 # =========================================================
 # GLOBALS
@@ -66,6 +67,7 @@ zone_keywords = {
 }
 player_stats = {}
 swear_jar = {}
+linked_players = {}
 
 SWEAR_WORDS = [
     "fuck",
@@ -139,6 +141,15 @@ def load_swear_jar():
 
 def save_swear_jar():
     save_json(SWEAR_JAR_FILE, swear_jar)
+
+
+def load_linked_players():
+    global linked_players
+    linked_players = load_json(LINKED_PLAYERS_FILE)
+
+
+def save_linked_players():
+    save_json(LINKED_PLAYERS_FILE, linked_players)
 
 # =========================================================
 # EVENT CLASSIFIER
@@ -1806,6 +1817,101 @@ async def serverstatus(ctx):
     )
 
 # =========================================================
+# DISCORD ↔ GAMERTAG LINKING
+# =========================================================
+
+@bot.command()
+async def linkgamer(ctx, *, gamertag: str):
+
+    user_id = str(ctx.author.id)
+
+    linked_players[user_id] = {
+        "discord_name": str(ctx.author),
+        "gamertag": gamertag
+    }
+
+    save_linked_players()
+
+    embed = discord.Embed(
+        title="🔗 GAMERTAG LINKED",
+        description=(
+            f"Your Discord account is now linked to: `{gamertag}`"
+        ),
+        color=0x2ECC71
+    )
+
+    embed.add_field(
+        name="🎮 Linked Survivor",
+        value=gamertag,
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Identity System"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def mylink(ctx):
+
+    user_id = str(ctx.author.id)
+
+    if user_id not in linked_players:
+
+        await ctx.send(
+            "❌ No linked gamertag found. Use `!linkgamer YourName`"
+        )
+
+        return
+
+    data = linked_players[user_id]
+
+    embed = discord.Embed(
+        title="🎮 LINKED SURVIVOR PROFILE",
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="Discord",
+        value=str(ctx.author),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Gamertag",
+        value=data['gamertag'],
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def unlinkgamer(ctx, member: discord.Member):
+
+    user_id = str(member.id)
+
+    if user_id not in linked_players:
+
+        await ctx.send("No linked gamertag found.")
+        return
+
+    del linked_players[user_id]
+
+    save_linked_players()
+
+    await ctx.send(
+        f"🗑️ Removed linked gamertag for {member.mention}"
+    )
+
+# =========================================================
 # PLAYER LOOKUP
 # =========================================================
 
@@ -2087,6 +2193,7 @@ async def on_ready():
     load_player_stats()
     load_heatmap()
     load_swear_jar()
+    load_linked_players()
     load_shop()
     load_wallets()
     load_delivery_queue()
