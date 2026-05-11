@@ -52,6 +52,7 @@ SWEAR_JAR_FILE = "swear_jar.json"
 guild_configs = {}
 processed_lines = set()
 online_players = set()
+player_online_times = {}
 territory_heat = {}
 player_stats = {}
 swear_jar = {}
@@ -255,6 +256,7 @@ def ping_latest_adm_log(config):
 
 ONLINE_UPDATE_MINUTES = 30
 LEADERBOARD_UPDATE_MINUTES = 30
+HEATMAP_UPDATE_MINUTES = 30
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
@@ -307,6 +309,7 @@ async def on_guild_join(guild):
     disconnects = await make_channel("🔴・disconnect")
     online = await make_channel("✅🎮・online🎮✅")
     leaderboards = await make_channel("🏆・leaderboards")
+    heatmap_channel = await make_channel("🔥・heatmap🔥")
     restart_alerts = await make_channel("📢・restart-alerts")
 
     guild_configs[guild_id] = {
@@ -322,6 +325,7 @@ async def on_guild_join(guild):
             "disconnects": disconnects.id,
             "online": online.id,
             "leaderboards": leaderboards.id,
+            "heatmap": heatmap_channel.id,
             "restart_alerts": restart_alerts.id
         }
     }
@@ -352,7 +356,7 @@ async def setup_command(
 
     guild_id = str(interaction.guild.id)
 
-        if guild_id not in guild_configs:
+    if guild_id not in guild_configs:
 
         guild_configs[guild_id] = {
             "guild_name": interaction.guild.name,
@@ -401,6 +405,7 @@ async def setup_command(
     await ensure_channel("disconnects", "🔴・disconnect")
     await ensure_channel("online", "✅🎮・online🎮✅")
     await ensure_channel("leaderboards", "🏆・leaderboards")
+    await ensure_channel("heatmap", "🔥・heatmap🔥")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
@@ -613,6 +618,7 @@ async def parse_adm(guild_id, config):
             )
 
             online_players.add(player_name)
+            player_online_times[player_name] = datetime.now(UTC)
 
             embed = discord.Embed(
                 title="🟢 SURVIVOR CONNECTED",
@@ -661,6 +667,9 @@ async def parse_adm(guild_id, config):
 
             if player_name in online_players:
                 online_players.remove(player_name)
+
+            if player_name in player_online_times:
+                del player_online_times[player_name]
 
             embed = discord.Embed(
                 title="🔴 SURVIVOR DISCONNECTED",
@@ -1244,7 +1253,7 @@ async def restartserver(ctx):
 
     embed = discord.Embed(
         title="🔄 SERVER RESTART REQUESTED",
-        description="Restart command sent to server.",
+        description="Live restart request sent to Nitrado server.",
         color=0xE67E22
     )
 
@@ -1255,6 +1264,35 @@ async def restartserver(ctx):
     )
 
     print("SERVER RESTART REQUESTED")
+
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.get(guild_id, {})
+
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+
+    if not token or not service_id:
+        return
+
+    try:
+
+        url = (
+            f"https://api.nitrado.net/services/"
+            f"{service_id}/gameservers/restart"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+
+        requests.post(
+            url,
+            headers=headers,
+            timeout=30
+        )
+
+    except Exception as error:
+        print(error)
 
 
 @bot.command()
@@ -1517,6 +1555,9 @@ async def start_background_tasks():
         if not leaderboard_loop.is_running():
             leaderboard_loop.start()
 
+        if not heatmap_loop.is_running():
+            heatmap_loop.start()
+
         if not scheduled_restart_loop.is_running():
             scheduled_restart_loop.start()
 
@@ -1569,6 +1610,71 @@ async def online_dashboard_loop():
             embed.timestamp = datetime.now(UTC)
 
             await online_channel.send(embed=embed)
+
+        except Exception as error:
+            print(error)
+
+# =========================================================
+# LIVE PVP HEATMAP DASHBOARD
+# =========================================================
+
+@tasks.loop(minutes=HEATMAP_UPDATE_MINUTES)
+async def heatmap_loop():
+
+    for guild_id, config in list(guild_configs.items()):
+
+        try:
+
+            channels = config.get("channels", {})
+
+            heatmap_channel = bot.get_channel(
+                channels.get("heatmap")
+            )
+
+            if not heatmap_channel:
+                continue
+
+            hottest_zones = sorted(
+                territory_heat.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+
+            lines = []
+
+            for zone, count in hottest_zones:
+                lines.append(
+                    f"🔥 {zone} — {count} PvP events"
+                )
+
+            embed = discord.Embed(
+                title="🔥 LIVE PVP HEATMAP",
+                description=(
+                    "\n".join(lines)
+                    if lines else "No PvP activity detected yet."
+                ),
+                color=0x9B59B6
+            )
+
+            embed.add_field(
+                name="📡 Status",
+                value="Tracking live combat zones across the server.",
+                inline=False
+            )
+
+            embed.set_image(
+                url="https://i.imgur.com/JYUB0m3.png"
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • PvP Heatmap"
+            )
+
+            embed.timestamp = datetime.now(UTC)
+
+            await heatmap_channel.send(embed=embed)
 
         except Exception as error:
             print(error)
