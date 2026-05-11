@@ -250,6 +250,34 @@ def ping_latest_adm_log(config):
     return None
 
 # =========================================================
+# LIVE DASHBOARD SETTINGS
+# =========================================================
+
+ONLINE_UPDATE_MINUTES = 30
+LEADERBOARD_UPDATE_MINUTES = 30
+
+last_online_message_ids = {}
+last_leleaderboard_message_ids = {}
+
+# =========================================================
+# CLICKABLE MAP LINKS
+# =========================================================
+
+def build_izurvive_link(coords):
+
+    try:
+
+        split_coords = coords.split(",")
+
+        x = split_coords[0].strip()
+        y = split_coords[1].strip()
+
+        return f"https://dayz.ginfo.gg/#location={x};{y}"
+
+    except:
+        return None
+
+# =========================================================
 # AUTO GUILD SETUP
 # =========================================================
 
@@ -275,7 +303,11 @@ async def on_guild_join(guild):
     killfeed = await make_channel("🔥・killfeed")
     raids = await make_channel("🏴・raids")
     builds = await make_channel("🔨・building")
-    connections = await make_channel("🚪・connections")
+    connections = await make_channel("🟢・connect")
+    disconnects = await make_channel("🔴・disconnect")
+    online = await make_channel("✅🎮・online🎮✅")
+    leaderboards = await make_channel("🏆・leaderboards")
+    restart_alerts = await make_channel("📢・restart-alerts")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -286,7 +318,11 @@ async def on_guild_join(guild):
             "killfeed": killfeed.id,
             "raids": raids.id,
             "building": builds.id,
-            "connections": connections.id
+            "connections": connections.id,
+            "disconnects": disconnects.id,
+            "online": online.id,
+            "leaderboards": leaderboards.id,
+            "restart_alerts": restart_alerts.id
         }
     }
 
@@ -459,9 +495,16 @@ def create_feed_embed(title, color, player=None, details=None, weapon=None, coor
         )
 
     if coords:
+        map_link = build_izurvive_link(coords)
+
+        if map_link:
+            coords_value = f"[🗺️ {coords}](<{map_link}>)"
+        else:
+            coords_value = coords
+
         embed.add_field(
             name="📍 Coordinates",
-            value=coords,
+            value=coords_value,
             inline=False
         )
 
@@ -559,8 +602,7 @@ async def parse_adm(guild_id, config):
             embed = create_feed_embed(
                 title="🟢 SURVIVOR CONNECTED",
                 color=0x2ECC71,
-                player=player_name,
-                details=line
+                player=player_name
             )
 
             await connect_channel.send(embed=embed)
@@ -1256,13 +1298,127 @@ async def start_background_tasks():
     try:
 
         if not adm_loop.is_running():
-            adm_loop.start()
+        adm_loop.start()
+
+    if not online_dashboard_loop.is_running():
+        online_dashboard_loop.start()
+
+    if not leaderboard_loop.is_running():
+        leaderboard_loop.start()
 
         if not scheduled_restart_loop.is_running():
             scheduled_restart_loop.start()
 
     except RuntimeError:
         pass
+
+# =========================================================
+# LIVE ONLINE DASHBOARD
+# =========================================================
+
+@tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
+async def online_dashboard_loop():
+
+    for guild_id, config in list(guild_configs.items()):
+
+        try:
+
+            channels = config.get("channels", {})
+
+            online_channel = bot.get_channel(
+                channels.get("online")
+            )
+
+            if not online_channel:
+                continue
+
+            if online_players:
+
+                player_text = "
+".join([
+                    f"• {player}"
+                    for player in sorted(online_players)
+                ])
+
+            else:
+
+                player_text = "No survivors online."
+
+            embed = discord.Embed(
+                title=f"🟢 CURRENT SURVIVORS ONLINE ({len(online_players)})",
+                description=player_text,
+                color=0x2ECC71
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Live Online Tracker"
+            )
+
+            embed.timestamp = datetime.now(UTC)
+
+            await online_channel.send(embed=embed)
+
+        except Exception as error:
+            print(error)
+
+# =========================================================
+# LIVE LEADERBOARD DASHBOARD
+# =========================================================
+
+@tasks.loop(minutes=LEADERBOARD_UPDATE_MINUTES)
+async def leaderboard_loop():
+
+    for guild_id, config in list(guild_configs.items()):
+
+        try:
+
+            channels = config.get("channels", {})
+
+            leaderboard_channel = bot.get_channel(
+                channels.get("leaderboards")
+            )
+
+            if not leaderboard_channel:
+                continue
+
+            sorted_players = sorted(
+                player_stats.items(),
+                key=lambda x: x[1].get("kills", 0),
+                reverse=True
+            )
+
+            lines = []
+
+            for index, (player, stats) in enumerate(
+                sorted_players[:10],
+                start=1
+            ):
+
+                lines.append(
+                    f"{index}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
+                )
+
+            embed = discord.Embed(
+                title="🏆 SERVER LEADERBOARDS",
+                description="
+".join(lines) if lines else "No stats yet.",
+                color=0xF1C40F
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Live Leaderboards"
+            )
+
+            embed.timestamp = datetime.now(UTC)
+
+            await leaderboard_channel.send(embed=embed)
+
+        except Exception as error:
+            print(error)
 
 # =========================================================
 # READY
