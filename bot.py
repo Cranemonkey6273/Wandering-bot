@@ -226,7 +226,7 @@ async def on_guild_join(guild):
 @app_commands.describe(
     nitrado_token="Your Nitrado API token",
     service_id="Your Nitrado service ID",
-    nitrado_user="Example: ni12248929_1"
+    nitrado_user="Example: ni12248929_2"
 )
 async def setup_command(
     interaction: discord.Interaction,
@@ -239,54 +239,6 @@ async def setup_command(
 
     guild = interaction.guild
     guild_id = str(guild.id)
-
-    if guild_id not in guild_configs:
-
-        category = discord.utils.get(
-            guild.categories,
-            name="📡 WANDERING BOT"
-        )
-
-        if not category:
-            category = await guild.create_category(
-                "📡 WANDERING BOT"
-            )
-
-        async def create_channel(name):
-
-            existing = discord.utils.get(
-                guild.text_channels,
-                name=name
-            )
-
-            if existing:
-                return existing
-
-            return await guild.create_text_channel(
-                name,
-                category=category
-            )
-
-        killfeed = await create_channel("🔥・killfeed")
-        deaths = await create_channel("☠️・deaths")
-        connections = await create_channel("🚪・connections")
-        raids = await create_channel("🏴・raids")
-        building = await create_channel("🔨・building")
-        radar = await create_channel("📡・radar")
-        ai = await create_channel("🧠・ai-alerts")
-
-        guild_configs[guild_id] = {
-            "guild_name": guild.name,
-            "channels": {
-                "killfeed": killfeed.id,
-                "deaths": deaths.id,
-                "connections": connections.id,
-                "raids": raids.id,
-                "building": building.id,
-                "radar": radar.id,
-                "ai": ai.id,
-            }
-        }
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -362,7 +314,11 @@ def ping_latest_adm_log(config):
         matching_logs = [
             entry
             for entry in entries
-            if entry.get("name", "").endswith(".ADM")
+            if re.match(
+                r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
+                entry.get("name", ""),
+                re.IGNORECASE,
+            )
         ]
 
         if not matching_logs:
