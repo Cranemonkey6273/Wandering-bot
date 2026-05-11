@@ -23,6 +23,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
+intents.members = True
 
 bot = commands.Bot(
     command_prefix="!",
@@ -581,7 +582,7 @@ async def setup_command(
         setup_embed = discord.Embed(
             title="🤖 WANDERING BOT SETUP & COMMAND GUIDE",
             description=(
-                "Welcome to Wandering Bot Alpha.\\n\\n"
+                "Welcome to Wandering Bot Alpha.\n\n"
                 "Below are the most important commands and systems available on your server."
             ),
             color=0x3498DB
@@ -613,13 +614,10 @@ async def setup_command(
         setup_embed.add_field(
             name="🛡️ Staff Commands",
             value=(
-                "`!restartserver` — Restart DayZ server\\n"
-                "`!togglebasedamage on/off`
-"
-                "`!purge amount`
-"
-                "`!setradarchannel #channel`
-"
+                "`!restartserver` — Restart DayZ server\n"
+                "`!togglebasedamage on/off`\n"
+                "`!purge amount`\n"
+                "`!setradarchannel #channel`\n"
                 "`!radarping x y reason`"
             ),
             inline=False
@@ -628,8 +626,7 @@ async def setup_command(
         setup_embed.add_field(
             name="🏴 Factions & Tickets",
             value=(
-                "`!factionticket Name` — Create faction request
-"
+                "`!factionticket Name` — Create faction request\n"
                 "`!factionapprove ID` — Approve faction ticket"
             ),
             inline=False
@@ -638,8 +635,7 @@ async def setup_command(
         setup_embed.add_field(
             name="🎮 Identity Commands",
             value=(
-                "`!linkgamer Gamertag` — Link Xbox gamertag
-"
+                "`!linkgamer Gamertag` — Link Xbox gamertag\n"
                 "`!mylink` — View linked account"
             ),
             inline=False
@@ -648,22 +644,14 @@ async def setup_command(
         setup_embed.add_field(
             name="🧠 Automated Features",
             value=(
-                "• Live killfeed
-"
-                "• Raid detection
-"
-                "• Heatmaps
-"
-                "• AI chatter
-"
-                "• Restart scheduling
-"
-                "• Delivery spawning
-"
-                "• Radar intelligence
-"
-                "• Welcome messages
-"
+                "• Live killfeed\n"
+                "• Raid detection\n"
+                "• Heatmaps\n"
+                "• AI chatter\n"
+                "• Restart scheduling\n"
+                "• Delivery spawning\n"
+                "• Radar intelligence\n"
+                "• Welcome messages\n"
                 "• Swear jar economy"
             ),
             inline=False
@@ -971,7 +959,7 @@ async def parse_adm(guild_id, config):
 
         # ================= DISCONNECT =================
 
-        elif event_type == "disconnect" and connect_channel:
+        elif event_type == "disconnect" and disconnect_channel:
 
             player_match = re.search(
                 r'Player "([^"]+)"',
@@ -1684,8 +1672,8 @@ async def send_owner_notification(title, description):
         print(error)
 
 
-@bot.event
-async def on_command(ctx):
+@bot.listen("on_command")
+async def log_command_usage(ctx):
 
     try:
 
@@ -3340,6 +3328,12 @@ async def leaderboard_loop():
 async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
+    except Exception as sync_error:
+        print(sync_error)
 
     ensure_folder(GUILD_DATA_FOLDER)
 
