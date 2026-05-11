@@ -316,7 +316,12 @@ async def setup_command(
 
     guild_id = str(interaction.guild.id)
 
-    if guild_id not in guild_configs:
+    needs_channels = (
+        guild_id not in guild_configs
+        or not guild_configs.get(guild_id, {}).get("channels")
+    )
+
+    if needs_channels:
 
         category = discord.utils.get(
             interaction.guild.categories,
