@@ -5,3 +5,6 @@ websockets
 paramiko
 berconpy
 flask
+py-cord
+requests
+python-dotenv
