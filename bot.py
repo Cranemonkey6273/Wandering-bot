@@ -569,7 +569,218 @@ async def adm_loop():
 
             print(error)
 
-# ====================
+# =========================================================
+# SWEAR JAR
+# =========================================================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    lower = message.content.lower()
+
+    found_words = [
+        word for word in SWEAR_WORDS
+        if word in lower
+    ]
+
+    if found_words:
+
+        user_id = str(message.author.id)
+
+        if user_id not in swear_jar:
+
+            swear_jar[user_id] = {
+                "name": str(message.author),
+                "count": 0,
+                "balance": 0
+            }
+
+        swear_jar[user_id]["count"] += len(found_words)
+
+        swear_jar[user_id]["balance"] += (
+            len(found_words) * 100
+        )
+
+        save_swear_jar()
+
+        embed = discord.Embed(
+            title="💸 SWEAR JAR",
+            description=(
+                f"{message.author.mention} "
+                f"was fined £{len(found_words) * 100}"
+            ),
+            color=0xE67E22
+        )
+
+        embed.add_field(
+            name="Total Swears",
+            value=str(
+                swear_jar[user_id]["count"]
+            ),
+            inline=True
+        )
+
+        embed.add_field(
+            name="Debt",
+            value=f"£{swear_jar[user_id]['balance']}",
+            inline=True
+        )
+
+        await message.channel.send(
+            embed=style_embed(embed)
+        )
+
+    await bot.process_commands(message)
+
+# =========================================================
+# COMMANDS
+# =========================================================
+
+@bot.command()
+async def online(ctx):
+
+    if online_players:
+
+        player_list = "\n".join(
+            f"• {player}"
+            for player in sorted(online_players)
+        )
+
+    else:
+
+        player_list = "No players online."
+
+    embed = discord.Embed(
+        title=f"🟢 ONLINE PLAYERS ({len(online_players)})",
+        description=player_list,
+        color=0x2ECC71
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def swearjar(ctx):
+
+    if not swear_jar:
+
+        await ctx.send(
+            "Swear jar is empty."
+        )
+
+        return
+
+    sorted_users = sorted(
+        swear_jar.values(),
+        key=lambda x: x["balance"],
+        reverse=True
+    )
+
+    leaderboard = []
+
+    for index, user in enumerate(
+        sorted_users[:10],
+        start=1
+    ):
+
+        leaderboard.append(
+            f"{index}. {user['name']} - £{user['balance']} ({user['count']} swears)"
+        )
+
+    embed = discord.Embed(
+        title="💸 SWEAR JAR LEADERBOARD",
+        description="\n".join(leaderboard),
+        color=0xF1C40F
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def heatmap(ctx):
+
+    if not territory_heat:
+
+        await ctx.send(
+            "No territory activity yet."
+        )
+
+        return
+
+    sorted_zones = sorted(
+        territory_heat.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    lines = []
+
+    for zone, count in sorted_zones:
+
+        lines.append(
+            f"🔥 {zone} - {count}"
+        )
+
+    embed = discord.Embed(
+        title="🗺️ TERRITORY HEATMAP",
+        description="\n".join(lines),
+        color=0xE74C3C
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def topkills(ctx):
+
+    if not player_stats:
+
+        await ctx.send(
+            "No stats available."
+        )
+
+        return
+
+    sorted_players = sorted(
+        player_stats.items(),
+        key=lambda x: x[1].get("kills", 0),
+        reverse=True
+    )
+
+    lines = []
+
+    for index, (player, stats) in enumerate(
+        sorted_players[:10],
+        start=1
+    ):
+
+        lines.append(
+            f"{index}. {player} - {stats.get('kills', 0)} kills"
+        )
+
+    embed = discord.Embed(
+        title="☠️ TOP KILLS",
+        description="\n".join(lines),
+        color=0x992D22
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+# =========================================================
+# READY
 # =========================================================
 
 @bot.event
