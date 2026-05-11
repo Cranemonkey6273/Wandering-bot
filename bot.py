@@ -240,10 +240,6 @@ async def setup_command(
     guild = interaction.guild
     guild_id = str(guild.id)
 
-    # =====================================================
-    # CREATE CONFIG IF MISSING
-    # =====================================================
-
     if guild_id not in guild_configs:
 
         category = discord.utils.get(
@@ -294,7 +290,7 @@ async def setup_command(
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
-    guild_configs[guild_id]["nitrado_user"] = nitrado_user
+    guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
 
     save_guild_configs()
 
@@ -333,6 +329,10 @@ def ping_latest_adm_log(config):
         "Accept": "application/json",
     }
 
+    # =====================================================
+    # EXACT SAME SEARCH METHOD AS V1
+    # =====================================================
+
     params = {
         "dir": f"/games/{nitrado_user}/noftp/dayzxb/config/",
         "search": "*DayZServer*",
@@ -348,6 +348,7 @@ def ping_latest_adm_log(config):
         )
 
         print("[PING STATUS]", response.status_code)
+        print(f"[SEARCH PATH] /games/{nitrado_user}/noftp/dayzxb/config/")
 
         if response.status_code != 200:
             print(response.text)
