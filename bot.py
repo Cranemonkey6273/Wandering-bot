@@ -434,6 +434,53 @@ def download_latest_adm(
         return False
 
 # =========================================================
+# FEED EMBED STYLES
+# =========================================================
+
+def create_feed_embed(title, color, player=None, details=None, weapon=None, coords=None):
+
+    embed = discord.Embed(
+        title=title,
+        color=color
+    )
+
+    if player:
+        embed.add_field(
+            name="👤 Player",
+            value=player,
+            inline=True
+        )
+
+    if weapon:
+        embed.add_field(
+            name="🔫 Weapon",
+            value=weapon,
+            inline=True
+        )
+
+    if coords:
+        embed.add_field(
+            name="📍 Coordinates",
+            value=coords,
+            inline=False
+        )
+
+    if details:
+        embed.add_field(
+            name="📜 Event Details",
+            value=f"```{details[:900]}```",
+            inline=False
+        )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Live DayZ Intelligence"
+    )
+
+    return style_embed(embed)
+
+# =========================================================
 # ADM PARSER
 # =========================================================
 
@@ -499,81 +546,190 @@ async def parse_adm(guild_id, config):
 
         if event_type == "connect" and connect_channel:
 
-            embed = discord.Embed(
-                title="🟢 Survivor Connected",
-                description=line,
-                color=0x2ECC71
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connect_channel.send(
-                embed=style_embed(embed)
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
             )
+
+            embed = create_feed_embed(
+                title="🟢 SURVIVOR CONNECTED",
+                color=0x2ECC71,
+                player=player_name,
+                details=line
+            )
+
+            await connect_channel.send(embed=embed)
 
         # ================= DISCONNECT =================
 
         elif event_type == "disconnect" and connect_channel:
 
-            embed = discord.Embed(
-                title="🔴 Survivor Disconnected",
-                description=line,
-                color=0xE74C3C
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await connect_channel.send(
-                embed=style_embed(embed)
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
             )
+
+            embed = create_feed_embed(
+                title="🔴 SURVIVOR DISCONNECTED",
+                color=0xE74C3C,
+                player=player_name,
+                details=line
+            )
+
+            await connect_channel.send(embed=embed)
 
         # ================= BUILD =================
 
         elif event_type == "build" and build_channel:
 
-            embed = discord.Embed(
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
+            )
+
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
+            )
+
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line
+            )
+
+            coords = (
+                coords_match.group(1)
+                if coords_match else "Unknown"
+            )
+
+            embed = create_feed_embed(
                 title="🏗️ BUILD EVENT",
-                description=line,
-                color=0xF1C40F
+                color=0xF1C40F,
+                player=player_name,
+                coords=coords,
+                details=line
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await build_channel.send(
-                embed=style_embed(embed)
-            )
+            await build_channel.send(embed=embed)
 
         # ================= RAID =================
 
         elif event_type == "raid" and raid_channel:
 
-            embed = discord.Embed(
-                title="🚨 RAID EVENT",
-                description=line,
-                color=0xFF0000
+            player_match = re.search(
+                r'Player "([^"]+)"',
+                line
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            await raid_channel.send(
-                embed=style_embed(embed)
+            player_name = (
+                player_match.group(1)
+                if player_match else "Unknown"
             )
+
+            weapon_match = re.search(
+                r'with ([^ ]+)',
+                line
+            )
+
+            weapon = (
+                weapon_match.group(1)
+                if weapon_match else "Unknown"
+            )
+
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line
+            )
+
+            coords = (
+                coords_match.group(1)
+                if coords_match else "Unknown"
+            )
+
+            embed = create_feed_embed(
+                title="🚨 RAID DETECTED",
+                color=0xFF0000,
+                player=player_name,
+                weapon=weapon,
+                coords=coords,
+                details=line
+            )
+
+            await raid_channel.send(embed=embed)
 
         # ================= KILLFEED =================
 
         elif event_type == "kill" and killfeed_channel:
 
-            embed = discord.Embed(
-                title="☠️ PLAYER KILL",
-                description=line,
-                color=0x992D22
+            killer_match = re.search(
+                r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
+                line
             )
 
-            embed.set_thumbnail(url=BOT_IMAGE)
+            if killer_match:
 
-            await killfeed_channel.send(
-                embed=style_embed(embed)
-            )
+                killer = killer_match.group(1)
+                victim = killer_match.group(2)
+                weapon = killer_match.group(3)
+
+                embed = discord.Embed(
+                    title="☠️ PLAYER KILL",
+                    color=0x992D22
+                )
+
+                embed.add_field(
+                    name="🔫 Killer",
+                    value=killer,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="💀 Victim",
+                    value=victim,
+                    inline=True
+                )
+
+                embed.add_field(
+                    name="🪖 Weapon",
+                    value=weapon,
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="📜 Combat Log",
+                    value=f"```{line[:900]}```",
+                    inline=False
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                embed.set_footer(
+                    text="Wandering Bot Alpha • PvP Feed"
+                )
+
+                await killfeed_channel.send(
+                    embed=style_embed(embed)
+                )
+
+            else:
+
+                embed = create_feed_embed(
+                    title="☠️ KILL EVENT",
+                    color=0x992D22,
+                    details=line
+                )
+
+                await killfeed_channel.send(embed=embed)
 
 # =========================================================
 # ADM LOOP
@@ -582,7 +738,7 @@ async def parse_adm(guild_id, config):
 @tasks.loop(minutes=3)
 async def adm_loop():
 
-    for guild_id, config in guild_configs.items():
+    for guild_id, config in list(guild_configs.items()):
 
         try:
 
@@ -910,7 +1066,7 @@ async def scheduled_restart_loop():
 
     print(f"SCHEDULED RESTART TRIGGERED {current_hour}:00")
 
-    for guild_id, config in guild_configs.items():
+    for guild_id, config in list(guild_configs.items()):
 
         try:
 
@@ -1073,6 +1229,24 @@ async def playerstats(ctx, *, player_name: str):
         embed=style_embed(embed)
     )
 
+# =========================================================
+# PERSISTENT MULTI-GUILD STORAGE
+# =========================================================
+
+# Guild setups are permanently stored in:
+# guild_configs.json
+#
+# This means if the bot restarts, redeploys,
+# crashes, or updates, every server remains linked
+# automatically without requiring /setup again.
+#
+# Server owners only need to run /setup once.
+#
+# The only time setup is needed again is if:
+# - guild_configs.json is deleted
+# - the bot is kicked from a server
+# - the hosting storage is wiped manually
+#
 # =========================================================
 # AUTO START TASKS
 # =========================================================
