@@ -257,7 +257,7 @@ ONLINE_UPDATE_MINUTES = 30
 LEADERBOARD_UPDATE_MINUTES = 30
 
 last_online_message_ids = {}
-last_leleaderboard_message_ids = {}
+last_leaderboard_message_ids = {}
 
 # =========================================================
 # CLICKABLE MAP LINKS
