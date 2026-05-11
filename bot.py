@@ -210,12 +210,22 @@ def ping_latest_adm_log(config):
                 .get("entries", [])
             )
 
+            print(f"[SEARCH PATH] {search_path}")
+
+            for entry in entries:
+                print(f"FOUND FILE: {entry.get('name')}")
+
             matching_logs = [
                 entry for entry in entries
-                if entry.get("name", "").lower().endswith(".adm")
+                if re.match(
+                    r"^DayZServer_[A-Z0-9]+_x64_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.ADM$",
+                    entry.get("name", ""),
+                    re.IGNORECASE
+                )
             ]
 
             if not matching_logs:
+                print("NO MATCHING ADM FILES")
                 continue
 
             matching_logs.sort(
