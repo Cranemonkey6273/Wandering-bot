@@ -388,7 +388,188 @@ def download_latest_adm(
         return False
 
 # =========================================================
-# READY
+# ADM PARSER
+# =========================================================
+
+async def parse_adm(guild_id, config):
+
+    adm_path = os.path.join(
+        GUILD_DATA_FOLDER,
+        f"{guild_id}.ADM"
+    )
+
+    if not os.path.exists(adm_path):
+        return
+
+    with open(
+        adm_path,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
+
+        lines = f.readlines()
+
+    channels = config.get("channels", {})
+
+    killfeed_channel = bot.get_channel(
+        channels.get("killfeed")
+    )
+
+    raid_channel = bot.get_channel(
+        channels.get("raids")
+    )
+
+    build_channel = bot.get_channel(
+        channels.get("building")
+    )
+
+    connect_channel = bot.get_channel(
+        channels.get("connections")
+    )
+
+    for raw_line in lines[-250:]:
+
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        line_hash = hash(line)
+
+        if line_hash in processed_lines:
+            continue
+
+        processed_lines.add(line_hash)
+
+        event_type = classify_event(line)
+
+        if not event_type:
+            continue
+
+        print(f"EVENT: {event_type} | {line}")
+
+        # ================= CONNECT =================
+
+        if event_type == "connect" and connect_channel:
+
+            embed = discord.Embed(
+                title="🟢 Survivor Connected",
+                description=line,
+                color=0x2ECC71
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= DISCONNECT =================
+
+        elif event_type == "disconnect" and connect_channel:
+
+            embed = discord.Embed(
+                title="🔴 Survivor Disconnected",
+                description=line,
+                color=0xE74C3C
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await connect_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= BUILD =================
+
+        elif event_type == "build" and build_channel:
+
+            embed = discord.Embed(
+                title="🏗️ BUILD EVENT",
+                description=line,
+                color=0xF1C40F
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await build_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= RAID =================
+
+        elif event_type == "raid" and raid_channel:
+
+            embed = discord.Embed(
+                title="🚨 RAID EVENT",
+                description=line,
+                color=0xFF0000
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await raid_channel.send(
+                embed=style_embed(embed)
+            )
+
+        # ================= KILLFEED =================
+
+        elif event_type == "kill" and killfeed_channel:
+
+            embed = discord.Embed(
+                title="☠️ PLAYER KILL",
+                description=line,
+                color=0x992D22
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            await killfeed_channel.send(
+                embed=style_embed(embed)
+            )
+
+# =========================================================
+# ADM LOOP
+# =========================================================
+
+@tasks.loop(minutes=3)
+async def adm_loop():
+
+    for guild_id, config in guild_configs.items():
+
+        try:
+
+            latest_log = await asyncio.to_thread(
+                ping_latest_adm_log,
+                config
+            )
+
+            if not latest_log:
+                continue
+
+            success = await asyncio.to_thread(
+                download_latest_adm,
+                guild_id,
+                config,
+                latest_log
+            )
+
+            if not success:
+                continue
+
+            await parse_adm(
+                guild_id,
+                config
+            )
+
+            print(f"NEW ADM FOR {guild_id}")
+
+        except Exception as error:
+
+            print(error)
+
+# ====================
 # =========================================================
 
 @bot.event
