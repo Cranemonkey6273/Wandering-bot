@@ -912,6 +912,8 @@ async def on_ready():
     load_heatmap()
     load_swear_jar()
 
+await start_background_tasks()
+
 # =========================================================
 # START
 # =========================================================
