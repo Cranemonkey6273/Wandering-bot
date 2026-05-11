@@ -244,6 +244,12 @@ def classify_event(line):
     if "connecting" in lower or "connected" in lower:
         return "connect"
 
+    if "killed by infected" in lower or "killed by zombie" in lower:
+        return "zombie_kill"
+
+    if "hit by infected" in lower or "attacked by infected" in lower or "hit by zombie" in lower:
+        return "zombie_hit"
+
     if "killed" in lower:
         return "kill"
 
@@ -427,6 +433,7 @@ async def on_guild_join(guild):
     rental_logs = await make_channel("🛻・rental-logs")
     faction_tickets = await make_channel("🎫・faction-tickets")
     faction_staff = await make_channel("🛡️・faction-staff")
+    zombie_feed = await make_channel("🧟・zombie-feed")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -462,7 +469,8 @@ async def on_guild_join(guild):
             "vehicle_rentals": vehicle_rentals.id,
             "rental_logs": rental_logs.id,
             "faction_tickets": faction_tickets.id,
-            "faction_staff": faction_staff.id
+            "faction_staff": faction_staff.id,
+            "zombie_feed": zombie_feed.id
         }
     }
 
@@ -564,6 +572,7 @@ async def setup_command(
     await ensure_channel("rental_logs", "🛻・rental-logs")
     await ensure_channel("faction_tickets", "🎫・faction-tickets")
     await ensure_channel("faction_staff", "🛡️・faction-staff")
+    await ensure_channel("zombie_feed", "🧟・zombie-feed")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -1236,6 +1245,80 @@ async def parse_adm(guild_id, config):
             embed.timestamp = datetime.now(UTC)
 
             await raid_channel.send(embed=embed)
+
+        # ================= ZOMBIES =================
+
+        elif event_type == "zombie_hit":
+
+            zombie_channel = bot.get_channel(
+                channels.get("zombie_feed")
+            )
+
+            if zombie_channel:
+
+                player_match = re.search(
+                    r'Player "([^"]+)"',
+                    line
+                )
+
+                player_name = (
+                    player_match.group(1)
+                    if player_match else "Unknown"
+                )
+
+                embed = discord.Embed(
+                    title="🧟 INFECTED ATTACK",
+                    description=f"**{player_name}** was attacked by infected.",
+                    color=0x2ECC71
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                embed.set_footer(
+                    text="Wandering Bot • Zombie Activity"
+                )
+
+                embed.timestamp = datetime.now(UTC)
+
+                await zombie_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        elif event_type == "zombie_kill":
+
+            zombie_channel = bot.get_channel(
+                channels.get("zombie_feed")
+            )
+
+            if zombie_channel:
+
+                player_match = re.search(
+                    r'Player "([^"]+)"',
+                    line
+                )
+
+                player_name = (
+                    player_match.group(1)
+                    if player_match else "Unknown"
+                )
+
+                embed = discord.Embed(
+                    title="☠️ KILLED BY INFECTED",
+                    description=f"**{player_name}** was overwhelmed by zombies.",
+                    color=0xE74C3C
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                embed.set_footer(
+                    text="Wandering Bot • Zombie Fatality"
+                )
+
+                embed.timestamp = datetime.now(UTC)
+
+                await zombie_channel.send(
+                    embed=style_embed(embed)
+                )
 
         # ================= KILLFEED =================
 
