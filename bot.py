@@ -268,7 +268,24 @@ async def on_guild_join(guild):
 # SETUP COMMAND
 # =========================================================
 
-@bot.tree.command(name="setup",description="Connect your Nitrado server")@app_commands.describe(nitrado_token="Your Nitrado API token",service_id="Your Nitrado service ID")async def setup_command(interaction: discord.Interaction,nitrado_token: str,service_id: str):
+@bot.tree.command(
+    name="setup",
+    description="Connect your Nitrado server"
+)
+@app_commands.describe(
+    nitrado_token="Your Nitrado API token",
+    service_id="Your Nitrado service ID"
+)
+async def setup_command(
+    interaction: discord.Interaction,
+    nitrado_token: str,
+    service_id: str
+):
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    guild_id = str(guild.id)
 
 await interaction.response.defer(ephemeral=True)
 
