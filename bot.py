@@ -173,6 +173,11 @@ def ping_latest_adm_log(config):
         f"/games/{nitrado_user}/noftp/dayzxb/config/",
         f"/games/{nitrado_user}/noftp/dayzxb/",
         f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/",
+        f"/games/{nitrado_user}/noftp/dayzxb/storage_1/",
+        f"/games/{nitrado_user}/noftp/dayzxb/profiles/",
+        f"/games/{nitrado_user}/noftp/dayzxb/logs/",
+        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.chernarusplus/",
+        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.enoch/",
         f"/games/{nitrado_user}/noftp/"
     ]
 
@@ -218,7 +223,7 @@ def ping_latest_adm_log(config):
             matching_logs = [
                 entry for entry in entries
                 if re.match(
-                    r"^DayZServer_[A-Z0-9]+_x64_\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2}\\.ADM$",
+                    r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
                     entry.get("name", ""),
                     re.IGNORECASE
                 )
