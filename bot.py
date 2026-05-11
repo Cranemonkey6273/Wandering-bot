@@ -318,9 +318,35 @@ async def setup_command(
 
     if guild_id not in guild_configs:
 
+        category = discord.utils.get(
+            interaction.guild.categories,
+            name="📡 WANDERING BOT"
+        )
+
+        if not category:
+            category = await interaction.guild.create_category(
+                "📡 WANDERING BOT"
+            )
+
+        async def make_channel(name):
+            return await interaction.guild.create_text_channel(
+                name,
+                category=category
+            )
+
+        killfeed = await make_channel("🔥・killfeed")
+        raids = await make_channel("🏴・raids")
+        builds = await make_channel("🔨・building")
+        connections = await make_channel("🚪・connections")
+
         guild_configs[guild_id] = {
             "guild_name": interaction.guild.name,
-            "channels": {}
+            "channels": {
+                "killfeed": killfeed.id,
+                "raids": raids.id,
+                "building": builds.id,
+                "connections": connections.id
+            }
         }
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
