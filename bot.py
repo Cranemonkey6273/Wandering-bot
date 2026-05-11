@@ -66,8 +66,15 @@ zone_keywords = {
     "Severograd": ["severo"]
 }
 player_stats = {}
+longshot_records = {}
 swear_jar = {}
 linked_players = {}
+
+DEFAULT_ADMIN_ROLES = [
+    "Admin",
+    "Administrator",
+    "Owner"
+]
 
 SWEAR_WORDS = [
     "fuck",
@@ -77,6 +84,30 @@ SWEAR_WORDS = [
     "bollocks",
     "wanker"
 ]
+
+# =========================================================
+# PERMISSION SYSTEM
+# =========================================================
+
+def has_staff_permissions(ctx):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    allowed_roles = config.get(
+        "admin_roles",
+        DEFAULT_ADMIN_ROLES
+    )
+
+    user_roles = [
+        role.name for role in ctx.author.roles
+    ]
+
+    return any(
+        role in allowed_roles
+        for role in user_roles
+    )
 
 # =========================================================
 # HELPERS
@@ -113,24 +144,7 @@ def load_guild_configs():
 
 
 def save_guild_configs():
-    save_json(GUILD_CONFIG_FILE, guild_configs)
-
-
-def load_player_stats():
-    global player_stats
-    player_stats = load_json(PLAYER_STATS_FILE)
-
-
-def save_player_stats():
-    save_json(PLAYER_STATS_FILE, player_stats)
-
-
-def load_heatmap():
-    global territory_heat
-    territory_heat = load_json(HEATMAP_FILE)
-
-
-def save_heatmap():
+    save_json(GUILD_CONFIG_FILE, guild_configs)def save_heatmap():
     save_json(HEATMAP_FILE, territory_heat)
 
 
@@ -315,9 +329,9 @@ def ping_latest_adm_log(config):
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 30
-LEADERBOARD_UPDATE_MINUTES = 30
-HEATMAP_UPDATE_MINUTES = 30
+ONLINE_UPDATE_MINUTES = 15
+LEADERBOARD_UPDATE_MINUTES = 15
+HEATMAP_UPDATE_MINUTES = 15
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
@@ -371,13 +385,19 @@ async def on_guild_join(guild):
     online = await make_channel("✅🎮・online🎮✅")
     leaderboards = await make_channel("🏆・leaderboards")
     heatmap_channel = await make_channel("🔥・heatmap🔥")
+    longshot_channel = await make_channel("🎯・longshots")
     restart_alerts = await make_channel("📢・restart-alerts")
     welcome_channel = await make_channel("👋・welcome")
     economy_channel = await make_channel("💰・black-market")
     ai_channel = await make_channel("🧠・survivor-ai")
+    admin_logs = await make_channel("🛡️・admin-logs")
+    command_logs = await make_channel("📜・command-logs")
+    purchase_logs = await make_channel("💳・purchase-logs")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
+        "guild_owner": str(guild.owner),
+        "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
         "nitrado_token": "",
         "service_id": "",
         "nitrado_user": "",
@@ -390,10 +410,14 @@ async def on_guild_join(guild):
             "online": online.id,
             "leaderboards": leaderboards.id,
             "heatmap": heatmap_channel.id,
+            "longshots": longshot_channel.id,
             "restart_alerts": restart_alerts.id,
             "welcome": welcome_channel.id,
             "economy": economy_channel.id,
-            "ai_chat": ai_channel.id
+            "ai_chat": ai_channel.id,
+            "admin_logs": admin_logs.id,
+            "command_logs": command_logs.id,
+            "purchase_logs": purchase_logs.id
         }
     }
 
@@ -427,6 +451,7 @@ async def setup_command(
 
         guild_configs[guild_id] = {
             "guild_name": interaction.guild.name,
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
             "channels": {}
         }
 
@@ -473,10 +498,14 @@ async def setup_command(
     await ensure_channel("online", "✅🎮・online🎮✅")
     await ensure_channel("leaderboards", "🏆・leaderboards")
     await ensure_channel("heatmap", "🔥・heatmap🔥")
+    await ensure_channel("longshots", "🎯・longshots")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
     await ensure_channel("welcome", "👋・welcome")
     await ensure_channel("economy", "💰・black-market")
     await ensure_channel("ai_chat", "🧠・survivor-ai")
+    await ensure_channel("admin_logs", "🛡️・admin-logs")
+    await ensure_channel("command_logs", "📜・command-logs")
+    await ensure_channel("purchase_logs", "💳・purchase-logs")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -1025,6 +1054,17 @@ async def parse_adm(guild_id, config):
                 victim = killer_match.group(2)
                 weapon = killer_match.group(3)
 
+                distance_match = re.search(
+                    r'from ([0-9]+\.?[0-9]*)m',
+                    line,
+                    re.IGNORECASE
+                )
+
+                distance = (
+                    float(distance_match.group(1))
+                    if distance_match else 0
+                )
+
                 embed = discord.Embed(
                     title="☠️ PLAYER KILL",
                     color=0x992D22
@@ -1041,6 +1081,14 @@ async def parse_adm(guild_id, config):
                     value=victim,
                     inline=True
                 )
+
+                if distance > 0:
+
+                    embed.add_field(
+                        name="🎯 Distance",
+                        value=f"{distance}m",
+                        inline=True
+                    )
 
                 embed.add_field(
                     name="🪖 Weapon",
@@ -1071,6 +1119,77 @@ async def parse_adm(guild_id, config):
                 await killfeed_channel.send(
                     embed=embed
                 )
+
+                guild_longshot = longshot_records.get(guild_id, {
+                    "killer": "None",
+                    "distance": 0,
+                    "weapon": "Unknown"
+                })
+
+                if distance > guild_longshot.get("distance", 0):
+
+                    longshot_records[guild_id] = {
+                        "killer": killer,
+                        "victim": victim,
+                        "distance": distance,
+                        "weapon": weapon
+                    }
+
+                    longshot_channel = bot.get_channel(
+                        channels.get("longshots")
+                    )
+
+                    if longshot_channel:
+
+                        longshot_embed = discord.Embed(
+                            title="🎯 NEW SERVER LONGSHOT RECORD",
+                            description=(
+                                f"{killer} just set a new longshot record!"
+                            ),
+                            color=0xF1C40F
+                        )
+
+                        longshot_embed.add_field(
+                            name="🎯 Distance",
+                            value=f"{distance}m",
+                            inline=True
+                        )
+
+                        longshot_embed.add_field(
+                            name="🔫 Weapon",
+                            value=weapon,
+                            inline=True
+                        )
+
+                        longshot_embed.add_field(
+                            name="💀 Victim",
+                            value=victim,
+                            inline=True
+                        )
+
+                        if coords:
+
+                            map_link = build_izurvive_link(coords)
+
+                            if map_link:
+
+                                longshot_embed.add_field(
+                                    name="📍 Kill Location",
+                                    value=f"[🔵 Open Map](<{map_link}>)",
+                                    inline=False
+                                )
+
+                        longshot_embed.set_thumbnail(url=BOT_IMAGE)
+
+                        longshot_embed.set_footer(
+                            text="Wandering Bot Alpha • Longshot Tracking"
+                        )
+
+                        longshot_embed.timestamp = datetime.now(UTC)
+
+                        await longshot_channel.send(
+                            embed=style_embed(longshot_embed)
+                        )
 
 # =========================================================
 # ADM LOOP
@@ -1224,6 +1343,137 @@ async def on_message(message):
     await bot.process_commands(message)
 
 # =========================================================
+# OWNER MONITORING SYSTEM
+# =========================================================
+
+BOT_OWNER_GUILD_ID = os.getenv("BOT_OWNER_GUILD_ID")
+BOT_OWNER_CHANNEL_ID = os.getenv("BOT_OWNER_CHANNEL_ID")
+
+
+async def send_owner_notification(title, description):
+
+    try:
+
+        if not BOT_OWNER_CHANNEL_ID:
+            return
+
+        owner_channel = bot.get_channel(
+            int(BOT_OWNER_CHANNEL_ID)
+        )
+
+        if not owner_channel:
+            return
+
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=0x9B59B6
+        )
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+
+        embed.set_footer(
+            text="Wandering Bot Alpha • Owner Monitoring"
+        )
+
+        await owner_channel.send(
+            embed=style_embed(embed)
+        )
+
+    except Exception as error:
+        print(error)
+
+
+@bot.event
+async def on_command(ctx):
+
+    try:
+
+        guild_id = str(ctx.guild.id)
+
+        config = guild_configs.get(guild_id, {})
+
+        channels = config.get("channels", {})
+
+        command_log_channel = bot.get_channel(
+            channels.get("command_logs")
+        )
+
+        if command_log_channel:
+
+            embed = discord.Embed(
+                title="📜 COMMAND USED",
+                color=0x3498DB
+            )
+
+            embed.add_field(
+                name="👤 User",
+                value=str(ctx.author),
+                inline=False
+            )
+
+            embed.add_field(
+                name="💬 Command",
+                value=ctx.message.content,
+                inline=False
+            )
+
+            await command_log_channel.send(
+                embed=style_embed(embed)
+            )
+
+    except Exception as error:
+        print(error)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+
+    try:
+
+        guild_id = str(ctx.guild.id)
+
+        config = guild_configs.get(guild_id, {})
+
+        channels = config.get("channels", {})
+
+        admin_log_channel = bot.get_channel(
+            channels.get("admin_logs")
+        )
+
+        if admin_log_channel:
+
+            embed = discord.Embed(
+                title="⚠️ FAILED COMMAND",
+                color=0xE74C3C
+            )
+
+            embed.add_field(
+                name="👤 User",
+                value=str(ctx.author),
+                inline=False
+            )
+
+            embed.add_field(
+                name="💬 Attempted Command",
+                value=ctx.message.content,
+                inline=False
+            )
+
+            embed.add_field(
+                name="🧠 Error",
+                value=str(error)[:1000],
+                inline=False
+            )
+
+            await admin_log_channel.send(
+                embed=style_embed(embed)
+            )
+
+    except Exception as inner_error:
+        print(inner_error)
+
+# =========================================================
 # COMMANDS
 # =========================================================
 
@@ -1231,7 +1481,7 @@ async def on_message(message):
 async def helpme(ctx):
 
     embed = discord.Embed(
-        title="🤖 WANDERING BOT ALPHA COMMANDS",
+        title="🤖 WANDERING BOT ALPHA • MASTER CONTROL",
         color=0x3498DB
     )
 
@@ -1248,8 +1498,12 @@ async def helpme(ctx):
     embed.add_field(
         name="🏆 Stats",
         value=(
-            "!topkills\n"
-            "!heatmap\n"
+            "!topkills
+"
+            "!toplongshots
+"
+            "!heatmap
+"
             "!swearjar"
         ),
         inline=False
@@ -1406,11 +1660,58 @@ async def heatmap(ctx):
 
 
 @bot.command()
-async def topkills(ctx):
+async def toplongshots(ctx):
 
-    if not player_stats:
+    if not longshot_records:
 
         await ctx.send(
+            "No longshot records yet."
+        )
+
+        return
+
+    sorted_records = sorted(
+        longshot_records.items(),
+        key=lambda x: x[1].get("distance", 0),
+        reverse=True
+    )
+
+    lines = []
+
+    for index, (guild_id, data) in enumerate(
+        sorted_records[:10],
+        start=1
+    ):
+
+        guild_name = guild_configs.get(
+            guild_id,
+            {}
+        ).get("guild_name", "Unknown Server")
+
+        lines.append(
+            f"{index}. {data.get('killer')} — 🎯 {data.get('distance')}m — {guild_name}"
+        )
+
+    embed = discord.Embed(
+        title="🎯 GLOBAL LONGSHOT LEADERBOARD",
+        des      color=0xF1C40F
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Longshot Intelligence"
+    )
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+
+@bot.command()
+async def topkills(ctx):
+
+description="\\n".join(lines),      await ctx.send(
             "No stats available."
         )
 
@@ -1444,12 +1745,215 @@ async def topkills(ctx):
     )
 
 # =========================================================
+# CUSTOM ROLE CONFIGURATION
+# =========================================================
+
+@bot.command()
+async def setadminrole(ctx, *, role_name: str):
+
+    if not ctx.author.guild_permissions.administrator:
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_configs:
+        return
+
+    guild_configs[guild_id]["admin_roles"] = [role_name]
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="🛡️ PRIMARY ADMIN ROLE SET",
+        description=f"Primary bot admin role is now: `{role_name}`",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def addstaffrole(ctx, *, role_name: str):
+
+    if not ctx.author.guild_permissions.administrator:
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    roles = config.get(
+        "admin_roles",
+        DEFAULT_ADMIN_ROLES.copy()
+    )
+
+    if role_name not in roles:
+        roles.append(role_name)
+
+    guild_configs[guild_id]["admin_roles"] = roles
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="➕ STAFF ROLE ADDED",
+        description=f"`{role_name}` can now use admin bot commands.",
+        color=0x2ECC71
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def staffroles(ctx):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    roles = config.get(
+        "admin_roles",
+        DEFAULT_ADMIN_ROLES
+    )
+
+    embed = discord.Embed(
+        title="🛡️ BOT STAFF ROLES",
+        description="
+".join([
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+# =========================================================
+# CHAT MANAGEMENT SYSTEM
+# =========================================================
+
+@bot.command()
+async def pdescription="\\n".join([
+            f"• {role}"
+            for role in roles
+        ]), if amount < 1:
+        amount = 1
+
+    if amount > 500:
+        amount = 500
+
+    deleted = await ctx.channel.purge(limit=amount + 1)
+
+    embed = discord.Embed(
+        title="🧹 CHAT PURGED",
+        description=(
+            f"Removed {len(deleted) - 1} messages from {ctx.channel.mention}"
+        ),
+        color=0xE67E22
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    confirmation = await ctx.send(
+        embed=style_embed(embed)
+    )
+
+    await asyncio.sleep(5)
+
+    await confirmation.delete()
+
+
+@bot.command()
+async def purgeuser(ctx, member: discord.Member, amount: int = 50):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    deleted = []
+
+    async for message in ctx.channel.history(limit=500):
+
+        if message.author == member:
+
+            deleted.append(message)
+
+            if len(deleted) >= amount:
+                break
+
+    for message in deleted:
+
+        try:
+            await message.delete()
+        except:
+            pass
+
+    embed = discord.Embed(
+        title="🧹 USER MESSAGES PURGED",
+        description=(
+            f"Removed {len(deleted)} messages from {member.mention}"
+        ),
+        color=0xE74C3C
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    confirmation = await ctx.send(
+        embed=style_embed(embed)
+    )
+
+    await asyncio.sleep(5)
+
+    await confirmation.delete()
+
+
+@bot.command()
+async def purgebots(ctx, amount: int = 100):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    deleted = []
+
+    async for message in ctx.channel.history(limit=1000):
+
+        if message.author.bot:
+
+            deleted.append(message)
+
+            if len(deleted) >= amount:
+                break
+
+    for message in deleted:
+
+        try:
+            await message.delete()
+        except:
+            pass
+
+    embed = discord.Embed(
+        title="🤖 BOT MESSAGES PURGED",
+        description=f"Removed {len(deleted)} bot messages.",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    confirmation = await ctx.send(
+        embed=style_embed(embed)
+    )
+
+    await asyncio.sleep(5)
+
+    await confirmation.delete()
+
+# =========================================================
 # ADMIN SERVER CONTROLS
 # =========================================================
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def restartserver(ctx):
+
+    if not has_staff_permissions(ctx):
+        return
 
     embed = discord.Embed(
         title="🔄 SERVER RESTART REQUESTED",
@@ -1498,8 +2002,10 @@ async def restartserver(ctx):
 
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def togglebasedamage(ctx, state: str):
+
+    if not has_staff_permissions(ctx):
+        return
 
     state = state.lower()
 
@@ -1530,8 +2036,10 @@ async def togglebasedamage(ctx, state: str):
 # =========================================================
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def setrestartinterval(ctx, hours: int):
+
+    if not has_staff_permissions(ctx):
+        return
 
     if hours < 1 or hours > 24:
 
@@ -1562,8 +2070,10 @@ async def setrestartinterval(ctx, hours: int):
 
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def setrestartstart(ctx, hour: int):
+
+    if not has_staff_permissions(ctx):
+        return
 
     if hour < 0 or hour > 23:
 
@@ -1594,7 +2104,6 @@ async def setrestartstart(ctx, hour: int):
 
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def listrestarts(ctx):
 
     guild_id = str(ctx.guild.id)
@@ -2088,7 +2597,7 @@ async def online_dashboard_loop():
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Live Online Tracker"
+                text="Wandering Bot Alpha • Auto Refresh Every 15 Minutes"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -2155,7 +2664,7 @@ async def heatmap_loop():
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • PvP Heatmap"
+                text="Wandering Bot Alpha • Heatmap Refresh Every 15 Minutes"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -2211,7 +2720,7 @@ async def leaderboard_loop():
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Live Leaderboards"
+                text="Wandering Bot Alpha • Leaderboards Refresh Every 15 Minutes"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -2283,18 +2792,13 @@ def load_delivery_queue():
             delivery_queue = json.load(f)
 
 
-def save_delivery_queue():
+def save_delivery_queue()
 
-    with open(DELIVERY_QUEUE_FILE, "w") as f:
-        json.dump(delivery_queue, f, indent=4)
+    guild_id = str(ctx.guild.id)
 
+    config = guild_configs.get(guild_id, {})
 
-DEFAULT_DAILY_TRANSACTION_LIMIT = 5
-
-
-# =========================================================
-# BASIC SHOP COMMANDS
-# =========================================================
+    channels = c# =========================================================
 
 @bot.command()
 async def wallet(ctx):
@@ -2305,58 +2809,10 @@ async def wallet(ctx):
 
         wallets[user_id] = {
             "name": str(ctx.author),
-            "balance": 0,
-            "daily_transactions": 0
-        }
+            "balance":def save_delivery_queue():
 
-        save_wallets()
-
-    balance = wallets[user_id]["balance"]
-
-    embed = discord.Embed(
-        title="💰 SURVIVOR WALLET",
-        description=f"{balance} pennies 🪙",
-        color=0x2ECC71
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-async def shop(ctx):
-
-    if not shop_items:
-
-        await ctx.send("Shop is currently empty.")
-        return
-
-    lines = []
-
-    for item_name, data in shop_items.items():
-
-        lines.append(
-            f"• {item_name} — {data.get('price', 0)} pennies 🪙"
-        )
-
-    embed = discord.Embed(
-        title="🛒 BLACK MARKET SHOP",
-        description="\n".join(lines[:25]),
-        color=0x9B59B6
-    )
-
-    embed.set_thumbnail(url=BOT_IMAGE)
-
-    embed.set_footer(
-        text="Wandering Bot Alpha • Black Market"
-    )
-
-    await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-async def buy(ctx, item_name: str, x: str, y: str):
+    with open(DELIVERY_QUEUE_FILE, "w") as f:
+        json.dump(delivery_queue, f, indent=4): str, x: str, y: str):
 
     user_id = str(ctx.author.id)
 
