@@ -979,7 +979,7 @@ async def parse_adm(guild_id, config):
                 welcome_embed = discord.Embed(
                     title="👋 SURVIVOR ENTERED CHERNARUS",
                     description=(
-                        f"**{player_name}** connected to the server.\\n\\n"
+                        f"**{player_name}** connected to the server.\n\n"
                         f"{welcome_text}"
                     ),
                     color=0x1ABC9C
@@ -4253,11 +4253,18 @@ async def on_ready():
     load_heatmap()
     load_swear_jar()
     load_linked_players()
-    load_shop()
-    load_wallets()
-    load_delivery_queue()
+    try:
+        load_shop()
+        load_wallets()
+        load_delivery_queue()
+    except Exception as e:
+        print("ECONOMY LOAD ERROR:", e)
 
-    await start_background_tasks()
+    try:
+        await start_background_tasks()
+        print("BACKGROUND TASKS STARTED")
+    except Exception as e:
+        print("TASK START ERROR:", e)
 
 # =========================================================
 # START
