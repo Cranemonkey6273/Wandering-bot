@@ -366,7 +366,7 @@ embed.set_thumbnail(url=BOT_IMAGE)
 
 await interaction.followup.send(
     embed=style_embed(embed),
-    ephemeral=True
+    ephemeral=True)
 
 # =========================================================
 # NITRADO API
