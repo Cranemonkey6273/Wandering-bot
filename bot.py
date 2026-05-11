@@ -192,7 +192,7 @@ def ping_latest_adm_log(config):
 
             params = {
                 "dir": search_path,
-                "search": "DayZServer"
+                "search": "*DayZServer*"
             }
 
             response = requests.get(
