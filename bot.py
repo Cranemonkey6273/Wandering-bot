@@ -644,7 +644,8 @@ async def online(ctx):
 
     if online_players:
 
-        player_list = "\n".join(
+        player_list = "
+".join(
             f"• {player}"
             for player in sorted(online_players)
         )
@@ -696,7 +697,8 @@ async def swearjar(ctx):
 
     embed = discord.Embed(
         title="💸 SWEAR JAR LEADERBOARD",
-        description="\n".join(leaderboard),
+        description="
+".join(leaderboard),
         color=0xF1C40F
     )
 
@@ -732,7 +734,8 @@ async def heatmap(ctx):
 
     embed = discord.Embed(
         title="🗺️ TERRITORY HEATMAP",
-        description="\n".join(lines),
+        description="
+".join(lines),
         color=0xE74C3C
     )
 
@@ -771,13 +774,127 @@ async def topkills(ctx):
 
     embed = discord.Embed(
         title="☠️ TOP KILLS",
-        description="\n".join(lines),
+        description="
+".join(lines),
         color=0x992D22
     )
 
     await ctx.send(
         embed=style_embed(embed)
     )
+
+# =========================================================
+# ADMIN SERVER CONTROLS
+# =========================================================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restartserver(ctx):
+
+    embed = discord.Embed(
+        title="🔄 SERVER RESTART REQUESTED",
+        description="Restart command sent to server.",
+        color=0xE67E22
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+    print("SERVER RESTART REQUESTED")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def togglebasedamage(ctx, state: str):
+
+    state = state.lower()
+
+    if state not in ["on", "off"]:
+
+        await ctx.send(
+            "Usage: !togglebasedamage on/off"
+        )
+
+        return
+
+    embed = discord.Embed(
+        title="🛡️ BASE DAMAGE SETTINGS",
+        description=f"Base damage turned {state.upper()}.",
+        color=0x3498DB
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(embed)
+    )
+
+    print(f"BASE DAMAGE {state.upper()}")
+
+# =========================================================
+# SCHEDULED RESTART LOOP
+# =========================================================
+
+RESTART_HOURS = [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20
+]
+
+last_restart_hour = None
+
+@tasks.loop(minutes=1)
+async def scheduled_restart_loop():
+
+    global last_restart_hour
+
+    now = datetime.now(UTC)
+
+    current_hour = now.hour
+
+    if current_hour not in RESTART_HOURS:
+        return
+
+    if last_restart_hour == current_hour:
+        return
+
+    last_restart_hour = current_hour
+
+    print(f"SCHEDULED RESTART TRIGGERED {current_hour}:00")
+
+    for guild_id, config in guild_configs.items():
+
+        try:
+
+            channels = config.get("channels", {})
+
+            announce_channel = bot.get_channel(
+                channels.get("connections")
+            )
+
+            if announce_channel:
+
+                embed = discord.Embed(
+                    title="⚠️ SCHEDULED RESTART",
+                    description="Server restart triggered automatically.",
+                    color=0xE74C3C
+                )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                await announce_channel.send(
+                    embed=style_embed(embed)
+                )
+
+        except Exception as error:
+
+            print(error)
 
 # =========================================================
 # READY
