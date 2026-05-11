@@ -201,6 +201,7 @@ async def on_guild_join(guild):
         "guild_name": guild.name,
         "nitrado_token": "",
         "service_id": "",
+        "nitrado_user": "",
         "channels": {
             "killfeed": killfeed.id,
             "deaths": deaths.id,
@@ -224,12 +225,14 @@ async def on_guild_join(guild):
 )
 @app_commands.describe(
     nitrado_token="Your Nitrado API token",
-    service_id="Your Nitrado service ID"
+    service_id="Your Nitrado service ID",
+    nitrado_user="Example: ni12248929_1"
 )
 async def setup_command(
     interaction: discord.Interaction,
     nitrado_token: str,
-    service_id: str
+    service_id: str,
+    nitrado_user: str
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -287,6 +290,7 @@ async def setup_command(
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
+    guild_configs[guild_id]["nitrado_user"] = nitrado_user
 
     save_guild_configs()
 
@@ -311,84 +315,74 @@ def ping_latest_adm_log(config):
 
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
+    nitrado_user = config.get("nitrado_user")
 
-    if not token or not service_id:
+    if not token or not service_id or not nitrado_user:
         return None
+
+    url = (
+        f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list"
+    )
 
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
     }
 
-    latest_adm = None
+    params = {
+        "dir": f"/games/{nitrado_user}/noftp/dayzxb/config/",
+        "search": "*DayZServer*",
+    }
 
-    def scan_folder(path="/"):
+    try:
 
-        nonlocal latest_adm
-
-        url = (
-            f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list"
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=20
         )
 
-        params = {
-            "dir": path
-        }
+        print("[PING STATUS]", response.status_code)
 
-        try:
+        if response.status_code != 200:
+            print(response.text)
+            return None
 
-            response = requests.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=20
-            )
+        data = response.json()
 
-            print(f"[SCAN] {path} -> {response.status_code}")
+        entries = data.get(
+            "data",
+            {}
+        ).get(
+            "entries",
+            []
+        )
 
-            if response.status_code != 200:
-                return
+        matching_logs = [
+            entry
+            for entry in entries
+            if entry.get("name", "").endswith(".ADM")
+        ]
 
-            data = response.json()
+        if not matching_logs:
+            print("NO ADM LOGS FOUND")
+            return None
 
-            entries = data.get(
-                "data",
-                {}
-            ).get(
-                "entries",
-                []
-            )
+        matching_logs.sort(
+            key=lambda x: x.get("modified_at", ""),
+            reverse=True
+        )
 
-            for entry in entries:
+        latest = matching_logs[0]
 
-                name = entry.get("name", "")
-                entry_path = entry.get("path", "")
-                is_dir = entry.get("type") == "directory"
+        print(f"LATEST ADM FOUND: {latest.get('path')}")
 
-                if is_dir:
+        return latest
 
-                    try:
-                        scan_folder(entry_path)
-                    except Exception as error:
-                        print(error)
-
-                elif name.endswith(".ADM"):
-
-                    if (
-                        latest_adm is None
-                        or entry.get("modified_at", "")
-                        > latest_adm.get("modified_at", "")
-                    ):
-                        latest_adm = entry
-
-        except Exception as error:
-            print(error)
-
-    scan_folder("/")
-
-    if latest_adm:
-        print(f"LATEST ADM FOUND: {latest_adm.get('path')}")
-
-    return latest_adm
+    except Exception as error:
+        print(error)
+        return None
 
 
 def download_latest_adm(
