@@ -235,6 +235,159 @@ def ping_latest_adm_log(config):
     return None
 
 # =========================================================
+# AUTO GUILD SETUP
+# =========================================================
+
+@bot.event
+async def on_guild_join(guild):
+
+    guild_id = str(guild.id)
+
+    if guild_id in guild_configs:
+        return
+
+    category = await guild.create_category(
+        "📡 WANDERING BOT"
+    )
+
+    async def make_channel(name):
+
+        return await guild.create_text_channel(
+            name,
+            category=category
+        )
+
+    killfeed = await make_channel("🔥・killfeed")
+    raids = await make_channel("🏴・raids")
+    builds = await make_channel("🔨・building")
+    connections = await make_channel("🚪・connections")
+
+    guild_configs[guild_id] = {
+        "guild_name": guild.name,
+        "nitrado_token": "",
+        "service_id": "",
+        "nitrado_user": "",
+        "channels": {
+            "killfeed": killfeed.id,
+            "raids": raids.id,
+            "building": builds.id,
+            "connections": connections.id
+        }
+    }
+
+    save_guild_configs()
+
+# =========================================================
+# /SETUP COMMAND
+# =========================================================
+
+@bot.tree.command(
+    name="setup",
+    description="Connect your Nitrado server"
+)
+@app_commands.describe(
+    nitrado_token="Your Nitrado API token",
+    service_id="Your Nitrado service ID",
+    nitrado_user="Example: ni12248929_2"
+)
+async def setup_command(
+    interaction: discord.Interaction,
+    nitrado_token: str,
+    service_id: str,
+    nitrado_user: str
+):
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in guild_configs:
+
+        guild_configs[guild_id] = {
+            "guild_name": interaction.guild.name,
+            "channels": {}
+        }
+
+    guild_configs[guild_id]["nitrado_token"] = nitrado_token
+    guild_configs[guild_id]["service_id"] = service_id
+    guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
+
+    save_guild_configs()
+
+    await interaction.followup.send(
+        "✅ Server connected successfully.",
+        ephemeral=True
+    )
+
+# =========================================================
+# DOWNLOAD ADM
+# =========================================================
+
+def download_latest_adm(
+    guild_id,
+    config,
+    latest_log
+):
+
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+
+    try:
+
+        download_url = (
+            f"https://api.nitrado.net/services/"
+            f"{service_id}/gameservers/file_server/download"
+        )
+
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+
+        params = {
+            "file": latest_log.get("path")
+        }
+
+        response = requests.get(
+            download_url,
+            headers=headers,
+            params=params,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return False
+
+        data = response.json()
+
+        token_url = (
+            data
+            .get("data", {})
+            .get("token", {})
+            .get("url")
+        )
+
+        if not token_url:
+            return False
+
+        file_response = requests.get(token_url)
+
+        adm_path = os.path.join(
+            GUILD_DATA_FOLDER,
+            f"{guild_id}.ADM"
+        )
+
+        with open(adm_path, "wb") as f:
+            f.write(file_response.content)
+
+        return True
+
+    except Exception as error:
+
+        print(error)
+
+        return False
+
+# =========================================================
 # READY
 # =========================================================
 
