@@ -352,43 +352,56 @@ async def setup_command(
 
     guild_id = str(interaction.guild.id)
 
-    needs_channels = (
-        guild_id not in guild_configs
-        or not guild_configs.get(guild_id, {}).get("channels")
+        if guild_id not in guild_configs:
+
+        guild_configs[guild_id] = {
+            "guild_name": interaction.guild.name,
+            "channels": {}
+        }
+
+    category = discord.utils.get(
+        interaction.guild.categories,
+        name="📡 WANDERING BOT"
     )
 
-    if needs_channels:
-
-        category = discord.utils.get(
-            interaction.guild.categories,
-            name="📡 WANDERING BOT"
+    if not category:
+        category = await interaction.guild.create_category(
+            "📡 WANDERING BOT"
         )
 
-        if not category:
-            category = await interaction.guild.create_category(
-                "📡 WANDERING BOT"
-            )
+    async def ensure_channel(key, name):
 
-        async def make_channel(name):
-            return await interaction.guild.create_text_channel(
+        existing_id = guild_configs[guild_id]["channels"].get(key)
+
+        if existing_id:
+            existing_channel = interaction.guild.get_channel(existing_id)
+
+            if existing_channel:
+                return existing_channel
+
+        channel = discord.utils.get(
+            interaction.guild.text_channels,
+            name=name
+        )
+
+        if not channel:
+            channel = await interaction.guild.create_text_channel(
                 name,
                 category=category
             )
 
-        killfeed = await make_channel("🔥・killfeed")
-        raids = await make_channel("🏴・raids")
-        builds = await make_channel("🔨・building")
-        connections = await make_channel("🚪・connections")
+        guild_configs[guild_id]["channels"][key] = channel.id
 
-        guild_configs[guild_id] = {
-            "guild_name": interaction.guild.name,
-            "channels": {
-                "killfeed": killfeed.id,
-                "raids": raids.id,
-                "building": builds.id,
-                "connections": connections.id
-            }
-        }
+        return channel
+
+    await ensure_channel("killfeed", "🔥・killfeed")
+    await ensure_channel("raids", "🏴・raids")
+    await ensure_channel("building", "🔨・building")
+    await ensure_channel("connections", "🟢・connect")
+    await ensure_channel("disconnects", "🔴・disconnect")
+    await ensure_channel("online", "✅🎮・online🎮✅")
+    await ensure_channel("leaderboards", "🏆・leaderboards")
+    await ensure_channel("restart_alerts", "📢・restart-alerts")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -599,11 +612,26 @@ async def parse_adm(guild_id, config):
                 if player_match else "Unknown"
             )
 
-            embed = create_feed_embed(
+            online_players.add(player_name)
+
+            embed = discord.Embed(
                 title="🟢 SURVIVOR CONNECTED",
-                color=0x2ECC71,
-                player=player_name
+                color=0x2ECC71
             )
+
+            embed.add_field(
+                name="👤 Survivor",
+                value=player_name,
+                inline=False
+            )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Connection Feed"
+            )
+
+            embed.timestamp = datetime.now(UTC)
 
             await connect_channel.send(embed=embed)
 
@@ -621,14 +649,56 @@ async def parse_adm(guild_id, config):
                 if player_match else "Unknown"
             )
 
-            embed = create_feed_embed(
-                title="🔴 SURVIVOR DISCONNECTED",
-                color=0xE74C3C,
-                player=player_name,
-                details=line
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line
             )
 
-            await connect_channel.send(embed=embed)
+            coords = (
+                coords_match.group(1)
+                if coords_match else None
+            )
+
+            if player_name in online_players:
+                online_players.remove(player_name)
+
+            embed = discord.Embed(
+                title="🔴 SURVIVOR DISCONNECTED",
+                color=0xE74C3C
+            )
+
+            embed.add_field(
+                name="👤 Survivor",
+                value=player_name,
+                inline=False
+            )
+
+            if coords:
+
+                map_link = build_izurvive_link(coords)
+
+                if map_link:
+
+                    embed.add_field(
+                        name="📍 Last Known Location",
+                        value=f"[🔵 Open Map](<{map_link}>)",
+                        inline=False
+                    )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Disconnect Feed"
+            )
+
+            embed.timestamp = datetime.now(UTC)
+
+            disconnect_channel = bot.get_channel(
+                channels.get("disconnects")
+            )
+
+            if disconnect_channel:
+                await disconnect_channel.send(embed=embed)
 
         # ================= BUILD =================
 
@@ -654,13 +724,93 @@ async def parse_adm(guild_id, config):
                 if coords_match else "Unknown"
             )
 
-            embed = create_feed_embed(
-                title="🏗️ BUILD EVENT",
-                color=0xF1C40F,
-                player=player_name,
-                coords=coords,
-                details=line
+            action = "Building"
+            object_name = "Structure"
+            tool_used = "Tool"
+
+            if "placed" in line.lower():
+
+                action_match = re.search(
+                    r'placed ([^<]+)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                if action_match:
+                    object_name = action_match.group(1).strip()
+
+                action = "Placed"
+
+            elif "built" in line.lower():
+
+                build_match = re.search(
+                    r'Built ([^ ]+)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                if build_match:
+                    object_name = build_match.group(1).replace("_", " ").title()
+
+                tool_match = re.search(
+                    r'with ([^ ]+)',
+                    line,
+                    re.IGNORECASE
+                )
+
+                if tool_match:
+                    tool_used = tool_match.group(1)
+
+                action = "Built"
+
+            embed = discord.Embed(
+                title="🏗️ BUILDING ACTIVITY",
+                color=0xF1C40F
             )
+
+            embed.add_field(
+                name="👤 Survivor",
+                value=player_name,
+                inline=True
+            )
+
+            embed.add_field(
+                name="🛠️ Action",
+                value=action,
+                inline=True
+            )
+
+            embed.add_field(
+                name="🏗️ Structure",
+                value=object_name,
+                inline=False
+            )
+
+            if tool_used != "Tool":
+
+                embed.add_field(
+                    name="🔨 Tool",
+                    value=tool_used,
+                    inline=True
+                )
+
+            map_link = build_izurvive_link(coords)
+
+            if map_link:
+
+                embed.add_field(
+                    name="📍 Location",
+                    value=f"[🔵 Open Map](<{map_link}>)",
+                    inline=False
+                )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Building Intelligence"
+            )
+
+            embed.timestamp = datetime.now(UTC)
 
             await build_channel.send(embed=embed)
 
@@ -678,16 +828,6 @@ async def parse_adm(guild_id, config):
                 if player_match else "Unknown"
             )
 
-            weapon_match = re.search(
-                r'with ([^ ]+)',
-                line
-            )
-
-            weapon = (
-                weapon_match.group(1)
-                if weapon_match else "Unknown"
-            )
-
             coords_match = re.search(
                 r'pos=<([^>]+)>',
                 line
@@ -695,17 +835,80 @@ async def parse_adm(guild_id, config):
 
             coords = (
                 coords_match.group(1)
-                if coords_match else "Unknown"
+                if coords_match else None
             )
 
-            embed = create_feed_embed(
-                title="🚨 RAID DETECTED",
-                color=0xFF0000,
-                player=player_name,
-                weapon=weapon,
-                coords=coords,
-                details=line
+            action = "Raid Activity"
+            structure = "Base Structure"
+            tool_used = "Unknown"
+
+            dismantle_match = re.search(
+                r'Dismantled ([^ ]+(?: [^ ]+)*) from ([^ ]+)',
+                line,
+                re.IGNORECASE
             )
+
+            if dismantle_match:
+                action = dismantle_match.group(1)
+                structure = dismantle_match.group(2)
+
+            tool_match = re.search(
+                r'with ([^ ]+)',
+                line,
+                re.IGNORECASE
+            )
+
+            if tool_match:
+                tool_used = tool_match.group(1)
+
+            embed = discord.Embed(
+                title="🚨 RAID DETECTED",
+                color=0xFF0000
+            )
+
+            embed.add_field(
+                name="👤 Raider",
+                value=player_name,
+                inline=True
+            )
+
+            embed.add_field(
+                name="🧨 Action",
+                value=action,
+                inline=True
+            )
+
+            embed.add_field(
+                name="🏚️ Structure",
+                value=structure,
+                inline=False
+            )
+
+            embed.add_field(
+                name="🔨 Tool",
+                value=tool_used,
+                inline=True
+            )
+
+            if coords:
+
+                map_link = build_izurvive_link(coords)
+
+                if map_link:
+
+                    embed.add_field(
+                        name="📍 Raid Location",
+                        value=f"[🔵 Open Map](<{map_link}>)",
+                        inline=False
+                    )
+
+            embed.set_thumbnail(url=BOT_IMAGE)
+
+            embed.set_footer(
+                text="Wandering Bot Alpha • Raid Intelligence"
+            )
+
+            embed.timestamp = datetime.now(UTC)
 
             await raid_channel.send(embed=embed)
 
@@ -716,6 +919,16 @@ async def parse_adm(guild_id, config):
             killer_match = re.search(
                 r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
                 line
+            )
+
+            coords_match = re.search(
+                r'pos=<([^>]+)>',
+                line
+            )
+
+            coords = (
+                coords_match.group(1)
+                if coords_match else None
             )
 
             if killer_match:
@@ -747,31 +960,29 @@ async def parse_adm(guild_id, config):
                     inline=False
                 )
 
-                embed.add_field(
-                    name="📜 Combat Log",
-                    value=f"```{line[:900]}```",
-                    inline=False
-                )
+                if coords:
+
+                    map_link = build_izurvive_link(coords)
+
+                    if map_link:
+
+                        embed.add_field(
+                            name="📍 Kill Location",
+                            value=f"[🔵 Open Map](<{map_link}>)",
+                            inline=False
+                        )
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
                 embed.set_footer(
-                    text="Wandering Bot Alpha • PvP Feed"
+                    text="Wandering Bot Alpha • PvP Intelligence"
                 )
+
+                embed.timestamp = datetime.now(UTC)
 
                 await killfeed_channel.send(
-                    embed=style_embed(embed)
+                    embed=embed
                 )
-
-            else:
-
-                embed = create_feed_embed(
-                    title="☠️ KILL EVENT",
-                    color=0x992D22,
-                    details=line
-                )
-
-                await killfeed_channel.send(embed=embed)
 
 # =========================================================
 # ADM LOOP
@@ -1334,7 +1545,7 @@ async def online_dashboard_loop():
 
             if online_players:
 
-                player_text = "\\n".join([
+                player_text = "\n".join([
                     f"• {player}"
                     for player in sorted(online_players)
                 ])
@@ -1401,7 +1612,7 @@ async def leaderboard_loop():
 
             embed = discord.Embed(
                 title="🏆 SERVER LEADERBOARDS",
-                description="\\n".join(lines) if lines else "No stats yet.",
+                description="\n".join(lines) if lines else "No stats yet.",
                 color=0xF1C40F
             )
 
