@@ -121,7 +121,7 @@ def save_heatmap():
     save_json(HEATMAP_FILE, territory_heat)
 
 
-def load_swear_jar():
+def load_swear_jar()\n\n    await start_background_tasks():
     global swear_jar
     swear_jar = load_json(SWEAR_JAR_FILE)
 
@@ -644,7 +644,7 @@ async def online(ctx):
 
     if online_players:
 
-        player_list = "".join(
+        player_list = "\\n".join(
             f"• {player}"
             for player in sorted(online_players)
         )
@@ -696,7 +696,7 @@ async def swearjar(ctx):
 
     embed = discord.Embed(
         title="💸 SWEAR JAR LEADERBOARD",
-        description="".join(leaderboard),
+        description="\\n".join(leaderboard),
         color=0xF1C40F
     )
 
@@ -732,8 +732,7 @@ async def heatmap(ctx):
 
     embed = discord.Embed(
         title="🗺️ TERRITORY HEATMAP",
-        description="
-".join(lines),
+        description="\\n".join(lines),
         color=0xE74C3C
     )
 
@@ -772,8 +771,7 @@ async def topkills(ctx):
 
     embed = discord.Embed(
         title="☠️ TOP KILLS",
-        description="
- ".join(lines),
+        description="\\n".join(lines),
         color=0x992D22
     )
 
