@@ -1277,7 +1277,7 @@ async def parse_adm(guild_id, config):
 
             await raid_channel.send(embed=embed)
 
-        # ================= ZOMBIES =================
+                # ================= ZOMBIES =================
 
         elif event_type == "zombie_hit":
 
