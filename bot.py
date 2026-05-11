@@ -268,49 +268,88 @@ async def on_guild_join(guild):
 # SETUP COMMAND
 # =========================================================
 
-@bot.tree.command(
-    name="setup",
-    description="Connect your Nitrado server"
-)
-@app_commands.describe(
-    nitrado_token="Your Nitrado API token",
-    service_id="Your Nitrado service ID"
-)
-async def setup_command(
-    interaction: discord.Interaction,
-    nitrado_token: str,
-    service_id: str
-):
+@bot.tree.command(name="setup",description="Connect your Nitrado server")@app_commands.describe(nitrado_token="Your Nitrado API token",service_id="Your Nitrado service ID")async def setup_command(interaction: discord.Interaction,nitrado_token: str,service_id: str):
 
-    await interaction.response.defer(ephemeral=True)
+await interaction.response.defer(ephemeral=True)
 
-    guild_id = str(interaction.guild.id)
+guild = interaction.guild
+guild_id = str(guild.id)
 
-    if guild_id not in guild_configs:
+# =====================================================
+# CREATE CONFIG IF MISSING
+# =====================================================
 
-        await interaction.followup.send(
-            "Guild config not found.",
-            ephemeral=True
+if guild_id not in guild_configs:
+
+    category = discord.utils.get(
+        guild.categories,
+        name="📡 WANDERING BOT"
+    )
+
+    if not category:
+        category = await guild.create_category(
+            "📡 WANDERING BOT"
         )
-        return
+
+    async def create_channel(name):
+
+        existing = discord.utils.get(
+            guild.text_channels,
+            name=name
+        )
+
+        if existing:
+            return existing
+
+        return await guild.create_text_channel(
+            name,
+            category=category
+        )
+
+    killfeed = await create_channel("🔥・killfeed")
+    deaths = await create_channel("☠️・deaths")
+    connections = await create_channel("🚪・connections")
+    raids = await create_channel("🏴・raids")
+    building = await create_channel("🔨・building")
+    radar = await create_channel("📡・radar")
+    ai = await create_channel("🧠・ai-alerts")
+
+    guild_configs[guild_id] = {
+        "guild_name": guild.name,
+        "nitrado_token": nitrado_token,
+        "service_id": service_id,
+        "channels": {
+            "killfeed": killfeed.id,
+            "deaths": deaths.id,
+            "connections": connections.id,
+            "raids": raids.id,
+            "building": building.id,
+            "radar": radar.id,
+            "ai": ai.id,
+        }
+    }
+
+else:
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
 
-    save_guild_configs()
+save_guild_configs()
 
-    embed = discord.Embed(
-        title="✅ SERVER CONNECTED",
-        description="Nitrado server linked successfully.",
-        color=0x57F287
-    )
+print("GUILD CONFIG SAVED:")
+print(guild_configs)
 
-    embed.set_thumbnail(url=BOT_IMAGE)
+embed = discord.Embed(
+    title="✅ SERVER CONNECTED",
+    description="Nitrado server linked successfully.",
+    color=0x57F287
+)
 
-    await interaction.followup.send(
-        embed=style_embed(embed),
-        ephemeral=True
-    )
+embed.set_thumbnail(url=BOT_IMAGE)
+
+await interaction.followup.send(
+    embed=style_embed(embed),
+    ephemeral=True
 
 # =========================================================
 # NITRADO API
