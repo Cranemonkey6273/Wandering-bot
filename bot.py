@@ -68,6 +68,7 @@ zone_keywords = {
 player_stats = {}
 longshot_records = {}
 swear_jar = {}
+player_chat_tracker = {}
 linked_players = {}
 
 DEFAULT_ADMIN_ROLES = [
@@ -75,6 +76,11 @@ DEFAULT_ADMIN_ROLES = [
     "Administrator",
     "Owner"
 ]
+
+SWEAR_REWARD_MIN = 300
+SWEAR_REWARD_MAX = 800
+SWEAR_REDEMPTION_MESSAGES_REQUIRED = 15
+SWEAR_REDEMPTION_THRESHOLD = 20
 
 SWEAR_WORDS = [
     "fuck",
@@ -143,8 +149,107 @@ def load_guild_configs():
     guild_configs = load_json(GUILD_CONFIG_FILE)
 
 
-def save_guild_configs():
-    save_json(GUILD_CONFIG_FILE, guild_configs)def save_heatmap():
+def save_guild_configs()
+
+    try:
+
+        help_channel_obj = bot.get_channel(
+            guild_configs[guild_id]["channels"].get("help_channel")
+        )
+
+        faction_list_obj = bot.get_channel(
+            guild_configs[guild_id]["channels"].get("faction_list")
+        )
+
+        clips_channel_obj = bot.get_channel(
+            guild_configs[guild_id]["channels"].get("clips_channel")
+        )
+
+        if help_channel_obj:
+
+            help_embed = discord.Embed(
+                title="❓ WELCOME TO WANDERING BOT",
+                description=(
+                    "Use `!helpme` to view all commands and systems.
+
+"
+                    "🎯 PvP tracking
+"
+                    "🏴 Raid alerts
+"
+                    "🛒 Black market
+"
+                    "🎬 Clip sharing
+"
+                    "🏆 Leaderboards
+"
+                    "🧠 AI survivor systems"
+                ),
+                color=0x3498DB
+            )
+
+            help_embed.set_thumbnail(url=BOT_IMAGE)
+
+            await help_channel_obj.send(
+                embed=style_embed(help_embed)
+            )
+
+        if faction_list_obj:
+
+            faction_embed = discord.Embed(
+                title="🏴 SERVER FACTIONS",
+                description=(
+                    "Approved factions will appear here.
+
+"
+                    "Use `!factionticket NAME` to apply for a faction."
+                ),
+                color=0x9B59B6
+            )
+
+            faction_embed.set_thumbnail(url=BOT_IMAGE)
+
+            await faction_list_obj.send(
+                embed=style_embed(faction_embed)
+            )
+
+        if clips_channel_obj:
+
+            clips_embed = discord.Embed(
+                title="🎬 DAYZ CLIPS & MOMENTS",
+                description=(
+                    "Share your PvP clips, raids, funny moments,"
+                    " betrayals and survival highlights here."
+                ),
+                color=0xE74C3C
+            )
+
+            clips_embed.set_thumbnail(url=BOT_IMAGE)
+
+            await clips_channel_obj.send(
+                embed=style_embed(clips_embed)
+            )
+
+    except Exception as error:
+        print(error):
+    save_json(GUILD_CONFIG_FILE, guild_configs)
+
+
+def load_player_stats():
+    global player_stats
+    player_stats = load_json(PLAYER_STATS_FILE)
+
+
+def save_player_stats():
+    save_json(PLAYER_STATS_FILE, player_stats)
+
+
+def load_heatmap():
+    global territory_heat
+    territory_heat = load_json(HEATMAP_FILE)
+
+
+def save_heatmap():
     save_json(HEATMAP_FILE, territory_heat)
 
 
@@ -388,11 +493,18 @@ async def on_guild_join(guild):
     longshot_channel = await make_channel("🎯・longshots")
     restart_alerts = await make_channel("📢・restart-alerts")
     welcome_channel = await make_channel("👋・welcome")
+    general_chat = await make_channel("💬・survivor-chat")
+    factions_chat = await make_channel("🏴・factions")
+    faction_list = await make_channel("📜・faction-list")
+    help_channel = await make_channel("❓・help-desk")
+    clips_channel = await make_channel("🎬・dayz-clips")
     economy_channel = await make_channel("💰・black-market")
     ai_channel = await make_channel("🧠・survivor-ai")
     admin_logs = await make_channel("🛡️・admin-logs")
     command_logs = await make_channel("📜・command-logs")
     purchase_logs = await make_channel("💳・purchase-logs")
+    faction_tickets = await make_channel("🎫・faction-tickets")
+    faction_staff = await make_channel("🛡️・faction-staff")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -413,11 +525,18 @@ async def on_guild_join(guild):
             "longshots": longshot_channel.id,
             "restart_alerts": restart_alerts.id,
             "welcome": welcome_channel.id,
+            "general_chat": general_chat.id,
+            "factions_chat": factions_chat.id,
+            "faction_list": faction_list.id,
+            "help_channel": help_channel.id,
+            "clips_channel": clips_channel.id,
             "economy": economy_channel.id,
             "ai_chat": ai_channel.id,
             "admin_logs": admin_logs.id,
             "command_logs": command_logs.id,
-            "purchase_logs": purchase_logs.id
+            "purchase_logs": purchase_logs.id,
+            "faction_tickets": faction_tickets.id,
+            "faction_staff": faction_staff.id
         }
     }
 
@@ -501,11 +620,18 @@ async def setup_command(
     await ensure_channel("longshots", "🎯・longshots")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
     await ensure_channel("welcome", "👋・welcome")
+    await ensure_channel("general_chat", "💬・survivor-chat")
+    await ensure_channel("factions_chat", "🏴・factions")
+    await ensure_channel("faction_list", "📜・faction-list")
+    await ensure_channel("help_channel", "❓・help-desk")
+    await ensure_channel("clips_channel", "🎬・dayz-clips")
     await ensure_channel("economy", "💰・black-market")
     await ensure_channel("ai_chat", "🧠・survivor-ai")
     await ensure_channel("admin_logs", "🛡️・admin-logs")
     await ensure_channel("command_logs", "📜・command-logs")
     await ensure_channel("purchase_logs", "💳・purchase-logs")
+    await ensure_channel("faction_tickets", "🎫・faction-tickets")
+    await ensure_channel("faction_staff", "🛡️・faction-staff")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -1340,6 +1466,86 @@ async def on_message(message):
 
             break
 
+        user_id = str(message.author.id)
+
+    if user_id not in player_chat_tracker:
+
+        player_chat_tracker[user_id] = {
+            "recent_messages": 0,
+            "recent_swears": 0,
+            "clean_messages": 0,
+            "eligible": False
+        }
+
+    tracker = player_chat_tracker[user_id]
+
+    tracker["recent_messages"] += 1
+
+    if found_words:
+
+        tracker["recent_swears"] += len(found_words)
+        tracker["clean_messages"] = 0
+
+        if tracker["recent_swears"] >= SWEAR_REDEMPTION_THRESHOLD:
+            tracker["eligible"] = True
+
+    else:
+
+        tracker["clean_messages"] += 1
+
+        if (
+            tracker["eligible"]
+            and tracker["clean_messages"] >= SWEAR_REDEMPTION_MESSAGES_REQUIRED
+        ):
+
+            import random
+
+            reward = random.randint(
+                SWEAR_REWARD_MIN,
+                SWEAR_REWARD_MAX
+            )
+
+            if user_id not in wallets:
+
+                wallets[user_id] = {
+                    "name": str(message.author),
+                    "balance": 0,
+                    "daily_transactions": 0
+                }
+
+            wallets[user_id]["balance"] += reward
+
+            tracker["eligible"] = False
+            tracker["recent_swears"] = 0
+            tracker["clean_messages"] = 0
+            tracker["recent_messages"] = 0
+
+            save_wallets()
+
+            redemption_messages = [
+                f"🧼 {message.author.mention} finally cleaned up their language. Miracles do happen. +{reward} pennies 🪙",
+                f"💰 Good behaviour detected from {message.author.mention}. Survivor rehabilitation successful. +{reward} pennies 🪙",
+                f"🧠 AI Notice: {message.author.mention} survived {SWEAR_REDEMPTION_MESSAGES_REQUIRED} messages without swearing. Reward issued. +{reward} pennies 🪙",
+                f"📻 Chernarus Radio: {message.author.mention} has temporarily stopped speaking like a lunatic. +{reward} pennies 🪙",
+                f"🏆 Redemption Arc Complete: {message.author.mention} earned {reward} pennies for not swearing constantly."
+            ]
+
+            redemption_embed = discord.Embed(
+                title="✨ SWEAR JAR REDEMPTION",
+                description=random.choice(redemption_messages),
+                color=0x2ECC71
+            )
+
+            redemption_embed.set_thumbnail(url=BOT_IMAGE)
+
+            redemption_embed.set_footer(
+                text="Wandering Bot Alpha • Behaviour System"
+            )
+
+            await message.channel.send(
+                embed=style_embed(redemption_embed)
+            )
+
     await bot.process_commands(message)
 
 # =========================================================
@@ -1481,7 +1687,7 @@ async def on_command_error(ctx, error):
 async def helpme(ctx):
 
     embed = discord.Embed(
-        title="🤖 WANDERING BOT ALPHA • MASTER CONTROL",
+        title="🤖 WANDERING BOT ALPHA COMMANDS",
         color=0x3498DB
     )
 
@@ -1694,7 +1900,8 @@ async def toplongshots(ctx):
 
     embed = discord.Embed(
         title="🎯 GLOBAL LONGSHOT LEADERBOARD",
-        des      color=0xF1C40F
+        description="\n".join(lines),
+        color=0xF1C40F
     )
 
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -1711,7 +1918,9 @@ async def toplongshots(ctx):
 @bot.command()
 async def topkills(ctx):
 
-description="\\n".join(lines),      await ctx.send(
+    if not player_stats:
+
+        await ctx.send(
             "No stats available."
         )
 
@@ -1821,21 +2030,228 @@ async def staffroles(ctx):
 
     embed = discord.Embed(
         title="🛡️ BOT STAFF ROLES",
-        description="
-".join([
-            embed.set_thumbnail(url=BOT_IMAGE)
+        description="\n".join([
+            f"• {role}"
+            for role in roles
+        ]),
+        color=0x9B59B6
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
 
     await ctx.send(embed=style_embed(embed))
+
+# =========================================================
+# FACTION TICKET SYSTEM
+# =========================================================
+
+@bot.command()
+async def factionticket(ctx, *, faction_name: str):
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    channels = config.get("channels", {})
+
+    ticket_channel = bot.get_channel(
+        channels.get("faction_tickets")
+    )
+
+    if not ticket_channel:
+
+        await ctx.send(
+            "Faction ticket system is not configured."
+        )
+
+        return
+
+    linked_data = linked_players.get(
+        str(ctx.author.id),
+        {}
+    )
+
+    gamertag = linked_data.get(
+        "gamertag",
+        "Not Linked"
+    )
+
+    embed = discord.Embed(
+        title="🎫 NEW FACTION REQUEST",
+        description=(
+            f"{ctx.author.mention} has submitted a faction request."
+        ),
+        color=0x9B59B6
+    )
+
+    embed.add_field(
+        name="🏴 Proposed Faction",
+        value=faction_name,
+        inline=False
+    )
+
+    embed.add_field(
+        name="👤 Discord User",
+        value=str(ctx.author),
+        inline=True
+    )
+
+    embed.add_field(
+        name="🎮 Linked Gamertag",
+        value=gamertag,
+        inline=True
+    )
+
+    embed.add_field(
+        name="👑 Faction Owner",
+        value=ctx.author.mention,
+        inline=False
+    )
+
+    embed.add_field(
+        name="📜 Status",
+        value="🟡 Pending Staff Review",
+        inline=False
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Faction Intelligence"
+    )
+
+    ticket_message = await ticket_channel.send(
+        embed=style_embed(embed)
+    )
+
+    staff_channel = bot.get_channel(
+        channels.get("faction_staff")
+    )
+
+    if staff_channel:
+
+        staff_embed = discord.Embed(
+            title="🚨 NEW FACTION TICKET",
+            description=(
+                f"A new faction application has been submitted by {ctx.author.mention}."
+            ),
+            color=0xE67E22
+        )
+
+        staff_embed.add_field(
+            name="🏴 Faction",
+            value=faction_name,
+            inline=True
+        )
+
+        staff_embed.add_field(
+            name="🎫 Ticket ID",
+            value=str(ticket_message.id),
+            inline=True
+        )
+
+        staff_embed.add_field(
+            name="👑 Owner",
+            value=str(ctx.author),
+            inline=False
+        )
+
+        staff_embed.set_thumbnail(url=BOT_IMAGE)
+
+        staff_embed.set_footer(
+            text="Wandering Bot Alpha • Staff Notification"
+        )
+
+        await staff_channel.send(
+            embed=style_embed(staff_embed)
+        )
+
+    confirmation = discord.Embed(
+        title="✅ FACTION REQUEST SUBMITTED",
+        description=(
+            f"Your faction request for `{faction_name}` has been sent to server staff."
+        ),
+        color=0x2ECC71
+    )
+
+    confirmation.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(
+        embed=style_embed(confirmation)
+    )
+
+
+@bot.command()
+async def factionapprove(ctx, message_id: int):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    config = guild_configs.get(guild_id, {})
+
+    channels = config.get("channels", {})
+
+    ticket_channel = bot.get_channel(
+        channels.get("faction_tickets")
+    )
+
+    if not ticket_channel:
+        return
+
+    try:
+
+        message = await ticket_channel.fetch_message(message_id)
+
+        embed = message.embeds[0]
+
+        approved_embed = discord.Embed(
+            title="✅ FACTION APPROVED",
+            description=embed.description,
+            color=0x2ECC71
+        )
+
+        for field in embed.fields:
+
+            approved_embed.add_field(
+                name=field.name,
+                value=field.value,
+                inline=field.inline
+            )
+
+        approved_embed.set_thumbnail(url=BOT_IMAGE)
+
+        approved_embed.set_footer(
+            text="Wandering Bot Alpha • Staff Approved"
+        )
+
+        await message.edit(
+            embed=style_embed(approved_embed)
+        )
+
+        await ctx.send(
+            "✅ Faction request approved."
+        )
+
+    except Exception as error:
+
+        await ctx.send(
+            f"❌ Failed to approve ticket: {error}"
+        )
+
 
 # =========================================================
 # CHAT MANAGEMENT SYSTEM
 # =========================================================
 
 @bot.command()
-async def pdescription="\\n".join([
-            f"• {role}"
-            for role in roles
-        ]), if amount < 1:
+async def purge(ctx, amount: int = 10):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    if amount < 1:
         amount = 1
 
     if amount > 500:
@@ -2792,13 +3208,18 @@ def load_delivery_queue():
             delivery_queue = json.load(f)
 
 
-def save_delivery_queue()
+def save_delivery_queue():
 
-    guild_id = str(ctx.guild.id)
+    with open(DELIVERY_QUEUE_FILE, "w") as f:
+        json.dump(delivery_queue, f, indent=4)
 
-    config = guild_configs.get(guild_id, {})
 
-    channels = c# =========================================================
+DEFAULT_DAILY_TRANSACTION_LIMIT = 5
+
+
+# =========================================================
+# BASIC SHOP COMMANDS
+# =========================================================
 
 @bot.command()
 async def wallet(ctx):
@@ -2809,10 +3230,58 @@ async def wallet(ctx):
 
         wallets[user_id] = {
             "name": str(ctx.author),
-            "balance":def save_delivery_queue():
+            "balance": 0,
+            "daily_transactions": 0
+        }
 
-    with open(DELIVERY_QUEUE_FILE, "w") as f:
-        json.dump(delivery_queue, f, indent=4): str, x: str, y: str):
+        save_wallets()
+
+    balance = wallets[user_id]["balance"]
+
+    embed = discord.Embed(
+        title="💰 SURVIVOR WALLET",
+        description=f"{balance} pennies 🪙",
+        color=0x2ECC71
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def shop(ctx):
+
+    if not shop_items:
+
+        await ctx.send("Shop is currently empty.")
+        return
+
+    lines = []
+
+    for item_name, data in shop_items.items():
+
+        lines.append(
+            f"• {item_name} — {data.get('price', 0)} pennies 🪙"
+        )
+
+    embed = discord.Embed(
+        title="🛒 BLACK MARKET SHOP",
+        description="\n".join(lines[:25]),
+        color=0x9B59B6
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    embed.set_footer(
+        text="Wandering Bot Alpha • Black Market"
+    )
+
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def buy(ctx, item_name: str, x: str, y: str):
 
     user_id = str(ctx.author.id)
 
