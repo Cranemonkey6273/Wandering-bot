@@ -966,6 +966,37 @@ async def parse_adm(guild_id, config):
 
             await connect_channel.send(embed=embed)
 
+            welcome_channel = bot.get_channel(
+                channels.get("welcome")
+            )
+
+            if welcome_channel:
+
+                import random
+
+                welcome_text = random.choice(WELCOME_MESSAGES)
+
+                welcome_embed = discord.Embed(
+                    title="👋 SURVIVOR ENTERED CHERNARUS",
+                    description=(
+                        f"**{player_name}** connected to the server.
+
+"
+                        f"{welcome_text}"
+                    ),
+                    color=0x1ABC9C
+                )
+
+                welcome_embed.set_thumbnail(url=BOT_IMAGE)
+
+                welcome_embed.set_footer(
+                    text="Wandering Bot • Survivor Arrival"
+                )
+
+                await welcome_channel.send(
+                    embed=style_embed(welcome_embed)
+                )
+
         # ================= DISCONNECT =================
 
         elif event_type == "disconnect" and disconnect_channel:
@@ -3403,33 +3434,7 @@ async def leaderboard_loop():
         except Exception as error:
             print(error)
 
-# =========================================================
-# READY
-# =========================================================
-
-@bot.event
-async def on_ready():
-
-    print(f"LOGGED IN AS {bot.user}")
-
-    try:
-        synced = await bot.tree.sync()
-        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
-    except Exception as sync_error:
-        print(sync_error)
-
-    ensure_folder(GUILD_DATA_FOLDER)
-
-    load_guild_configs()
-    load_player_stats()
-    load_heatmap()
-    load_swear_jar()
-    load_linked_players()
-    load_shop()
-    load_wallets()
-    load_delivery_queue()
-
-    await start_background_tasks()
+# READY BLOCK MOVED TO BOTTOM OF FILE
 
 # =========================================================
 # ECONOMY SYSTEM FOUNDATION
@@ -4227,6 +4232,34 @@ void SpawnWanderingDeliveries()
 
 SpawnWanderingDeliveries();
 '''
+
+# =========================================================
+# READY
+# =========================================================
+
+@bot.event
+async def on_ready():
+
+    print(f"LOGGED IN AS {bot.user}")
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
+    except Exception as sync_error:
+        print(sync_error)
+
+    ensure_folder(GUILD_DATA_FOLDER)
+
+    load_guild_configs()
+    load_player_stats()
+    load_heatmap()
+    load_swear_jar()
+    load_linked_players()
+    load_shop()
+    load_wallets()
+    load_delivery_queue()
+
+    await start_background_tasks()
 
 # =========================================================
 # START
