@@ -1138,7 +1138,7 @@ async def on_member_join(member):
 
     embed = discord.Embed(
         title="👋 NEW SURVIVOR ARRIVED",
-        description=f"{member.mention}\\n\\n{welcome_text}",
+        description=f"{member.mention}\n\n{welcome_text}",
         color=0x1ABC9C
     )
 
@@ -1304,7 +1304,7 @@ async def online(ctx):
 
     if guild_online:
 
-        player_list = "\\n".join(
+        player_list = "\n".join(
             f"🟢 {player}"
             for player in sorted(guild_online)
         )
