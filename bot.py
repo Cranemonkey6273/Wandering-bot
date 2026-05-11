@@ -644,8 +644,7 @@ async def online(ctx):
 
     if online_players:
 
-        player_list = "
-".join(
+        player_list = "".join(
             f"• {player}"
             for player in sorted(online_players)
         )
