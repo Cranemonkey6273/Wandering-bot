@@ -3,11 +3,9 @@ import re
 import asyncio
 import logging
 import discord
-import berconpy
-
+from ftplib import FTP_TLS
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
-from ftplib import FTP_TLS
 
 # ================= LOGGING =================
 
@@ -25,47 +23,129 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ================= GLOBAL STATE =================
 
 guild_channels = {}
-channels_ready = True
-
-# ================= FTP CONFIG =================
-
-FTP_HOST = os.getenv("FTP_HOST")
-FTP_USER = os.getenv("FTP_USER")
-FTP_PASS = os.getenv("FTP_PASS")
-FTP_PORT = int(os.getenv("FTP_PORT", 21))
-
-SEARCH_DIR = "/dayzxb/config"
-LOCAL_LOG_FILE = "live.ADM"
 
 # ================= ADM STATE =================
 
-last_position = 0
+LOCAL_LOG_FILE = "live.ADM"
 
-# ================= EVENT SYSTEM =================
+# ================= FILTERS =================
 
-EVENT_KEYWORDS = {
-    "connect": ["is connected", "is connecting"],
-    "disconnect": ["has been disconnected"],
-    "kill": ["killed"],
-    "build": ["placed", "built"]
-}
+IGNORE_PATTERNS = [
+    "script",
+    "spawnobject",
+    "globalsinit",
+    "virtual machine",
+    "weapon.savecurrentfsmstate",
+    "playerlist log"
+]
 
-# ================= FTP CONNECT =================
+def is_noise(line):
+    lower = line.lower()
+    return any(p in lower for p in IGNORE_PATTERNS)
 
-def connect_ftp():
+# ================= FTP (UNCHANGED SYSTEM) =================
+
+def connect_ftp(config):
     ftp = FTP_TLS()
-    ftp.connect(FTP_HOST, FTP_PORT, timeout=60)
-    ftp.login(FTP_USER, FTP_PASS)
+    ftp.connect(config["ftp_host"], 21, timeout=60)
+    ftp.login(config["ftp_user"], config["ftp_pass"])
     ftp.prot_p()
     return ftp
 
-# ================= ADM DOWNLOAD =================
+# ================= EVENT DETECTION =================
 
-def download_adm():
+def detect_event(line):
+    l = line.lower()
+
+    if "killed" in l:
+        return "kill"
+    if "is connected" in l:
+        return "connect"
+    if "has been disconnected" in l:
+        return "disconnect"
+    if "placed" in l or "built" in l:
+        return "build"
+
+    return None
+
+# ================= PARSERS =================
+
+def parse_kill(line):
+
+    match = re.search(r'"(.+?)".*killed.*"(.+?)"', line)
+    if not match:
+        return None
+
+    killer = match.group(1)
+    victim = match.group(2)
+
+    weapon = None
+    distance = None
+
+    w = re.search(r"with\s(\w+)", line)
+    if w:
+        weapon = w.group(1)
+
+    d = re.search(r"(\d+)\s?m", line)
+    if d:
+        distance = int(d.group(1))
+
+    return killer, victim, weapon, distance
+
+# ================= EMBEDS =================
+
+def embed(title, desc, color):
+    return discord.Embed(
+        title=title,
+        description=desc,
+        color=color,
+        timestamp=datetime.now(timezone.utc)
+    )
+
+# ================= FEED =================
+
+async def send(guild, key, em):
+
+    ch = guild_channels.get(guild.id, {}).get(key)
+
+    if ch:
+        await ch.send(embed=em)
+
+# ================= PLAYER STATS =================
+
+def update_player_stats(guild_id, killer, victim):
+
+    supabase.table("player_stats").upsert({
+        "guild_id": str(guild_id),
+        "player_name": killer,
+        "kills": 1
+    }, on_conflict=["guild_id", "player_name"]).execute()
+
+    supabase.table("player_stats").upsert({
+        "guild_id": str(guild_id),
+        "player_name": victim,
+        "deaths": 1
+    }, on_conflict=["guild_id", "player_name"]).execute()
+
+# ================= FACTIONS =================
+
+def get_faction(guild_id, player):
+
+    res = supabase.table("player_factions") \
+        .select("*") \
+        .eq("guild_id", str(guild_id)) \
+        .eq("player_name", player) \
+        .execute()
+
+    return res.data[0]["faction_name"] if res.data else None
+
+# ================= ADM DOWNLOAD (UNCHANGED LOGIC HOOK) =================
+
+def download_adm(config):
 
     try:
-        ftp = connect_ftp()
-        ftp.cwd(SEARCH_DIR)
+        ftp = connect_ftp(config)
+        ftp.cwd(config.get("search_dir", "/dayzxb/config"))
 
         files = []
         ftp.retrlines("NLST", files.append)
@@ -81,82 +161,13 @@ def download_adm():
             ftp.retrbinary(f"RETR {latest}", f.write)
 
         ftp.quit()
-
-        print(f"[ADM] Downloaded: {latest}")
         return True
 
     except Exception as e:
         print(f"[ADM ERROR] {e}")
         return False
 
-# ================= FEED SYSTEM =================
-
-async def send_feed(guild, key, embed):
-
-    try:
-        channel = guild_channels.get(guild.id, {}).get(key)
-
-        if channel:
-            await channel.send(embed=embed)
-
-    except Exception as e:
-        print(f"[FEED ERROR] {e}")
-
-# ================= NOISE FILTER =================
-
-def is_noise(line):
-
-    lower = line.lower()
-
-    return any(x in lower for x in [
-        "script",
-        "spawnobject",
-        "globalsinit",
-        "virtual machine",
-        "weapon.savecurrentfsmstate",
-        "module:",
-        "playerlist log"
-    ])
-
-# ================= EVENT DETECTOR =================
-
-def detect_event(line):
-
-    lower = line.lower()
-
-    for event, keywords in EVENT_KEYWORDS.items():
-        for k in keywords:
-            if k in lower:
-                return event
-
-    return None
-
-# ================= KILL PARSER =================
-
-def parse_kill(line):
-
-    match = re.search(r'"(.+?)".*killed.*"(.+?)"', line)
-
-    if not match:
-        return None
-
-    return {
-        "killer": match.group(1),
-        "victim": match.group(2)
-    }
-
-# ================= EMBED BUILDER =================
-
-def build_embed(title, description, color):
-
-    return discord.Embed(
-        title=title,
-        description=description,
-        color=color,
-        timestamp=datetime.now(timezone.utc)
-    )
-
-# ================= EVENT ENGINE =================
+# ================= PARSER =================
 
 async def process_line(line, guild):
 
@@ -168,83 +179,79 @@ async def process_line(line, guild):
     if not event:
         return
 
+    # CONNECT
     if event == "connect":
-
-        embed = build_embed("Connect", line, 0x00ff00)
-        await send_feed(guild, "connect", embed)
+        await send(guild, "connect", embed("Connect", line, 0x00ff00))
         return
 
+    # DISCONNECT
     if event == "disconnect":
-
-        embed = build_embed("Disconnect", line, 0x888888)
-        await send_feed(guild, "connect", embed)
+        await send(guild, "connect", embed("Disconnect", line, 0x888888))
         return
 
+    # BUILD
+    if event == "build":
+        await send(guild, "build", embed("Build", line, 0x0099ff))
+        return
+
+    # KILL
     if event == "kill":
 
-        data = parse_kill(line)
+        parsed = parse_kill(line)
 
-        if data:
-            desc = f"**{data['killer']}** killed **{data['victim']}**"
+        if parsed:
+
+            killer, victim, weapon, distance = parsed
+
+            update_player_stats(guild.id, killer, victim)
+
+            desc = f"💀 {killer} killed {victim}"
+
+            if weapon:
+                desc += f"\n🔫 {weapon}"
+
+            if distance:
+                desc += f"\n📏 {distance}m"
+
         else:
             desc = line
 
-        embed = build_embed("💀 Killfeed", desc, 0xff0000)
-        await send_feed(guild, "kill", embed)
+        await send(guild, "kill", embed("Killfeed", desc, 0xff0000))
         return
 
-    if event == "build":
-
-        embed = build_embed("Build", line, 0x0099ff)
-        await send_feed(guild, "build", embed)
-        return
-
-# ================= PARSER =================
-
-async def parse_adm(guild):
-
-    if not os.path.exists(LOCAL_LOG_FILE):
-        return
-
-    with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
-
-    for line in lines:
-        line = line.strip()
-
-        if line:
-            await process_line(line, guild)
-
-# ================= 🔥 FIXED ADM LOOP =================
+# ================= ADM LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
 
     for guild in bot.guilds:
 
-        try:
-            success = download_adm()
+        config = get_server_config(guild.id)
 
-            if success:
-                print("[ADM] Updated")
+        if not config:
+            continue
 
-            await parse_adm(guild)
+        success = download_adm(config)
 
-        except Exception as e:
-            print(f"[ADM LOOP ERROR] {e}")
+        if success:
+
+            if os.path.exists(LOCAL_LOG_FILE):
+
+                with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+
+                for line in lines:
+                    await process_line(line.strip(), guild)
 
 # ================= READY =================
 
 @bot.event
 async def on_ready():
-
     print(f"LOGGED IN AS {bot.user}")
 
     if not adm_loop.is_running():
         adm_loop.start()
 
-        print("ADM LOOP STARTED")
-
 # ================= START =================
 
-bot.run(DISCORD_TOKEN, reconnect=True)
+bot.run(DISCORD_TOKEN)
