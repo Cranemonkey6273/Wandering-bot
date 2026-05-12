@@ -25,7 +25,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ================= GLOBAL STATE =================
 
 guild_channels = {}
-channels_ready = True  # you said you’ll handle guild setup later
+channels_ready = True
 
 # ================= FTP CONFIG =================
 
@@ -62,6 +62,7 @@ def connect_ftp():
 # ================= ADM DOWNLOAD =================
 
 def download_adm():
+
     try:
         ftp = connect_ftp()
         ftp.cwd(SEARCH_DIR)
@@ -167,21 +168,18 @@ async def process_line(line, guild):
     if not event:
         return
 
-    # ================= CONNECT =================
     if event == "connect":
 
         embed = build_embed("Connect", line, 0x00ff00)
         await send_feed(guild, "connect", embed)
         return
 
-    # ================= DISCONNECT =================
     if event == "disconnect":
 
         embed = build_embed("Disconnect", line, 0x888888)
         await send_feed(guild, "connect", embed)
         return
 
-    # ================= KILL =================
     if event == "kill":
 
         data = parse_kill(line)
@@ -195,7 +193,6 @@ async def process_line(line, guild):
         await send_feed(guild, "kill", embed)
         return
 
-    # ================= BUILD =================
     if event == "build":
 
         embed = build_embed("Build", line, 0x0099ff)
@@ -205,8 +202,6 @@ async def process_line(line, guild):
 # ================= PARSER =================
 
 async def parse_adm(guild):
-
-    global last_position
 
     if not os.path.exists(LOCAL_LOG_FILE):
         return
@@ -220,14 +215,23 @@ async def parse_adm(guild):
         if line:
             await process_line(line, guild)
 
-# ================= ADM LOOP =================
+# ================= 🔥 FIXED ADM LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
 
     for guild in bot.guilds:
-        await download_adm()
-        await parse_adm(guild)
+
+        try:
+            success = download_adm()
+
+            if success:
+                print("[ADM] Updated")
+
+            await parse_adm(guild)
+
+        except Exception as e:
+            print(f"[ADM LOOP ERROR] {e}")
 
 # ================= READY =================
 
@@ -242,8 +246,5 @@ async def on_ready():
         print("ADM LOOP STARTED")
 
 # ================= START =================
-
-if not DISCORD_TOKEN:
-    raise ValueError("Missing DISCORD_TOKEN")
 
 bot.run(DISCORD_TOKEN, reconnect=True)
