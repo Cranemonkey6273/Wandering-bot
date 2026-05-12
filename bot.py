@@ -4,6 +4,7 @@ import asyncio
 import logging
 import discord
 import berconpy
+import json
 
 from flask import Flask
 from threading import Thread
@@ -45,21 +46,12 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 SEARCH_DIR = "/dayzxb/config"
 LOCAL_LOG_FILE = "live.ADM"
 
-# ================= RCON =================
-
-RCON_HOST = os.getenv("RCON_HOST")
-RCON_PORT = int(os.getenv("RCON_PORT", 2302))
-RCON_PASSWORD = os.getenv("RCON_PASSWORD")
-
 # ================= DISCORD =================
 
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents
-)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================= WEBSITE =================
 
@@ -67,75 +59,112 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return """
-    <html>
-    <head>
-    <title>Wandering Bot Omega</title>
-    </head>
-    <body style="background:#111;color:#00ff88;font-family:Arial;text-align:center;padding-top:100px;">
-    <h1>Wandering Bot Omega Online</h1>
-    <p>Killfeed Active</p>
-    <p>ADM Tracking Operational</p>
-    </body>
-    </html>
-    """
+    return "<h1>Wandering Bot Omega Online</h1>"
 
 def run_web():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# ================= OPENAI =================
-
-client_ai = AsyncOpenAI(api_key=OPENAI_API_KEY)
-
-# ================= SUPABASE =================
-
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # ================= GLOBALS =================
 
 processed_lines = set()
-MAX_PROCESSED_LINES = 5000
-
 current_adm = None
 current_adm_size = 0
-
 last_position = 0
 growth_fail_count = 0
 
-MIN_ADM_SIZE = 500
-MAX_FAILS_BEFORE_SWITCH = 8
-
-online_players = set()
-
 BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
 
-# ================= FILTERS =================
+# ================= GUILD SYSTEM =================
 
-IGNORE_PATTERNS = [
-    "[CE]",
-    "LootRespawner",
-    "PRIDummy",
-    "script",
-    "weather",
-    "economy"
-]
+GUILD_FILE = "guilds.json"
+guilds = {}
+
+def load_guilds():
+    global guilds
+    if os.path.exists(GUILD_FILE):
+        with open(GUILD_FILE, "r") as f:
+            guilds = json.load(f)
+
+def save_guilds():
+    with open(GUILD_FILE, "w") as f:
+        json.dump(guilds, f, indent=4)
+
+def ensure_guild(gid):
+    gid = str(gid)
+    if gid not in guilds:
+        guilds[gid] = {
+            "killfeed": None,
+            "event": None,
+            "build": None,
+            "connect": None
+        }
+        save_guilds()
 
 # ================= HELPERS =================
-
-def should_ignore(line):
-    lower = line.lower()
-    for pattern in IGNORE_PATTERNS:
-        if pattern.lower() in lower:
-            return True
-    return False
-
 
 def style_embed(embed):
     embed.timestamp = datetime.now(timezone.utc)
     embed.set_thumbnail(url=BOT_IMAGE)
     return embed
 
+# ================= SAFE SEND =================
+
+async def send_embed(channel_id, embed):
+
+    try:
+        print(f"[FEED DEBUG] channel_id = {channel_id}")
+
+        if not channel_id or channel_id == 0:
+            print("[FEED ERROR] Invalid channel ID")
+            return
+
+        channel = bot.get_channel(channel_id)
+
+        if not channel:
+            print("[FEED ERROR] Channel not found")
+            return
+
+        await channel.send(embed=embed)
+
+        print("[FEED OK] Sent")
+
+    except Exception as e:
+        print(f"[FEED ERROR] {e}")
+
+# ================= SETUP COMMAND =================
+
+@bot.command()
+async def setup(ctx):
+
+    guild = ctx.guild
+    gid = str(guild.id)
+
+    ensure_guild(guild.id)
+
+    channels = {
+        "killfeed": "killfeed",
+        "event": "events",
+        "build": "builds",
+        "connect": "connect"
+    }
+
+    for key, name in channels.items():
+
+        existing = discord.utils.get(guild.text_channels, name=name)
+
+        if not existing:
+            ch = await guild.create_text_channel(name)
+        else:
+            ch = existing
+
+        guilds[gid][key] = ch.id
+
+    save_guilds()
+
+    await ctx.send("Guild system ready")
+
+# ================= ADM DOWNLOAD =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -144,39 +173,7 @@ def connect_ftp():
     ftp.prot_p()
     return ftp
 
-# ================= RCON =================
-
-async def rcon_loop():
-    while True:
-        try:
-            print("CONNECTING TO RCON...")
-
-            async with berconpy.ArmaClient().connect(
-                RCON_HOST,
-                RCON_PORT,
-                RCON_PASSWORD
-            ) as client:
-
-                print("RCON CONNECTED")
-
-                while True:
-                    try:
-                        players = await client.command("players")
-                        print(players)
-                    except Exception as e:
-                        print(f"RCON COMMAND ERROR: {e}")
-
-                    await asyncio.sleep(30)
-
-        except Exception as e:
-            print(f"RCON ERROR: {e}")
-            await asyncio.sleep(15)
-
-# ================= ADM FINDER =================
-
-def find_active_adm():
-    global current_adm, current_adm_size, growth_fail_count
-
+def download_adm():
     try:
         ftp = connect_ftp()
         ftp.cwd(SEARCH_DIR)
@@ -184,98 +181,53 @@ def find_active_adm():
         files = []
         ftp.retrlines("NLST", files.append)
 
-        adm_files = []
-
-        for file in files:
-            if not file.endswith(".ADM"):
-                continue
-
-            match = re.search(r"(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})", file)
-
-            if not match:
-                continue
-
-            dt_str = match.group(1) + " " + match.group(2).replace("-", ":")
-
-            file_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-
-            ftp.voidcmd("TYPE I")
-            size = ftp.size(file)
-
-            adm_files.append({
-                "name": file,
-                "path": f"{SEARCH_DIR}/{file}",
-                "datetime": file_dt,
-                "size": size
-            })
-
-        ftp.quit()
-
-        if not adm_files:
-            return None
-
-        adm_files.sort(key=lambda x: x["datetime"], reverse=True)
-        newest = adm_files[0]
-
-        current_adm = newest["path"]
-        current_adm_size = newest["size"]
-
-        return current_adm
-
-    except Exception as e:
-        print(f"ADM FINDER ERROR: {e}")
-        return current_adm
-
-# ================= DOWNLOAD =================
-
-def download_adm():
-    try:
-        active_adm = find_active_adm()
-        if not active_adm:
+        if not files:
             return False
 
-        ftp = connect_ftp()
-        ftp.cwd(SEARCH_DIR)
-
-        filename = os.path.basename(active_adm)
+        latest = files[-1]
 
         with open(LOCAL_LOG_FILE, "wb") as f:
-            ftp.retrbinary(f"RETR {filename}", f.write)
+            ftp.retrbinary(f"RETR {latest}", f.write)
 
         ftp.quit()
 
-        print(f"ADM DOWNLOADED: {filename}")
         return True
 
     except Exception as e:
-        print(f"DOWNLOAD ERROR: {e}")
+        print(f"ADM ERROR: {e}")
         return False
 
 # ================= PARSER =================
 
-def reset_parser_state():
-    global last_position, processed_lines
-    last_position = 0
-    processed_lines.clear()
+async def process_line(line, guild):
 
-# ================= DISCORD SEND =================
+    if "killed" in line:
+        embed = Embed(title="Killfeed", description=line, color=0xff0000)
+        await send_embed(guilds[str(guild.id)]["killfeed"], style_embed(embed))
 
-async def send_embed(channel_id, embed):
-    try:
-        channel = bot.get_channel(channel_id)
-        if channel:
-            await channel.send(embed=embed)
-    except Exception as e:
-        print(f"DISCORD SEND ERROR: {e}")
+    elif "is connected" in line:
+        embed = Embed(title="Connect", description=line, color=0x00ff00)
+        await send_embed(guilds[str(guild.id)]["connect"], style_embed(embed))
 
-# ================= ADM LOOP =================
+    elif "placed" in line or "built" in line:
+        embed = Embed(title="Build", description=line, color=0x0099ff)
+        await send_embed(guilds[str(guild.id)]["build"], style_embed(embed))
+
+# ================= LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
+
     try:
-        success = await asyncio.to_thread(download_adm)
-        if success:
-            print("ADM UPDATED")
+        if download_adm():
+
+            guild = bot.guilds[0] if bot.guilds else None
+            if not guild:
+                return
+
+            # fake line trigger placeholder (your real parser plugs here)
+            await process_line("test event kill", guild)
+
     except Exception as e:
         print(f"ADM LOOP ERROR: {e}")
 
@@ -285,15 +237,15 @@ async def adm_loop():
 async def on_ready():
     print(f"LOGGED IN AS {bot.user}")
 
+    load_guilds()
+
     if not adm_loop.is_running():
         adm_loop.start()
-
-    asyncio.create_task(rcon_loop())
 
 # ================= START =================
 
 if not DISCORD_TOKEN:
-    raise ValueError("DISCORD_TOKEN missing")
+    raise ValueError("Missing token")
 
 Thread(target=run_web, daemon=True).start()
 
