@@ -1,16 +1,21 @@
 import os
+import re
 import asyncio
 import logging
 import discord
-from discord.ext import commands, tasks
+import berconpy
+
+from flask import Flask
+from threading import Thread
 from ftplib import FTP_TLS
-from supabase import create_client
+from datetime import datetime, timezone
+from discord.ext import commands, tasks
 
 # ================= LOGGING =================
 
 logging.basicConfig(level=logging.INFO)
 
-# ================= BOT =================
+# ================= DISCORD =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -19,74 +24,36 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================= SUPABASE =================
-
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-
-# ================= REGISTRY =================
+# ================= GLOBALS =================
 
 guild_channels = {}
 channels_ready = False
 
-# ================= SERVER REGISTRY =================
+# ================= FTP =================
 
-def get_server_config(guild_id):
+FTP_HOST = os.getenv("FTP_HOST")
+FTP_USER = os.getenv("FTP_USER")
+FTP_PASS = os.getenv("FTP_PASS")
+FTP_PORT = int(os.getenv("FTP_PORT", 21))
 
-    res = supabase.table("server_registry") \
-        .select("*") \
-        .eq("guild_id", str(guild_id)) \
-        .eq("is_active", True) \
-        .execute()
+SEARCH_DIR = "/dayzxb/config"
+LOCAL_LOG_FILE = "live.ADM"
 
-    if not res.data:
-        return None
+# ================= CONNECT FTP =================
 
-    return res.data[0]
-
-# ================= NITRADO LINK COMMAND =================
-
-@bot.command()
-async def linkserver(ctx, name: str, host: str, user: str, password: str):
-
-    supabase.table("server_registry").upsert({
-        "guild_id": str(ctx.guild.id),
-        "server_name": name,
-        "ftp_host": host,
-        "ftp_user": user,
-        "ftp_pass": password,
-        "search_dir": "/dayzxb/config",
-        "is_active": True
-    }).execute()
-
-    await ctx.send("✅ Nitrado server linked successfully")
-
-# ================= FTP CONNECT =================
-
-def connect_ftp(config):
-
+def connect_ftp():
     ftp = FTP_TLS()
-    ftp.connect(config["ftp_host"], 21, timeout=60)
-    ftp.login(config["ftp_user"], config["ftp_pass"])
+    ftp.connect(FTP_HOST, FTP_PORT, timeout=60)
+    ftp.login(FTP_USER, FTP_PASS)
     ftp.prot_p()
-
     return ftp
 
-# ================= ADM DOWNLOAD PER GUILD =================
+# ================= ADM DOWNLOAD =================
 
-async def process_guild_adm(guild):
-
-    config = get_server_config(guild.id)
-
-    if not config:
-        print(f"[{guild.name}] No server linked")
-        return
-
+def download_adm():
     try:
-        ftp = connect_ftp(config)
-        ftp.cwd(config["search_dir"])
+        ftp = connect_ftp()
+        ftp.cwd(SEARCH_DIR)
 
         files = []
         ftp.retrlines("NLST", files.append)
@@ -94,31 +61,29 @@ async def process_guild_adm(guild):
         adm_files = [f for f in files if f.endswith(".ADM")]
 
         if not adm_files:
-            return
+            return False
 
         latest = sorted(adm_files)[-1]
 
-        with open("live.ADM", "wb") as f:
+        with open(LOCAL_LOG_FILE, "wb") as f:
             ftp.retrbinary(f"RETR {latest}", f.write)
 
         ftp.quit()
-
-        print(f"[{guild.name}] ADM UPDATED")
-
-        await parse_adm(guild)
+        return True
 
     except Exception as e:
-        print(f"[{guild.name}] ADM ERROR: {e}")
+        print(f"ADM ERROR: {e}")
+        return False
 
 # ================= FEED SYSTEM =================
 
-async def send_feed(guild, channel_key, embed):
+async def send_feed(guild, key, embed):
 
     if not channels_ready:
         return
 
     try:
-        channel = guild_channels[guild.id].get(channel_key)
+        channel = guild_channels[guild.id].get(key)
 
         if channel:
             await channel.send(embed=embed)
@@ -142,6 +107,20 @@ def is_noise(line):
         "playerlist log"
     ])
 
+# ================= 🧠 KILL PARSER (NEW INTELLIGENCE LAYER) =================
+
+def parse_kill(line):
+
+    match = re.search(r'"(.+?)".*killed.*"(.+?)"', line)
+
+    if not match:
+        return None
+
+    return {
+        "killer": match.group(1),
+        "victim": match.group(2)
+    }
+
 # ================= EVENT ENGINE =================
 
 async def process_line(line, guild):
@@ -151,7 +130,7 @@ async def process_line(line, guild):
 
     lower = line.lower()
 
-    # CONNECT
+    # ================= CONNECT =================
     if "is connected" in lower or "is connecting" in lower:
 
         embed = discord.Embed(
@@ -163,7 +142,7 @@ async def process_line(line, guild):
         await send_feed(guild, "connect", embed)
         return
 
-    # DISCONNECT
+    # ================= DISCONNECT =================
     if "has been disconnected" in lower:
 
         embed = discord.Embed(
@@ -175,23 +154,35 @@ async def process_line(line, guild):
         await send_feed(guild, "connect", embed)
         return
 
-    # KILL
-    if "killed player" in lower:
+    # ================= 💀 KILL (UPGRADED) =================
+    if "killed" in lower:
 
-        embed = discord.Embed(
-            title="Killfeed",
-            description=line,
-            color=0xff0000
-        )
+        data = parse_kill(line)
+
+        if data:
+
+            embed = discord.Embed(
+                title="💀 Killfeed",
+                description=f"**{data['killer']}** killed **{data['victim']}**",
+                color=0xff0000
+            )
+
+        else:
+
+            embed = discord.Embed(
+                title="💀 Killfeed",
+                description=line,
+                color=0xff0000
+            )
 
         await send_feed(guild, "kill", embed)
         return
 
-    # BUILD
+    # ================= BUILD =================
     if "placed" in lower or "built" in lower:
 
         embed = discord.Embed(
-            title="Build",
+            title="Build Event",
             description=line,
             color=0x0099ff
         )
@@ -205,10 +196,10 @@ async def parse_adm(guild):
 
     try:
 
-        if not os.path.exists("live.ADM"):
+        if not os.path.exists(LOCAL_LOG_FILE):
             return
 
-        with open("live.ADM", "r", encoding="utf-8", errors="ignore") as f:
+        with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
 
         for line in lines:
@@ -221,35 +212,11 @@ async def parse_adm(guild):
 
 # ================= LOOP =================
 
-@tasks.loop(seconds=20)
+@tasks.loop(seconds=15)
 async def adm_loop():
 
     for guild in bot.guilds:
         await process_guild_adm(guild)
-
-# ================= SETUP SYSTEM =================
-
-async def setup_guild_channels():
-
-    global channels_ready
-
-    for guild in bot.guilds:
-
-        guild_channels[guild.id] = {}
-
-        for key in ["kill", "connect", "build"]:
-
-            existing = discord.utils.get(guild.text_channels, name=key)
-
-            if not existing:
-                channel = await guild.create_text_channel(key)
-            else:
-                channel = existing
-
-            guild_channels[guild.id][key] = channel
-
-    channels_ready = True
-    print("[SETUP COMPLETE] Guild channels ready")
 
 # ================= READY =================
 
@@ -257,8 +224,6 @@ async def setup_guild_channels():
 async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
-
-    await setup_guild_channels()
 
     if not adm_loop.is_running():
         adm_loop.start()
