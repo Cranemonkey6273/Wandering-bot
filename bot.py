@@ -6,6 +6,7 @@ import discord
 from ftplib import FTP_TLS
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
+from discord import app_commands
 
 # ================= LOGGING =================
 
@@ -18,7 +19,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="/", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================= SUPABASE =================
 
@@ -29,12 +30,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ================= GLOBAL STATE =================
+# ================= STATE =================
 
 guild_channels = {}
 LOCAL_LOG_FILE = "live.ADM"
 
-# ================= FILTERS =================
+# ================= FILTER =================
 
 IGNORE_PATTERNS = [
     "script",
@@ -45,9 +46,9 @@ IGNORE_PATTERNS = [
 ]
 
 def is_noise(line):
-    return any(p in line.lower() for p in IGNORE_PATTERNS)
+    return any(x in line.lower() for x in IGNORE_PATTERNS)
 
-# ================= SERVER CONFIG =================
+# ================= CONFIG =================
 
 def get_server_config(guild_id):
 
@@ -65,7 +66,7 @@ def get_server_config(guild_id):
 
     return {"setup_state": "NOT_SETUP"}
 
-# ================= FTP (ALPHA SYSTEM - UNCHANGED) =================
+# ================= FTP =================
 
 def connect_ftp(config):
     ftp = FTP_TLS()
@@ -100,7 +101,7 @@ def download_adm(config):
         print(f"[ADM ERROR] {e}")
         return False
 
-# ================= CHANNEL SETUP =================
+# ================= CHANNELS =================
 
 async def create_channels(guild):
 
@@ -121,7 +122,7 @@ async def create_channels(guild):
 
         guild_channels[guild.id][key] = channel
 
-# ================= EVENT DETECTION =================
+# ================= EVENTS =================
 
 def detect_event(line):
 
@@ -133,7 +134,7 @@ def detect_event(line):
         return "connect"
     if "has been disconnected" in l:
         return "disconnect"
-    if "placed" in l or "built" in l:
+    if "placed" in l:
         return "build"
 
     return None
@@ -143,43 +144,12 @@ def detect_event(line):
 def parse_kill(line):
 
     match = re.search(r'"(.+?)".*killed.*"(.+?)"', line)
-    if not match:
-        return None
+    if match:
+        return match.group(1), match.group(2)
 
-    return match.group(1), match.group(2)
+    return None
 
-# ================= FACTIONS =================
-
-def get_faction(guild_id, player):
-
-    res = supabase.table("player_factions") \
-        .select("*") \
-        .eq("guild_id", str(guild_id)) \
-        .eq("player_name", player) \
-        .execute()
-
-    if res.data:
-        return res.data[0]["faction_name"]
-
-    return "None"
-
-# ================= ZONES =================
-
-ZONE_SIZE = 1000
-
-def get_zone(line):
-
-    match = re.search(r"pos=<([\d\.\-]+),\s*([\d\.\-]+)", line)
-
-    if not match:
-        return None
-
-    x = float(match.group(1))
-    y = float(match.group(2))
-
-    return f"{int(x // ZONE_SIZE)}:{int(y // ZONE_SIZE)}"
-
-# ================= EMBEDS =================
+# ================= EMBED =================
 
 def embed(title, desc, color):
     return discord.Embed(
@@ -191,31 +161,14 @@ def embed(title, desc, color):
 
 # ================= SEND =================
 
-async def send(guild, key, em):
+async def send(guild, key, embed_msg):
 
     ch = guild_channels.get(guild.id, {}).get(key)
 
     if ch:
-        await ch.send(embed=em)
+        await ch.send(embed=embed_msg)
 
-# ================= FACTION + ZONE TRACKER =================
-
-def update_zone_faction(guild_id, killer, victim, line):
-
-    zone = get_zone(line)
-
-    killer_faction = get_faction(guild_id, killer)
-
-    if zone:
-
-        supabase.table("zone_activity").upsert({
-            "guild_id": str(guild_id),
-            "zone": zone,
-            "faction": killer_faction,
-            "kills": 1
-        }, on_conflict=["guild_id", "zone", "faction"]).execute()
-
-# ================= PROCESS LINE =================
+# ================= PROCESS =================
 
 async def process_line(line, guild):
 
@@ -244,13 +197,8 @@ async def process_line(line, guild):
         parsed = parse_kill(line)
 
         if parsed:
-
             killer, victim = parsed
-
-            update_zone_faction(guild.id, killer, victim, line)
-
             desc = f"💀 {killer} killed {victim}"
-
         else:
             desc = line
 
@@ -281,31 +229,45 @@ async def adm_loop():
         except Exception as e:
             print(f"[ADM READ ERROR] {e}")
 
-# ================= SETUP =================
+# ================= SLASH SETUP =================
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setup(ctx, ftp_host, ftp_user, ftp_pass):
+@bot.tree.command(name="setup", description="Link server to ADM system")
+async def setup(
+    interaction: discord.Interaction,
+    ftp_host: str,
+    ftp_user: str,
+    ftp_pass: str
+):
 
-    guild_id = str(ctx.guild.id)
+    await interaction.response.send_message("⚙️ Setting up server...")
 
-    supabase.table("server_registry").upsert({
-        "guild_id": guild_id,
-        "ftp_host": ftp_host,
-        "ftp_user": ftp_user,
-        "ftp_pass": ftp_pass,
-        "search_dir": "/dayzxb/config",
-        "setup_state": "ACTIVE"
-    }).execute()
+    guild_id = str(interaction.guild.id)
 
-    await create_channels(ctx.guild)
+    try:
 
-    await ctx.send("✅ Setup complete. Alpha system active with factions + zones.")
+        supabase.table("server_registry").upsert({
+            "guild_id": guild_id,
+            "ftp_host": ftp_host,
+            "ftp_user": ftp_user,
+            "ftp_pass": ftp_pass,
+            "search_dir": "/dayzxb/config",
+            "setup_state": "ACTIVE"
+        }).execute()
+
+        await create_channels(interaction.guild)
+
+        await interaction.followup.send("✅ Setup complete. ADM active.")
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Setup failed: {e}")
 
 # ================= READY =================
 
 @bot.event
 async def on_ready():
+
+    await bot.tree.sync()
+
     print(f"LOGGED IN AS {bot.user}")
 
     if not adm_loop.is_running():
