@@ -47,7 +47,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 last_position = 0
 
-# ================= FTP =================
+# ================= FTP CONNECT =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -106,15 +106,16 @@ async def send_embed(channel_id, embed):
     except Exception as e:
         print(f"[FEED EXCEPTION] {e}")
 
-# ================= PROCESS LINE =================
+# ================= PROCESS LINE (FIXED LOGIC) =================
 
 async def process_line(line):
 
     print(f"[PROCESS LINE] {line}")
 
-    if "killed" in line:
+    lower = line.lower()
 
-        print("[EVENT] Kill detected")
+    # ================= KILL =================
+    if "killed" in lower and "player" in lower:
 
         embed = discord.Embed(
             title="Killfeed",
@@ -122,11 +123,13 @@ async def process_line(line):
             color=0xff0000
         )
 
+        print("[EVENT] KILL DETECTED")
+
         await send_embed(KILLFEED_CHANNEL_ID, embed)
+        return
 
-    elif "is connected" in line:
-
-        print("[EVENT] Connect detected")
+    # ================= CONNECT =================
+    if "is connected" in lower:
 
         embed = discord.Embed(
             title="Player Connected",
@@ -134,11 +137,13 @@ async def process_line(line):
             color=0x00ff00
         )
 
+        print("[EVENT] CONNECT DETECTED")
+
         await send_embed(CONNECT_CHANNEL_ID, embed)
+        return
 
-    elif "placed" in line or "built" in line:
-
-        print("[EVENT] Build detected")
+    # ================= BUILD =================
+    if "placed" in lower or "built" in lower:
 
         embed = discord.Embed(
             title="Build Event",
@@ -146,7 +151,10 @@ async def process_line(line):
             color=0x0099ff
         )
 
+        print("[EVENT] BUILD DETECTED")
+
         await send_embed(BUILD_CHANNEL_ID, embed)
+        return
 
 # ================= PARSER =================
 
