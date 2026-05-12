@@ -47,7 +47,26 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 last_position = 0
 
-# ================= FTP CONNECT =================
+# ================= IGNORE FILTER =================
+
+IGNORE_PATTERNS = [
+    "script",
+    "spawnobject",
+    "spawnobjects",
+    "globalsinit",
+    "onupdate",
+    "virtual machine",
+    "weapon.savecurrentfsmstate",
+    "backlit effects",
+    "module:",
+    "onstoreload",
+]
+
+def should_ignore(line):
+    lower = line.lower()
+    return any(p in lower for p in IGNORE_PATTERNS)
+
+# ================= FTP =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -56,9 +75,10 @@ def connect_ftp():
     ftp.prot_p()
     return ftp
 
-# ================= DOWNLOAD ADM =================
+# ================= FIXED ADM DOWNLOAD =================
 
 def download_adm():
+
     try:
         ftp = connect_ftp()
         ftp.cwd(SEARCH_DIR)
@@ -66,10 +86,21 @@ def download_adm():
         files = []
         ftp.retrlines("NLST", files.append)
 
-        if not files:
+        # 🔥 ONLY VALID ADM FILES
+        adm_files = [
+            f for f in files
+            if f.endswith(".ADM")
+            and "script" not in f.lower()
+            and "log" not in f.lower()
+        ]
+
+        if not adm_files:
+            print("NO VALID ADM FILES FOUND")
             return False
 
-        latest = files[-1]
+        latest = sorted(adm_files)[-1]
+
+        print(f"[ADM SELECTED] {latest}")
 
         with open(LOCAL_LOG_FILE, "wb") as f:
             ftp.retrbinary(f"RETR {latest}", f.write)
@@ -106,9 +137,12 @@ async def send_embed(channel_id, embed):
     except Exception as e:
         print(f"[FEED EXCEPTION] {e}")
 
-# ================= PROCESS LINE (FIXED LOGIC) =================
+# ================= EVENT PROCESSING =================
 
 async def process_line(line):
+
+    if should_ignore(line):
+        return
 
     print(f"[PROCESS LINE] {line}")
 
@@ -117,13 +151,13 @@ async def process_line(line):
     # ================= KILL =================
     if "killed" in lower and "player" in lower:
 
+        print("[EVENT] KILL")
+
         embed = discord.Embed(
             title="Killfeed",
             description=line,
             color=0xff0000
         )
-
-        print("[EVENT] KILL DETECTED")
 
         await send_embed(KILLFEED_CHANNEL_ID, embed)
         return
@@ -131,13 +165,13 @@ async def process_line(line):
     # ================= CONNECT =================
     if "is connected" in lower:
 
+        print("[EVENT] CONNECT")
+
         embed = discord.Embed(
             title="Player Connected",
             description=line,
             color=0x00ff00
         )
-
-        print("[EVENT] CONNECT DETECTED")
 
         await send_embed(CONNECT_CHANNEL_ID, embed)
         return
@@ -145,13 +179,13 @@ async def process_line(line):
     # ================= BUILD =================
     if "placed" in lower or "built" in lower:
 
+        print("[EVENT] BUILD")
+
         embed = discord.Embed(
             title="Build Event",
             description=line,
             color=0x0099ff
         )
-
-        print("[EVENT] BUILD DETECTED")
 
         await send_embed(BUILD_CHANNEL_ID, embed)
         return
@@ -185,7 +219,7 @@ async def parse_adm():
     except Exception as e:
         print(f"PARSER ERROR: {e}")
 
-# ================= ADM LOOP =================
+# ================= LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
@@ -195,7 +229,6 @@ async def adm_loop():
 
         if success:
             print("ADM UPDATED")
-
             await parse_adm()
 
     except Exception as e:
