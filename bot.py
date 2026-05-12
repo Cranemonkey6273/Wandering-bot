@@ -10,6 +10,7 @@ from threading import Thread
 from ftplib import FTP_TLS
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
+from supabase import create_client
 
 # ================= LOGGING =================
 
@@ -19,16 +20,22 @@ logging.basicConfig(level=logging.INFO)
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-# ================= CHANNEL IDS =================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-KILLFEED_CHANNEL_ID = int(os.getenv("KILLFEED_CHANNEL_ID", 0))
-EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
-BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
-CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ================= DISCORD =================
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ================= GLOBAL STATE =================
 
-channels_ready = False   # 🔥 NEW: setup gate
+guild_channels = {}
+channels_ready = False
 
 # ================= FTP =================
 
@@ -40,14 +47,7 @@ FTP_PORT = int(os.getenv("FTP_PORT", 21))
 SEARCH_DIR = "/dayzxb/config"
 LOCAL_LOG_FILE = "live.ADM"
 
-# ================= DISCORD =================
-
-intents = discord.Intents.default()
-intents.message_content = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# ================= FTP CONNECT =================
+# ================= CONNECT FTP =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -69,12 +69,9 @@ def download_adm():
         adm_files = [f for f in files if f.endswith(".ADM")]
 
         if not adm_files:
-            print("NO ADM FILES FOUND")
             return False
 
         latest = sorted(adm_files)[-1]
-
-        print(f"[ADM SELECTED] {latest}")
 
         with open(LOCAL_LOG_FILE, "wb") as f:
             ftp.retrbinary(f"RETR {latest}", f.write)
@@ -86,32 +83,88 @@ def download_adm():
         print(f"ADM ERROR: {e}")
         return False
 
-# ================= SAFE DISCORD SEND (GATED) =================
+# ================= DB SAVE =================
 
-async def send_embed(channel_id, embed):
+async def save_channel(guild_id, key, channel_id):
+
+    try:
+        supabase.table("guild_channels").upsert({
+            "guild_id": str(guild_id),
+            "channel_key": key,
+            "channel_id": str(channel_id)
+        }).execute()
+
+    except Exception as e:
+        print(f"[DB SAVE ERROR] {e}")
+
+# ================= DB LOAD =================
+
+async def load_guild_channels():
+
+    global guild_channels
+
+    try:
+        res = supabase.table("guild_channels").select("*").execute()
+
+        for row in res.data:
+
+            gid = int(row["guild_id"])
+            key = row["channel_key"]
+            cid = int(row["channel_id"])
+
+            if gid not in guild_channels:
+                guild_channels[gid] = {}
+
+            guild_channels[gid][key] = await bot.fetch_channel(cid)
+
+        print("[DB LOAD] Channels restored")
+
+    except Exception as e:
+        print(f"[DB LOAD ERROR] {e}")
+
+# ================= SETUP SYSTEM =================
+
+async def setup_guild_channels():
 
     global channels_ready
 
-    # 🔥 BLOCK FEEDS UNTIL SETUP IS DONE
+    for guild in bot.guilds:
+
+        print(f"[SETUP] {guild.name}")
+
+        if guild.id not in guild_channels:
+            guild_channels[guild.id] = {}
+
+        for key in ["kill", "connect", "build"]:
+
+            channel = discord.utils.get(guild.text_channels, name=key)
+
+            if not channel:
+                channel = await guild.create_text_channel(key)
+
+            guild_channels[guild.id][key] = channel
+
+            await save_channel(guild.id, key, channel.id)
+
+    channels_ready = True
+    print("[SETUP COMPLETE] Persistent system ready")
+
+# ================= SAFE FEED =================
+
+async def send_feed(guild, key, embed):
+
     if not channels_ready:
-        print("[FEED BLOCKED] Channels not ready yet")
+        print("[FEED BLOCKED] Setup not ready")
         return
 
     try:
-        print(f"[FEED DEBUG] channel_id: {channel_id}")
+        channel = guild_channels[guild.id].get(key)
 
-        if not channel_id or channel_id == 0:
-            print("[FEED ERROR] Invalid channel ID")
+        if not channel:
+            print(f"[FEED ERROR] Missing {key}")
             return
 
-        channel = bot.get_channel(channel_id)
-
-        if channel is None:
-            channel = await bot.fetch_channel(channel_id)
-
         await channel.send(embed=embed)
-
-        print("[FEED SUCCESS] Sent")
 
     except Exception as e:
         print(f"[FEED ERROR] {e}")
@@ -122,23 +175,15 @@ def is_noise(line):
 
     lower = line.lower()
 
-    noise = [
+    return any(x in lower for x in [
         "script",
         "spawnobject",
         "globalsinit",
-        "onupdate",
         "virtual machine",
         "weapon.savecurrentfsmstate",
-        "backlit effects",
         "module:",
-        "onstoreload",
-        "playerlist log",
-        "log c:\\",
-        "entity id:",
-        "function:"
-    ]
-
-    return any(n in lower for n in noise)
+        "playerlist log"
+    ])
 
 # ================= EVENT ENGINE =================
 
@@ -147,39 +192,35 @@ async def process_line(line):
     if is_noise(line):
         return
 
-    print(f"[PROCESS LINE] {line}")
-
     lower = line.lower()
+    guild = bot.guilds[0]
 
-    # ================= CONNECT =================
+    # CONNECT
     if "is connecting" in lower or "is connected" in lower:
-        print("[EVENT] CONNECT")
 
         embed = discord.Embed(
-            title="Player Connect",
+            title="Connect",
             description=line,
             color=0x00ff00
         )
 
-        await send_embed(CONNECT_CHANNEL_ID, embed)
+        await send_feed(guild, "connect", embed)
         return
 
-    # ================= DISCONNECT =================
-    if "has been disconnected" in lower or "disconnected" in lower:
-        print("[EVENT] DISCONNECT")
+    # DISCONNECT
+    if "has been disconnected" in lower:
 
         embed = discord.Embed(
-            title="Player Disconnect",
+            title="Disconnect",
             description=line,
             color=0x888888
         )
 
-        await send_embed(CONNECT_CHANNEL_ID, embed)
+        await send_feed(guild, "connect", embed)
         return
 
-    # ================= KILL =================
-    if "killed player" in lower or '" killed "' in lower:
-        print("[EVENT] KILL")
+    # KILL
+    if "killed player" in lower:
 
         embed = discord.Embed(
             title="Killfeed",
@@ -187,56 +228,46 @@ async def process_line(line):
             color=0xff0000
         )
 
-        await send_embed(KILLFEED_CHANNEL_ID, embed)
+        await send_feed(guild, "kill", embed)
         return
 
-    # ================= BUILD =================
+    # BUILD
     if "placed" in lower or "built" in lower:
-        print("[EVENT] BUILD")
 
         embed = discord.Embed(
-            title="Build Event",
+            title="Build",
             description=line,
             color=0x0099ff
         )
 
-        await send_embed(BUILD_CHANNEL_ID, embed)
+        await send_feed(guild, "build", embed)
         return
 
 # ================= PARSER =================
 
 async def parse_adm():
 
-    try:
+    if not os.path.exists(LOCAL_LOG_FILE):
+        return
 
-        if not os.path.exists(LOCAL_LOG_FILE):
-            return
+    with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
 
-        with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
-
-        for line in lines:
-            line = line.strip()
-            if line:
-                await process_line(line)
-
-    except Exception as e:
-        print(f"PARSER ERROR: {e}")
+    for line in lines:
+        line = line.strip()
+        if line:
+            await process_line(line)
 
 # ================= LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
 
-    try:
-        success = download_adm()
+    success = download_adm()
 
-        if success:
-            print("ADM UPDATED")
-            await parse_adm()
-
-    except Exception as e:
-        print(f"ADM LOOP ERROR: {e}")
+    if success:
+        print("ADM UPDATED")
+        await parse_adm()
 
 # ================= READY =================
 
@@ -247,14 +278,13 @@ async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
 
-    # 🔥 THIS IS THE IMPORTANT PART
-    # replace this later with your real setup system hook
-    channels_ready = True
-    print("CHANNEL SYSTEM READY (FEEDS UNLOCKED)")
+    await load_guild_channels()
+    await setup_guild_channels()
 
     if not adm_loop.is_running():
         adm_loop.start()
-        print("ADM LOOP STARTED")
+
+    print("SYSTEM FULLY ONLINE")
 
 # ================= START =================
 
