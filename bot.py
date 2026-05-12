@@ -20,7 +20,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-# ================= SUPABASE (ASSUMED INIT) =================
+# ================= SUPABASE =================
 
 from supabase import create_client
 
@@ -67,23 +67,21 @@ def get_server_config(guild_id):
 
     return {
         "guild_id": str(guild_id),
-        "ftp_host": None,
-        "ftp_user": None,
-        "ftp_pass": None,
+        "nitrado_user": None,
+        "service_id": None,
+        "api_token": None,
         "search_dir": "/dayzxb/config",
         "setup_state": "NOT_SETUP"
     }
 
-# ================= FTP =================
+# ================= FTP (UNCHANGED ADM SYSTEM) =================
 
 def connect_ftp(config):
     ftp = FTP_TLS()
-    ftp.connect(config["ftp_host"], 21, timeout=60)
-    ftp.login(config["ftp_user"], config["ftp_pass"])
+    ftp.connect(config.get("ftp_host", ""), 21, timeout=60)
+    ftp.login(config.get("ftp_user", ""), config.get("ftp_pass", ""))
     ftp.prot_p()
     return ftp
-
-# ================= ADM DOWNLOAD (UNCHANGED METHOD) =================
 
 def download_adm(config):
 
@@ -110,6 +108,27 @@ def download_adm(config):
     except Exception as e:
         print(f"[ADM ERROR] {e}")
         return False
+
+# ================= CHANNEL SETUP =================
+
+async def ensure_channels(guild):
+
+    guild_channels[guild.id] = {}
+
+    defaults = {
+        "kill": "killfeed",
+        "connect": "player-events",
+        "build": "build-feed"
+    }
+
+    for key, name in defaults.items():
+
+        channel = discord.utils.get(guild.text_channels, name=name)
+
+        if not channel:
+            channel = await guild.create_text_channel(name)
+
+        guild_channels[guild.id][key] = channel
 
 # ================= EVENT DETECTION =================
 
@@ -162,7 +181,7 @@ def embed(title, desc, color):
         timestamp=datetime.now(timezone.utc)
     )
 
-# ================= SEND SYSTEM =================
+# ================= SEND =================
 
 async def send(guild, key, em):
 
@@ -225,7 +244,8 @@ async def adm_loop():
 
         config = get_server_config(guild.id)
 
-        if not config or config.get("setup_state") != "ACTIVE":
+        # ONLY RUN IF FULLY SETUP
+        if config.get("setup_state") != "ACTIVE":
             continue
 
         success = download_adm(config)
@@ -243,32 +263,11 @@ async def adm_loop():
         except Exception as e:
             print(f"[ADM READ ERROR] {e}")
 
-# ================= CHANNEL CREATION =================
-
-async def ensure_channels(guild):
-
-    guild_channels[guild.id] = {}
-
-    defaults = {
-        "kill": "killfeed",
-        "connect": "player-events",
-        "build": "build-feed"
-    }
-
-    for key, name in defaults.items():
-
-        channel = discord.utils.get(guild.text_channels, name=name)
-
-        if not channel:
-            channel = await guild.create_text_channel(name)
-
-        guild_channels[guild.id][key] = channel
-
 # ================= SETUP COMMAND =================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def setup(ctx, ftp_host, ftp_user, ftp_pass):
+async def setup(ctx, nitrado_user, service_id, api_token):
 
     guild_id = str(ctx.guild.id)
 
@@ -276,9 +275,9 @@ async def setup(ctx, ftp_host, ftp_user, ftp_pass):
 
         supabase.table("server_registry").upsert({
             "guild_id": guild_id,
-            "ftp_host": ftp_host,
-            "ftp_user": ftp_user,
-            "ftp_pass": ftp_pass,
+            "nitrado_user": nitrado_user,
+            "service_id": service_id,
+            "api_token": api_token,
             "search_dir": "/dayzxb/config",
             "setup_state": "ACTIVE"
         }).execute()
@@ -288,7 +287,6 @@ async def setup(ctx, ftp_host, ftp_user, ftp_pass):
         await ctx.send("✅ Setup complete. Server is now ACTIVE.")
 
     except Exception as e:
-
         await ctx.send(f"❌ Setup failed: {e}")
 
 # ================= READY =================
