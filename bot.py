@@ -1,24 +1,22 @@
 # =========================================================
-# WANDERING BOT V2 - LIVE INTELLIGENCE SYSTEM
+# WANDERING BOT V3 - INTELLIGENCE + FACTIONS + AI
 # =========================================================
 
 import os
-import re
 import json
 import asyncio
-import requests
 import discord
 
 from datetime import datetime
-
-try:
-    from datetime import UTC
-except ImportError:
-    from datetime import timezone
-    UTC = timezone.utc
-
 from discord.ext import commands, tasks
 from discord import app_commands
+
+# =========================================================
+# OPENAI (AI LAYER)
+# =========================================================
+
+from openai import OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # =========================================================
 # BOT INIT
@@ -33,45 +31,85 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # =========================================================
-# CONSTANTS
-# =========================================================
-
-BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
-
-GUILD_CONFIG_FILE = "guild_configs.json"
-
-# =========================================================
-# GLOBAL STATE
+# STORAGE
 # =========================================================
 
 guild_configs = {}
 
 online_players = {}
 player_stats = {}
+swear_counts = {}
 
 # =========================================================
-# HELPERS
+# SWEARS
 # =========================================================
 
-def save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=4)
+SWEARS = ["fuck", "shit", "cunt", "bitch"]
 
-def load_json(path):
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return json.load(f)
-    return {}
+def check_swears(text, user):
 
-def save_configs():
-    save_json(GUILD_CONFIG_FILE, guild_configs)
+    text = text.lower()
 
-def load_configs():
+    count = sum(word in text for word in SWEARS)
+
+    if count > 0:
+        swear_counts[user] = swear_counts.get(user, 0) + count
+
+# =========================================================
+# CONFIG HELPERS
+# =========================================================
+
+def save_config():
+    with open("guild_configs.json", "w") as f:
+        json.dump(guild_configs, f, indent=4)
+
+def load_config():
     global guild_configs
-    guild_configs = load_json(GUILD_CONFIG_FILE)
+    try:
+        with open("guild_configs.json", "r") as f:
+            guild_configs = json.load(f)
+    except:
+        guild_configs = {}
 
 # =========================================================
-# PLAYER TRACKING
+# FACTION ROLE CHECK
+# =========================================================
+
+def has_permission(member, role_type, config):
+
+    allowed = config.get("roles", {}).get(role_type, [])
+
+    return any(role.id in allowed for role in member.roles)
+
+# =========================================================
+# AI CHAT SYSTEM
+# =========================================================
+
+async def ai_response(user, message):
+
+    prompt = f"""
+You are a DayZ survival assistant bot.
+
+Style:
+- slightly funny
+- slightly sarcastic
+- helpful
+- gives survival tips
+- max 2-3 sentences
+
+User: {user}
+Message: {message}
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return res.choices[0].message.content
+
+# =========================================================
+# CONNECT / DISCONNECT TRACKING
 # =========================================================
 
 def handle_connect(player):
@@ -87,57 +125,81 @@ def handle_disconnect(player):
     online_players.pop(player, None)
 
 # =========================================================
-# SETUP COMMAND (FULL SYSTEM)
+# SET ROLES (FACTIONS SYSTEM)
 # =========================================================
 
-@bot.tree.command(name="setup", description="Deploy full system")
-async def setup(interaction: discord.Interaction):
+@bot.tree.command(name="set_roles")
+async def set_roles(interaction: discord.Interaction, role_type: str, role: discord.Role):
 
-    guild = interaction.guild
-    guild_id = str(guild.id)
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {})
 
-    if guild_id not in guild_configs:
-        guild_configs[guild_id] = {}
+    roles = config.setdefault("roles", {
+        "admin_roles": [],
+        "faction_roles": [],
+        "moderator_roles": []
+    })
 
-    category = await guild.create_category("📡 WANDERING LIVE FEEDS")
+    if role.id not in roles[role_type]:
+        roles[role_type].append(role.id)
 
-    connects = await guild.create_text_channel("🚪・connects", category=category)
-    disconnects = await guild.create_text_channel("🔴・disconnects", category=category)
-    online = await guild.create_text_channel("🟢・online", category=category)
+    save_config()
 
-    leaderboard = await guild.create_text_channel("🏆・leaderboard", category=category)
-    heatmap = await guild.create_text_channel("📡・heatmap", category=category)
-
-    admin = await guild.create_text_channel("🛑・admin-chat")
-    helpc = await guild.create_text_channel("📘・bot-help")
-
-    await admin.set_permissions(guild.default_role, send_messages=False, read_messages=False)
-
-    guild_configs[guild_id] = {
-        "channels": {
-            "connects": connects.id,
-            "disconnects": disconnects.id,
-            "online": online.id,
-            "leaderboard": leaderboard.id,
-            "heatmap": heatmap.id,
-            "admin": admin.id,
-            "help": helpc.id
-        }
-    }
-
-    save_configs()
-
-    embed = discord.Embed(
-        title="📘 Wandering Bot Setup Complete",
-        description="All systems deployed successfully.",
-        color=0x00FFFF
+    await interaction.response.send_message(
+        f"✅ {role.name} added to {role_type}",
+        ephemeral=True
     )
 
-    await helpc.send(embed=embed)
-    await interaction.response.send_message("Setup complete", ephemeral=True)
+# =========================================================
+# FACTION COMMAND
+# =========================================================
+
+@bot.tree.command(name="create_faction")
+async def create_faction(interaction: discord.Interaction, name: str):
+
+    config = guild_configs.get(str(interaction.guild.id))
+
+    if not config or not has_permission(interaction.user, "faction_roles", config):
+        await interaction.response.send_message("❌ No permission", ephemeral=True)
+        return
+
+    await interaction.response.send_message(f"🏴 Faction {name} created", ephemeral=True)
 
 # =========================================================
-# 25-MIN LIVE ENGINE
+# SWEAR JAR
+# =========================================================
+
+@bot.tree.command(name="swearjar")
+async def swearjar(interaction: discord.Interaction):
+
+    top = sorted(swear_counts.items(), key=lambda x: x[1], reverse=True)
+
+    text = "\n".join([f"{u}: {c}" for u, c in top[:10]]) or "Clean server"
+
+    await interaction.response.send_message(text)
+
+# =========================================================
+# AI CHAT HOOK
+# =========================================================
+
+@bot.event
+async def on_message(message):
+
+    if message.author.bot:
+        return
+
+    check_swears(message.content, str(message.author))
+
+    if bot.user in message.mentions:
+
+        reply = await ai_response(message.author.name, message.content)
+
+        await message.channel.send(reply)
+
+    await bot.process_commands(message)
+
+# =========================================================
+# LIVE ENGINE (25 MIN)
 # =========================================================
 
 @tasks.loop(minutes=25)
@@ -191,21 +253,6 @@ async def live_engine():
         if lb_channel:
             await lb_channel.send(embed=embed_lb)
 
-        # =====================
-        # HEATMAP
-        # =====================
-
-        heatmap_channel = bot.get_channel(channels.get("heatmap"))
-
-        embed_map = discord.Embed(
-            title="📡 HEATMAP UPDATE",
-            description="Activity zones updated from server data.",
-            color=0x3498DB
-        )
-
-        if heatmap_channel:
-            await heatmap_channel.send(embed=embed_map)
-
 # =========================================================
 # READY
 # =========================================================
@@ -213,7 +260,7 @@ async def live_engine():
 @bot.event
 async def on_ready():
 
-    load_configs()
+    load_config()
 
     try:
         await bot.tree.sync()
