@@ -24,7 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 guild_channels = {}
 
-# ================= ADM STATE =================
+# ================= ADM FILE =================
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -43,7 +43,33 @@ def is_noise(line):
     lower = line.lower()
     return any(p in lower for p in IGNORE_PATTERNS)
 
-# ================= FTP (UNCHANGED SYSTEM) =================
+# ================= SERVER CONFIG (FIXED) =================
+
+def get_server_config(guild_id):
+
+    try:
+        res = supabase.table("server_registry") \
+            .select("*") \
+            .eq("guild_id", str(guild_id)) \
+            .execute()
+
+        if res.data:
+            return res.data[0]
+
+    except Exception as e:
+        print(f"[CONFIG ERROR] {e}")
+
+    # SAFE FALLBACK
+    return {
+        "guild_id": str(guild_id),
+        "ftp_host": None,
+        "ftp_user": None,
+        "ftp_pass": None,
+        "search_dir": "/dayzxb/config",
+        "setup_state": "NOT_SETUP"
+    }
+
+# ================= FTP =================
 
 def connect_ftp(config):
     ftp = FTP_TLS()
@@ -68,7 +94,7 @@ def detect_event(line):
 
     return None
 
-# ================= PARSERS =================
+# ================= KILL PARSER =================
 
 def parse_kill(line):
 
@@ -102,7 +128,7 @@ def embed(title, desc, color):
         timestamp=datetime.now(timezone.utc)
     )
 
-# ================= FEED =================
+# ================= SEND =================
 
 async def send(guild, key, em):
 
@@ -127,19 +153,7 @@ def update_player_stats(guild_id, killer, victim):
         "deaths": 1
     }, on_conflict=["guild_id", "player_name"]).execute()
 
-# ================= FACTIONS =================
-
-def get_faction(guild_id, player):
-
-    res = supabase.table("player_factions") \
-        .select("*") \
-        .eq("guild_id", str(guild_id)) \
-        .eq("player_name", player) \
-        .execute()
-
-    return res.data[0]["faction_name"] if res.data else None
-
-# ================= ADM DOWNLOAD (UNCHANGED LOGIC HOOK) =================
+# ================= ADM DOWNLOAD =================
 
 def download_adm(config):
 
@@ -167,7 +181,7 @@ def download_adm(config):
         print(f"[ADM ERROR] {e}")
         return False
 
-# ================= PARSER =================
+# ================= PROCESS LINE =================
 
 async def process_line(line, guild):
 
@@ -179,22 +193,18 @@ async def process_line(line, guild):
     if not event:
         return
 
-    # CONNECT
     if event == "connect":
         await send(guild, "connect", embed("Connect", line, 0x00ff00))
         return
 
-    # DISCONNECT
     if event == "disconnect":
         await send(guild, "connect", embed("Disconnect", line, 0x888888))
         return
 
-    # BUILD
     if event == "build":
         await send(guild, "build", embed("Build", line, 0x0099ff))
         return
 
-    # KILL
     if event == "kill":
 
         parsed = parse_kill(line)
@@ -217,7 +227,6 @@ async def process_line(line, guild):
             desc = line
 
         await send(guild, "kill", embed("Killfeed", desc, 0xff0000))
-        return
 
 # ================= ADM LOOP =================
 
@@ -228,20 +237,23 @@ async def adm_loop():
 
         config = get_server_config(guild.id)
 
-        if not config:
+        # ✅ FIXED GATE (IMPORTANT)
+        if not config or config.get("setup_state") != "ACTIVE":
             continue
 
         success = download_adm(config)
 
         if success:
 
-            if os.path.exists(LOCAL_LOG_FILE):
-
+            try:
                 with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
 
                 for line in lines:
                     await process_line(line.strip(), guild)
+
+            except Exception as e:
+                print(f"[ADM READ ERROR] {e}")
 
 # ================= READY =================
 
