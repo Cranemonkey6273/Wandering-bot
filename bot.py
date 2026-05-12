@@ -18,13 +18,20 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
+
+# ================= SUPABASE (ASSUMED INIT) =================
+
+from supabase import create_client
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ================= GLOBAL STATE =================
 
 guild_channels = {}
-
-# ================= ADM FILE =================
 
 LOCAL_LOG_FILE = "live.ADM"
 
@@ -40,10 +47,9 @@ IGNORE_PATTERNS = [
 ]
 
 def is_noise(line):
-    lower = line.lower()
-    return any(p in lower for p in IGNORE_PATTERNS)
+    return any(p in line.lower() for p in IGNORE_PATTERNS)
 
-# ================= SERVER CONFIG (FIXED) =================
+# ================= SERVER CONFIG =================
 
 def get_server_config(guild_id):
 
@@ -59,7 +65,6 @@ def get_server_config(guild_id):
     except Exception as e:
         print(f"[CONFIG ERROR] {e}")
 
-    # SAFE FALLBACK
     return {
         "guild_id": str(guild_id),
         "ftp_host": None,
@@ -78,9 +83,38 @@ def connect_ftp(config):
     ftp.prot_p()
     return ftp
 
+# ================= ADM DOWNLOAD (UNCHANGED METHOD) =================
+
+def download_adm(config):
+
+    try:
+        ftp = connect_ftp(config)
+        ftp.cwd(config.get("search_dir", "/dayzxb/config"))
+
+        files = []
+        ftp.retrlines("NLST", files.append)
+
+        adm_files = [f for f in files if f.endswith(".ADM")]
+
+        if not adm_files:
+            return False
+
+        latest = sorted(adm_files)[-1]
+
+        with open(LOCAL_LOG_FILE, "wb") as f:
+            ftp.retrbinary(f"RETR {latest}", f.write)
+
+        ftp.quit()
+        return True
+
+    except Exception as e:
+        print(f"[ADM ERROR] {e}")
+        return False
+
 # ================= EVENT DETECTION =================
 
 def detect_event(line):
+
     l = line.lower()
 
     if "killed" in l:
@@ -128,7 +162,7 @@ def embed(title, desc, color):
         timestamp=datetime.now(timezone.utc)
     )
 
-# ================= SEND =================
+# ================= SEND SYSTEM =================
 
 async def send(guild, key, em):
 
@@ -136,50 +170,6 @@ async def send(guild, key, em):
 
     if ch:
         await ch.send(embed=em)
-
-# ================= PLAYER STATS =================
-
-def update_player_stats(guild_id, killer, victim):
-
-    supabase.table("player_stats").upsert({
-        "guild_id": str(guild_id),
-        "player_name": killer,
-        "kills": 1
-    }, on_conflict=["guild_id", "player_name"]).execute()
-
-    supabase.table("player_stats").upsert({
-        "guild_id": str(guild_id),
-        "player_name": victim,
-        "deaths": 1
-    }, on_conflict=["guild_id", "player_name"]).execute()
-
-# ================= ADM DOWNLOAD =================
-
-def download_adm(config):
-
-    try:
-        ftp = connect_ftp(config)
-        ftp.cwd(config.get("search_dir", "/dayzxb/config"))
-
-        files = []
-        ftp.retrlines("NLST", files.append)
-
-        adm_files = [f for f in files if f.endswith(".ADM")]
-
-        if not adm_files:
-            return False
-
-        latest = sorted(adm_files)[-1]
-
-        with open(LOCAL_LOG_FILE, "wb") as f:
-            ftp.retrbinary(f"RETR {latest}", f.write)
-
-        ftp.quit()
-        return True
-
-    except Exception as e:
-        print(f"[ADM ERROR] {e}")
-        return False
 
 # ================= PROCESS LINE =================
 
@@ -213,8 +203,6 @@ async def process_line(line, guild):
 
             killer, victim, weapon, distance = parsed
 
-            update_player_stats(guild.id, killer, victim)
-
             desc = f"💀 {killer} killed {victim}"
 
             if weapon:
@@ -237,23 +225,71 @@ async def adm_loop():
 
         config = get_server_config(guild.id)
 
-        # ✅ FIXED GATE (IMPORTANT)
         if not config or config.get("setup_state") != "ACTIVE":
             continue
 
         success = download_adm(config)
 
-        if success:
+        if not success:
+            continue
 
-            try:
-                with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
+        try:
+            with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
 
-                for line in lines:
-                    await process_line(line.strip(), guild)
+            for line in lines:
+                await process_line(line.strip(), guild)
 
-            except Exception as e:
-                print(f"[ADM READ ERROR] {e}")
+        except Exception as e:
+            print(f"[ADM READ ERROR] {e}")
+
+# ================= CHANNEL CREATION =================
+
+async def ensure_channels(guild):
+
+    guild_channels[guild.id] = {}
+
+    defaults = {
+        "kill": "killfeed",
+        "connect": "player-events",
+        "build": "build-feed"
+    }
+
+    for key, name in defaults.items():
+
+        channel = discord.utils.get(guild.text_channels, name=name)
+
+        if not channel:
+            channel = await guild.create_text_channel(name)
+
+        guild_channels[guild.id][key] = channel
+
+# ================= SETUP COMMAND =================
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setup(ctx, ftp_host, ftp_user, ftp_pass):
+
+    guild_id = str(ctx.guild.id)
+
+    try:
+
+        supabase.table("server_registry").upsert({
+            "guild_id": guild_id,
+            "ftp_host": ftp_host,
+            "ftp_user": ftp_user,
+            "ftp_pass": ftp_pass,
+            "search_dir": "/dayzxb/config",
+            "setup_state": "ACTIVE"
+        }).execute()
+
+        await ensure_channels(ctx.guild)
+
+        await ctx.send("✅ Setup complete. Server is now ACTIVE.")
+
+    except Exception as e:
+
+        await ctx.send(f"❌ Setup failed: {e}")
 
 # ================= READY =================
 
