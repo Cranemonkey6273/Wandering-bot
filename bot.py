@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 
 logging.basicConfig(level=logging.INFO)
 
-# ================= DISCORD =================
+# ================= BOT =================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -32,7 +32,6 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # ================= GLOBAL STATE =================
 
 guild_channels = {}
-
 LOCAL_LOG_FILE = "live.ADM"
 
 # ================= FILTERS =================
@@ -41,7 +40,6 @@ IGNORE_PATTERNS = [
     "script",
     "spawnobject",
     "globalsinit",
-    "virtual machine",
     "weapon.savecurrentfsmstate",
     "playerlist log"
 ]
@@ -65,21 +63,14 @@ def get_server_config(guild_id):
     except Exception as e:
         print(f"[CONFIG ERROR] {e}")
 
-    return {
-        "guild_id": str(guild_id),
-        "nitrado_user": None,
-        "service_id": None,
-        "api_token": None,
-        "search_dir": "/dayzxb/config",
-        "setup_state": "NOT_SETUP"
-    }
+    return {"setup_state": "NOT_SETUP"}
 
-# ================= FTP (UNCHANGED ADM SYSTEM) =================
+# ================= FTP (ALPHA SYSTEM - UNCHANGED) =================
 
 def connect_ftp(config):
     ftp = FTP_TLS()
-    ftp.connect(config.get("ftp_host", ""), 21, timeout=60)
-    ftp.login(config.get("ftp_user", ""), config.get("ftp_pass", ""))
+    ftp.connect(config["ftp_host"], 21, timeout=60)
+    ftp.login(config["ftp_user"], config["ftp_pass"])
     ftp.prot_p()
     return ftp
 
@@ -111,7 +102,7 @@ def download_adm(config):
 
 # ================= CHANNEL SETUP =================
 
-async def ensure_channels(guild):
+async def create_channels(guild):
 
     guild_channels[guild.id] = {}
 
@@ -155,21 +146,38 @@ def parse_kill(line):
     if not match:
         return None
 
-    killer = match.group(1)
-    victim = match.group(2)
+    return match.group(1), match.group(2)
 
-    weapon = None
-    distance = None
+# ================= FACTIONS =================
 
-    w = re.search(r"with\s(\w+)", line)
-    if w:
-        weapon = w.group(1)
+def get_faction(guild_id, player):
 
-    d = re.search(r"(\d+)\s?m", line)
-    if d:
-        distance = int(d.group(1))
+    res = supabase.table("player_factions") \
+        .select("*") \
+        .eq("guild_id", str(guild_id)) \
+        .eq("player_name", player) \
+        .execute()
 
-    return killer, victim, weapon, distance
+    if res.data:
+        return res.data[0]["faction_name"]
+
+    return "None"
+
+# ================= ZONES =================
+
+ZONE_SIZE = 1000
+
+def get_zone(line):
+
+    match = re.search(r"pos=<([\d\.\-]+),\s*([\d\.\-]+)", line)
+
+    if not match:
+        return None
+
+    x = float(match.group(1))
+    y = float(match.group(2))
+
+    return f"{int(x // ZONE_SIZE)}:{int(y // ZONE_SIZE)}"
 
 # ================= EMBEDS =================
 
@@ -189,6 +197,23 @@ async def send(guild, key, em):
 
     if ch:
         await ch.send(embed=em)
+
+# ================= FACTION + ZONE TRACKER =================
+
+def update_zone_faction(guild_id, killer, victim, line):
+
+    zone = get_zone(line)
+
+    killer_faction = get_faction(guild_id, killer)
+
+    if zone:
+
+        supabase.table("zone_activity").upsert({
+            "guild_id": str(guild_id),
+            "zone": zone,
+            "faction": killer_faction,
+            "kills": 1
+        }, on_conflict=["guild_id", "zone", "faction"]).execute()
 
 # ================= PROCESS LINE =================
 
@@ -220,15 +245,11 @@ async def process_line(line, guild):
 
         if parsed:
 
-            killer, victim, weapon, distance = parsed
+            killer, victim = parsed
+
+            update_zone_faction(guild.id, killer, victim, line)
 
             desc = f"💀 {killer} killed {victim}"
-
-            if weapon:
-                desc += f"\n🔫 {weapon}"
-
-            if distance:
-                desc += f"\n📏 {distance}m"
 
         else:
             desc = line
@@ -244,7 +265,6 @@ async def adm_loop():
 
         config = get_server_config(guild.id)
 
-        # ONLY RUN IF FULLY SETUP
         if config.get("setup_state") != "ACTIVE":
             continue
 
@@ -255,39 +275,32 @@ async def adm_loop():
 
         try:
             with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-
-            for line in lines:
-                await process_line(line.strip(), guild)
+                for line in f:
+                    await process_line(line.strip(), guild)
 
         except Exception as e:
             print(f"[ADM READ ERROR] {e}")
 
-# ================= SETUP COMMAND =================
+# ================= SETUP =================
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def setup(ctx, nitrado_user, service_id, api_token):
+async def setup(ctx, ftp_host, ftp_user, ftp_pass):
 
     guild_id = str(ctx.guild.id)
 
-    try:
+    supabase.table("server_registry").upsert({
+        "guild_id": guild_id,
+        "ftp_host": ftp_host,
+        "ftp_user": ftp_user,
+        "ftp_pass": ftp_pass,
+        "search_dir": "/dayzxb/config",
+        "setup_state": "ACTIVE"
+    }).execute()
 
-        supabase.table("server_registry").upsert({
-            "guild_id": guild_id,
-            "nitrado_user": nitrado_user,
-            "service_id": service_id,
-            "api_token": api_token,
-            "search_dir": "/dayzxb/config",
-            "setup_state": "ACTIVE"
-        }).execute()
+    await create_channels(ctx.guild)
 
-        await ensure_channels(ctx.guild)
-
-        await ctx.send("✅ Setup complete. Server is now ACTIVE.")
-
-    except Exception as e:
-        await ctx.send(f"❌ Setup failed: {e}")
+    await ctx.send("✅ Setup complete. Alpha system active with factions + zones.")
 
 # ================= READY =================
 
@@ -298,6 +311,6 @@ async def on_ready():
     if not adm_loop.is_running():
         adm_loop.start()
 
-# ================= START =================
+# ================= RUN =================
 
 bot.run(DISCORD_TOKEN)
