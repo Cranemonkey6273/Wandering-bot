@@ -26,6 +26,10 @@ EVENT_CHANNEL_ID = int(os.getenv("EVENT_CHANNEL_ID", 0))
 BUILD_CHANNEL_ID = int(os.getenv("BUILD_CHANNEL_ID", 0))
 CONNECT_CHANNEL_ID = int(os.getenv("CONNECT_CHANNEL_ID", 0))
 
+# ================= GLOBAL STATE =================
+
+channels_ready = False   # 🔥 NEW: setup gate
+
 # ================= FTP =================
 
 FTP_HOST = os.getenv("FTP_HOST")
@@ -43,11 +47,7 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ================= GLOBALS =================
-
-last_position = 0
-
-# ================= FTP =================
+# ================= FTP CONNECT =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -59,7 +59,6 @@ def connect_ftp():
 # ================= ADM DOWNLOAD =================
 
 def download_adm():
-
     try:
         ftp = connect_ftp()
         ftp.cwd(SEARCH_DIR)
@@ -67,10 +66,7 @@ def download_adm():
         files = []
         ftp.retrlines("NLST", files.append)
 
-        adm_files = [
-            f for f in files
-            if f.endswith(".ADM")
-        ]
+        adm_files = [f for f in files if f.endswith(".ADM")]
 
         if not adm_files:
             print("NO ADM FILES FOUND")
@@ -90,11 +86,20 @@ def download_adm():
         print(f"ADM ERROR: {e}")
         return False
 
-# ================= SAFE SEND =================
+# ================= SAFE DISCORD SEND (GATED) =================
 
 async def send_embed(channel_id, embed):
 
+    global channels_ready
+
+    # 🔥 BLOCK FEEDS UNTIL SETUP IS DONE
+    if not channels_ready:
+        print("[FEED BLOCKED] Channels not ready yet")
+        return
+
     try:
+        print(f"[FEED DEBUG] channel_id: {channel_id}")
+
         if not channel_id or channel_id == 0:
             print("[FEED ERROR] Invalid channel ID")
             return
@@ -120,7 +125,6 @@ def is_noise(line):
     noise = [
         "script",
         "spawnobject",
-        "spawnobjects",
         "globalsinit",
         "onupdate",
         "virtual machine",
@@ -136,7 +140,7 @@ def is_noise(line):
 
     return any(n in lower for n in noise)
 
-# ================= EVENT ENGINE (RESTORED OMEGA STYLE) =================
+# ================= EVENT ENGINE =================
 
 async def process_line(line):
 
@@ -203,18 +207,13 @@ async def process_line(line):
 
 async def parse_adm():
 
-    global last_position
-
     try:
 
         if not os.path.exists(LOCAL_LOG_FILE):
             return
 
         with open(LOCAL_LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
-
-            f.seek(last_position)
             lines = f.readlines()
-            last_position = f.tell()
 
         for line in lines:
             line = line.strip()
@@ -244,7 +243,14 @@ async def adm_loop():
 @bot.event
 async def on_ready():
 
+    global channels_ready
+
     print(f"LOGGED IN AS {bot.user}")
+
+    # 🔥 THIS IS THE IMPORTANT PART
+    # replace this later with your real setup system hook
+    channels_ready = True
+    print("CHANNEL SYSTEM READY (FEEDS UNLOCKED)")
 
     if not adm_loop.is_running():
         adm_loop.start()
