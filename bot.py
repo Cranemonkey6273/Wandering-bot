@@ -47,25 +47,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 last_position = 0
 
-# ================= IGNORE FILTER =================
-
-IGNORE_PATTERNS = [
-    "script",
-    "spawnobject",
-    "spawnobjects",
-    "globalsinit",
-    "onupdate",
-    "virtual machine",
-    "weapon.savecurrentfsmstate",
-    "backlit effects",
-    "module:",
-    "onstoreload",
-]
-
-def should_ignore(line):
-    lower = line.lower()
-    return any(p in lower for p in IGNORE_PATTERNS)
-
 # ================= FTP =================
 
 def connect_ftp():
@@ -75,7 +56,7 @@ def connect_ftp():
     ftp.prot_p()
     return ftp
 
-# ================= FIXED ADM DOWNLOAD =================
+# ================= ADM DOWNLOAD =================
 
 def download_adm():
 
@@ -86,16 +67,13 @@ def download_adm():
         files = []
         ftp.retrlines("NLST", files.append)
 
-        # 🔥 ONLY VALID ADM FILES
         adm_files = [
             f for f in files
             if f.endswith(".ADM")
-            and "script" not in f.lower()
-            and "log" not in f.lower()
         ]
 
         if not adm_files:
-            print("NO VALID ADM FILES FOUND")
+            print("NO ADM FILES FOUND")
             return False
 
         latest = sorted(adm_files)[-1]
@@ -106,20 +84,17 @@ def download_adm():
             ftp.retrbinary(f"RETR {latest}", f.write)
 
         ftp.quit()
-
         return True
 
     except Exception as e:
         print(f"ADM ERROR: {e}")
         return False
 
-# ================= SAFE DISCORD SEND =================
+# ================= SAFE SEND =================
 
 async def send_embed(channel_id, embed):
 
     try:
-        print(f"[FEED DEBUG] channel_id: {channel_id}")
-
         if not channel_id or channel_id == 0:
             print("[FEED ERROR] Invalid channel ID")
             return
@@ -127,30 +102,79 @@ async def send_embed(channel_id, embed):
         channel = bot.get_channel(channel_id)
 
         if channel is None:
-            print("[FEED ERROR] Channel not found")
-            return
+            channel = await bot.fetch_channel(channel_id)
 
         await channel.send(embed=embed)
 
         print("[FEED SUCCESS] Sent")
 
     except Exception as e:
-        print(f"[FEED EXCEPTION] {e}")
+        print(f"[FEED ERROR] {e}")
 
-# ================= EVENT PROCESSING =================
+# ================= NOISE FILTER =================
+
+def is_noise(line):
+
+    lower = line.lower()
+
+    noise = [
+        "script",
+        "spawnobject",
+        "spawnobjects",
+        "globalsinit",
+        "onupdate",
+        "virtual machine",
+        "weapon.savecurrentfsmstate",
+        "backlit effects",
+        "module:",
+        "onstoreload",
+        "playerlist log",
+        "log c:\\",
+        "entity id:",
+        "function:"
+    ]
+
+    return any(n in lower for n in noise)
+
+# ================= EVENT ENGINE (RESTORED OMEGA STYLE) =================
 
 async def process_line(line):
 
-    if should_ignore(line):
+    if is_noise(line):
         return
 
     print(f"[PROCESS LINE] {line}")
 
     lower = line.lower()
 
-    # ================= KILL =================
-    if "killed" in lower and "player" in lower:
+    # ================= CONNECT =================
+    if "is connecting" in lower or "is connected" in lower:
+        print("[EVENT] CONNECT")
 
+        embed = discord.Embed(
+            title="Player Connect",
+            description=line,
+            color=0x00ff00
+        )
+
+        await send_embed(CONNECT_CHANNEL_ID, embed)
+        return
+
+    # ================= DISCONNECT =================
+    if "has been disconnected" in lower or "disconnected" in lower:
+        print("[EVENT] DISCONNECT")
+
+        embed = discord.Embed(
+            title="Player Disconnect",
+            description=line,
+            color=0x888888
+        )
+
+        await send_embed(CONNECT_CHANNEL_ID, embed)
+        return
+
+    # ================= KILL =================
+    if "killed player" in lower or '" killed "' in lower:
         print("[EVENT] KILL")
 
         embed = discord.Embed(
@@ -162,23 +186,8 @@ async def process_line(line):
         await send_embed(KILLFEED_CHANNEL_ID, embed)
         return
 
-    # ================= CONNECT =================
-    if "is connected" in lower:
-
-        print("[EVENT] CONNECT")
-
-        embed = discord.Embed(
-            title="Player Connected",
-            description=line,
-            color=0x00ff00
-        )
-
-        await send_embed(CONNECT_CHANNEL_ID, embed)
-        return
-
     # ================= BUILD =================
     if "placed" in lower or "built" in lower:
-
         print("[EVENT] BUILD")
 
         embed = discord.Embed(
@@ -208,13 +217,9 @@ async def parse_adm():
             last_position = f.tell()
 
         for line in lines:
-
             line = line.strip()
-
-            if not line:
-                continue
-
-            await process_line(line)
+            if line:
+                await process_line(line)
 
     except Exception as e:
         print(f"PARSER ERROR: {e}")
