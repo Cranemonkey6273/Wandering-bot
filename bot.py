@@ -10,7 +10,6 @@ from threading import Thread
 from ftplib import FTP_TLS
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
-from discord import Embed
 
 # ================= LOGGING =================
 
@@ -47,9 +46,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ================= GLOBALS =================
 
 last_position = 0
-processed_lines = set()
 
-# ================= FTP CONNECT =================
+# ================= FTP =================
 
 def connect_ftp():
     ftp = FTP_TLS()
@@ -84,26 +82,41 @@ def download_adm():
         print(f"ADM ERROR: {e}")
         return False
 
-# ================= FEED SENDER =================
+# ================= SAFE DISCORD SEND =================
 
 async def send_embed(channel_id, embed):
 
     try:
+        print(f"[FEED DEBUG] channel_id: {channel_id}")
+
+        if not channel_id or channel_id == 0:
+            print("[FEED ERROR] Invalid channel ID")
+            return
+
         channel = bot.get_channel(channel_id)
 
-        if channel:
-            await channel.send(embed=embed)
+        if channel is None:
+            print("[FEED ERROR] Channel not found")
+            return
+
+        await channel.send(embed=embed)
+
+        print("[FEED SUCCESS] Sent")
 
     except Exception as e:
-        print(f"DISCORD ERROR: {e}")
+        print(f"[FEED EXCEPTION] {e}")
 
 # ================= PROCESS LINE =================
 
 async def process_line(line):
 
+    print(f"[PROCESS LINE] {line}")
+
     if "killed" in line:
 
-        embed = Embed(
+        print("[EVENT] Kill detected")
+
+        embed = discord.Embed(
             title="Killfeed",
             description=line,
             color=0xff0000
@@ -113,8 +126,10 @@ async def process_line(line):
 
     elif "is connected" in line:
 
-        embed = Embed(
-            title="Connect",
+        print("[EVENT] Connect detected")
+
+        embed = discord.Embed(
+            title="Player Connected",
             description=line,
             color=0x00ff00
         )
@@ -123,8 +138,10 @@ async def process_line(line):
 
     elif "placed" in line or "built" in line:
 
-        embed = Embed(
-            title="Build",
+        print("[EVENT] Build detected")
+
+        embed = discord.Embed(
+            title="Build Event",
             description=line,
             color=0x0099ff
         )
@@ -160,20 +177,17 @@ async def parse_adm():
     except Exception as e:
         print(f"PARSER ERROR: {e}")
 
-# ================= ADM LOOP (FIXED) =================
+# ================= ADM LOOP =================
 
 @tasks.loop(seconds=15)
 async def adm_loop():
 
     try:
-
         success = download_adm()
 
         if success:
-
             print("ADM UPDATED")
 
-            # 🔥 THIS WAS THE MISSING LINK
             await parse_adm()
 
     except Exception as e:
