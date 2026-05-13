@@ -14,7 +14,6 @@ import discord
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from discord import app_commands
-from PIL import Image, ImageDraw
 
 # =========================================================
 # DISCORD
@@ -423,23 +422,99 @@ ZONE_POINTS = {
 
 
 def generate_guild_heatmap_image(guild_id: str):
-    img = Image.new("RGBA", (512, 384), (18, 18, 25, 255))
-    draw = ImageDraw.Draw(img, "RGBA")
+    import math
+    import struct
+    import zlib
+
+    width = 512
+    height = 384
+    pixels = [
+        [(18, 18, 25, 255) for _ in range(width)]
+        for _ in range(height)
+    ]
+
+    def blend_pixel(px, py, color):
+        if px < 0 or px >= width or py < 0 or py >= height:
+            return
+
+        sr, sg, sb, sa = color
+        dr, dg, db, da = pixels[py][px]
+        alpha = sa / 255
+        inv_alpha = 1 - alpha
+
+        pixels[py][px] = (
+            int(sr * alpha + dr * inv_alpha),
+            int(sg * alpha + dg * inv_alpha),
+            int(sb * alpha + db * inv_alpha),
+            da,
+        )
+
+    def draw_heat_circle(cx, cy, radius, color):
+        radius_sq = radius * radius
+
+        for py in range(cy - radius, cy + radius + 1):
+            for px in range(cx - radius, cx + radius + 1):
+                dx = px - cx
+                dy = py - cy
+                dist_sq = dx * dx + dy * dy
+
+                if dist_sq > radius_sq:
+                    continue
+
+                distance = math.sqrt(dist_sq)
+                fade = max(0.0, 1.0 - (distance / radius))
+                alpha = int(color[3] * fade)
+                blend_pixel(px, py, (color[0], color[1], color[2], alpha))
+
+    def draw_cross(cx, cy):
+        for offset in range(-5, 6):
+            blend_pixel(cx + offset, cy, (255, 255, 255, 230))
+            blend_pixel(cx, cy + offset, (255, 255, 255, 230))
+
+    def png_chunk(chunk_type, data):
+        chunk = chunk_type + data
+        return (
+            struct.pack(">I", len(data))
+            + chunk
+            + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
+        )
+
     zone_counts = territory_heat.get(guild_id, {})
     max_count = max(zone_counts.values()) if zone_counts else 1
+
     for zone, count in zone_counts.items():
         if zone not in ZONE_POINTS:
             continue
+
         x, y = ZONE_POINTS[zone]
         intensity = max(0.2, min(1.0, count / max_count))
-        for r, alpha in [(65, int(50*intensity)), (45, int(90*intensity)), (25, int(150*intensity))]:
-            draw.ellipse((x-r, y-r, x+r, y+r), fill=(255, 80, 0, alpha))
-        draw.text((x+8, y+8), zone, fill=(255, 255, 255, 220))
+
+        draw_heat_circle(x, y, 70, (255, 45, 0, int(45 * intensity)))
+        draw_heat_circle(x, y, 48, (255, 80, 0, int(90 * intensity)))
+        draw_heat_circle(x, y, 25, (255, 180, 0, int(170 * intensity)))
+        draw_cross(x, y)
+
+    raw = bytearray()
+
+    for row in pixels:
+        raw.append(0)
+        for r, g, b, a in row:
+            raw.extend([r, g, b, a])
+
+    png_data = b"".join([
+        b"\x89PNG\r\n\x1a\n",
+        png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)),
+        png_chunk(b"IDAT", zlib.compress(bytes(raw), level=9)),
+        png_chunk(b"IEND", b""),
+    ])
+
     fd, path = tempfile.mkstemp(prefix=f"heat_{guild_id}_", suffix=".png")
     os.close(fd)
-    img.save(path, format="PNG")
-    return path
 
+    with open(path, "wb") as f:
+        f.write(png_data)
+
+    return path
 # =========================================================
 # AUTO GUILD SETUP
 # =========================================================
