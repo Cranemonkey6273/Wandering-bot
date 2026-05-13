@@ -327,14 +327,24 @@ def ping_latest_adm_log(config):
             for entry in entries:
                 print(f"FOUND FILE: {entry.get('name')}")
 
-            matching_logs = [
-                entry for entry in entries
-                if re.match(
-                    r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
-                    entry.get("name", ""),
-                    re.IGNORECASE
-                )
-            ]
+            matching_logs = []
+
+            for entry in entries:
+                name = entry.get("name", "")
+                entry_type = str(entry.get("type", "")).lower()
+
+                if entry_type == "dir":
+                    continue
+
+                # Be resilient to Nitrado file naming variations:
+                # some servers now include extra separators/suffixes.
+                if not name.lower().endswith(".adm"):
+                    continue
+
+                if "dayzserver" not in name.lower():
+                    continue
+
+                matching_logs.append(entry)
 
             if not matching_logs:
                 print("NO MATCHING ADM FILES")
