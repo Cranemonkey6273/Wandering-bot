@@ -1,5 +1,5 @@
 # =========================================================
-# WANDERING BOT ALPHA - FINAL TEST
+# WANDERING BOT ALPHA - MULTI GUILD EDITION
 # =========================================================
 
 import os
