@@ -6,7 +6,6 @@ import os
 import re
 import json
 import asyncio
-import random
 import requests
 from ftplib import FTP_TLS
 import discord
@@ -27,7 +26,7 @@ intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned,
+    command_prefix="!",
     intents=intents
 )
 
@@ -73,24 +72,6 @@ longshot_records = {}
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
-
-last_bot_reply_times = {}
-BOT_REPLY_COOLDOWN_SECONDS = 180
-BOT_RANDOM_REMARK_CHANCE = 0.015
-
-FUNNY_REMARKS = [
-    "I'm not saying your aim is bad... but even the zombies duck.",
-    "Reminder: friendly fire is still fire.",
-    "If you hear wolves, run faster than your friend.",
-    "I checked the map. You are still lost.",
-]
-
-BOT_SELF_SWEAR_LINES = [
-    "Oi <@{target}>... you absolute loot goblin. Bot fined itself 50 pennies for that. 🤖💸",
-    "<@{target}> stop hoarding beans. Bot swore and paid 50 pennies into the void. 😅",
-]
-
-bot_self_fines_total = 0
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -379,13 +360,12 @@ def ping_latest_adm_log(config):
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 20
-LEADERBOARD_UPDATE_MINUTES = 20
-HEATMAP_UPDATE_MINUTES = 20
+ONLINE_UPDATE_MINUTES = 15
+LEADERBOARD_UPDATE_MINUTES = 15
+HEATMAP_UPDATE_MINUTES = 15
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
-last_heatmap_message_ids = {}
 
 # =========================================================
 # CLICKABLE MAP LINKS
@@ -558,19 +538,9 @@ async def setup_command(
         )
 
         if not channel:
-            overwrites = None
-            if key == "announcements":
-                overwrites = {
-                    interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-                    interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-                }
-                for member in interaction.guild.members:
-                    if member.guild_permissions.administrator:
-                        overwrites[member] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
             channel = await interaction.guild.create_text_channel(
                 name,
-                category=category,
-                overwrites=overwrites
+                category=category
             )
 
         guild_configs[guild_id]["channels"][key] = channel.id
@@ -588,7 +558,6 @@ async def setup_command(
     await ensure_channel("longshots", "🎯・longshots")
     await ensure_channel("restart_alerts", "📢・restart-alerts")
     await ensure_channel("welcome", "👋・welcome")
-    await ensure_channel("announcements", "📣✨・wandering-announcements・✨📣")
     await ensure_channel("general_chat", "💬・survivor-chat")
     await ensure_channel("factions_chat", "🏴・factions")
     await ensure_channel("faction_list", "📜・faction-list")
@@ -1010,7 +979,7 @@ async def parse_adm(guild_id, config):
                 welcome_embed = discord.Embed(
                     title="👋 SURVIVOR ENTERED CHERNARUS",
                     description=(
-                        f"**{player_name}** connected to the server.\n\n"
+                        f"**{player_name}** connected to the server.\\n\\n"
                         f"{welcome_text}"
                     ),
                     color=0x1ABC9C
@@ -1683,35 +1652,12 @@ async def on_message(message):
             embed=style_embed(embed)
         )
 
-
-
-    # Anti-spam: only reply occasionally and with per-channel cooldown
-    now_ts = datetime.now(UTC).timestamp()
-    ch_key = str(message.channel.id)
-    last_ts = last_bot_reply_times.get(ch_key, 0)
-    can_reply = (now_ts - last_ts) >= BOT_REPLY_COOLDOWN_SECONDS
-
-    if can_reply and random.random() < BOT_RANDOM_REMARK_CHANCE:
-        await message.channel.send(random.choice(FUNNY_REMARKS))
-        last_bot_reply_times[ch_key] = now_ts
-
-    # Rare chaos joke: bot "swears" at random user then fines itself (for fun)
-    if can_reply and random.random() < 0.003:
-        candidates = [m for m in message.guild.members if not m.bot]
-        if candidates:
-            target = random.choice(candidates)
-            global bot_self_fines_total
-            bot_self_fines_total += 50
-            await message.channel.send(random.choice(BOT_SELF_SWEAR_LINES).format(target=target.id))
-            last_bot_reply_times[ch_key] = now_ts
-
     for keyword, response in AI_RESPONSES.items():
 
         if keyword in lower:
 
-            if can_reply:
-                await message.channel.send(response)
-                last_bot_reply_times[ch_key] = now_ts
+            await message.channel.send(response)
+
             break
 
     user_id = str(message.author.id)
@@ -1794,8 +1740,7 @@ async def on_message(message):
                 embed=style_embed(redemption_embed)
             )
 
-    # Strict slash-only mode in backup build
-    return
+    await bot.process_commands(message)
 
 # =========================================================
 # OWNER MONITORING SYSTEM
@@ -3359,15 +3304,7 @@ async def online_dashboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_id = last_online_message_ids.get(guild_id)
-            if old_id:
-                try:
-                    old_msg = await online_channel.fetch_message(old_id)
-                    await old_msg.delete()
-                except Exception:
-                    pass
-            new_msg = await online_channel.send(embed=embed)
-            last_online_message_ids[guild_id] = new_msg.id
+            await online_channel.send(embed=embed)
 
         except Exception as error:
             print(error)
@@ -3434,15 +3371,7 @@ async def heatmap_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_id = last_heatmap_message_ids.get(guild_id)
-            if old_id:
-                try:
-                    old_msg = await heatmap_channel.fetch_message(old_id)
-                    await old_msg.delete()
-                except Exception:
-                    pass
-            new_msg = await heatmap_channel.send(embed=embed)
-            last_heatmap_message_ids[guild_id] = new_msg.id
+            await heatmap_channel.send(embed=embed)
 
         except Exception as error:
             print(error)
@@ -3484,11 +3413,9 @@ async def leaderboard_loop():
                     f"{index}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
                 )
 
-            local_lines = lines[:10]
-            combined = "**🌍 Global Top Players**\n" + ("\n".join(lines) if lines else "No stats yet.") + "\n\n**🏠 This Server Top Players**\n" + ("\n".join(local_lines) if local_lines else "No local stats yet.")
             embed = discord.Embed(
-                title="🏆 GLOBAL + SERVER LEADERBOARDS 🏆",
-                description=combined,
+                title="🏆 GLOBAL SURVIVOR LEADERBOARDS 🏆",
+                description="\n".join(lines) if lines else "No stats yet.",
                 color=0xF1C40F
             )
 
@@ -3500,15 +3427,7 @@ async def leaderboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_id = last_leaderboard_message_ids.get(guild_id)
-            if old_id:
-                try:
-                    old_msg = await leaderboard_channel.fetch_message(old_id)
-                    await old_msg.delete()
-                except Exception:
-                    pass
-            new_msg = await leaderboard_channel.send(embed=embed)
-            last_leaderboard_message_ids[guild_id] = new_msg.id
+            await leaderboard_channel.send(embed=embed)
 
         except Exception as error:
             print(error)
@@ -4316,63 +4235,6 @@ SpawnWanderingDeliveries();
 # READY
 # =========================================================
 
-
-
-# Slash command menu (spare build addition)
-class CommandScopeSelect(discord.ui.Select):
-    def __init__(self, is_admin: bool):
-        opts=[discord.SelectOption(label="Player Commands", value="player", description="Commands for all players")]
-        if is_admin:
-            opts.append(discord.SelectOption(label="Admin Commands", value="admin", description="Admin command list"))
-        super().__init__(placeholder="Choose command group", min_values=1, max_values=1, options=opts)
-
-    async def callback(self, interaction: discord.Interaction):
-        if self.values[0]=="admin":
-            msg=("`/setup`, `/setroles`, `/setchannel`, `/setnitrado`, `/commands`\n"
-                 "Use slash commands; legacy prefix commands are disabled in this spare build.")
-        else:
-            msg=("`/link`, `/unlink`, `/mylink`, `/commands`\n"
-                 "Use slash commands; legacy prefix commands are disabled in this spare build.")
-        await interaction.response.send_message(msg, ephemeral=True)
-
-class CommandScopeView(discord.ui.View):
-    def __init__(self, is_admin: bool):
-        super().__init__(timeout=120)
-        self.add_item(CommandScopeSelect(is_admin))
-
-@bot.tree.command(name="commands", description="Show available slash commands by role")
-async def commands_menu(interaction: discord.Interaction):
-    gid = str(interaction.guild.id)
-    config = guild_configs.get(gid, {})
-    allowed_roles = config.get("admin_roles", DEFAULT_ADMIN_ROLES)
-    role_names = [r.name for r in interaction.user.roles]
-    is_admin = any(r in allowed_roles for r in role_names) or interaction.user.guild_permissions.administrator
-    await interaction.response.send_message("Choose a command group:", view=CommandScopeView(is_admin), ephemeral=True)
-
-
-
-
-@bot.tree.command(name="broadcast_announcement", description="Owner broadcast to all guild announcement channels")
-@app_commands.describe(message="Announcement text to send globally")
-async def broadcast_announcement(interaction: discord.Interaction, message: str):
-    owner_id = os.getenv("BOT_OWNER_USER_ID")
-    if not owner_id or str(interaction.user.id) != str(owner_id):
-        await interaction.response.send_message("❌ Owner only.", ephemeral=True)
-        return
-
-    sent = 0
-    for gid, config in guild_configs.items():
-        ch_id = config.get("channels", {}).get("announcements")
-        ch = bot.get_channel(ch_id) if ch_id else None
-        if ch:
-            try:
-                await ch.send(f"📣 **Wandering Bot Announcement** 📣\n{message}\n\nEmergency contact: <@{owner_id}>")
-                sent += 1
-            except Exception:
-                pass
-
-    await interaction.response.send_message(f"✅ Broadcast sent to {sent} servers.", ephemeral=True)
-
 @bot.event
 async def on_ready():
 
@@ -4391,18 +4253,11 @@ async def on_ready():
     load_heatmap()
     load_swear_jar()
     load_linked_players()
-    try:
-        load_shop()
-        load_wallets()
-        load_delivery_queue()
-    except Exception as e:
-        print("ECONOMY LOAD ERROR:", e)
+    load_shop()
+    load_wallets()
+    load_delivery_queue()
 
-    try:
-        await start_background_tasks()
-        print("BACKGROUND TASKS STARTED")
-    except Exception as e:
-        print("TASK START ERROR:", e)
+    await start_background_tasks()
 
 # =========================================================
 # START
