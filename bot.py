@@ -72,6 +72,7 @@ longshot_records = {}
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
+OWNER_DISCORD_ID = os.getenv("OWNER_DISCORD_ID", "").strip()
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -270,6 +271,10 @@ def ping_latest_adm_log(config):
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
     nitrado_user = config.get("nitrado_user")
+    platform = config.get("platform", "dayzxb").strip() or "dayzxb"
+
+    if not token or not service_id or not nitrado_user:
+        return None
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -277,14 +282,14 @@ def ping_latest_adm_log(config):
     }
 
     search_paths = [
-        f"/games/{nitrado_user}/noftp/dayzxb/config/",
-        f"/games/{nitrado_user}/noftp/dayzxb/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/",
-        f"/games/{nitrado_user}/noftp/dayzxb/storage_1/",
-        f"/games/{nitrado_user}/noftp/dayzxb/profiles/",
-        f"/games/{nitrado_user}/noftp/dayzxb/logs/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.chernarusplus/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.enoch/",
+        f"/games/{nitrado_user}/noftp/{platform}/config/",
+        f"/games/{nitrado_user}/noftp/{platform}/",
+        f"/games/{nitrado_user}/noftp/{platform}/mpmissions/",
+        f"/games/{nitrado_user}/noftp/{platform}/storage_1/",
+        f"/games/{nitrado_user}/noftp/{platform}/profiles/",
+        f"/games/{nitrado_user}/noftp/{platform}/logs/",
+        f"/games/{nitrado_user}/noftp/{platform}/mpmissions/dayzOffline.chernarusplus/",
+        f"/games/{nitrado_user}/noftp/{platform}/mpmissions/dayzOffline.enoch/",
         f"/games/{nitrado_user}/noftp/"
     ]
 
@@ -327,24 +332,14 @@ def ping_latest_adm_log(config):
             for entry in entries:
                 print(f"FOUND FILE: {entry.get('name')}")
 
-            matching_logs = []
-
-            for entry in entries:
-                name = entry.get("name", "")
-                entry_type = str(entry.get("type", "")).lower()
-
-                if entry_type == "dir":
-                    continue
-
-                # Be resilient to Nitrado file naming variations:
-                # some servers now include extra separators/suffixes.
-                if not name.lower().endswith(".adm"):
-                    continue
-
-                if "dayzserver" not in name.lower():
-                    continue
-
-                matching_logs.append(entry)
+            matching_logs = [
+                entry for entry in entries
+                if re.match(
+                    r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
+                    entry.get("name", ""),
+                    re.IGNORECASE
+                )
+            ]
 
             if not matching_logs:
                 print("NO MATCHING ADM FILES")
@@ -444,6 +439,7 @@ async def on_guild_join(guild):
     faction_tickets = await make_channel("🎫・faction-tickets")
     faction_staff = await make_channel("🛡️・faction-staff")
     zombie_feed = await make_channel("🧟・zombie-feed")
+    bot_announcements = await make_channel("📢・wandering-bot-announcements")
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -481,10 +477,22 @@ async def on_guild_join(guild):
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id,
             "zombie_feed": zombie_feed.id
+            ,
+            "bot_announcements": bot_announcements.id
         }
     }
 
     save_guild_configs()
+
+
+@bot.event
+async def on_guild_remove(guild):
+
+    guild_id = str(guild.id)
+
+    if guild_id in guild_configs:
+        del guild_configs[guild_id]
+        save_guild_configs()
 
 # =========================================================
 # /SETUP COMMAND
@@ -499,7 +507,8 @@ async def on_guild_join(guild):
     service_id="Your Nitrado service ID",
     nitrado_user="Example: ni12248929_2",
     ftp_user="Your Nitrado FTP username",
-    ftp_password="Your Nitrado FTP password"
+    ftp_password="Your Nitrado FTP password",
+    platform="DayZ platform folder (default: dayzxb)"
 )
 async def setup_command(
     interaction: discord.Interaction,
@@ -507,7 +516,8 @@ async def setup_command(
     service_id: str,
     nitrado_user: str,
     ftp_user: str,
-    ftp_password: str
+    ftp_password: str,
+    platform: str = "dayzxb"
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -583,10 +593,12 @@ async def setup_command(
     await ensure_channel("faction_tickets", "🎫・faction-tickets")
     await ensure_channel("faction_staff", "🛡️・faction-staff")
     await ensure_channel("zombie_feed", "🧟・zombie-feed")
+    await ensure_channel("bot_announcements", "📢・wandering-bot-announcements")
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
     guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
+    guild_configs[guild_id]["platform"] = platform.strip().lower() or "dayzxb"
     guild_configs[guild_id]["ftp_user"] = ftp_user
     guild_configs[guild_id]["ftp_password"] = ftp_password
 
@@ -696,6 +708,40 @@ async def setup_command(
         "✅ Wandering Bot fully connected and operational.",
         ephemeral=True
     )
+
+
+@bot.command(name="announcewb")
+async def announce_wandering_bot(ctx, *, message: str):
+
+    if not OWNER_DISCORD_ID or str(ctx.author.id) != OWNER_DISCORD_ID:
+        await ctx.send("❌ This command is restricted to the bot owner.")
+        return
+
+    embed = discord.Embed(
+        title="📢 Wandering Bot Announcement",
+        description=message,
+        color=0x3498DB
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Announcement from Wandering Bot Owner")
+    embed.timestamp = datetime.now(UTC)
+
+    sent_count = 0
+
+    for guild_id, config in guild_configs.items():
+        channel_id = config.get("channels", {}).get("bot_announcements")
+        channel = bot.get_channel(channel_id) if channel_id else None
+
+        if not channel:
+            continue
+
+        try:
+            await channel.send(embed=embed)
+            sent_count += 1
+        except Exception as error:
+            print(f"[ANNOUNCE FAIL] guild={guild_id} error={error}")
+
+    await ctx.send(f"✅ Announcement sent to {sent_count} server(s).")
 
 # =========================================================
 # NITRADO XML DELIVERY BRIDGE
