@@ -20,6 +20,8 @@ from discord import app_commands
 # =========================================================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+TRANSLATE_API_URL = os.getenv("TRANSLATE_API_URL", "https://libretranslate.de/translate")
+TRANSLATE_API_KEY = os.getenv("TRANSLATE_API_KEY")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -48,6 +50,7 @@ PLAYER_STATS_FILE = "player_stats.json"
 HEATMAP_FILE = "heatmap.json"
 SWEAR_JAR_FILE = "swear_jar.json"
 LINKED_PLAYERS_FILE = "linked_players.json"
+SUPPORT_TICKETS_FILE = "support_tickets.json"
 
 # =========================================================
 # GLOBALS
@@ -75,6 +78,7 @@ player_chat_tracker = {}
 linked_players = {}
 last_funny_message_time = {}
 last_funny_index = {}
+support_tickets = {}
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -169,6 +173,152 @@ async def run_legacy_as_slash(interaction: discord.Interaction, legacy_name: str
         return
     await cmd.callback(ctx, *args, **kwargs)
 
+
+def ensure_wallet(user):
+    user_id = str(user.id)
+
+    if user_id not in wallets:
+        wallets[user_id] = {
+            "name": str(user),
+            "balance": 0,
+            "daily_transactions": 0
+        }
+
+    return wallets[user_id]
+
+
+async def translate_text(text, target_language="en", source_language="auto"):
+
+    if not TRANSLATE_API_URL:
+        return None
+
+    payload = {
+        "q": text,
+        "source": source_language or "auto",
+        "target": target_language or "en",
+        "format": "text"
+    }
+
+    if TRANSLATE_API_KEY:
+        payload["api_key"] = TRANSLATE_API_KEY
+
+    try:
+        response = await asyncio.to_thread(
+            requests.post,
+            TRANSLATE_API_URL,
+            json=payload,
+            timeout=12
+        )
+
+        if response.status_code != 200:
+            print(f"TRANSLATION ERROR STATUS: {response.status_code}")
+            return None
+
+        data = response.json()
+        return data.get("translatedText") or data.get("translated_text")
+
+    except Exception as error:
+        print(f"TRANSLATION ERROR: {error}")
+        return None
+
+
+async def maybe_translate_message(message):
+
+    if not message.guild or not message.content.strip():
+        return
+
+    if message.content.startswith(("/", "!")):
+        return
+
+    guild_id = str(message.guild.id)
+    config = guild_configs.get(guild_id, {})
+    translation = config.get("translation", {})
+
+    if not translation.get("enabled"):
+        return
+
+    source_channel_id = translation.get("source_channel_id")
+    if source_channel_id and int(source_channel_id) != message.channel.id:
+        return
+
+    translated = await translate_text(
+        message.content[:900],
+        translation.get("target_language", "en"),
+        translation.get("source_language", "auto")
+    )
+
+    if not translated or translated.strip() == message.content.strip():
+        return
+
+    mode = translation.get("mode", "same")
+    target_channel = message.channel
+
+    if mode == "channel":
+        target_channel_id = translation.get("target_channel_id")
+        target_channel = bot.get_channel(int(target_channel_id)) if target_channel_id else None
+
+    if not target_channel:
+        return
+
+    embed = discord.Embed(
+        title="Translation",
+        description=translated[:1500],
+        color=0x1ABC9C
+    )
+    embed.add_field(name="Original Author", value=message.author.mention, inline=True)
+    embed.add_field(name="Target Language", value=translation.get("target_language", "en"), inline=True)
+
+    if mode == "channel":
+        embed.add_field(name="Original Channel", value=message.channel.mention, inline=False)
+
+    await target_channel.send(embed=style_embed(embed))
+
+
+async def apply_chat_reward_punishment_rules(message, lower):
+
+    if not message.guild:
+        return
+
+    guild_id = str(message.guild.id)
+    rules = guild_configs.get(guild_id, {}).get("chat_rules", [])
+
+    if not rules:
+        return
+
+    matched = []
+    wallet = ensure_wallet(message.author)
+
+    for rule in rules:
+        keyword = str(rule.get("keyword", "")).lower().strip()
+        amount = int(rule.get("amount", 0))
+        kind = rule.get("kind")
+
+        if not keyword or amount <= 0 or keyword not in lower:
+            continue
+
+        if kind == "reward":
+            wallet["balance"] += amount
+            matched.append(f"Reward: +{amount} pennies for `{keyword}`")
+
+        elif kind == "punishment":
+            wallet["balance"] -= amount
+            matched.append(f"Punishment: -{amount} pennies for `{keyword}`")
+
+    if not matched:
+        return
+
+    save_wallets()
+
+    embed = discord.Embed(
+        title="Automated Economy Rule",
+        description="\n".join(matched[:5]),
+        color=0xF1C40F
+    )
+    embed.add_field(name="Survivor", value=message.author.mention, inline=True)
+    embed.add_field(name="Wallet", value=f"{wallet['balance']} pennies", inline=True)
+
+    await message.channel.send(embed=style_embed(embed))
+
 # =========================================================
 # LOADERS
 # =========================================================
@@ -217,6 +367,15 @@ def load_linked_players():
 def save_linked_players():
     save_json(LINKED_PLAYERS_FILE, linked_players)
 
+
+def load_support_tickets():
+    global support_tickets
+    support_tickets = load_json(SUPPORT_TICKETS_FILE)
+
+
+def save_support_tickets():
+    save_json(SUPPORT_TICKETS_FILE, support_tickets)
+
 # =========================================================
 # EVENT CLASSIFIER
 # =========================================================
@@ -264,18 +423,32 @@ def increase_heat(guild_id, zone):
 def classify_event(line):
 
     lower = line.lower()
+    zombie_terms = ["infected", "zombie", "zmb"]
+    unconscious_terms = [
+        "unconscious",
+        "unconsciousness",
+        "knocked out",
+        "passed out"
+    ]
 
     if "disconnected" in lower:
         return "disconnect"
 
-    if "connecting" in lower or "connected" in lower:
+    # Only treat completed joins as connections. "connecting" is ignored
+    # to avoid duplicate Discord feed messages for the same player.
+    if re.search(r"\bconnected\b", lower) and "connecting" not in lower:
         return "connect"
 
-    if "killed by infected" in lower or "killed by zombie" in lower:
-        return "zombie_kill"
+    if any(term in lower for term in unconscious_terms):
+        return "unconscious"
 
-    if "hit by infected" in lower or "attacked by infected" in lower or "hit by zombie" in lower:
-        return "zombie_hit"
+    if any(term in lower for term in zombie_terms):
+
+        if any(word in lower for word in ["killed", "died", "dead"]):
+            return "zombie_kill"
+
+        if any(word in lower for word in ["hit", "attacked", "damage", "wound"]):
+            return "zombie_hit"
 
     if "killed" in lower:
         return "kill"
@@ -527,9 +700,14 @@ async def on_guild_join(guild):
     if guild_id in guild_configs:
         return
 
-    category = await guild.create_category("📡┃WANDERING BOT┃📡")
-    staff_category = await guild.create_category("🛡️┃STAFF OPS┃🛡️")
-    economy_category = await guild.create_category("💰┃ECONOMY┃💰")
+    category = await guild.create_category("🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
+    live_category = await guild.create_category("🟥🟧🟨┃LIVE SERVER FEEDS┃🟨🟧🟥")
+    info_category = await guild.create_category("🟦🟩🟦┃SERVER INFO┃🟦🟩🟦")
+    community_category = await guild.create_category("🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪")
+    staff_category = await guild.create_category("🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️")
+    economy_category = await guild.create_category("💰🟨💰┃ECONOMY┃💰🟨💰")
+    faction_category = await guild.create_category("🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
+    support_category = await guild.create_category("❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
 
     async def make_channel(name, *, cat=None):
 
@@ -538,32 +716,37 @@ async def on_guild_join(guild):
             category=cat or category
         )
 
-    killfeed = await make_channel("🔥・killfeed")
-    raids = await make_channel("🏴・raids")
-    builds = await make_channel("🔨・building")
-    connections = await make_channel("🟢・connect")
-    disconnects = await make_channel("🔴・disconnect")
-    online = await make_channel("✅🎮・online🎮✅")
-    leaderboards = await make_channel("🏆・leaderboards")
-    heatmap_channel = await make_channel("🔥・heatmap🔥")
-    longshot_channel = await make_channel("🎯・longshots")
-    restart_alerts = await make_channel("📢・restart-alerts")
-    welcome_channel = await make_channel("👋・welcome")
-    general_chat = await make_channel("💬・survivor-chat")
-    factions_chat = await make_channel("🏴・factions")
-    faction_list = await make_channel("📜・faction-list")
-    help_channel = await make_channel("❓・help-desk")
-    clips_channel = await make_channel("🎬・dayz-clips")
-    economy_channel = await make_channel("💰・black-market")
-    ai_channel = await make_channel("🧠・survivor-ai")
-    admin_logs = await make_channel("🛡️・admin-logs・🛡️", cat=staff_category)
-    command_logs = await make_channel("📜・command-logs・📜", cat=staff_category)
-    purchase_logs = await make_channel("💳・purchase-logs・💳", cat=staff_category)
-    vehicle_rentals = await make_channel("🚗・vehicle-rentals・🚗", cat=economy_category)
-    rental_logs = await make_channel("🛻・rental-logs・🛻", cat=economy_category)
-    faction_tickets = await make_channel("🎫・faction-tickets")
-    faction_staff = await make_channel("🛡️・faction-staff")
-    zombie_feed = await make_channel("🧟・zombie-feed")
+    killfeed = await make_channel("🔥🔥・killfeed・🔥🔥", cat=live_category)
+    raids = await make_channel("🚨🏴・raids・🏴🚨", cat=live_category)
+    builds = await make_channel("🔨🧱・building・🧱🔨", cat=live_category)
+    connections = await make_channel("🟢✅・connected・✅🟢", cat=live_category)
+    disconnects = await make_channel("🔴⛔・disconnects・⛔🔴", cat=live_category)
+    zombie_feed = await make_channel("🧟🧟・zombie-feed・🧟🧟", cat=live_category)
+    unconscious_feed = await make_channel("🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
+
+    online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
+    leaderboards = await make_channel("🏆📊・leaderboards・📊🏆", cat=info_category)
+    heatmap_channel = await make_channel("🔥🗺️・heatmap・🗺️🔥", cat=info_category)
+    longshot_channel = await make_channel("🎯🏹・longshots・🏹🎯", cat=info_category)
+    restart_alerts = await make_channel("📢⏰・restart-alerts・⏰📢", cat=info_category)
+
+    welcome_channel = await make_channel("👋🟩・welcome・🟩👋", cat=community_category)
+    general_chat = await make_channel("💬🌲・survivor-chat・🌲💬", cat=community_category)
+    ai_channel = await make_channel("🧠📻・survivor-ai・📻🧠", cat=community_category)
+    clips_channel = await make_channel("🎬⭐・dayz-clips・⭐🎬", cat=community_category)
+
+    factions_chat = await make_channel("🏴⚔️・factions-chat・⚔️🏴", cat=faction_category)
+    faction_list = await make_channel("📜🏴・faction-list・🏴📜", cat=faction_category)
+    faction_tickets = await make_channel("🎫🏴・faction-tickets・🏴🎫", cat=faction_category)
+    faction_staff = await make_channel("🛡️🏴・faction-staff・🏴🛡️", cat=staff_category)
+
+    help_channel = await make_channel("❓📘・help-desk・📘❓", cat=support_category)
+    economy_channel = await make_channel("💰🛒・black-market・🛒💰", cat=economy_category)
+    admin_logs = await make_channel("🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
+    purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
+    vehicle_rentals = await make_channel("🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
+    rental_logs = await make_channel("🛻📒・rental-logs・📒🛻", cat=economy_category)
     owner_overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
         guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -609,8 +792,8 @@ async def on_guild_join(guild):
             "rental_logs": rental_logs.id,
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id,
-            "zombie_feed": zombie_feed.id
-            ,
+            "zombie_feed": zombie_feed.id,
+            "unconscious_feed": unconscious_feed.id,
             "company_announcements": company_announcements.id
         }
     }
@@ -661,67 +844,151 @@ async def setup_command(
             "channels": {}
         }
 
-    category = discord.utils.get(
-        interaction.guild.categories,
-        name="📡 WANDERING BOT"
-    )
+    def normalize_discord_name(name):
+        return re.sub(r"[^a-z0-9]+", "", name.lower())
 
-    if not category:
-        category = await interaction.guild.create_category(
-            "📡 WANDERING BOT"
-        )
+    category_aliases = {
+        "wandering_hq": ["wanderinghq", "wanderingbot", "wanderingbotalpha"],
+        "live_feeds": ["liveserverfeeds", "livefeeds", "killfeed", "serverfeeds"],
+        "server_info": ["serverinfo", "info", "leaderboards", "dashboard"],
+        "survivor_comms": ["survivorcomms", "survivorchat", "generalchat", "community"],
+        "staff_ops": ["staffops", "staff", "admin", "adminlogs"],
+        "economy": ["economy", "blackmarket", "shop"],
+        "factions": ["factions", "faction"],
+        "support": ["helpsupport", "helpdesk", "support"]
+    }
 
-    async def ensure_channel(key, name):
+    async def ensure_category(category_key, name):
+        wanted = normalize_discord_name(name)
+        aliases = set(category_aliases.get(category_key, []))
+        aliases.add(wanted)
 
-        existing_id = guild_configs[guild_id]["channels"].get(key)
+        for existing in interaction.guild.categories:
+            normalized = normalize_discord_name(existing.name)
+            if normalized in aliases or any(alias in normalized for alias in aliases):
+                if existing.name != name:
+                    try:
+                        await existing.edit(name=name)
+                    except Exception:
+                        pass
+                return existing
+
+        return await interaction.guild.create_category(name)
+
+    category = await ensure_category("wandering_hq", "???????WANDERING HQ???????")
+    live_category = await ensure_category("live_feeds", "???????LIVE SERVER FEEDS???????")
+    info_category = await ensure_category("server_info", "???????SERVER INFO???????")
+    community_category = await ensure_category("survivor_comms", "???????SURVIVOR COMMS???????")
+    staff_category = await ensure_category("staff_ops", "?????????STAFF OPS?????????")
+    economy_category = await ensure_category("economy", "???????ECONOMY???????")
+    faction_category = await ensure_category("factions", "???????FACTIONS???????")
+    support_category = await ensure_category("support", "?????HELP & SUPPORT?????")
+
+    channel_aliases = {
+        "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
+        "raids": ["raids", "raidfeed", "raiddetected", "raidalerts"],
+        "building": ["building", "build", "buildfeed", "basebuilding"],
+        "connections": ["connected", "connections", "connect", "joins", "playerjoins"],
+        "disconnects": ["disconnects", "disconnect", "leftserver", "playerleaves"],
+        "online": ["online", "onlinesurvivors", "liveonline", "survivorsonline"],
+        "leaderboards": ["leaderboards", "leaderboard", "topkills", "rankings"],
+        "heatmap": ["heatmap", "conflictheatmap", "pvPheatmap".lower()],
+        "longshots": ["longshots", "longshot", "snipes"],
+        "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+        "welcome": ["welcome", "newsurvivor", "joins"],
+        "general_chat": ["survivorchat", "generalchat", "general", "chat"],
+        "factions_chat": ["factionschat", "factions", "factionchat"],
+        "faction_list": ["factionlist", "factionslist"],
+        "help_channel": ["helpdesk", "help", "support"],
+        "clips_channel": ["dayzclips", "clips", "media"],
+        "economy": ["blackmarket", "economy", "shop", "market"],
+        "ai_chat": ["survivorai", "aichat", "ai"],
+        "admin_logs": ["adminlogs", "stafflogs"],
+        "command_logs": ["commandlogs", "commands"],
+        "purchase_logs": ["purchaselogs", "purchases"],
+        "vehicle_rentals": ["vehiclerentals", "rentvehicles", "rentals"],
+        "rental_logs": ["rentallogs"],
+        "faction_tickets": ["factiontickets", "factionrequests"],
+        "faction_staff": ["factionstaff"],
+        "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
+        "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"]
+    }
+
+    def channel_matches_key(channel, key, desired_name):
+        normalized = normalize_discord_name(channel.name)
+        desired = normalize_discord_name(desired_name)
+        aliases = set(channel_aliases.get(key, []))
+        aliases.add(desired)
+
+        if key == "connections" and "disconnect" in normalized:
+            return False
+
+        return normalized in aliases or any(alias and alias in normalized for alias in aliases)
+
+    async def ensure_channel(key, name, *, cat=None):
+        target_category = cat or category
+        channels = guild_configs[guild_id].setdefault("channels", {})
+        existing_id = channels.get(key)
 
         if existing_id:
             existing_channel = interaction.guild.get_channel(existing_id)
-
             if existing_channel:
+                try:
+                    await existing_channel.edit(name=name, category=target_category)
+                except Exception:
+                    pass
                 return existing_channel
 
-        channel = discord.utils.get(
-            interaction.guild.text_channels,
-            name=name
+            channels.pop(key, None)
+
+        for existing_channel in interaction.guild.text_channels:
+            if channel_matches_key(existing_channel, key, name):
+                channels[key] = existing_channel.id
+                try:
+                    await existing_channel.edit(name=name, category=target_category)
+                except Exception:
+                    pass
+                return existing_channel
+
+        channel = await interaction.guild.create_text_channel(
+            name,
+            category=target_category
         )
 
-        if not channel:
-            channel = await interaction.guild.create_text_channel(
-                name,
-                category=category
-            )
-
-        guild_configs[guild_id]["channels"][key] = channel.id
+        channels[key] = channel.id
 
         return channel
+    await ensure_channel("killfeed", "🔥🔥・killfeed・🔥🔥", cat=live_category)
+    await ensure_channel("raids", "🚨🏴・raids・🏴🚨", cat=live_category)
+    await ensure_channel("building", "🔨🧱・building・🧱🔨", cat=live_category)
+    await ensure_channel("connections", "🟢✅・connected・✅🟢", cat=live_category)
+    await ensure_channel("disconnects", "🔴⛔・disconnects・⛔🔴", cat=live_category)
+    await ensure_channel("zombie_feed", "🧟🧟・zombie-feed・🧟🧟", cat=live_category)
+    await ensure_channel("unconscious_feed", "🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
 
-    await ensure_channel("killfeed", "🔥・killfeed")
-    await ensure_channel("raids", "🏴・raids")
-    await ensure_channel("building", "🔨・building")
-    await ensure_channel("connections", "🟢・connect")
-    await ensure_channel("disconnects", "🔴・disconnect")
-    await ensure_channel("online", "✅🎮・online🎮✅")
-    await ensure_channel("leaderboards", "🏆・leaderboards")
-    await ensure_channel("heatmap", "🔥・heatmap🔥")
-    await ensure_channel("longshots", "🎯・longshots")
-    await ensure_channel("restart_alerts", "📢・restart-alerts")
-    await ensure_channel("welcome", "👋・welcome")
-    await ensure_channel("general_chat", "💬・survivor-chat")
-    await ensure_channel("factions_chat", "🏴・factions")
-    await ensure_channel("faction_list", "📜・faction-list")
-    await ensure_channel("help_channel", "❓・help-desk")
-    await ensure_channel("clips_channel", "🎬・dayz-clips")
-    await ensure_channel("economy", "💰・black-market")
-    await ensure_channel("ai_chat", "🧠・survivor-ai")
-    await ensure_channel("admin_logs", "🛡️・admin-logs")
-    await ensure_channel("command_logs", "📜・command-logs")
-    await ensure_channel("purchase_logs", "💳・purchase-logs")
-    await ensure_channel("vehicle_rentals", "🚗・vehicle-rentals")
-    await ensure_channel("rental_logs", "🛻・rental-logs")
-    await ensure_channel("faction_tickets", "🎫・faction-tickets")
-    await ensure_channel("faction_staff", "🛡️・faction-staff")
-    await ensure_channel("zombie_feed", "🧟・zombie-feed")
+    await ensure_channel("online", "✅🎮・online-survivors・🎮✅", cat=info_category)
+    await ensure_channel("leaderboards", "🏆📊・leaderboards・📊🏆", cat=info_category)
+    await ensure_channel("heatmap", "🔥🗺️・heatmap・🗺️🔥", cat=info_category)
+    await ensure_channel("longshots", "🎯🏹・longshots・🏹🎯", cat=info_category)
+    await ensure_channel("restart_alerts", "📢⏰・restart-alerts・⏰📢", cat=info_category)
+
+    await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
+    await ensure_channel("general_chat", "💬🌲・survivor-chat・🌲💬", cat=community_category)
+    await ensure_channel("ai_chat", "🧠📻・survivor-ai・📻🧠", cat=community_category)
+    await ensure_channel("clips_channel", "🎬⭐・dayz-clips・⭐🎬", cat=community_category)
+
+    await ensure_channel("factions_chat", "🏴⚔️・factions-chat・⚔️🏴", cat=faction_category)
+    await ensure_channel("faction_list", "📜🏴・faction-list・🏴📜", cat=faction_category)
+    await ensure_channel("faction_tickets", "🎫🏴・faction-tickets・🏴🎫", cat=faction_category)
+    await ensure_channel("faction_staff", "🛡️🏴・faction-staff・🏴🛡️", cat=staff_category)
+
+    await ensure_channel("help_channel", "❓📘・help-desk・📘❓", cat=support_category)
+    await ensure_channel("economy", "💰🛒・black-market・🛒💰", cat=economy_category)
+    await ensure_channel("admin_logs", "🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    await ensure_channel("command_logs", "📜🛡️・command-logs・🛡️📜", cat=staff_category)
+    await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
+    await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
+    await ensure_channel("rental_logs", "🛻📒・rental-logs・📒🛻", cat=economy_category)
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -738,95 +1005,103 @@ async def setup_command(
     if help_channel:
 
         setup_embed = discord.Embed(
-            title="🤖 WANDERING BOT SETUP & COMMAND GUIDE",
+            title="WANDERING BOT ALPHA - SERVER COMMAND CENTER",
             description=(
-                "Welcome to Wandering Bot Alpha.\n\n"
-                "Below are the most important commands and systems available on your server."
+                "Your server is now connected. This guide is for owners and admins.\n\n"
+                "Use slash commands first. Prefix commands may exist for legacy support, but `/commands` are the clean setup path."
             ),
-            color=0x3498DB
+            color=0xF1C40F
         )
 
         setup_embed.add_field(
-            name="📡 Core Server Commands",
+            name="LIVE SERVER INTELLIGENCE",
             value=(
-                "`!online` — Show live online survivors\n"
-                "`!serverstatus` — Bot/server status\n"
-                "`!heatmap` — PvP heatmap\n"
-                "`!topkills` — Kill leaderboard\n"
-                "`!toplongshots` — Longshot leaderboard"
-            ),
-            inline=False
-        )
-
-        setup_embed.add_field(
-            name="💰 Economy Commands",
-            value=(
-                "`!wallet` — Check pennies\n"
-                "`!shop` — Open black market\n"
-                "`!buy item x y` — Buy restart delivery\n"
-                "`!rentvehicle vehicle hours x y` — Rent vehicles"
+                "`/online` - current tracked survivors online\n"
+                "`/serverstatus` - bot and tracking status\n"
+                "`/heatmap` - territory activity summary\n"
+                "`/topkills` - kill leaderboard\n"
+                "`/toplongshots` - global longshot leaderboard\n"
+                "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
             inline=False
         )
 
         setup_embed.add_field(
-            name="🛡️ Staff Commands",
+            name="ADMIN SETUP & MODERATION",
             value=(
-                "`!restartserver` — Restart DayZ server\n"
-                "`!togglebasedamage on/off`\n"
-                "`!purge amount`\n"
-                "`!setradarchannel #channel`\n"
-                "`!radarping x y reason`"
+                "`/setadminrole role_name` - replace the primary bot admin role\n"
+                "`/addstaffrole role_name` - add another role allowed to use staff tools\n"
+                "`/staffroles` - list staff roles\n"
+                "`/purge amount` - clear recent messages\n"
+                "`/purgeuser member amount` - clear a member's messages\n"
+                "`/purgebots amount` - clear bot messages"
             ),
             inline=False
         )
 
         setup_embed.add_field(
-            name="🏴 Factions & Tickets",
+            name="SERVER CONTROL & RADAR",
             value=(
-                "`!factionticket Name` — Create faction request\n"
-                "`!factionapprove ID` — Approve faction ticket"
+                "`/restartserver` - trigger a Nitrado restart\n"
+                "`/setrestartinterval hours` - set restart interval\n"
+                "`/setrestartstart hour` - set UTC restart start hour\n"
+                "`/listrestarts` - show restart schedule\n"
+                "`/togglebasedamage state` - log base damage state\n"
+                "`/setradarchannel channel` - choose radar channel\n"
+                "`/radarping x y reason` - send a manual map ping"
             ),
             inline=False
         )
 
         setup_embed.add_field(
-            name="🎮 Identity Commands",
+            name="ECONOMY, SHOP, REWARDS & PUNISHMENTS",
             value=(
-                "`!linkgamer Gamertag` — Link Xbox gamertag\n"
-                "`!mylink` — View linked account"
+                "`/wallet` - check wallet\n"
+                "`/shop` - view black market\n"
+                "`/buy item_name x y` - queue item delivery\n"
+                "`/rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
+                "Admin legacy tools: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`\n"
+                "New admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
             ),
             inline=False
         )
 
         setup_embed.add_field(
-            name="🧠 Automated Features",
+            name="TRANSLATION SYSTEM",
             value=(
-                "• Live killfeed\n"
-                "• Raid detection\n"
-                "• Heatmaps\n"
-                "• AI chatter\n"
-                "• Restart scheduling\n"
-                "• Delivery spawning\n"
-                "• Radar intelligence\n"
-                "• Welcome messages\n"
-                "• Swear jar economy"
+                "`/translationconfig mode target_language source_language source_channel target_channel`\n"
+                "Modes: `off`, `same`, `channel`\n"
+                "Use `source_language:auto` to auto-detect languages when your translation service supports it.\n"
+                "Same-channel translation posts translated embeds beside chat. Channel mode forwards translations into a chosen channel."
             ),
             inline=False
         )
 
         setup_embed.add_field(
-            name="⚙️ Final Setup Step",
+            name="FACTIONS, IDENTITY & SUPPORT",
             value=(
-                "Add the provided `SpawnWanderingDeliveries();` code into your DayZ `init.c` file to enable restart item spawning."
+                "`/linkgamer gamertag` - link Discord to gamertag\n"
+                "`/mylink` - view linked account\n"
+                "`/playerstats player_name` - lookup player stats\n"
+                "`/factionticket faction_name` - create faction request\n"
+                "`/factionapprove message_id` - approve faction ticket\n"
+                "`/supportbot issue` - admin-only ticket to the bot owner"
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
+            name="FINAL DAYZ SERVER STEP",
+            value=(
+                "Add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup. "
+                "That enables restart delivery spawning from the XML this bot uploads."
             ),
             inline=False
         )
 
         setup_embed.set_thumbnail(url=BOT_IMAGE)
-
         setup_embed.set_footer(
-            text="Wandering Bot Alpha • Automated Help System"
+            text="Wandering System created by CraneMonkey6273"
         )
 
         await help_channel.send(embed=style_embed(setup_embed))
@@ -1472,6 +1747,60 @@ async def parse_adm(guild_id, config):
                     embed=style_embed(embed)
                 )
 
+        elif event_type == "unconscious":
+
+            unconscious_channel = bot.get_channel(
+                channels.get("unconscious_feed")
+            )
+
+            if unconscious_channel:
+
+                player_match = re.search(
+                    r'Player "([^"]+)"',
+                    line
+                )
+
+                player_name = (
+                    player_match.group(1)
+                    if player_match else "Unknown"
+                )
+
+                coords_match = re.search(
+                    r'pos=<([^>]+)>',
+                    line
+                )
+
+                coords = (
+                    coords_match.group(1)
+                    if coords_match else None
+                )
+
+                embed = discord.Embed(
+                    title="UNCONSCIOUS SURVIVOR",
+                    description=f"**{player_name}** is unconscious.",
+                    color=0xE67E22
+                )
+
+                if coords:
+                    map_link = build_izurvive_link(coords)
+                    if map_link:
+                        embed.add_field(
+                            name="Last Known Location",
+                            value=f"[Open Map](<{map_link}>)",
+                            inline=False
+                        )
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+
+                embed.set_footer(
+                    text="Wandering Bot Alpha - Medical Feed"
+                )
+
+                embed.timestamp = datetime.now(UTC)
+
+                await unconscious_channel.send(
+                    embed=style_embed(embed)
+                )
         # ================= KILLFEED =================
 
         elif event_type == "kill" and killfeed_channel:
@@ -1725,6 +2054,9 @@ async def on_message(message):
 
     lower = message.content.lower()
 
+    await maybe_translate_message(message)
+    await apply_chat_reward_punishment_rules(message, lower)
+
     found_words = [
         word for word in SWEAR_WORDS
         if word in lower
@@ -1887,6 +2219,7 @@ async def on_message(message):
 
 BOT_OWNER_GUILD_ID = os.getenv("BOT_OWNER_GUILD_ID")
 BOT_OWNER_CHANNEL_ID = os.getenv("BOT_OWNER_CHANNEL_ID")
+BOT_OWNER_SECRET_CODE = os.getenv("BOT_OWNER_SECRET_CODE")
 
 
 async def send_owner_notification(title, description):
@@ -1922,6 +2255,67 @@ async def send_owner_notification(title, description):
     except Exception as error:
         print(error)
 
+
+
+
+async def get_or_create_support_channel(guild):
+
+    guild_id = str(guild.id)
+
+    if guild_id not in guild_configs:
+        guild_configs[guild_id] = {
+            "guild_name": guild.name,
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+            "channels": {}
+        }
+
+    channels = guild_configs[guild_id].setdefault("channels", {})
+    existing_id = channels.get("bot_support_tickets")
+
+    if existing_id:
+        existing_channel = guild.get_channel(existing_id)
+        if existing_channel:
+            return existing_channel
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+
+    for role in guild.roles:
+        if role.permissions.administrator:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    channel = await guild.create_text_channel(
+        "bot-support-tickets",
+        overwrites=overwrites
+    )
+
+    channels["bot_support_tickets"] = channel.id
+    save_guild_configs()
+
+    return channel
+
+
+def owner_secret_valid(interaction, secret_code):
+
+    if not BOT_OWNER_SECRET_CODE:
+        return False
+
+    if secret_code != BOT_OWNER_SECRET_CODE:
+        return False
+
+    if BOT_OWNER_GUILD_ID and str(interaction.guild_id) != str(BOT_OWNER_GUILD_ID):
+        return False
+
+    return True
+
+
+async def reject_owner_command(interaction):
+    await interaction.response.send_message(
+        "Owner command rejected.",
+        ephemeral=True
+    )
 
 @bot.listen("on_command")
 async def log_command_usage(ctx):
@@ -2020,68 +2414,82 @@ async def on_command_error(ctx, error):
 async def helpme(ctx):
 
     embed = discord.Embed(
-        title="🤖 WANDERING BOT ALPHA COMMANDS",
-        color=0x3498DB
+        title="WANDERING BOT ALPHA - COMMAND CENTER",
+        description=(
+            "Admin and owner quick guide. Use slash commands where possible.\n"
+            "Legacy prefix commands still exist for some shop management tools."
+        ),
+        color=0xF1C40F
     )
 
     embed.add_field(
-        name="📡 Server",
+        name="Live Intelligence",
         value=(
-            "!serverstatus\n"
-            "!online\n"
-            "!playerstats <name>"
+            "`/online` - online survivors\n"
+            "`/serverstatus` - bot status\n"
+            "`/heatmap` - PvP heatmap summary\n"
+            "`/topkills` - top kills\n"
+            "`/toplongshots` - longshot leaderboard\n"
+            "`/playerstats player_name` - player lookup"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="🏆 Stats",
+        name="Admin Tools",
         value=(
-            "!topkills\n"
-            "!toplongshots\n"
-            "!heatmap\n"
-            "!swearjar"
+            "`/setadminrole role_name`\n"
+            "`/addstaffrole role_name`\n"
+            "`/staffroles`\n"
+            "`/purge amount`\n"
+            "`/purgeuser member amount`\n"
+            "`/purgebots amount`"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="⚙️ Admin",
+        name="Server Control",
         value=(
-            "!restartserver\n"
-            "!setrestartinterval <hours>\n"
-            "!setrestartstart <hour>\n"
-            "!listrestarts"
+            "`/restartserver`\n"
+            "`/setrestartinterval hours`\n"
+            "`/setrestartstart hour`\n"
+            "`/listrestarts`\n"
+            "`/togglebasedamage state`\n"
+            "`/setradarchannel channel`\n"
+            "`/radarping x y reason`"
         ),
         inline=False
     )
 
     embed.add_field(
-        name="🧠 Features",
+        name="Economy & Rules",
         value=(
-            "• Live raid feed\n"
-            "• PvP heatmaps\n"
-            "• Online tracking\n"
-            "• AI chatter\n"
-            "• Welcome system\n"
-            "• Leaderboards\n"
-            "• Restart automation\n"
-            "• AI survivor chatter\n"
-            "• Smart welcome system\n"
-            "• Live online dashboards\n"
-            "• Real Nitrado restart control"
+            "`/wallet`, `/shop`, `/buy`, `/rentvehicle`\n"
+            "`/addreward keyword amount`\n"
+            "`/addpunishment keyword amount`\n"
+            "`/listrules`\n"
+            "`/removerule rule_number`\n"
+            "Legacy admin: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Translation, Factions & Support",
+        value=(
+            "`/translationconfig mode target_language source_language source_channel target_channel`\n"
+            "`/linkgamer gamertag`, `/mylink`\n"
+            "`/factionticket faction_name`, `/factionapprove message_id`\n"
+            "`/supportbot issue` - admin ticket to the bot owner"
         ),
         inline=False
     )
 
     embed.set_thumbnail(url=BOT_IMAGE)
-
-    embed.set_footer(
-        text="Wandering Bot Alpha • Help System"
-    )
+    embed.set_footer(text="Wandering System created by CraneMonkey6273")
 
     await ctx.send(embed=style_embed(embed))
-
 
 @bot.command()
 async def online(ctx):
@@ -4427,23 +4835,315 @@ async def slash_serverstatus(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="supportbot", description="Request bot setup/help support")
+@bot.tree.command(name="supportbot", description="Open an admin ticket with the bot owner")
 @app_commands.describe(issue="Briefly describe your bot issue")
 async def supportbot(interaction: discord.Interaction, issue: str):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
     guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id, {})
-    channel_id = config.get("channels", {}).get("company_announcements")
-    ch = bot.get_channel(channel_id) if channel_id else None
-    if ch:
-        embed = discord.Embed(
-            title="🆘 Bot Support Request",
-            description=issue[:1000],
+    ticket_id = f"{guild_id}-{int(datetime.now(UTC).timestamp())}"
+    local_channel = await get_or_create_support_channel(interaction.guild)
+
+    support_tickets[ticket_id] = {
+        "guild_id": guild_id,
+        "guild_name": interaction.guild.name,
+        "channel_id": local_channel.id,
+        "requester_id": interaction.user.id,
+        "requester_name": str(interaction.user),
+        "issue": issue[:1500],
+        "status": "open",
+        "created": str(datetime.now(UTC))
+    }
+    save_support_tickets()
+
+    local_embed = discord.Embed(
+        title="Bot Support Ticket Opened",
+        description=issue[:1500],
+        color=0x3498DB
+    )
+    local_embed.add_field(name="Ticket ID", value=ticket_id, inline=False)
+    local_embed.add_field(name="Opened By", value=interaction.user.mention, inline=False)
+    local_embed.set_footer(text="Replies from the bot owner will appear here.")
+    await local_channel.send(embed=style_embed(local_embed))
+
+    owner_channel = bot.get_channel(int(BOT_OWNER_CHANNEL_ID)) if BOT_OWNER_CHANNEL_ID else None
+    if owner_channel:
+        owner_embed = discord.Embed(
+            title="New Bot Support Ticket",
+            description=issue[:1500],
             color=0xE67E22
         )
-        embed.add_field(name="Server", value=interaction.guild.name, inline=False)
-        embed.add_field(name="Requester", value=str(interaction.user), inline=False)
-        await ch.send(embed=style_embed(embed))
-    await interaction.response.send_message("✅ Support request submitted.", ephemeral=True)
+        owner_embed.add_field(name="Ticket ID", value=ticket_id, inline=False)
+        owner_embed.add_field(name="Server", value=f"{interaction.guild.name} (`{guild_id}`)", inline=False)
+        owner_embed.add_field(name="Requester", value=str(interaction.user), inline=False)
+        owner_embed.add_field(name="Reply Command", value=f"/ownerreply ticket_id:{ticket_id}", inline=False)
+        await owner_channel.send(embed=style_embed(owner_embed))
+
+    await interaction.response.send_message(
+        f"Support ticket `{ticket_id}` opened.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="ownerreply", description="Owner only: reply to a support ticket")
+@app_commands.describe(secret_code="Owner secret code", ticket_id="Ticket ID", message="Reply message")
+async def ownerreply(interaction: discord.Interaction, secret_code: str, ticket_id: str, message: str):
+
+    if not owner_secret_valid(interaction, secret_code):
+        await reject_owner_command(interaction)
+        return
+
+    ticket = support_tickets.get(ticket_id)
+    if not ticket:
+        await interaction.response.send_message("Ticket not found.", ephemeral=True)
+        return
+
+    target_guild = bot.get_guild(int(ticket["guild_id"]))
+    target_channel = bot.get_channel(int(ticket["channel_id"]))
+
+    if not target_guild or not target_channel:
+        await interaction.response.send_message("Ticket server/channel is unavailable.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Bot Owner Reply",
+        description=message[:1500],
+        color=0x2ECC71
+    )
+    embed.add_field(name="Ticket ID", value=ticket_id, inline=False)
+    embed.set_footer(text="Wandering Bot Alpha - Support")
+    await target_channel.send(embed=style_embed(embed))
+
+    ticket["status"] = "replied"
+    ticket["last_reply"] = str(datetime.now(UTC))
+    save_support_tickets()
+
+    await interaction.response.send_message(
+        f"Reply sent to `{target_guild.name}` ticket channel.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="ownerservers", description="Owner only: list bot servers")
+@app_commands.describe(secret_code="Owner secret code")
+async def ownerservers(interaction: discord.Interaction, secret_code: str):
+
+    if not owner_secret_valid(interaction, secret_code):
+        await reject_owner_command(interaction)
+        return
+
+    total_players = sum(len(players) for players in online_players.values())
+    embed = discord.Embed(
+        title="Owner Server Intelligence",
+        description=f"Connected servers: {len(bot.guilds)}\nTracked online players: {total_players}",
+        color=0x9B59B6
+    )
+
+    for guild in bot.guilds[:20]:
+        guild_id = str(guild.id)
+        config = guild_configs.get(guild_id, {})
+        online_count = len(online_players.get(guild_id, set()))
+        owner = guild.owner or "Unknown"
+        embed.add_field(
+            name=f"{guild.name} ({guild.id})",
+            value=(
+                f"Owner: {owner}\n"
+                f"Members: {guild.member_count}\n"
+                f"Online tracked: {online_count}\n"
+                f"Service ID: {config.get('service_id', 'Not set')}"
+            ),
+            inline=False
+        )
+
+    if len(bot.guilds) > 20:
+        embed.set_footer(text=f"Showing 20 of {len(bot.guilds)} servers.")
+
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="ownerremovebot", description="Owner only: remove bot from a server")
+@app_commands.describe(secret_code="Owner secret code", guild_id="Server ID to leave", reason="Optional reason")
+async def ownerremovebot(interaction: discord.Interaction, secret_code: str, guild_id: str, reason: str = "Owner removal"):
+
+    if not owner_secret_valid(interaction, secret_code):
+        await reject_owner_command(interaction)
+        return
+
+    target_guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+    if not target_guild:
+        await interaction.response.send_message("Server not found.", ephemeral=True)
+        return
+
+    target_name = target_guild.name
+
+    try:
+        await target_guild.leave()
+        guild_configs.pop(guild_id, None)
+        save_guild_configs()
+        await interaction.response.send_message(
+            f"Removed bot from `{target_name}`. Reason: {reason}",
+            ephemeral=True
+        )
+    except Exception as error:
+        await interaction.response.send_message(
+            f"Failed to remove bot: {error}",
+            ephemeral=True
+        )
+
+@bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
+@app_commands.describe(
+    mode="off, same, or channel",
+    target_language="Target language code, example: en, es, fr, de",
+    source_language="Source language code or auto",
+    source_channel="Optional source channel. Blank means all channels.",
+    target_channel="Required for channel mode"
+)
+async def translationconfig(
+    interaction: discord.Interaction,
+    mode: str,
+    target_language: str = "en",
+    source_language: str = "auto",
+    source_channel: discord.TextChannel = None,
+    target_channel: discord.TextChannel = None
+):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    mode = mode.lower().strip()
+
+    if mode not in ["off", "same", "channel"]:
+        await interaction.response.send_message("Mode must be `off`, `same`, or `channel`.", ephemeral=True)
+        return
+
+    if mode == "channel" and not target_channel:
+        await interaction.response.send_message("Channel mode needs a target_channel.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    if guild_id not in guild_configs:
+        guild_configs[guild_id] = {
+            "guild_name": interaction.guild.name,
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+            "channels": {}
+        }
+
+    guild_configs[guild_id]["translation"] = {
+        "enabled": mode != "off",
+        "mode": mode,
+        "target_language": target_language.lower().strip(),
+        "source_language": source_language.lower().strip(),
+        "source_channel_id": source_channel.id if source_channel else None,
+        "target_channel_id": target_channel.id if target_channel else None
+    }
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="Translation Config Updated",
+        color=0x1ABC9C
+    )
+    embed.add_field(name="Mode", value=mode, inline=True)
+    embed.add_field(name="Source", value=source_channel.mention if source_channel else "All channels", inline=True)
+    embed.add_field(name="Target", value=target_channel.mention if target_channel else "Same channel", inline=True)
+    embed.add_field(name="Language", value=f"{source_language} -> {target_language}", inline=False)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="addreward", description="Admin: reward pennies when a keyword appears in chat")
+@app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to add")
+async def addreward(interaction: discord.Interaction, keyword: str, amount: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be above 0.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    rules = config.setdefault("chat_rules", [])
+    rules.append({"kind": "reward", "keyword": keyword.lower().strip(), "amount": amount})
+    save_guild_configs()
+
+    await interaction.response.send_message(f"Reward rule added: `{keyword}` gives {amount} pennies.", ephemeral=True)
+
+
+@bot.tree.command(name="addpunishment", description="Admin: remove pennies when a keyword appears in chat")
+@app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to remove")
+async def addpunishment(interaction: discord.Interaction, keyword: str, amount: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be above 0.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    rules = config.setdefault("chat_rules", [])
+    rules.append({"kind": "punishment", "keyword": keyword.lower().strip(), "amount": amount})
+    save_guild_configs()
+
+    await interaction.response.send_message(f"Punishment rule added: `{keyword}` removes {amount} pennies.", ephemeral=True)
+
+
+@bot.tree.command(name="listrules", description="Admin: list reward and punishment rules")
+async def listrules(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    rules = guild_configs.get(str(interaction.guild.id), {}).get("chat_rules", [])
+
+    if not rules:
+        await interaction.response.send_message("No reward or punishment rules configured.", ephemeral=True)
+        return
+
+    lines = [
+        f"{idx}. {rule.get('kind')} `{rule.get('keyword')}` - {rule.get('amount')} pennies"
+        for idx, rule in enumerate(rules, start=1)
+    ]
+
+    embed = discord.Embed(
+        title="Reward & Punishment Rules",
+        description="\n".join(lines[:25]),
+        color=0xF1C40F
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="removerule", description="Admin: remove a reward/punishment rule by number")
+@app_commands.describe(rule_number="Rule number from /listrules")
+async def removerule(interaction: discord.Interaction, rule_number: int):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    rules = guild_configs.get(guild_id, {}).get("chat_rules", [])
+
+    if rule_number < 1 or rule_number > len(rules):
+        await interaction.response.send_message("Rule number not found.", ephemeral=True)
+        return
+
+    removed = rules.pop(rule_number - 1)
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        f"Removed {removed.get('kind')} rule for `{removed.get('keyword')}`.",
+        ephemeral=True
+    )
 
 # Full slash mapping wrappers for legacy commands
 @bot.tree.command(name="helpme", description="Show command/help information")
@@ -4611,6 +5311,7 @@ async def on_ready():
     load_heatmap()
     load_swear_jar()
     load_linked_players()
+    load_support_tickets()
     load_shop()
     load_wallets()
     load_delivery_queue()
