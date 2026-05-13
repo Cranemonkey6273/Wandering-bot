@@ -1,5 +1,5 @@
 # =========================================================
-# WANDERING BOT ALPHA - MULTI GUILD EDITION
+# WANDERING BOT 2.0 BETA
 # =========================================================
 
 import os
@@ -7,12 +7,14 @@ import re
 import json
 import asyncio
 import requests
+import tempfile
 from ftplib import FTP_TLS
 import discord
 
 from datetime import datetime, UTC
 from discord.ext import commands, tasks
 from discord import app_commands
+from PIL import Image, ImageDraw
 
 # =========================================================
 # DISCORD
@@ -26,7 +28,7 @@ intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(
-    command_prefix="!",
+    command_prefix=commands.when_mentioned,
     intents=intents
 )
 
@@ -72,6 +74,8 @@ longshot_records = {}
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
+last_funny_message_time = {}
+last_funny_index = {}
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -141,6 +145,30 @@ def load_json(path):
         with open(path, "r") as f:
             return json.load(f)
     return {}
+
+
+class SlashContextAdapter:
+    def __init__(self, interaction: discord.Interaction):
+        self.interaction = interaction
+        self.guild = interaction.guild
+        self.author = interaction.user
+        self.channel = interaction.channel
+        self.message = type("Msg", (), {"content": f"/{interaction.command.name}"})()
+
+    async def send(self, content=None, embed=None):
+        if not self.interaction.response.is_done():
+            await self.interaction.response.send_message(content=content, embed=embed, ephemeral=True)
+        else:
+            await self.interaction.followup.send(content=content, embed=embed, ephemeral=True)
+
+
+async def run_legacy_as_slash(interaction: discord.Interaction, legacy_name: str, *args, **kwargs):
+    ctx = SlashContextAdapter(interaction)
+    cmd = bot.get_command(legacy_name)
+    if not cmd:
+        await ctx.send(f"❌ Command `{legacy_name}` not found.")
+        return
+    await cmd.callback(ctx, *args, **kwargs)
 
 # =========================================================
 # LOADERS
@@ -360,12 +388,13 @@ def ping_latest_adm_log(config):
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 15
-LEADERBOARD_UPDATE_MINUTES = 15
-HEATMAP_UPDATE_MINUTES = 15
+ONLINE_UPDATE_MINUTES = 30
+LEADERBOARD_UPDATE_MINUTES = 30
+HEATMAP_UPDATE_MINUTES = 30
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
+last_heatmap_message_ids = {}
 
 # =========================================================
 # CLICKABLE MAP LINKS
@@ -385,6 +414,32 @@ def build_izurvive_link(coords):
     except:
         return None
 
+
+ZONE_POINTS = {
+    "NWAF": (330, 120), "Tisy": (220, 70), "Zelenogorsk": (170, 220),
+    "Chernogorsk": (120, 290), "Elektrozavodsk": (360, 300), "Vybor": (210, 140),
+    "Berezino": (430, 150), "Severograd": (360, 95)
+}
+
+
+def generate_guild_heatmap_image(guild_id: str):
+    img = Image.new("RGBA", (512, 384), (18, 18, 25, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    zone_counts = territory_heat.get(guild_id, {})
+    max_count = max(zone_counts.values()) if zone_counts else 1
+    for zone, count in zone_counts.items():
+        if zone not in ZONE_POINTS:
+            continue
+        x, y = ZONE_POINTS[zone]
+        intensity = max(0.2, min(1.0, count / max_count))
+        for r, alpha in [(65, int(50*intensity)), (45, int(90*intensity)), (25, int(150*intensity))]:
+            draw.ellipse((x-r, y-r, x+r, y+r), fill=(255, 80, 0, alpha))
+        draw.text((x+8, y+8), zone, fill=(255, 255, 255, 220))
+    fd, path = tempfile.mkstemp(prefix=f"heat_{guild_id}_", suffix=".png")
+    os.close(fd)
+    img.save(path, format="PNG")
+    return path
+
 # =========================================================
 # AUTO GUILD SETUP
 # =========================================================
@@ -397,15 +452,15 @@ async def on_guild_join(guild):
     if guild_id in guild_configs:
         return
 
-    category = await guild.create_category(
-        "📡 WANDERING BOT"
-    )
+    category = await guild.create_category("📡┃WANDERING BOT┃📡")
+    staff_category = await guild.create_category("🛡️┃STAFF OPS┃🛡️")
+    economy_category = await guild.create_category("💰┃ECONOMY┃💰")
 
-    async def make_channel(name):
+    async def make_channel(name, *, cat=None):
 
         return await guild.create_text_channel(
             name,
-            category=category
+            category=cat or category
         )
 
     killfeed = await make_channel("🔥・killfeed")
@@ -426,14 +481,23 @@ async def on_guild_join(guild):
     clips_channel = await make_channel("🎬・dayz-clips")
     economy_channel = await make_channel("💰・black-market")
     ai_channel = await make_channel("🧠・survivor-ai")
-    admin_logs = await make_channel("🛡️・admin-logs")
-    command_logs = await make_channel("📜・command-logs")
-    purchase_logs = await make_channel("💳・purchase-logs")
-    vehicle_rentals = await make_channel("🚗・vehicle-rentals")
-    rental_logs = await make_channel("🛻・rental-logs")
+    admin_logs = await make_channel("🛡️・admin-logs・🛡️", cat=staff_category)
+    command_logs = await make_channel("📜・command-logs・📜", cat=staff_category)
+    purchase_logs = await make_channel("💳・purchase-logs・💳", cat=staff_category)
+    vehicle_rentals = await make_channel("🚗・vehicle-rentals・🚗", cat=economy_category)
+    rental_logs = await make_channel("🛻・rental-logs・🛻", cat=economy_category)
     faction_tickets = await make_channel("🎫・faction-tickets")
     faction_staff = await make_channel("🛡️・faction-staff")
     zombie_feed = await make_channel("🧟・zombie-feed")
+    owner_overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+    }
+    company_announcements = await guild.create_text_channel(
+        "📢・wandering-company-announcements・📢",
+        category=staff_category,
+        overwrites=owner_overwrites
+    )
 
     guild_configs[guild_id] = {
         "guild_name": guild.name,
@@ -471,8 +535,18 @@ async def on_guild_join(guild):
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id,
             "zombie_feed": zombie_feed.id
+            ,
+            "company_announcements": company_announcements.id
         }
     }
+
+    try:
+        await send_owner_notification(
+            "➕ Bot Added to New Server",
+            f"Server: **{guild.name}** (`{guild.id}`)\nOwner: **{guild.owner}**"
+        )
+    except Exception:
+        pass
 
     save_guild_configs()
 
@@ -966,34 +1040,8 @@ async def parse_adm(guild_id, config):
 
             await connect_channel.send(embed=embed)
 
-            welcome_channel = bot.get_channel(
-                channels.get("welcome")
-            )
-
-            if welcome_channel:
-
-                import random
-
-                welcome_text = random.choice(WELCOME_MESSAGES)
-
-                welcome_embed = discord.Embed(
-                    title="👋 SURVIVOR ENTERED CHERNARUS",
-                    description=(
-                        f"**{player_name}** connected to the server.\\n\\n"
-                        f"{welcome_text}"
-                    ),
-                    color=0x1ABC9C
-                )
-
-                welcome_embed.set_thumbnail(url=BOT_IMAGE)
-
-                welcome_embed.set_footer(
-                    text="Wandering Bot • Survivor Arrival"
-                )
-
-                await welcome_channel.send(
-                    embed=style_embed(welcome_embed)
-                )
+            # Welcome channel messaging for in-game connects removed.
+            # Welcome messages are only for Discord member joins.
 
         # ================= DISCONNECT =================
 
@@ -1577,7 +1625,11 @@ async def on_member_join(member):
 
     embed = discord.Embed(
         title="👋 NEW SURVIVOR ARRIVED",
-        description=f"{member.mention}\n\n{welcome_text}",
+        description=(
+            f"{member.mention}\n\n{welcome_text}\n\n"
+            "🔗 Please link your gamertag with `/linkgamer` in the required channel.\n"
+            "Example: `/linkgamer gamertag: YourXboxName`"
+        ),
         color=0x1ABC9C
     )
 
@@ -1661,6 +1713,7 @@ async def on_message(message):
             break
 
     user_id = str(message.author.id)
+    now_ts = datetime.now(UTC).timestamp()
 
     if user_id not in player_chat_tracker:
 
@@ -1670,6 +1723,17 @@ async def on_message(message):
             "clean_messages": 0,
             "eligible": False
         }
+
+    # low-frequency fun chatter with anti-repeat + anti-spam guards
+    if now_ts - last_funny_message_time.get(user_id, 0) > 900:
+        import random
+        if random.random() < 0.04:
+            idx = random.randrange(len(FUNNY_ROTATION))
+            if idx == last_funny_index.get(user_id, -1):
+                idx = (idx + 1) % len(FUNNY_ROTATION)
+            last_funny_index[user_id] = idx
+            last_funny_message_time[user_id] = now_ts
+            await message.channel.send(FUNNY_ROTATION[idx])
 
     tracker = player_chat_tracker[user_id]
 
@@ -1740,7 +1804,7 @@ async def on_message(message):
                 embed=style_embed(redemption_embed)
             )
 
-    await bot.process_commands(message)
+    # Prefix commands disabled; slash commands only mode.
 
 # =========================================================
 # OWNER MONITORING SYSTEM
@@ -2992,6 +3056,14 @@ AI_KEYWORDS = [
     "base damage"
 ]
 
+FUNNY_ROTATION = [
+    "🧠 Pro tip: if you hear wolves, you are the side quest.",
+    "💀 DayZ is 10% aim and 90% bad life choices.",
+    "🥫 Beans are temporary. Trauma is forever.",
+    "📻 If your friend says 'trust me', do not trust them.",
+    "🧤 Helpful advice: carry bandages before ego."
+]
+
 async def send_ai_alert(guild_id, config, line):
 
     channels = config.get("channels", {})
@@ -3098,6 +3170,26 @@ async def linkgamer(ctx, *, gamertag: str):
     )
 
     await ctx.send(embed=style_embed(embed))
+
+
+@bot.tree.command(
+    name="linkgamer",
+    description="Link your Discord account to your Xbox gamertag"
+)
+@app_commands.describe(gamertag="Your Xbox gamertag")
+async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
+    user_id = str(interaction.user.id)
+    linked_players[user_id] = {
+        "discord_name": str(interaction.user),
+        "gamertag": gamertag
+    }
+    save_linked_players()
+    embed = discord.Embed(
+        title="🔗 GAMERTAG LINKED",
+        description=f"Linked to: `{gamertag}`",
+        color=0x2ECC71
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
 @bot.command()
@@ -3304,7 +3396,16 @@ async def online_dashboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            await online_channel.send(embed=embed)
+            old_message_id = last_online_message_ids.get(guild_id)
+            if old_message_id:
+                try:
+                    old_message = await online_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except Exception:
+                    pass
+
+            sent_message = await online_channel.send(embed=embed)
+            last_online_message_ids[guild_id] = sent_message.id
 
         except Exception as error:
             print(error)
@@ -3359,9 +3460,9 @@ async def heatmap_loop():
                 inline=False
             )
 
-            embed.set_image(
-                url="https://i.imgur.com/JYUB0m3.png"
-            )
+            heatmap_path = generate_guild_heatmap_image(guild_id)
+            file = discord.File(heatmap_path, filename="heatmap.png")
+            embed.set_image(url="attachment://heatmap.png")
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -3371,7 +3472,20 @@ async def heatmap_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            await heatmap_channel.send(embed=embed)
+            old_message_id = last_heatmap_message_ids.get(guild_id)
+            if old_message_id:
+                try:
+                    old_message = await heatmap_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except Exception:
+                    pass
+
+            sent_message = await heatmap_channel.send(embed=embed, file=file)
+            last_heatmap_message_ids[guild_id] = sent_message.id
+            try:
+                os.remove(heatmap_path)
+            except Exception:
+                pass
 
         except Exception as error:
             print(error)
@@ -3413,10 +3527,32 @@ async def leaderboard_loop():
                     f"{index}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
                 )
 
+            global_lines = lines[:5]
+
+            guild_lines = []
+            guild_only = []
+            for player, stats in player_stats.items():
+                if str(stats.get("guild_id", "")) == guild_id:
+                    guild_only.append((player, stats))
+            guild_only.sort(key=lambda x: x[1].get("kills", 0), reverse=True)
+            for idx, (player, stats) in enumerate(guild_only[:5], start=1):
+                guild_lines.append(
+                    f"{idx}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
+                )
+
             embed = discord.Embed(
-                title="🏆 GLOBAL SURVIVOR LEADERBOARDS 🏆",
-                description="\n".join(lines) if lines else "No stats yet.",
+                title="🏆 LEADERBOARDS (GLOBAL + THIS SERVER) 🏆",
                 color=0xF1C40F
+            )
+            embed.add_field(
+                name="🌍 Global Top 5",
+                value="\n".join(global_lines) if global_lines else "No stats yet.",
+                inline=False
+            )
+            embed.add_field(
+                name="🏠 This Server Top 5",
+                value="\n".join(guild_lines) if guild_lines else "No guild-specific stats yet.",
+                inline=False
             )
 
             embed.set_thumbnail(url=BOT_IMAGE)
@@ -3427,7 +3563,16 @@ async def leaderboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            await leaderboard_channel.send(embed=embed)
+            old_message_id = last_leaderboard_message_ids.get(guild_id)
+            if old_message_id:
+                try:
+                    old_message = await leaderboard_channel.fetch_message(old_message_id)
+                    await old_message.delete()
+                except Exception:
+                    pass
+
+            sent_message = await leaderboard_channel.send(embed=embed)
+            last_leaderboard_message_ids[guild_id] = sent_message.id
 
         except Exception as error:
             print(error)
@@ -4156,6 +4301,144 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     await ctx.send(
         f"💰 Added {amount} pennies 🪙 to {member.mention}"
     )
+
+
+@bot.tree.command(
+    name="playerlottery",
+    description="Admin only: pick a random currently-online player"
+)
+async def player_lottery(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    ensure_guild_runtime(guild_id)
+    pool = sorted(list(online_players.get(guild_id, set())))
+    if not pool:
+        await interaction.response.send_message("No online players to pick from.", ephemeral=True)
+        return
+    import random
+    winner = random.choice(pool)
+    embed = discord.Embed(
+        title="🎰 PLAYER LOTTERY",
+        description=f"Winner: **{winner}**",
+        color=0xF1C40F
+    )
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+@bot.tree.command(name="online", description="Show currently online survivors")
+async def slash_online(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id)
+    ensure_guild_runtime(guild_id)
+    guild_online = online_players[guild_id]
+    player_list = "\n".join(f"🟢 {p}" for p in sorted(guild_online)) if guild_online else "No players online."
+    embed = discord.Embed(
+        title=f"✅🎮 ONLINE SURVIVORS 🎮✅ ({len(guild_online)})",
+        description=player_list,
+        color=0x2ECC71
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="serverstatus", description="Show Wandering Bot status")
+async def slash_serverstatus(interaction: discord.Interaction):
+    total_guilds = len(guild_configs)
+    total_players = sum(len(players) for players in online_players.values())
+    embed = discord.Embed(title="📡 WANDERING BOT STATUS", color=0x3498DB)
+    embed.add_field(name="Connected Servers", value=str(total_guilds), inline=True)
+    embed.add_field(name="Tracked Players", value=str(total_players), inline=True)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="supportbot", description="Request bot setup/help support")
+@app_commands.describe(issue="Briefly describe your bot issue")
+async def supportbot(interaction: discord.Interaction, issue: str):
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    channel_id = config.get("channels", {}).get("company_announcements")
+    ch = bot.get_channel(channel_id) if channel_id else None
+    if ch:
+        embed = discord.Embed(
+            title="🆘 Bot Support Request",
+            description=issue[:1000],
+            color=0xE67E22
+        )
+        embed.add_field(name="Server", value=interaction.guild.name, inline=False)
+        embed.add_field(name="Requester", value=str(interaction.user), inline=False)
+        await ch.send(embed=style_embed(embed))
+    await interaction.response.send_message("✅ Support request submitted.", ephemeral=True)
+
+# Full slash mapping wrappers for legacy commands
+@bot.tree.command(name="helpme", description="Show command/help information")
+async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
+@bot.tree.command(name="swearjar", description="Show swear jar leaderboard")
+async def slash_swearjar(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "swearjar")
+@bot.tree.command(name="heatmap", description="Show territory heatmap summary")
+async def slash_heatmap(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "heatmap")
+@bot.tree.command(name="toplongshots", description="Show longshot leaderboard")
+async def slash_toplongshots(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "toplongshots")
+@bot.tree.command(name="topkills", description="Show top kill leaderboard")
+async def slash_topkills(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "topkills")
+@bot.tree.command(name="staffroles", description="List staff roles")
+async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
+@bot.tree.command(name="mylink", description="Show your linked gamertag")
+async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "mylink")
+@bot.tree.command(name="wallet", description="Show your wallet")
+async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
+@bot.tree.command(name="shop", description="Show shop")
+async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
+
+@bot.tree.command(name="setadminrole", description="Set primary admin role")
+@app_commands.describe(role_name="Role name")
+async def slash_setadminrole(interaction: discord.Interaction, role_name: str): await run_legacy_as_slash(interaction, "setadminrole", role_name=role_name)
+@bot.tree.command(name="addstaffrole", description="Add a staff role")
+@app_commands.describe(role_name="Role name")
+async def slash_addstaffrole(interaction: discord.Interaction, role_name: str): await run_legacy_as_slash(interaction, "addstaffrole", role_name=role_name)
+@bot.tree.command(name="factionticket", description="Create faction request")
+@app_commands.describe(faction_name="Faction name")
+async def slash_factionticket(interaction: discord.Interaction, faction_name: str): await run_legacy_as_slash(interaction, "factionticket", faction_name=faction_name)
+@bot.tree.command(name="factionapprove", description="Approve faction request")
+@app_commands.describe(message_id="Ticket message ID")
+async def slash_factionapprove(interaction: discord.Interaction, message_id: int): await run_legacy_as_slash(interaction, "factionapprove", message_id=message_id)
+@bot.tree.command(name="purge", description="Purge recent messages")
+@app_commands.describe(amount="Amount")
+async def slash_purge(interaction: discord.Interaction, amount: int = 10): await run_legacy_as_slash(interaction, "purge", amount=amount)
+@bot.tree.command(name="purgeuser", description="Purge user messages")
+@app_commands.describe(member="Member", amount="Amount")
+async def slash_purgeuser(interaction: discord.Interaction, member: discord.Member, amount: int = 50): await run_legacy_as_slash(interaction, "purgeuser", member=member, amount=amount)
+@bot.tree.command(name="purgebots", description="Purge bot messages")
+@app_commands.describe(amount="Amount")
+async def slash_purgebots(interaction: discord.Interaction, amount: int = 100): await run_legacy_as_slash(interaction, "purgebots", amount=amount)
+@bot.tree.command(name="setradarchannel", description="Set radar channel")
+@app_commands.describe(channel="Channel")
+async def slash_setradarchannel(interaction: discord.Interaction, channel: discord.TextChannel): await run_legacy_as_slash(interaction, "setradarchannel", channel=channel)
+@bot.tree.command(name="radarping", description="Send radar ping")
+@app_commands.describe(x="X", y="Y", reason="Reason")
+async def slash_radarping(interaction: discord.Interaction, x: str, y: str, reason: str = "Survivor Activity"): await run_legacy_as_slash(interaction, "radarping", x=x, y=y, reason=reason)
+@bot.tree.command(name="restartserver", description="Restart server")
+async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
+@bot.tree.command(name="togglebasedamage", description="Toggle base damage")
+@app_commands.describe(state="on or off")
+async def slash_togglebasedamage(interaction: discord.Interaction, state: str): await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
+@bot.tree.command(name="setrestartinterval", description="Set restart interval")
+@app_commands.describe(hours="Hours 1-24")
+async def slash_setrestartinterval(interaction: discord.Interaction, hours: int): await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
+@bot.tree.command(name="setrestartstart", description="Set restart start hour UTC")
+@app_commands.describe(hour="Hour 0-23")
+async def slash_setrestartstart(interaction: discord.Interaction, hour: int): await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
+@bot.tree.command(name="listrestarts", description="List restart schedule")
+async def slash_listrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "listrestarts")
+@bot.tree.command(name="playerstats", description="Lookup player stats")
+@app_commands.describe(player_name="Player name")
+async def slash_playerstats(interaction: discord.Interaction, player_name: str): await run_legacy_as_slash(interaction, "playerstats", player_name=player_name)
+@bot.tree.command(name="buy", description="Buy an item and queue delivery")
+@app_commands.describe(item_name="Item", x="Map X", y="Map Y")
+async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
+@bot.tree.command(name="rentvehicle", description="Rent a vehicle")
+@app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
+async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
 
 # =========================================================
 # DAYZ INIT.C DELIVERY LOADER (NITRADO SIDE)
