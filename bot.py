@@ -46,15 +46,27 @@ BOT_IMAGE = (
     "7A382429-B666-4A9F-B890-17C0F7981709.png"
 )
 
-GUILD_CONFIG_FILE = "guild_configs.json"
-GUILD_DATA_FOLDER = "guild_data"
+DATA_ROOT = (
+    os.getenv("WANDERING_DATA_DIR")
+    or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+    or os.getenv("RAILWAY_VOLUME_PATH")
+    or "."
+)
+
+
+def data_path(*parts):
+    return os.path.join(DATA_ROOT, *parts)
+
+
+GUILD_CONFIG_FILE = data_path("guild_configs.json")
+GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
-PROCESSED_ADM_FILE = "processed_adm_lines.json"
-PLAYER_STATS_FILE = "player_stats.json"
-HEATMAP_FILE = "heatmap.json"
-SWEAR_JAR_FILE = "swear_jar.json"
-LINKED_PLAYERS_FILE = "linked_players.json"
-SUPPORT_TICKETS_FILE = "support_tickets.json"
+PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
+PLAYER_STATS_FILE = data_path("player_stats.json")
+HEATMAP_FILE = data_path("heatmap.json")
+SWEAR_JAR_FILE = data_path("swear_jar.json")
+LINKED_PLAYERS_FILE = data_path("linked_players.json")
+SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 
 # =========================================================
 # GLOBALS
@@ -2208,6 +2220,8 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
     if missing:
         return False, f"Missing setup values: {', '.join(missing)}"
 
+    print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
+
     latest_log = await asyncio.to_thread(
         ping_latest_adm_log,
         config
@@ -2231,8 +2245,29 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
         config
     )
 
-    print(f"NEW ADM FOR {guild_id}")
+    print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
     return True, "ADM feed refreshed"
+
+
+def guild_display_name(guild_id):
+    guild_id = str(guild_id)
+    guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+
+    if guild:
+        return guild.name
+
+    return guild_configs.get(guild_id, {}).get("guild_name", guild_id)
+
+
+def log_adm_protocol_results(results, label="ADM PROTOCOL"):
+    if not results:
+        print(f"[{label}] No active configured guilds to scan.")
+        return
+
+    for result_guild_id, result in results.items():
+        success, message = result
+        status = "OK" if success else "WAITING"
+        print(f"[{label}] {guild_display_name(result_guild_id)} ({result_guild_id}) -> {status}: {message}")
 
 
 async def refresh_adm_feeds(guild_id=None, *, force=False):
@@ -2274,11 +2309,16 @@ async def adm_loop():
     for guild_id, config in active_guild_config_items():
 
         try:
-            await refresh_adm_for_guild(guild_id, config)
+            success, message = await refresh_adm_for_guild(guild_id, config)
+
+            if success:
+                print(f"[ADM LOOP] {guild_display_name(guild_id)} ({guild_id}) -> OK: {message}")
+            else:
+                print(f"[ADM LOOP] {guild_display_name(guild_id)} ({guild_id}) -> WAITING: {message}")
 
         except Exception as error:
 
-            print(error)
+            print(f"[ADM LOOP ERROR] {guild_id}: {error}")
 
 # =========================================================
 # SWEAR JAR
@@ -3551,7 +3591,10 @@ async def reloadguilds(ctx):
     load_processed_adm_lines()
     bootstrap_runtime_from_connected_guilds()
     await start_background_tasks()
-    await refresh_adm_feeds()
+
+    print("STARTING ADM STARTUP PROTOCOL")
+    startup_results = await refresh_adm_feeds()
+    log_adm_protocol_results(startup_results, "ADM STARTUP")
 
     embed = discord.Embed(
         title="🔄 GUILD CONFIGS RELOADED",
@@ -3584,6 +3627,7 @@ async def restartadm(ctx, force: str = "no"):
         adm_loop.start()
 
     results = await refresh_adm_feeds(str(ctx.guild.id), force=force_refresh)
+    log_adm_protocol_results(results, "ADM RESTART")
     success, message = results.get(str(ctx.guild.id), (False, "No result"))
 
     embed = discord.Embed(
@@ -4200,8 +4244,9 @@ async def playerstats(ctx, *, player_name: str):
 # PERSISTENT MULTI-GUILD STORAGE
 # =========================================================
 
-# Guild setups are permanently stored in:
+# Guild setups are permanently stored in DATA_ROOT:
 # guild_configs.json
+# guild_data/guilds/<guild_id>.json
 #
 # This means if the bot restarts, redeploys,
 # crashes, or updates, every server remains linked
@@ -4479,11 +4524,11 @@ async def leaderboard_loop():
 # ECONOMY SYSTEM FOUNDATION
 # =========================================================
 
-SHOP_FILE = "shop.json"
-WALLETS_FILE = "wallets.json"
-DELIVERY_QUEUE_FILE = "delivery_queue.json"
+SHOP_FILE = data_path("shop.json")
+WALLETS_FILE = data_path("wallets.json")
+DELIVERY_QUEUE_FILE = data_path("delivery_queue.json")
 TYPES_XML_CANDIDATES = [
-    "types.xml",
+    data_path("types.xml"),
     os.path.join(GUILD_DATA_FOLDER, "types.xml"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml.xml"),
@@ -5892,7 +5937,9 @@ SpawnWanderingDeliveries();
 async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
+    print(f"DATA ROOT: {os.path.abspath(DATA_ROOT)}")
 
+    ensure_folder(DATA_ROOT)
     ensure_folder(GUILD_DATA_FOLDER)
 
     load_guild_configs()
@@ -5916,7 +5963,10 @@ async def on_ready():
     print(f"ACTIVE GUILDS: {', '.join(active_names) if active_names else 'none'}")
 
     await start_background_tasks()
-    await refresh_adm_feeds()
+
+    print("[ADM STARTUP] Starting ADM startup protocol for active guilds.")
+    startup_results = await refresh_adm_feeds()
+    log_adm_protocol_results(startup_results, "ADM STARTUP")
 
     try:
         synced = await bot.tree.sync()
