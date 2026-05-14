@@ -1,5 +1,5 @@
 # =========================================================
-# WANDERING BOT ALPHA - FINISHED
+# WANDERING BOT ALPHA - MULTI GUILD EDITION
 # =========================================================
 
 import os
@@ -130,6 +130,8 @@ DEFAULT_CHANNEL_NAMES = {
     "disconnects": "🔴⛔・disconnects・⛔🔴",
     "zombie_feed": "🧟🧟・zombie-feed・🧟🧟",
     "unconscious_feed": "🩹⚠️・unconscious-feed・⚠️🩹",
+    "cuts_feed": "🩸⚕️・injury-intel・⚕️🩸",
+    "placed_feed": "🧰🏕️・placement-intel・🏕️🧰",
     "online": "✅🎮・online-survivors・🎮✅",
     "leaderboards": "🏆📊・leaderboards・📊🏆",
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
@@ -181,6 +183,8 @@ CHANNEL_ALIASES = {
     "faction_staff": ["factionstaff"],
     "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
     "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
+    "cuts_feed": ["cutsfeed", "injuryintel", "injuryfeed", "bleedoutfeed"],
+    "placed_feed": ["placedfeed", "placementintel", "placementfeed", "buildplaced"],
     "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
 }
 
@@ -361,14 +365,14 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
         return
 
     feed_map = {
-        "flag_raise": ("flag_feed", "flag-feed", True, "FLAG RAISED", 0x2ECC71),
-        "flag_lower": ("flag_feed", "flag-feed", True, "FLAG LOWERED", 0xE67E22),
-        "cut": ("cuts_feed", "cuts-feed", True, "SURVIVOR DAMAGE", 0xE74C3C),
-        "bleedout": ("cuts_feed", "cuts-feed", True, "SURVIVOR BLED OUT", 0x992D22),
-        "suicide": ("cuts_feed", "cuts-feed", True, "SUICIDE EVENT", 0x992D22),
-        "respawn": ("cuts_feed", "cuts-feed", True, "RESPAWN CHOSEN", 0x3498DB),
-        "packed": ("placed_feed", "placed-feed", True, "ITEM PACKED", 0xF1C40F),
-        "placed": ("placed_feed", "placed-feed", True, "PLACEMENT ACTIVITY", 0x3498DB),
+        "flag_raise": ("flag_feed", "🏴📡・flag-intel・📡🏴", True, "🏴 FLAG RAISED", 0x2ECC71),
+        "flag_lower": ("flag_feed", "🏴📡・flag-intel・📡🏴", True, "🏴 FLAG LOWERED", 0xE67E22),
+        "cut": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "🩸 SURVIVOR INJURED", 0xE74C3C),
+        "bleedout": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "☠️ SURVIVOR BLED OUT", 0x8E1B1B),
+        "suicide": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "⚰️ SUICIDE EVENT", 0x6C3483),
+        "respawn": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "🔁 RESPAWN CHOSEN", 0x3498DB),
+        "packed": ("placed_feed", "🧰🏕️・placement-intel・🏕️🧰", True, "📦 ITEM PACKED", 0xF1C40F),
+        "placed": ("placed_feed", "🧰🏕️・placement-intel・🏕️🧰", True, "🧱 PLACEMENT ACTIVITY", 0x1ABC9C),
     }
 
     if event_type not in feed_map:
@@ -379,17 +383,28 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
     player = extract_player_name(line)
     map_link = build_adm_map_link(line)
 
-    embed = discord.Embed(
+    details = "Event captured from ADM feed."
+    if event_type == "placed":
+        placed_match = re.search(r'placed ([^<]+)', line, re.IGNORECASE)
+        if placed_match:
+            details = f"Placed: {placed_match.group(1).strip()[:120]}"
+    elif event_type == "packed":
+        packed_match = re.search(r'packed ([^<]+)', line, re.IGNORECASE)
+        if packed_match:
+            details = f"Packed: {packed_match.group(1).strip()[:120]}"
+    elif event_type in {"cut", "bleedout", "suicide", "respawn"}:
+        details = "Medical/combat status event logged."
+
+    embed = create_feed_embed(
         title=title,
-        description=f"```{line[:1000]}```",
-        color=color
+        color=color,
+        player=player,
+        details=details,
+        coords=extract_adm_coords(line)
     )
-    embed.add_field(name="Survivor", value=player, inline=True)
     if map_link:
         embed.add_field(name="Map", value=f"[Open Location](<{map_link}>)", inline=True)
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
-    await channel.send(embed=style_embed(embed))
+    await channel.send(embed=embed)
 
 
 async def send_swear_jar_feed(message, found_words, fine, pennies_total):
@@ -437,6 +452,31 @@ async def maybe_reply_to_bot_mention(message, lower):
     ]
 
     await message.channel.send(wb_text("ai", random.choice(help_lines)))
+
+    # Occasional DayZ-themed AI image response (about 20% chance) if enabled.
+    if random.random() < 0.20:
+        image_url = generate_dayz_image_url(message.content)
+        if image_url:
+            embed = discord.Embed(
+                title="🎨 DayZ Field Sketch",
+                description="AI-generated vibe image based on the conversation.",
+                color=0x8E44AD
+            )
+            embed.set_image(url=image_url)
+            embed.set_footer(text="Generated image may be stylized/non-literal.")
+            await message.channel.send(embed=style_embed(embed))
+
+
+def generate_dayz_image_url(prompt_text: str):
+    cleaned = re.sub(r"\s+", " ", str(prompt_text)).strip()
+    if not cleaned:
+        cleaned = "DayZ survivor scene at sunset, cinematic, realistic"
+    full_prompt = f"DayZ style scene, Chernarus mood, {cleaned[:180]}"
+    try:
+        from urllib.parse import quote_plus
+        return f"https://image.pollinations.ai/prompt/{quote_plus(full_prompt)}"
+    except Exception:
+        return None
 
 
 async def maybe_owner_mention_remark(message):
@@ -872,6 +912,22 @@ def save_player_stats():
     save_json(PLAYER_STATS_FILE, player_stats)
 
 
+def ensure_player_stat_record(player_name, guild_id=None):
+    if player_name not in player_stats or not isinstance(player_stats.get(player_name), dict):
+        player_stats[player_name] = {
+            "kills": 0,
+            "deaths": 0,
+            "raids": 0,
+            "builds": 0,
+            "guild_id": str(guild_id) if guild_id is not None else ""
+        }
+
+    if guild_id is not None:
+        player_stats[player_name]["guild_id"] = str(guild_id)
+
+    return player_stats[player_name]
+
+
 def load_heatmap():
     global territory_heat
     territory_heat = load_json(HEATMAP_FILE)
@@ -932,6 +988,16 @@ def load_processed_adm_lines():
     for guild_id, hashes in data.items():
         if isinstance(hashes, list):
             processed_lines[str(guild_id)] = set(str(item) for item in hashes)
+
+
+def stamp_adm_tail_checkpoint(guild_id, lines):
+    guild_id = str(guild_id)
+    if not lines:
+        return
+    tail_hash = stable_line_hash(lines[-1].strip())
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    config["adm_last_tail_hash"] = tail_hash
+    save_guild_configs()
 
 
 def save_processed_adm_lines():
@@ -1263,7 +1329,7 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
     height = 384
     mode = mode or guild_heatmap_mode(guild_id)
     pixels = [
-        [(46, 66, 55, 255) for _ in range(width)]
+        [(94, 126, 102, 255) for _ in range(width)]
         for _ in range(height)
     ]
 
@@ -1308,16 +1374,16 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
     def draw_grid():
         for x in range(0, width, 64):
             for y in range(height):
-                blend_pixel(x, y, (95, 120, 105, 70))
+                blend_pixel(x, y, (170, 200, 180, 80))
 
         for y in range(0, height, 48):
             for x in range(width):
-                blend_pixel(x, y, (95, 120, 105, 70))
+                blend_pixel(x, y, (170, 200, 180, 80))
 
         for x in range(40, width - 40):
             coast_y = int(300 + math.sin(x / 24) * 18)
             for y in range(coast_y, height):
-                blend_pixel(x, y, (36, 72, 95, 210))
+                blend_pixel(x, y, (72, 124, 170, 180))
 
     def png_chunk(chunk_type, data):
         chunk = chunk_type + data
@@ -2021,6 +2087,21 @@ async def parse_adm(guild_id, config):
 
         lines = f.readlines()
 
+    config_tail_hash = str(config.get("adm_last_tail_hash", "")).strip()
+    if lines and not config_tail_hash:
+        # First run after setup/redeploy: checkpoint current tail so old events are not replayed.
+        stamp_adm_tail_checkpoint(guild_id, lines)
+        return
+
+    if lines and config_tail_hash:
+        start_index = None
+        for idx, raw in enumerate(lines):
+            if stable_line_hash(raw.strip()) == config_tail_hash:
+                start_index = idx + 1
+                break
+        if start_index is not None:
+            lines = lines[start_index:]
+
     channels = config.get("channels", {})
 
     killfeed_channel = bot.get_channel(
@@ -2699,6 +2780,16 @@ async def parse_adm(guild_id, config):
                         await longshot_channel.send(
                             embed=style_embed(longshot_embed)
                         )
+
+                killer_stats = ensure_player_stat_record(killer, guild_id)
+                victim_stats = ensure_player_stat_record(victim, guild_id)
+                killer_stats["kills"] = int(killer_stats.get("kills", 0)) + 1
+                victim_stats["deaths"] = int(victim_stats.get("deaths", 0)) + 1
+                save_player_stats()
+
+    # Update tail checkpoint after processing so redeploys continue from newest known line.
+    if lines:
+        stamp_adm_tail_checkpoint(guild_id, lines)
 
 # =========================================================
 # ADM LOOP
@@ -3563,6 +3654,63 @@ async def heatmap(ctx):
     await ctx.send(
         embed=style_embed(embed)
     )
+
+
+@bot.command()
+async def pvestatus(ctx):
+    embed = discord.Embed(
+        title="🛡️ PVE SYSTEM STATUS",
+        description="PVE command layer is active for announcements and planning.",
+        color=0x2ECC71
+    )
+    embed.add_field(
+        name="Current",
+        value="Use existing feeds (`/zombiefeed`, `/unconsciousfeed`, `/heatmap`) for live PVE pressure monitoring.",
+        inline=False
+    )
+    embed.add_field(
+        name="Planned Expansion",
+        value="Rotating PVE objectives, faction PVE contracts, and timed hotspot alerts.",
+        inline=False
+    )
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def quests(ctx):
+    embed = discord.Embed(
+        title="📜 QUEST BOARD",
+        description="Quest module is currently informational.",
+        color=0xF1C40F
+    )
+    embed.add_field(
+        name="How to use now",
+        value="Staff can post active quests in your announcements/help channels and track completion manually.",
+        inline=False
+    )
+    embed.add_field(
+        name="Next step",
+        value="Automated quest templates + reward payouts can be wired into the wallet/shop system.",
+        inline=False
+    )
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def dayzimage(ctx, *, prompt: str = "abandoned military checkpoint at dusk"):
+    image_url = generate_dayz_image_url(prompt)
+    if not image_url:
+        await ctx.send("❌ Could not generate image URL right now.")
+        return
+
+    embed = discord.Embed(
+        title="🖼️ DAYZ AI IMAGE",
+        description=f"Prompt: `{prompt[:180]}`",
+        color=0x9B59B6
+    )
+    embed.set_image(url=image_url)
+    embed.set_footer(text="AI generated scene for community flavor content.")
+    await ctx.send(embed=style_embed(embed))
 
 
 @bot.command()
@@ -5141,12 +5289,20 @@ async def leaderboard_loop():
             )
             embed.add_field(
                 name="🌍 Global Top 5",
-                value="\n".join(global_lines) if global_lines else "No stats yet.",
+                value=(
+                    "\n".join(global_lines)
+                    if global_lines else
+                    "No kill stats yet. Leaderboard fills after kill events are detected in ADM."
+                ),
                 inline=False
             )
             embed.add_field(
                 name="🏠 This Server Top 5",
-                value="\n".join(guild_lines) if guild_lines else "No guild-specific stats yet.",
+                value=(
+                    "\n".join(guild_lines)
+                    if guild_lines else
+                    "No server-specific kill stats yet. Check ADM feed and wait for next kill event."
+                ),
                 inline=False
             )
 
@@ -6703,6 +6859,13 @@ async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 @bot.tree.command(name="shop", description="Show shop")
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
+@bot.tree.command(name="pvestatus", description="Show PVE module status")
+async def slash_pvestatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "pvestatus")
+@bot.tree.command(name="quests", description="Show quest board status")
+async def slash_quests(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "quests")
+@bot.tree.command(name="dayzimage", description="Generate a DayZ-themed AI image")
+@app_commands.describe(prompt="Describe the scene")
+async def slash_dayzimage(interaction: discord.Interaction, prompt: str): await run_legacy_as_slash(interaction, "dayzimage", prompt=prompt)
 @bot.tree.command(name="runvehiclereset", description="Admin: run vehicle-only reset now")
 async def slash_runvehiclereset(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "runvehiclereset")
 
