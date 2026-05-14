@@ -5,9 +5,11 @@
 import os
 import re
 import json
+import hashlib
 import asyncio
 import requests
 import tempfile
+import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
 
@@ -46,6 +48,7 @@ BOT_IMAGE = (
 
 GUILD_CONFIG_FILE = "guild_configs.json"
 GUILD_DATA_FOLDER = "guild_data"
+PROCESSED_ADM_FILE = "processed_adm_lines.json"
 PLAYER_STATS_FILE = "player_stats.json"
 HEATMAP_FILE = "heatmap.json"
 SWEAR_JAR_FILE = "swear_jar.json"
@@ -375,6 +378,60 @@ def load_support_tickets():
 
 def save_support_tickets():
     save_json(SUPPORT_TICKETS_FILE, support_tickets)
+
+
+def stable_line_hash(line):
+    return hashlib.sha256(
+        line.encode("utf-8", errors="ignore")
+    ).hexdigest()
+
+
+def load_processed_adm_lines():
+    global processed_lines
+
+    data = load_json(PROCESSED_ADM_FILE)
+    processed_lines = {}
+
+    for guild_id, hashes in data.items():
+        if isinstance(hashes, list):
+            processed_lines[str(guild_id)] = set(str(item) for item in hashes)
+
+
+def save_processed_adm_lines():
+    data = {}
+
+    for guild_id, hashes in processed_lines.items():
+        hash_list = list(hashes)
+        data[guild_id] = hash_list[-1000:]
+
+    save_json(PROCESSED_ADM_FILE, data)
+
+
+def remember_processed_line(guild_id, line_hash):
+    ensure_guild_runtime(guild_id)
+    processed_lines[guild_id].add(line_hash)
+
+    if len(processed_lines[guild_id]) > 1000:
+        processed_lines[guild_id] = set(list(processed_lines[guild_id])[-1000:])
+
+    save_processed_adm_lines()
+
+
+def bootstrap_runtime_from_connected_guilds():
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+
+        if guild_id not in guild_configs:
+            continue
+
+        guild_configs[guild_id].setdefault("guild_name", guild.name)
+        guild_configs[guild_id].setdefault("admin_roles", DEFAULT_ADMIN_ROLES.copy())
+        guild_configs[guild_id].setdefault("channels", {})
+        ensure_guild_runtime(guild_id)
+
+    for guild_id in guild_configs:
+        ensure_guild_runtime(guild_id)
+
 
 # =========================================================
 # EVENT CLASSIFIER
@@ -875,14 +932,14 @@ async def setup_command(
 
         return await interaction.guild.create_category(name)
 
-    category = await ensure_category("wandering_hq", "???????WANDERING HQ???????")
-    live_category = await ensure_category("live_feeds", "???????LIVE SERVER FEEDS???????")
-    info_category = await ensure_category("server_info", "???????SERVER INFO???????")
-    community_category = await ensure_category("survivor_comms", "???????SURVIVOR COMMS???????")
-    staff_category = await ensure_category("staff_ops", "?????????STAFF OPS?????????")
-    economy_category = await ensure_category("economy", "???????ECONOMY???????")
-    faction_category = await ensure_category("factions", "???????FACTIONS???????")
-    support_category = await ensure_category("support", "?????HELP & SUPPORT?????")
+    category = await ensure_category("wandering_hq", "🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
+    live_category = await ensure_category("live_feeds", "🟥🟧🟨┃LIVE SERVER FEEDS┃🟨🟧🟥")
+    info_category = await ensure_category("server_info", "🟦🟩🟦┃SERVER INFO┃🟦🟩🟦")
+    community_category = await ensure_category("survivor_comms", "🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪")
+    staff_category = await ensure_category("staff_ops", "🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️")
+    economy_category = await ensure_category("economy", "💰🟨💰┃ECONOMY┃💰🟨💰")
+    faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
+    support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
 
     channel_aliases = {
         "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
@@ -1329,14 +1386,14 @@ async def parse_adm(guild_id, config):
         if not line:
             continue
 
-        line_hash = hash(line)
+        line_hash = stable_line_hash(line)
 
         ensure_guild_runtime(guild_id)
 
         if line_hash in processed_lines[guild_id]:
             continue
 
-        processed_lines[guild_id].add(line_hash)
+        remember_processed_line(guild_id, line_hash)
 
         event_type = classify_event(line)
 
@@ -1967,37 +2024,82 @@ async def parse_adm(guild_id, config):
 # ADM LOOP
 # =========================================================
 
+async def refresh_adm_for_guild(guild_id, config, *, force=False):
+
+    ensure_guild_runtime(guild_id)
+
+    if force:
+        processed_lines[guild_id] = set()
+        save_processed_adm_lines()
+
+    required_keys = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
+    missing = [key for key in required_keys if not config.get(key)]
+
+    if missing:
+        return False, f"Missing setup values: {', '.join(missing)}"
+
+    latest_log = await asyncio.to_thread(
+        ping_latest_adm_log,
+        config
+    )
+
+    if not latest_log:
+        return False, "No ADM log found"
+
+    success = await asyncio.to_thread(
+        download_latest_adm,
+        guild_id,
+        config,
+        latest_log
+    )
+
+    if not success:
+        return False, "ADM download failed"
+
+    await parse_adm(
+        guild_id,
+        config
+    )
+
+    print(f"NEW ADM FOR {guild_id}")
+    return True, "ADM feed refreshed"
+
+
+async def refresh_adm_feeds(guild_id=None, *, force=False):
+    results = {}
+
+    if guild_id:
+        config = guild_configs.get(str(guild_id))
+        if not config:
+            return {str(guild_id): (False, "Guild is not setup yet")}
+
+        results[str(guild_id)] = await refresh_adm_for_guild(
+            str(guild_id),
+            config,
+            force=force
+        )
+        return results
+
+    for configured_guild_id, config in list(guild_configs.items()):
+        try:
+            results[configured_guild_id] = await refresh_adm_for_guild(
+                configured_guild_id,
+                config,
+                force=force
+            )
+        except Exception as error:
+            results[configured_guild_id] = (False, str(error))
+
+    return results
+
+
 @tasks.loop(minutes=3)
 async def adm_loop():
 
     for guild_id, config in list(guild_configs.items()):
 
         try:
-
-            latest_log = await asyncio.to_thread(
-                ping_latest_adm_log,
-                config
-            )
-
-            if not latest_log:
-                continue
-
-            success = await asyncio.to_thread(
-                download_latest_adm,
-                guild_id,
-                config,
-                latest_log
-            )
-
-            if not success:
-                continue
-
-            await parse_adm(
-                guild_id,
-                config
-            )
-
-            print(f"NEW ADM FOR {guild_id}")
+            await refresh_adm_for_guild(guild_id, config)
 
         except Exception as error:
 
@@ -2452,6 +2554,9 @@ async def helpme(ctx):
         name="Server Control",
         value=(
             "`/restartserver`\n"
+            "`/admstatus`\n"
+            "`/restartadm force`\n"
+            "`/reloadguilds`\n"
             "`/setrestartinterval hours`\n"
             "`/setrestartstart hour`\n"
             "`/listrestarts`\n"
@@ -2470,7 +2575,8 @@ async def helpme(ctx):
             "`/addpunishment keyword amount`\n"
             "`/listrules`\n"
             "`/removerule rule_number`\n"
-            "Legacy admin: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`"
+            "`/importtypesxml source_path default_price`\n"
+            "Legacy admin: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`, `!shopcategories`"
         ),
         inline=False
     )
@@ -3194,6 +3300,126 @@ async def radarping(ctx, x: str, y: str, *, reason: str = "Survivor Activity"):
 # =========================================================
 # ADMIN SERVER CONTROLS
 # =========================================================
+
+@bot.command()
+async def admstatus(ctx):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.get(guild_id, {})
+    channels = config.get("channels", {})
+
+    configured = all(
+        config.get(key)
+        for key in ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
+    )
+
+    embed = discord.Embed(
+        title="📡 ADM FEED STATUS",
+        color=0x3498DB
+    )
+
+    embed.add_field(
+        name="Guild Loaded",
+        value="Yes" if guild_id in guild_configs else "No",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Nitrado Setup",
+        value="Ready" if configured else "Missing setup",
+        inline=True
+    )
+
+    embed.add_field(
+        name="ADM Loop",
+        value="Running" if adm_loop.is_running() else "Stopped",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Remembered ADM Lines",
+        value=str(len(processed_lines.get(guild_id, set()))),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Killfeed Channel",
+        value="Set" if channels.get("killfeed") else "Missing",
+        inline=True
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def reloadguilds(ctx):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    load_guild_configs()
+    load_processed_adm_lines()
+    bootstrap_runtime_from_connected_guilds()
+    await start_background_tasks()
+    await refresh_adm_feeds()
+
+    embed = discord.Embed(
+        title="🔄 GUILD CONFIGS RELOADED",
+        description=(
+            f"Loaded `{len(guild_configs)}` configured guilds and restarted background tasks."
+        ),
+        color=0x1ABC9C
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def restartadm(ctx, force: str = "no"):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    force_refresh = force.lower() in ["force", "yes", "true", "1"]
+
+    load_guild_configs()
+    load_processed_adm_lines()
+    bootstrap_runtime_from_connected_guilds()
+
+    if adm_loop.is_running():
+        adm_loop.restart()
+    else:
+        adm_loop.start()
+
+    results = await refresh_adm_feeds(str(ctx.guild.id), force=force_refresh)
+    success, message = results.get(str(ctx.guild.id), (False, "No result"))
+
+    embed = discord.Embed(
+        title="📡 ADM FEED RESTARTED",
+        description=message,
+        color=0x2ECC71 if success else 0xE74C3C
+    )
+
+    embed.add_field(
+        name="Force Mode",
+        value="On" if force_refresh else "Off",
+        inline=True
+    )
+
+    embed.add_field(
+        name="ADM Loop",
+        value="Running" if adm_loop.is_running() else "Stopped",
+        inline=True
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await ctx.send(embed=style_embed(embed))
+
 
 @bot.command()
 async def restartserver(ctx):
@@ -4069,6 +4295,12 @@ async def leaderboard_loop():
 SHOP_FILE = "shop.json"
 WALLETS_FILE = "wallets.json"
 DELIVERY_QUEUE_FILE = "delivery_queue.json"
+TYPES_XML_CANDIDATES = [
+    "types.xml",
+    os.path.join(GUILD_DATA_FOLDER, "types.xml"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml.xml"),
+]
 
 shop_items = {}
 wallets = {}
@@ -4076,9 +4308,107 @@ delivery_queue = []
 vehicle_rentals_queue = []
 
 
+def find_types_xml(source_path=None):
+    candidates = []
+
+    if source_path:
+        candidates.append(source_path)
+
+    candidates.extend(TYPES_XML_CANDIDATES)
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
+def guess_shop_category(item_name, xml_category=None, usage=None):
+    if xml_category:
+        return xml_category.title()
+
+    lower = item_name.lower()
+
+    if any(word in lower for word in ["car", "truck", "sedan", "hatchback", "offroad", "ada", "olga", "sarka", "gunter"]):
+        return "Vehicles"
+
+    if any(word in lower for word in ["rifle", "ak", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "ammo", "mag_"]):
+        return "Weapons"
+
+    if any(word in lower for word in ["jacket", "pants", "boots", "gloves", "helmet", "vest", "backpack", "cap"]):
+        return "Clothing"
+
+    if any(word in lower for word in ["bandage", "saline", "morphine", "epinephrine", "vitamin", "charcoal", "tetracycline"]):
+        return "Medical"
+
+    if any(word in lower for word in ["apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds"]):
+        return "Food"
+
+    if usage:
+        return usage.title()
+
+    return "General"
+
+
+def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrite=False):
+    types_path = find_types_xml(source_path)
+
+    if not types_path:
+        return 0, 0, None
+
+    tree = ET.parse(types_path)
+    root = tree.getroot()
+    added = 0
+    updated = 0
+
+    for type_node in root.findall(".//type"):
+        item_name = type_node.get("name")
+
+        if not item_name:
+            continue
+
+        category_node = type_node.find("category")
+        usage_node = type_node.find("usage")
+        cost_node = type_node.find("cost")
+
+        xml_category = category_node.get("name") if category_node is not None else None
+        usage = usage_node.get("name") if usage_node is not None else None
+
+        try:
+            price = int(cost_node.text.strip()) if cost_node is not None and cost_node.text else default_price
+        except Exception:
+            price = default_price
+
+        if price <= 0:
+            price = default_price
+
+        item_data = {
+            "price": price,
+            "category": guess_shop_category(item_name, xml_category, usage),
+            "enabled": True
+        }
+
+        if item_name in shop_items:
+            if overwrite:
+                shop_items[item_name].update(item_data)
+                updated += 1
+            continue
+
+        shop_items[item_name] = item_data
+        added += 1
+
+    if added or updated:
+        save_shop()
+
+    return added, updated, types_path
+
+
 def load_shop():
     global shop_items
     shop_items = load_json(SHOP_FILE)
+
+    if not shop_items:
+        load_shop_items_from_types_xml()
 
 
 def save_shop():
@@ -4742,6 +5072,34 @@ async def shopcategories(ctx):
     await ctx.send(embed=style_embed(embed))
 
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def importtypesxml(ctx, source_path: str = None, default_price: int = 100):
+
+    added, updated, types_path = load_shop_items_from_types_xml(
+        source_path,
+        default_price,
+        overwrite=False
+    )
+
+    if not types_path:
+        await ctx.send("No types.xml file found. Put `types.xml` beside the bot or in `guild_data`.")
+        return
+
+    embed = discord.Embed(
+        title="🛒 TYPES.XML IMPORTED TO SHOP",
+        description=f"Source: `{types_path}`",
+        color=0x2ECC71
+    )
+
+    embed.add_field(name="Added", value=str(added), inline=True)
+    embed.add_field(name="Updated", value=str(updated), inline=True)
+    embed.add_field(name="Total Shop Items", value=str(len(shop_items)), inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
+
 # =========================================================
 # ADMIN SHOP MANAGEMENT
 # =========================================================
@@ -5192,6 +5550,14 @@ async def slash_setradarchannel(interaction: discord.Interaction, channel: disco
 @bot.tree.command(name="radarping", description="Send radar ping")
 @app_commands.describe(x="X", y="Y", reason="Reason")
 async def slash_radarping(interaction: discord.Interaction, x: str, y: str, reason: str = "Survivor Activity"): await run_legacy_as_slash(interaction, "radarping", x=x, y=y, reason=reason)
+@bot.tree.command(name="admstatus", description="Admin: show ADM feed status")
+async def slash_admstatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "admstatus")
+@bot.tree.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
+async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
+@bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
+@app_commands.describe(force="Reprocess recent ADM lines")
+async def slash_restartadm(interaction: discord.Interaction, force: bool = False):
+    await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no")
 @bot.tree.command(name="restartserver", description="Restart server")
 async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
 @bot.tree.command(name="togglebasedamage", description="Toggle base damage")
@@ -5211,6 +5577,10 @@ async def slash_playerstats(interaction: discord.Interaction, player_name: str):
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
+@bot.tree.command(name="importtypesxml", description="Admin: preload shop from vanilla types.xml")
+@app_commands.describe(source_path="Optional path to types.xml", default_price="Fallback price")
+async def slash_importtypesxml(interaction: discord.Interaction, source_path: str = None, default_price: int = 100):
+    await run_legacy_as_slash(interaction, "importtypesxml", source_path=source_path, default_price=default_price)
 @bot.tree.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
@@ -5307,6 +5677,8 @@ async def on_ready():
     ensure_folder(GUILD_DATA_FOLDER)
 
     load_guild_configs()
+    load_processed_adm_lines()
+    bootstrap_runtime_from_connected_guilds()
     load_player_stats()
     load_heatmap()
     load_swear_jar()
@@ -5317,6 +5689,7 @@ async def on_ready():
     load_delivery_queue()
 
     await start_background_tasks()
+    await refresh_adm_feeds()
 
 # =========================================================
 # START
