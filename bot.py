@@ -417,6 +417,22 @@ def remember_processed_line(guild_id, line_hash):
     save_processed_adm_lines()
 
 
+def active_guild_ids():
+    return {str(guild.id) for guild in bot.guilds}
+
+
+def is_active_guild(guild_id):
+    return str(guild_id) in active_guild_ids()
+
+
+def active_guild_config_items():
+    active_ids = active_guild_ids()
+
+    for guild_id, config in list(guild_configs.items()):
+        if str(guild_id) in active_ids:
+            yield str(guild_id), config
+
+
 def bootstrap_runtime_from_connected_guilds():
     for guild in bot.guilds:
         guild_id = str(guild.id)
@@ -427,9 +443,6 @@ def bootstrap_runtime_from_connected_guilds():
         guild_configs[guild_id].setdefault("guild_name", guild.name)
         guild_configs[guild_id].setdefault("admin_roles", DEFAULT_ADMIN_ROLES.copy())
         guild_configs[guild_id].setdefault("channels", {})
-        ensure_guild_runtime(guild_id)
-
-    for guild_id in guild_configs:
         ensure_guild_runtime(guild_id)
 
 
@@ -2069,18 +2082,23 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
     results = {}
 
     if guild_id:
-        config = guild_configs.get(str(guild_id))
-        if not config:
-            return {str(guild_id): (False, "Guild is not setup yet")}
+        guild_id = str(guild_id)
 
-        results[str(guild_id)] = await refresh_adm_for_guild(
-            str(guild_id),
+        if not is_active_guild(guild_id):
+            return {guild_id: (False, "Bot is not in this guild anymore")}
+
+        config = guild_configs.get(guild_id)
+        if not config:
+            return {guild_id: (False, "Guild is not setup yet")}
+
+        results[guild_id] = await refresh_adm_for_guild(
+            guild_id,
             config,
             force=force
         )
         return results
 
-    for configured_guild_id, config in list(guild_configs.items()):
+    for configured_guild_id, config in active_guild_config_items():
         try:
             results[configured_guild_id] = await refresh_adm_for_guild(
                 configured_guild_id,
@@ -2096,7 +2114,7 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
 @tasks.loop(minutes=3)
 async def adm_loop():
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         try:
             await refresh_adm_for_guild(guild_id, config)
@@ -3316,6 +3334,8 @@ async def admstatus(ctx):
         for key in ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
     )
 
+    active = is_active_guild(guild_id)
+
     embed = discord.Embed(
         title="📡 ADM FEED STATUS",
         color=0x3498DB
@@ -3324,6 +3344,12 @@ async def admstatus(ctx):
     embed.add_field(
         name="Guild Loaded",
         value="Yes" if guild_id in guild_configs else "No",
+        inline=True
+    )
+
+    embed.add_field(
+        name="Active Guild",
+        value="Yes" if active else "No",
         inline=True
     )
 
@@ -3370,7 +3396,8 @@ async def reloadguilds(ctx):
     embed = discord.Embed(
         title="🔄 GUILD CONFIGS RELOADED",
         description=(
-            f"Loaded `{len(guild_configs)}` configured guilds and restarted background tasks."
+            f"Loaded `{len(list(active_guild_config_items()))}` active configured guilds "
+            f"out of `{len(guild_configs)}` saved configs and restarted background tasks."
         ),
         color=0x1ABC9C
     )
@@ -3637,7 +3664,7 @@ async def scheduled_restart_loop():
     current_hour = now.hour
     current_minute = now.minute
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         restart_interval = config.get(
             "restart_interval_hours",
@@ -4063,7 +4090,7 @@ async def start_background_tasks():
 @tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
 async def online_dashboard_loop():
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         try:
 
@@ -4126,7 +4153,7 @@ async def online_dashboard_loop():
 @tasks.loop(minutes=HEATMAP_UPDATE_MINUTES)
 async def heatmap_loop():
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         try:
 
@@ -4206,7 +4233,7 @@ async def heatmap_loop():
 @tasks.loop(minutes=LEADERBOARD_UPDATE_MINUTES)
 async def leaderboard_loop():
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         try:
 
@@ -4818,7 +4845,7 @@ async def restart_delivery_processor():
 
     now = datetime.now(UTC)
 
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_guild_config_items():
 
         try:
 
@@ -5668,12 +5695,6 @@ async def on_ready():
 
     print(f"LOGGED IN AS {bot.user}")
 
-    try:
-        synced = await bot.tree.sync()
-        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
-    except Exception as sync_error:
-        print(sync_error)
-
     ensure_folder(GUILD_DATA_FOLDER)
 
     load_guild_configs()
@@ -5688,8 +5709,17 @@ async def on_ready():
     load_wallets()
     load_delivery_queue()
 
+    active_count = len(list(active_guild_config_items()))
+    print(f"ACTIVE CONFIGURED GUILDS LOADED: {active_count}/{len(guild_configs)}")
+
     await start_background_tasks()
     await refresh_adm_feeds()
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
+    except Exception as sync_error:
+        print(sync_error)
 
 # =========================================================
 # START
