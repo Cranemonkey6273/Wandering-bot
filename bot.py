@@ -1,5 +1,5 @@
 # =========================================================
-# WANDERING BOT ALPHA - MULTI GUILD EDITION
+# WANDERING BOT ALPHA - FINISHED
 # =========================================================
 
 import os
@@ -611,6 +611,12 @@ def new_guild_config(guild):
         "nitrado_user": "",
         "ftp_user": "",
         "ftp_password": "",
+        "vehicle_reset_enabled": False,
+        "vehicle_reset_schedule_utc_hour": 5,
+        "vehicle_reset_baseline_events_path": "",
+        "vehicle_reset_target_events_path": "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml",
+        "vehicle_reset_persistence_paths": [],
+        "vehicle_reset_last_run_date": "",
         "channels": {}
     }
 
@@ -1830,6 +1836,45 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 
         print(error)
         return False
+
+
+def run_vehicle_reset(config):
+    try:
+        ftp_host = "ftp.nitrado.net"
+        ftp_user = config.get("ftp_user")
+        ftp_pass = config.get("ftp_password")
+
+        if not ftp_user or not ftp_pass:
+            return False, "FTP details are missing."
+
+        baseline_path = config.get("vehicle_reset_baseline_events_path", "").strip()
+        target_events_path = config.get("vehicle_reset_target_events_path", "").strip()
+        persistence_paths = config.get("vehicle_reset_persistence_paths", [])
+
+        if not baseline_path or not os.path.exists(baseline_path):
+            return False, "Baseline events.xml path is missing or not found on bot host."
+
+        ftp = FTP_TLS(ftp_host)
+        ftp.login(ftp_user, ftp_pass)
+        ftp.prot_p()
+
+        with open(baseline_path, "rb") as events_file:
+            ftp.storbinary(f"STOR {target_events_path}", events_file)
+
+        deleted = 0
+        for remote_path in persistence_paths:
+            if not str(remote_path).strip():
+                continue
+            try:
+                ftp.delete(remote_path)
+                deleted += 1
+            except Exception:
+                continue
+
+        ftp.quit()
+        return True, f"Uploaded events.xml and deleted {deleted} configured persistence file(s)."
+    except Exception as error:
+        return False, str(error)
 
 # =========================================================
 # DOWNLOAD ADM
@@ -3251,6 +3296,162 @@ async def helpme(ctx):
     embed.set_footer(text="Wandering System created by CraneMonkey6273")
 
     await ctx.send(embed=style_embed(embed))
+
+    admin_vehicle_embed = discord.Embed(
+        title="🛠️ ADMIN GUIDE: VEHICLE-ONLY RESET (How To Use)",
+        description=(
+            "This guide is for owners/admins only. It explains what each vehicle reset command does "
+            "and the safe order to run them."
+        ),
+        color=0x3498DB
+    )
+
+    admin_vehicle_embed.add_field(
+        name="1) Configure baseline + schedule",
+        value=(
+            "`/configurevehiclereset enabled schedule_utc_hour baseline_events_path target_events_path`\n"
+            "Example: `/configurevehiclereset on 5 /home/container/events_baseline.xml "
+            "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml`\n"
+            "- `enabled`: `on/off`\n"
+            "- `schedule_utc_hour`: 0-23 UTC\n"
+            "- `baseline_events_path`: local file on bot host\n"
+            "- `target_events_path`: remote server events.xml path"
+        ),
+        inline=False
+    )
+
+    admin_vehicle_embed.add_field(
+        name="2) Set vehicle persistence files only",
+        value=(
+            "`/setvehiclepersistpaths path1,path2,path3`\n"
+            "Only include files related to vehicle persistence. "
+            "If you include broader persistence files, other world state may reset too."
+        ),
+        inline=False
+    )
+
+    admin_vehicle_embed.add_field(
+        name="3) Run instantly or let scheduler run daily",
+        value=(
+            "`/runvehiclereset` runs now.\n"
+            "Scheduler runs daily at configured UTC hour when enabled.\n"
+            "Use admin logs/console to verify success messages."
+        ),
+        inline=False
+    )
+
+    admin_vehicle_embed.add_field(
+        name="What this reset does",
+        value=(
+            "1. Uploads your baseline `events.xml`.\n"
+            "2. Deletes only configured persistence paths.\n"
+            "3. Leaves everything else untouched unless you configured broad paths."
+        ),
+        inline=False
+    )
+
+    admin_vehicle_embed.set_thumbnail(url=BOT_IMAGE)
+    admin_vehicle_embed.set_footer(text="Always backup before resets.")
+
+    await ctx.send(embed=style_embed(admin_vehicle_embed))
+
+    admin_full_guide = discord.Embed(
+        title="📘 ADMIN GUIDE: WHAT COMMANDS DO + HOW TO USE THEM",
+        description=(
+            "Quick practical guide for server owners/admins. "
+            "Use slash commands; examples show the normal usage pattern."
+        ),
+        color=0x9B59B6
+    )
+
+    admin_full_guide.add_field(
+        name="👥 Roles & Permissions",
+        value=(
+            "`/setadminrole role_name` → sets primary bot admin role.\n"
+            "`/addstaffrole role_name` → allows additional role to use admin tools.\n"
+            "`/staffroles` → lists who can run admin commands."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="🧹 Moderation",
+        value=(
+            "`/purge amount` → delete recent messages in current channel.\n"
+            "`/purgeuser member amount` → delete recent messages by one member.\n"
+            "`/purgebots amount` → clean recent bot messages."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="🖥️ Server Control & Restart Tools",
+        value=(
+            "`/restartserver` → requests a Nitrado restart.\n"
+            "`/setrestartinterval hours` + `/setrestartstart hour` → define UTC restart cadence.\n"
+            "`/listrestarts` → shows current restart schedule.\n"
+            "`/togglebasedamage state` → log/announce base damage state.\n"
+            "`/admstatus` + `/restartadm force` → monitor/recover ADM feed loop."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="📡 Radar / Alerts",
+        value=(
+            "`/setradarchannel channel` → where radar pings are posted.\n"
+            "`/radarping x y reason` → send manual map ping with context for staff/player alerts."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="🛒 Economy & Shop Admin",
+        value=(
+            "`/importtypesxml source_path default_price` → bulk import shop items from types.xml.\n"
+            "`/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem` → maintain shop catalog.\n"
+            "`/givepennies member amount` → manual balance adjustments.\n"
+            "`/shopcategories` → review catalog counts by category."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="⚖️ Auto Reward / Punishment Rules",
+        value=(
+            "`/addreward keyword amount` → add pennies when keyword appears.\n"
+            "`/addpunishment keyword amount` → remove pennies when keyword appears.\n"
+            "`/listrules` + `/removerule rule_number` → audit and clean chat economy rules."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="🌍 Translation, Identity, Factions, Support",
+        value=(
+            "`/translationconfig ...` → set auto translation mode/channel/languages.\n"
+            "`/linkgamer gamertag`, `/mylink` → map Discord ↔ gamertag identity.\n"
+            "`/factionticket`, `/factionapprove` → faction request pipeline.\n"
+            "`/supportbot issue` → private admin ticket to bot owner."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.add_field(
+        name="🧠 Safe Usage Pattern (Recommended)",
+        value=(
+            "1) Configure roles first (`/setadminrole`, `/addstaffrole`).\n"
+            "2) Configure server/restart channels and radar.\n"
+            "3) Configure economy/shop and moderation rules.\n"
+            "4) Run vehicle reset setup only after backups are verified."
+        ),
+        inline=False
+    )
+
+    admin_full_guide.set_thumbnail(url=BOT_IMAGE)
+    admin_full_guide.set_footer(text="Need details for a command? Ask admin to run /helpme again.")
+
+    await ctx.send(embed=style_embed(admin_full_guide))
 
 @bot.command()
 async def online(ctx):
@@ -4731,6 +4932,9 @@ async def start_background_tasks():
 
         if not restart_delivery_processor.is_running():
             restart_delivery_processor.start()
+        
+        if not scheduled_vehicle_reset_loop.is_running():
+            scheduled_vehicle_reset_loop.start()
 
     except RuntimeError:
         pass
@@ -5601,6 +5805,31 @@ async def restart_delivery_processor():
             print(error)
 
 
+@tasks.loop(minutes=5)
+async def scheduled_vehicle_reset_loop():
+    now = datetime.now(UTC)
+    today = now.date().isoformat()
+
+    for guild_id, config in active_guild_config_items():
+        try:
+            if not config.get("vehicle_reset_enabled", False):
+                continue
+
+            schedule_hour = int(config.get("vehicle_reset_schedule_utc_hour", 5))
+            last_run = str(config.get("vehicle_reset_last_run_date", ""))
+
+            if now.hour != schedule_hour or now.minute > 5 or last_run == today:
+                continue
+
+            ok, msg = run_vehicle_reset(config)
+            if ok:
+                config["vehicle_reset_last_run_date"] = today
+                save_guild_configs()
+            print(f"[VEHICLE RESET][{guild_id}] {msg}")
+        except Exception as error:
+            print(f"[VEHICLE RESET][{guild_id}] {error}")
+
+
 # =========================================================
 # TYPES.XML SHOP MANAGEMENT SYSTEM
 # =========================================================
@@ -5780,6 +6009,46 @@ async def importtypesxml(ctx, source_path: str = None, default_price: int = 100)
     embed.set_thumbnail(url=BOT_IMAGE)
 
     await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def configurevehiclereset(
+    ctx,
+    enabled: str,
+    schedule_utc_hour: int,
+    baseline_events_path: str,
+    target_events_path: str = "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml"
+):
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
+    config["vehicle_reset_enabled"] = enabled.lower() in {"on", "true", "1", "yes"}
+    config["vehicle_reset_schedule_utc_hour"] = max(0, min(23, schedule_utc_hour))
+    config["vehicle_reset_baseline_events_path"] = baseline_events_path
+    config["vehicle_reset_target_events_path"] = target_events_path
+    save_guild_configs()
+    await ctx.send("✅ Vehicle reset configuration saved.")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def setvehiclepersistpaths(ctx, *, paths_csv: str):
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
+    config["vehicle_reset_persistence_paths"] = [
+        p.strip() for p in paths_csv.split(",") if p.strip()
+    ]
+    save_guild_configs()
+    await ctx.send(f"✅ Saved {len(config['vehicle_reset_persistence_paths'])} vehicle persistence path(s).")
+
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def runvehiclereset(ctx):
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
+    ok, msg = run_vehicle_reset(config)
+    await ctx.send(("✅" if ok else "❌") + f" {msg}")
 
 
 # =========================================================
@@ -6434,6 +6703,8 @@ async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 @bot.tree.command(name="shop", description="Show shop")
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
+@bot.tree.command(name="runvehiclereset", description="Admin: run vehicle-only reset now")
+async def slash_runvehiclereset(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "runvehiclereset")
 
 @bot.tree.command(name="setadminrole", description="Set primary admin role")
 @app_commands.describe(role="Existing Discord role")
