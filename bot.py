@@ -5,6 +5,7 @@
 import os
 import re
 import json
+import random
 import hashlib
 import asyncio
 import requests
@@ -67,6 +68,7 @@ HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
+WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 
 # =========================================================
 # GLOBALS
@@ -94,7 +96,9 @@ player_chat_tracker = {}
 linked_players = {}
 last_funny_message_time = {}
 last_funny_index = {}
+last_emoji_showcase_time = {}
 support_tickets = {}
+wandering_emojis = {}
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -210,6 +214,105 @@ def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
     return embed
 
+# =========================================================
+# WANDERING BOT EMOJI PERSONALITY
+# =========================================================
+
+DEFAULT_WANDERING_EMOJIS = {
+    "ai": "🧠",
+    "alert": "🚨",
+    "beans": "🥫",
+    "bot": "🤖",
+    "coin": "🪙",
+    "dead": "💀",
+    "fire": "🔥",
+    "map": "🗺️",
+    "radio": "📻",
+    "spark": "✨",
+    "warning": "⚠️"
+}
+
+WANDERING_EMOJI_SHOWCASE_LINES = [
+    "Look at me. I have my own face now. Absolutely terrifying brand development.",
+    "Official Wandering Bot emoji sighting. Please clap, or at least pretend this is normal.",
+    "Custom bot emoji flex detected. Tiny picture, massive attitude.",
+    "This emoji is mine. I licked it first. Digitally. Probably.",
+    "Wandering Bot branding department says this emoji is important as hell."
+]
+
+WANDERING_SWEAR_LINES = [
+    "Bloody hell, this server has more drama than a badly parked Ada.",
+    "I leave you lot alone for five minutes and somehow the apocalypse gets stupider.",
+    "That was some Grade-A DayZ nonsense. Beautiful, honestly.",
+    "I swear this radio is powered by panic and questionable decisions.",
+    "Someone tell Chernarus to calm the hell down."
+]
+
+
+def load_wandering_emojis():
+    global wandering_emojis
+
+    loaded = {}
+    env_value = os.getenv("WANDERING_EMOJIS_JSON", "").strip()
+
+    if env_value:
+        try:
+            loaded.update(json.loads(env_value))
+        except Exception as error:
+            print(f"WANDERING EMOJI CONFIG ERROR: {error}")
+
+    file_value = load_json(WANDERING_EMOJIS_FILE)
+    if isinstance(file_value, dict):
+        loaded.update(file_value)
+
+    wandering_emojis = {
+        str(key): str(value)
+        for key, value in loaded.items()
+        if value
+    }
+
+
+def wb_emoji(key, fallback=None):
+    return wandering_emojis.get(
+        key,
+        fallback if fallback is not None else DEFAULT_WANDERING_EMOJIS.get(key, "")
+    )
+
+
+def wb_text(key, text, fallback=None):
+    icon = wb_emoji(key, fallback)
+    return f"{icon} {text}" if icon else text
+
+
+def random_wandering_emoji():
+    if wandering_emojis:
+        return random.choice(list(wandering_emojis.values()))
+    return random.choice(list(DEFAULT_WANDERING_EMOJIS.values()))
+
+
+async def maybe_send_wandering_personality(message, now_ts):
+    if not message.guild:
+        return
+
+    guild_id = str(message.guild.id)
+    last_seen = last_emoji_showcase_time.get(guild_id, 0)
+
+    if now_ts - last_seen < 1800:
+        return
+
+    roll = random.random()
+
+    if roll < 0.012:
+        last_emoji_showcase_time[guild_id] = now_ts
+        await message.channel.send(
+            f"{random_wandering_emoji()} {random.choice(WANDERING_EMOJI_SHOWCASE_LINES)}"
+        )
+
+    elif roll < 0.018:
+        last_emoji_showcase_time[guild_id] = now_ts
+        await message.channel.send(
+            wb_text("radio", random.choice(WANDERING_SWEAR_LINES))
+        )
 
 def ensure_folder(path):
     if not os.path.exists(path):
@@ -2432,7 +2535,7 @@ async def on_message(message):
 
         if keyword in lower:
 
-            await message.channel.send(response)
+            await message.channel.send(wb_text("ai", response))
 
             break
 
@@ -2457,7 +2560,9 @@ async def on_message(message):
                 idx = (idx + 1) % len(FUNNY_ROTATION)
             last_funny_index[user_id] = idx
             last_funny_message_time[user_id] = now_ts
-            await message.channel.send(FUNNY_ROTATION[idx])
+            await message.channel.send(wb_text("spark", FUNNY_ROTATION[idx]))
+
+    await maybe_send_wandering_personality(message, now_ts)
 
     tracker = player_chat_tracker[user_id]
 
@@ -5401,6 +5506,16 @@ async def player_lottery(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed))
 
 
+
+@bot.tree.command(name="wanderingemoji", description="Show off one of Wandering Bot's own emojis")
+async def wanderingemoji(interaction: discord.Interaction):
+    icon = random_wandering_emoji()
+    line = random.choice(WANDERING_EMOJI_SHOWCASE_LINES)
+    await interaction.response.send_message(
+        f"{icon} {line}",
+        ephemeral=False
+    )
+
 @bot.tree.command(name="online", description="Show currently online survivors")
 async def slash_online(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -5950,6 +6065,8 @@ async def on_ready():
     load_swear_jar()
     load_linked_players()
     load_support_tickets()
+    load_wandering_emojis()
+    print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
     load_wallets()
     load_delivery_queue()
