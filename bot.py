@@ -69,6 +69,7 @@ SWEAR_JAR_FILE = data_path("swear_jar.json")
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
+FACTIONS_FILE = data_path("factions.json")
 
 # =========================================================
 # GLOBALS
@@ -99,6 +100,21 @@ last_funny_index = {}
 last_emoji_showcase_time = {}
 support_tickets = {}
 wandering_emojis = {}
+factions = {}
+last_ai_direct_response_time = {}
+last_owner_mention_time = {}
+
+HEATMAP_MODES = [
+    "pvp",
+    "zombie",
+    "cuts",
+    "building",
+    "raids",
+    "flags",
+    "suicide",
+    "placed",
+    "all"
+]
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -213,6 +229,251 @@ def has_staff_permissions(ctx):
 def style_embed(embed):
     embed.timestamp = datetime.now(UTC)
     return embed
+
+
+def resolve_guild_role(guild, role_name):
+    wanted = str(role_name).strip().lower()
+
+    for role in guild.roles:
+        if role.name.lower() == wanted:
+            return role
+
+    return None
+
+
+def extract_player_name(line):
+    match = re.search(r'Player "([^"]+)"', line)
+    return match.group(1) if match else "Unknown"
+
+
+def extract_adm_coords(line):
+    match = re.search(r"pos=<([^>]+)>", line)
+    return match.group(1) if match else None
+
+
+def build_adm_map_link(line):
+    coords = extract_adm_coords(line)
+    return build_izurvive_link(coords) if coords else None
+
+
+def heatmap_mode_for_event(event_type):
+    return {
+        "kill": "pvp",
+        "zombie_hit": "zombie",
+        "zombie_kill": "zombie",
+        "cut": "cuts",
+        "bleedout": "cuts",
+        "build": "building",
+        "raid": "raids",
+        "flag_raise": "flags",
+        "flag_lower": "flags",
+        "suicide": "suicide",
+        "packed": "placed",
+        "placed": "placed",
+    }.get(event_type)
+
+
+def guild_heatmap_mode(guild_id):
+    mode = guild_configs.get(str(guild_id), {}).get("heatmap_mode", "pvp")
+    return mode if mode in HEATMAP_MODES else "pvp"
+
+
+def heat_counts_for_mode(guild_id, mode):
+    heat_data = territory_heat.get(str(guild_id), {})
+
+    if mode == "pvp":
+        return {
+            key: value
+            for key, value in heat_data.items()
+            if not str(key).startswith("__") and isinstance(value, int)
+        }
+
+    if mode == "all":
+        combined = {}
+        for mode_counts in heat_data.get("__modes__", {}).values():
+            for zone, count in mode_counts.items():
+                combined[zone] = combined.get(zone, 0) + count
+        return combined
+
+    return heat_data.get("__modes__", {}).get(mode, {})
+
+
+def map_coords_to_pixel(coords):
+    try:
+        x_text, y_text = coords.split(",")[:2]
+        x = float(x_text.strip())
+        y = float(y_text.strip())
+    except Exception:
+        return None
+
+    # Chernarus-ish ADM coordinate range. Good enough for useful plotting.
+    px = int(max(0, min(511, (x / 15360) * 512)))
+    py = int(max(0, min(383, 384 - ((y / 15360) * 384))))
+    return px, py
+
+
+def heat_points_for_mode(guild_id, mode):
+    heat_data = territory_heat.get(str(guild_id), {})
+    points = heat_data.get("__points__", {})
+
+    if mode == "all":
+        merged = []
+        for mode_points in points.values():
+            merged.extend(mode_points)
+        return merged[-300:]
+
+    return points.get(mode, [])[-300:]
+
+
+async def get_or_create_feed_channel(guild, config, key, name, private=False):
+    channels = config.setdefault("channels", {})
+    existing_id = channels.get(key)
+
+    if existing_id:
+        existing = guild.get_channel(existing_id)
+        if existing:
+            return existing
+
+    for channel in guild.text_channels:
+        if normalize_discord_name(channel.name) == normalize_discord_name(name):
+            channels[key] = channel.id
+            save_guild_configs()
+            return channel
+
+    overwrites = None
+    if private:
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(read_messages=False)
+        }
+        for role in guild.roles:
+            if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
+                overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
+    channel = await guild.create_text_channel(name, overwrites=overwrites)
+    channels[key] = channel.id
+    save_guild_configs()
+    return channel
+
+
+async def send_special_adm_feed(guild_id, config, event_type, line):
+    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    if not guild:
+        return
+
+    feed_map = {
+        "flag_raise": ("flag_feed", "flag-feed", True, "FLAG RAISED", 0x2ECC71),
+        "flag_lower": ("flag_feed", "flag-feed", True, "FLAG LOWERED", 0xE67E22),
+        "cut": ("cuts_feed", "cuts-feed", True, "SURVIVOR DAMAGE", 0xE74C3C),
+        "bleedout": ("cuts_feed", "cuts-feed", True, "SURVIVOR BLED OUT", 0x992D22),
+        "suicide": ("cuts_feed", "cuts-feed", True, "SUICIDE EVENT", 0x992D22),
+        "respawn": ("cuts_feed", "cuts-feed", True, "RESPAWN CHOSEN", 0x3498DB),
+        "packed": ("placed_feed", "placed-feed", True, "ITEM PACKED", 0xF1C40F),
+        "placed": ("placed_feed", "placed-feed", True, "PLACEMENT ACTIVITY", 0x3498DB),
+    }
+
+    if event_type not in feed_map:
+        return
+
+    key, channel_name, private, title, color = feed_map[event_type]
+    channel = await get_or_create_feed_channel(guild, config, key, channel_name, private)
+    player = extract_player_name(line)
+    map_link = build_adm_map_link(line)
+
+    embed = discord.Embed(
+        title=title,
+        description=f"```{line[:1000]}```",
+        color=color
+    )
+    embed.add_field(name="Survivor", value=player, inline=True)
+    if map_link:
+        embed.add_field(name="Map", value=f"[Open Location](<{map_link}>)", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
+    await channel.send(embed=style_embed(embed))
+
+
+async def send_swear_jar_feed(message, found_words, fine, pennies_total):
+    guild_id = str(message.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
+    channel = await get_or_create_feed_channel(message.guild, config, "swear_jar_feed", "swear-jar")
+
+    lines = [
+        "Language crime detected. The swear jar has been fed.",
+        "Another beautiful donation to the bad words retirement fund.",
+        "The bot heard that. The bot judged it. The bot invoiced it.",
+        "Fine issued with unnecessary confidence.",
+    ]
+
+    embed = discord.Embed(
+        title="SWEAR JAR INCIDENT",
+        description=random.choice(lines),
+        color=0xE67E22
+    )
+    embed.add_field(name="Offender", value=message.author.mention, inline=True)
+    embed.add_field(name="Evidence", value=", ".join(f"`{word}`" for word in sorted(set(found_words))), inline=True)
+    embed.add_field(name="Fine", value=f"{fine} pennies", inline=True)
+    embed.add_field(name="Total Debt", value=f"{pennies_total} pennies", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Public Shame Department")
+    await channel.send(embed=style_embed(embed))
+
+
+async def maybe_reply_to_bot_mention(message, lower):
+    if bot.user not in message.mentions:
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    key = f"{message.guild.id}:{message.author.id}"
+
+    if now_ts - last_ai_direct_response_time.get(key, 0) < 45:
+        return
+
+    last_ai_direct_response_time[key] = now_ts
+
+    help_lines = [
+        "I am awake. Unfortunately for everyone, I have opinions. Ask me about raids, loot, bases, sickness, or why your car achieved orbit.",
+        "Yes, survivor? I can help with bot commands, DayZ advice, or emotional support after another deeply avoidable death.",
+        "Radio check received. Tell me what you need and I will pretend we are all making sensible choices.",
+    ]
+
+    await message.channel.send(wb_text("ai", random.choice(help_lines)))
+
+
+async def maybe_owner_mention_remark(message):
+    if not message.guild or not message.guild.owner:
+        return
+
+    if message.guild.owner not in message.mentions:
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    guild_id = str(message.guild.id)
+
+    if now_ts - last_owner_mention_time.get(guild_id, 0) < 900:
+        return
+
+    last_owner_mention_time[guild_id] = now_ts
+    lines = [
+        "Owner ping detected. They may respond shortly, or they may be staring at Nitrado like it personally wronged them.",
+        "You have summoned the owner. Please allow three to five business panics.",
+        "Owner mention logged. If they do not reply, assume they are doing highly important owner things, like fighting settings menus.",
+    ]
+    await message.channel.send(wb_text("radio", random.choice(lines)))
+
+
+def faction_key(name):
+    return normalize_discord_name(name)
+
+
+def faction_display_lines(faction):
+    members = faction.get("members", [])
+    return [
+        f"Name: {faction.get('name', 'Unknown')}",
+        f"Leader: <@{faction.get('leader_id')}>",
+        f"Members: {len(members)}",
+        f"Flag: {faction.get('flag', 'Not set')}",
+        f"Role: <@&{faction.get('role_id')}>" if faction.get("role_id") else "Role: Not set",
+    ]
 
 # =========================================================
 # WANDERING BOT EMOJI PERSONALITY
@@ -641,6 +902,15 @@ def save_support_tickets():
     save_json(SUPPORT_TICKETS_FILE, support_tickets)
 
 
+def load_factions():
+    global factions
+    factions = load_json(FACTIONS_FILE)
+
+
+def save_factions():
+    save_json(FACTIONS_FILE, factions)
+
+
 def stable_line_hash(line):
     return hashlib.sha256(
         line.encode("utf-8", errors="ignore")
@@ -751,13 +1021,26 @@ def ensure_guild_runtime(guild_id):
         territory_heat[guild_id] = {}
 
 
-def increase_heat(guild_id, zone):
+def increase_heat(guild_id, zone, mode="pvp", coords=None):
 
     ensure_guild_runtime(guild_id)
 
-    territory_heat[guild_id][zone] = (
-        territory_heat[guild_id].get(zone, 0) + 1
-    )
+    if mode == "pvp":
+        territory_heat[guild_id][zone] = (
+            territory_heat[guild_id].get(zone, 0) + 1
+        )
+
+    modes = territory_heat[guild_id].setdefault("__modes__", {})
+    mode_counts = modes.setdefault(mode, {})
+    mode_counts[zone] = mode_counts.get(zone, 0) + 1
+
+    if coords:
+        points = territory_heat[guild_id].setdefault("__points__", {})
+        mode_points = points.setdefault(mode, [])
+        plotted = map_coords_to_pixel(coords)
+        if plotted:
+            mode_points.append(plotted)
+            points[mode] = mode_points[-300:]
 
     save_heatmap()
 
@@ -781,6 +1064,27 @@ def classify_event(line):
     if re.search(r"\bconnected\b", lower) and "connecting" not in lower:
         return "connect"
 
+    if "territoryflag" in lower and "has raised" in lower:
+        return "flag_raise"
+
+    if "territoryflag" in lower and "has lowered" in lower:
+        return "flag_lower"
+
+    if "performed emotesuicide" in lower or "committed suicide" in lower:
+        return "suicide"
+
+    if "is choosing to respawn" in lower:
+        return "respawn"
+
+    if "bled out" in lower or "bleed sources" in lower:
+        return "bleedout"
+
+    if " packed " in lower:
+        return "packed"
+
+    if " placed " in lower:
+        return "placed"
+
     if any(term in lower for term in unconscious_terms):
         return "unconscious"
 
@@ -792,10 +1096,18 @@ def classify_event(line):
         if any(word in lower for word in ["hit", "attacked", "damage", "wound"]):
             return "zombie_hit"
 
+    if "hit by" in lower:
+        return "cut"
+
+    if "killed by" in lower and 'killed by player "' not in lower:
+        if any(term in lower for term in zombie_terms):
+            return "zombie_kill"
+        return "cut"
+
     if "killed" in lower:
         return "kill"
 
-    if "placed" in lower or "built" in lower:
+    if "built" in lower or "mounted" in lower or "unmounted" in lower:
         return "build"
 
     if "destroyed" in lower or "dismantled" in lower:
@@ -936,15 +1248,16 @@ ZONE_POINTS = {
 }
 
 
-def generate_guild_heatmap_image(guild_id: str):
+def generate_guild_heatmap_image(guild_id: str, mode=None):
     import math
     import struct
     import zlib
 
     width = 512
     height = 384
+    mode = mode or guild_heatmap_mode(guild_id)
     pixels = [
-        [(18, 18, 25, 255) for _ in range(width)]
+        [(46, 66, 55, 255) for _ in range(width)]
         for _ in range(height)
     ]
 
@@ -986,6 +1299,20 @@ def generate_guild_heatmap_image(guild_id: str):
             blend_pixel(cx + offset, cy, (255, 255, 255, 230))
             blend_pixel(cx, cy + offset, (255, 255, 255, 230))
 
+    def draw_grid():
+        for x in range(0, width, 64):
+            for y in range(height):
+                blend_pixel(x, y, (95, 120, 105, 70))
+
+        for y in range(0, height, 48):
+            for x in range(width):
+                blend_pixel(x, y, (95, 120, 105, 70))
+
+        for x in range(40, width - 40):
+            coast_y = int(300 + math.sin(x / 24) * 18)
+            for y in range(coast_y, height):
+                blend_pixel(x, y, (36, 72, 95, 210))
+
     def png_chunk(chunk_type, data):
         chunk = chunk_type + data
         return (
@@ -994,8 +1321,15 @@ def generate_guild_heatmap_image(guild_id: str):
             + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
         )
 
-    zone_counts = territory_heat.get(guild_id, {})
+    draw_grid()
+    zone_counts = heat_counts_for_mode(guild_id, mode)
     max_count = max(zone_counts.values()) if zone_counts else 1
+
+    for point in heat_points_for_mode(guild_id, mode):
+        px, py = point
+        draw_heat_circle(px, py, 36, (255, 60, 0, 90))
+        draw_heat_circle(px, py, 18, (255, 210, 0, 190))
+        draw_cross(px, py)
 
     for zone, count in zone_counts.items():
         if zone not in ZONE_POINTS:
@@ -1690,9 +2024,25 @@ async def parse_adm(guild_id, config):
         ensure_guild_runtime(guild_id)
 
         zone = get_zone_from_line(line)
+        coords = extract_adm_coords(line)
+        heat_mode = heatmap_mode_for_event(event_type)
 
-        if zone != "Unknown":
-            increase_heat(guild_id, zone)
+        if heat_mode:
+            increase_heat(guild_id, zone, heat_mode, coords)
+
+        await send_special_adm_feed(guild_id, config, event_type, line)
+
+        if event_type in [
+            "flag_raise",
+            "flag_lower",
+            "cut",
+            "bleedout",
+            "suicide",
+            "respawn",
+            "packed",
+            "placed"
+        ]:
+            continue
 
         # ================= CONNECT =================
 
@@ -2504,31 +2854,11 @@ async def on_message(message):
 
         save_swear_jar()
 
-        embed = discord.Embed(
-            title="💸 SWEAR JAR",
-            description=(
-                f"{message.author.mention} "
-                f"was fined {len(found_words) * 100} pennies 🪙"
-            ),
-            color=0xE67E22
-        )
-
-        embed.add_field(
-            name="Total Swears",
-            value=str(
-                swear_jar[user_id]["count"]
-            ),
-            inline=True
-        )
-
-        embed.add_field(
-            name="Debt",
-            value=f"{pennies_total} pennies 🪙",
-            inline=True
-        )
-
-        await message.channel.send(
-            embed=style_embed(embed)
+        await send_swear_jar_feed(
+            message,
+            found_words,
+            len(found_words) * 100,
+            pennies_total
         )
 
     for keyword, response in AI_RESPONSES.items():
@@ -2562,6 +2892,8 @@ async def on_message(message):
             last_funny_message_time[user_id] = now_ts
             await message.channel.send(wb_text("spark", FUNNY_ROTATION[idx]))
 
+    await maybe_reply_to_bot_mention(message, lower)
+    await maybe_owner_mention_remark(message)
     await maybe_send_wandering_personality(message, now_ts)
 
     tracker = player_chat_tracker[user_id]
@@ -3130,18 +3462,23 @@ async def setadminrole(ctx, *, role_name: str):
     if not ctx.author.guild_permissions.administrator:
         return
 
+    role = resolve_guild_role(ctx.guild, role_name)
+    if not role:
+        await ctx.send(f"No Discord role named `{role_name}` exists in this server.")
+        return
+
     guild_id = str(ctx.guild.id)
 
     if guild_id not in guild_configs:
         return
 
-    guild_configs[guild_id]["admin_roles"] = [role_name]
+    guild_configs[guild_id]["admin_roles"] = [role.name]
 
     save_guild_configs()
 
     embed = discord.Embed(
         title="🛡️ PRIMARY ADMIN ROLE SET",
-        description=f"Primary bot admin role is now: `{role_name}`",
+        description=f"Primary bot admin role is now: `{role.name}`",
         color=0x3498DB
     )
 
@@ -3156,6 +3493,11 @@ async def addstaffrole(ctx, *, role_name: str):
     if not ctx.author.guild_permissions.administrator:
         return
 
+    role = resolve_guild_role(ctx.guild, role_name)
+    if not role:
+        await ctx.send(f"No Discord role named `{role_name}` exists in this server.")
+        return
+
     guild_id = str(ctx.guild.id)
 
     config = guild_configs.get(guild_id, {})
@@ -3165,8 +3507,8 @@ async def addstaffrole(ctx, *, role_name: str):
         DEFAULT_ADMIN_ROLES.copy()
     )
 
-    if role_name not in roles:
-        roles.append(role_name)
+    if role.name not in roles:
+        roles.append(role.name)
 
     guild_configs[guild_id]["admin_roles"] = roles
 
@@ -3174,7 +3516,7 @@ async def addstaffrole(ctx, *, role_name: str):
 
     embed = discord.Embed(
         title="➕ STAFF ROLE ADDED",
-        description=f"`{role_name}` can now use admin bot commands.",
+        description=f"`{role.name}` can now use admin bot commands.",
         color=0x2ECC71
     )
 
@@ -4478,8 +4820,11 @@ async def heatmap_loop():
 
             ensure_guild_runtime(guild_id)
 
+            heatmap_mode = guild_heatmap_mode(guild_id)
+            mode_counts = heat_counts_for_mode(guild_id, heatmap_mode)
+
             hottest_zones = sorted(
-                territory_heat[guild_id].items(),
+                mode_counts.items(),
                 key=lambda x: x[1],
                 reverse=True
             )[:5]
@@ -4488,11 +4833,11 @@ async def heatmap_loop():
 
             for zone, count in hottest_zones:
                 lines.append(
-                    f"🔥 {zone} — {count} PvP events"
+                    f"🔥 {zone} — {count} {heatmap_mode} events"
                 )
 
             embed = discord.Embed(
-                title="🔥 LIVE CONFLICT HEATMAP",
+                title=f"🔥 LIVE {heatmap_mode.upper()} HEATMAP",
                 description=(
                     "\n".join(lines)
                     if lines else "No PvP activity detected yet."
@@ -4502,11 +4847,11 @@ async def heatmap_loop():
 
             embed.add_field(
                 name="📡 Status",
-                value="Tracking live combat zones across the server.",
+                value=f"Tracking `{heatmap_mode}` activity across the server.",
                 inline=False
             )
 
-            heatmap_path = generate_guild_heatmap_image(guild_id)
+            heatmap_path = generate_guild_heatmap_image(guild_id, heatmap_mode)
             file = discord.File(heatmap_path, filename="heatmap.png")
             embed.set_image(url="attachment://heatmap.png")
 
@@ -5850,6 +6195,226 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
         ephemeral=True
     )
 
+
+@bot.tree.command(name="setheatmapmode", description="Admin: choose what the heatmap tracks")
+@app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, or all")
+async def setheatmapmode(interaction: discord.Interaction, mode: str):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    mode = mode.lower().strip()
+
+    if mode not in HEATMAP_MODES:
+        await interaction.response.send_message(
+            f"Mode must be one of: {', '.join(HEATMAP_MODES)}",
+            ephemeral=True
+        )
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    config["heatmap_mode"] = mode
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        f"Heatmap mode set to `{mode}`.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="setservermap", description="Admin: set the server map label used by heatmap feeds")
+@app_commands.describe(map_name="Example: chernarus, livonia, deerisle, namalsk")
+async def setservermap(interaction: discord.Interaction, map_name: str):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    config["server_map"] = map_name.lower().strip()
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        f"Server map set to `{config['server_map']}`.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="createfaction", description="Admin: create an official faction")
+@app_commands.describe(
+    name="Faction name",
+    leader="Faction leader",
+    members="Optional extra members as @mentions",
+    flag="Faction flag/name",
+    role_color="Hex colour, example #2ecc71"
+)
+async def createfaction(
+    interaction: discord.Interaction,
+    name: str,
+    leader: discord.Member,
+    members: str = "",
+    flag: str = "Not set",
+    role_color: str = "#2ecc71"
+):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    key = f"{guild_id}:{faction_key(name)}"
+
+    if key in factions:
+        await interaction.response.send_message("That faction already exists.", ephemeral=True)
+        return
+
+    try:
+        color_value = int(role_color.replace("#", ""), 16)
+        role_colour = discord.Color(color_value)
+    except Exception:
+        role_colour = discord.Color.green()
+
+    role = await interaction.guild.create_role(
+        name=f"Faction - {name}",
+        colour=role_colour,
+        reason="Wandering Bot faction creation"
+    )
+
+    member_ids = {leader.id}
+    for mention_id in re.findall(r"\d{15,25}", members or ""):
+        member = interaction.guild.get_member(int(mention_id))
+        if member:
+            member_ids.add(member.id)
+
+    assigned = []
+    for member_id in member_ids:
+        member = interaction.guild.get_member(member_id)
+        if member:
+            await member.add_roles(role, reason="Wandering Bot faction membership")
+            assigned.append(member.id)
+
+    factions[key] = {
+        "guild_id": guild_id,
+        "name": name,
+        "leader_id": leader.id,
+        "members": assigned,
+        "flag": flag,
+        "role_id": role.id,
+        "role_color": f"#{color_value:06x}" if "color_value" in locals() else "#2ecc71",
+        "created": str(datetime.now(UTC))
+    }
+    save_factions()
+
+    embed = discord.Embed(
+        title="OFFICIAL FACTION CREATED",
+        description="\n".join(faction_display_lines(factions[key])),
+        color=role_colour
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+@bot.tree.command(name="addfactionmember", description="Admin: add a member to an official faction")
+@app_commands.describe(name="Faction name", member="Discord member")
+async def addfactionmember(interaction: discord.Interaction, name: str, member: discord.Member):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    key = f"{interaction.guild.id}:{faction_key(name)}"
+    faction = factions.get(key)
+
+    if not faction:
+        await interaction.response.send_message("Faction not found.", ephemeral=True)
+        return
+
+    members = faction.setdefault("members", [])
+    if member.id not in members:
+        members.append(member.id)
+
+    role = interaction.guild.get_role(int(faction.get("role_id", 0)))
+    if role:
+        await member.add_roles(role, reason="Wandering Bot faction membership")
+
+    save_factions()
+    await interaction.response.send_message(f"{member.mention} added to `{faction['name']}`.", ephemeral=True)
+
+
+@bot.tree.command(name="removefactionmember", description="Admin: remove a member from an official faction")
+@app_commands.describe(name="Faction name", member="Discord member")
+async def removefactionmember(interaction: discord.Interaction, name: str, member: discord.Member):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    key = f"{interaction.guild.id}:{faction_key(name)}"
+    faction = factions.get(key)
+
+    if not faction:
+        await interaction.response.send_message("Faction not found.", ephemeral=True)
+        return
+
+    faction["members"] = [member_id for member_id in faction.get("members", []) if member_id != member.id]
+
+    role = interaction.guild.get_role(int(faction.get("role_id", 0)))
+    if role:
+        await member.remove_roles(role, reason="Wandering Bot faction membership removed")
+
+    save_factions()
+    await interaction.response.send_message(f"{member.mention} removed from `{faction['name']}`.", ephemeral=True)
+
+
+@bot.tree.command(name="factions", description="List official factions")
+async def list_factions(interaction: discord.Interaction):
+    guild_prefix = f"{interaction.guild.id}:"
+    guild_factions = [faction for key, faction in factions.items() if key.startswith(guild_prefix)]
+
+    if not guild_factions:
+        await interaction.response.send_message("No official factions have been created yet.", ephemeral=True)
+        return
+
+    lines = [
+        f"**{faction.get('name')}** - Leader <@{faction.get('leader_id')}> - {len(faction.get('members', []))} members"
+        for faction in guild_factions
+    ]
+
+    embed = discord.Embed(
+        title="OFFICIAL FACTIONS",
+        description="\n".join(lines[:25]),
+        color=0x2ECC71
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="factioninfo", description="Show official faction details")
+@app_commands.describe(name="Faction name")
+async def factioninfo(interaction: discord.Interaction, name: str):
+    key = f"{interaction.guild.id}:{faction_key(name)}"
+    faction = factions.get(key)
+
+    if not faction:
+        await interaction.response.send_message("Faction not found.", ephemeral=True)
+        return
+
+    member_lines = [f"<@{member_id}>" for member_id in faction.get("members", [])]
+    embed = discord.Embed(
+        title=f"FACTION: {faction.get('name')}",
+        description="\n".join(faction_display_lines(faction)),
+        color=0x2ECC71
+    )
+    embed.add_field(
+        name="Members",
+        value=", ".join(member_lines) if member_lines else "No members",
+        inline=False
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
 # Slash command wrappers
 @bot.tree.command(name="helpme", description="Show command/help information")
 async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
@@ -5871,11 +6436,45 @@ async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
 
 @bot.tree.command(name="setadminrole", description="Set primary admin role")
-@app_commands.describe(role_name="Role name")
-async def slash_setadminrole(interaction: discord.Interaction, role_name: str): await run_legacy_as_slash(interaction, "setadminrole", role_name=role_name)
+@app_commands.describe(role="Existing Discord role")
+async def slash_setadminrole(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    config["admin_roles"] = [role.name]
+    save_guild_configs()
+    await interaction.response.send_message(f"Primary admin role set to {role.mention}.", ephemeral=True)
 @bot.tree.command(name="addstaffrole", description="Add a staff role")
-@app_commands.describe(role_name="Role name")
-async def slash_addstaffrole(interaction: discord.Interaction, role_name: str): await run_legacy_as_slash(interaction, "addstaffrole", role_name=role_name)
+@app_commands.describe(role="Existing Discord role")
+async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    roles = config.setdefault("admin_roles", DEFAULT_ADMIN_ROLES.copy())
+    if role.name not in roles:
+        roles.append(role.name)
+    save_guild_configs()
+    await interaction.response.send_message(f"Staff role added: {role.mention}.", ephemeral=True)
+@bot.tree.command(name="giverole", description="Admin: give an existing role to a real Discord member")
+@app_commands.describe(member="Discord member", role="Existing Discord role")
+async def giverole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await member.add_roles(role, reason=f"Role given by {interaction.user}")
+    await interaction.response.send_message(f"Added {role.mention} to {member.mention}.", ephemeral=True)
+@bot.tree.command(name="removerole", description="Admin: remove an existing role from a real Discord member")
+@app_commands.describe(member="Discord member", role="Existing Discord role")
+async def removerole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await member.remove_roles(role, reason=f"Role removed by {interaction.user}")
+    await interaction.response.send_message(f"Removed {role.mention} from {member.mention}.", ephemeral=True)
 @bot.tree.command(name="factionticket", description="Create faction request")
 @app_commands.describe(faction_name="Faction name")
 async def slash_factionticket(interaction: discord.Interaction, faction_name: str): await run_legacy_as_slash(interaction, "factionticket", faction_name=faction_name)
@@ -6065,6 +6664,7 @@ async def on_ready():
     load_swear_jar()
     load_linked_players()
     load_support_tickets()
+    load_factions()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
