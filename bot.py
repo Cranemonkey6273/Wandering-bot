@@ -48,6 +48,7 @@ BOT_IMAGE = (
 
 GUILD_CONFIG_FILE = "guild_configs.json"
 GUILD_DATA_FOLDER = "guild_data"
+GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 PROCESSED_ADM_FILE = "processed_adm_lines.json"
 PLAYER_STATS_FILE = "player_stats.json"
 HEATMAP_FILE = "heatmap.json"
@@ -88,6 +89,68 @@ DEFAULT_ADMIN_ROLES = [
     "Administrator",
     "Owner"
 ]
+
+DEFAULT_CHANNEL_NAMES = {
+    "killfeed": "🔥🔥・killfeed・🔥🔥",
+    "raids": "🚨🏴・raids・🏴🚨",
+    "building": "🔨🧱・building・🧱🔨",
+    "connections": "🟢✅・connected・✅🟢",
+    "disconnects": "🔴⛔・disconnects・⛔🔴",
+    "zombie_feed": "🧟🧟・zombie-feed・🧟🧟",
+    "unconscious_feed": "🩹⚠️・unconscious-feed・⚠️🩹",
+    "online": "✅🎮・online-survivors・🎮✅",
+    "leaderboards": "🏆📊・leaderboards・📊🏆",
+    "heatmap": "🔥🗺️・heatmap・🗺️🔥",
+    "longshots": "🎯🏹・longshots・🏹🎯",
+    "restart_alerts": "📢⏰・restart-alerts・⏰📢",
+    "welcome": "👋🟩・welcome・🟩👋",
+    "general_chat": "💬🌲・survivor-chat・🌲💬",
+    "ai_chat": "🧠📻・survivor-ai・📻🧠",
+    "clips_channel": "🎬⭐・dayz-clips・⭐🎬",
+    "factions_chat": "🏴⚔️・factions-chat・⚔️🏴",
+    "faction_list": "📜🏴・faction-list・🏴📜",
+    "faction_tickets": "🎫🏴・faction-tickets・🏴🎫",
+    "faction_staff": "🛡️🏴・faction-staff・🏴🛡️",
+    "help_channel": "❓📘・help-desk・📘❓",
+    "economy": "💰🛒・black-market・🛒💰",
+    "admin_logs": "🛡️📕・admin-logs・📕🛡️",
+    "command_logs": "📜🛡️・command-logs・🛡️📜",
+    "purchase_logs": "💳📦・purchase-logs・📦💳",
+    "vehicle_rentals": "🚗💰・vehicle-rentals・💰🚗",
+    "rental_logs": "🛻📒・rental-logs・📒🛻",
+    "company_announcements": "📢・wandering-company-announcements・📢"
+}
+
+CHANNEL_ALIASES = {
+    "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
+    "raids": ["raids", "raidfeed", "raiddetected", "raidalerts"],
+    "building": ["building", "build", "buildfeed", "basebuilding"],
+    "connections": ["connected", "connections", "connect", "joins", "playerjoins"],
+    "disconnects": ["disconnects", "disconnect", "leftserver", "playerleaves"],
+    "online": ["online", "onlinesurvivors", "liveonline", "survivorsonline"],
+    "leaderboards": ["leaderboards", "leaderboard", "topkills", "rankings"],
+    "heatmap": ["heatmap", "conflictheatmap", "pvpheatmap"],
+    "longshots": ["longshots", "longshot", "snipes"],
+    "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+    "welcome": ["welcome", "newsurvivor"],
+    "general_chat": ["survivorchat", "generalchat", "general", "chat"],
+    "factions_chat": ["factionschat", "factions", "factionchat"],
+    "faction_list": ["factionlist", "factionslist"],
+    "help_channel": ["helpdesk", "help", "support"],
+    "clips_channel": ["dayzclips", "clips", "media"],
+    "economy": ["blackmarket", "economy", "shop", "market"],
+    "ai_chat": ["survivorai", "aichat", "ai"],
+    "admin_logs": ["adminlogs", "stafflogs"],
+    "command_logs": ["commandlogs", "commands"],
+    "purchase_logs": ["purchaselogs", "purchases"],
+    "vehicle_rentals": ["vehiclerentals", "rentvehicles", "rentals"],
+    "rental_logs": ["rentallogs"],
+    "faction_tickets": ["factiontickets", "factionrequests"],
+    "faction_staff": ["factionstaff"],
+    "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
+    "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
+    "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
+}
 
 SWEAR_REWARD_MIN = 300
 SWEAR_REWARD_MAX = 800
@@ -142,15 +205,71 @@ def ensure_folder(path):
 
 
 def save_json(path, data):
-    with open(path, "w") as f:
+    folder = os.path.dirname(path)
+
+    if folder:
+        ensure_folder(folder)
+
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
 
 def load_json(path):
     if os.path.exists(path):
-        with open(path, "r") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
+
+
+def normalize_discord_name(name):
+    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+
+
+def new_guild_config(guild):
+    return {
+        "guild_name": guild.name,
+        "guild_owner": str(guild.owner),
+        "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+        "nitrado_token": "",
+        "service_id": "",
+        "nitrado_user": "",
+        "ftp_user": "",
+        "ftp_password": "",
+        "channels": {}
+    }
+
+
+def channel_matches_saved_key(channel, key):
+    normalized = normalize_discord_name(channel.name)
+    aliases = set(CHANNEL_ALIASES.get(key, []))
+    desired = DEFAULT_CHANNEL_NAMES.get(key)
+
+    if desired:
+        aliases.add(normalize_discord_name(desired))
+
+    if key == "connections" and "disconnect" in normalized:
+        return False
+
+    return normalized in aliases or any(alias and alias in normalized for alias in aliases)
+
+
+def discover_existing_guild_channels(guild, config):
+    channels = config.setdefault("channels", {})
+    changed = False
+
+    for key in DEFAULT_CHANNEL_NAMES:
+        existing_id = channels.get(key)
+
+        if existing_id and guild.get_channel(existing_id):
+            continue
+
+        for channel in guild.text_channels:
+            if channel_matches_saved_key(channel, key):
+                channels[key] = channel.id
+                changed = True
+                break
+
+    return changed
 
 
 class SlashContextAdapter:
@@ -328,11 +447,38 @@ async def apply_chat_reward_punishment_rules(message, lower):
 
 def load_guild_configs():
     global guild_configs
+
     guild_configs = load_json(GUILD_CONFIG_FILE)
+
+    if os.path.isdir(GUILD_CONFIG_FOLDER):
+        for config_file in os.listdir(GUILD_CONFIG_FOLDER):
+            if not config_file.endswith(".json"):
+                continue
+
+            guild_id = config_file[:-5]
+            guild_configs[guild_id] = load_json(
+                os.path.join(GUILD_CONFIG_FOLDER, config_file)
+            )
+
+
+def save_guild_config(guild_id):
+    guild_id = str(guild_id)
+    config = guild_configs.get(guild_id)
+
+    if not config:
+        return
+
+    save_json(
+        os.path.join(GUILD_CONFIG_FOLDER, f"{guild_id}.json"),
+        config
+    )
 
 
 def save_guild_configs():
     save_json(GUILD_CONFIG_FILE, guild_configs)
+
+    for guild_id in guild_configs:
+        save_guild_config(guild_id)
 
 
 def load_player_stats():
@@ -434,16 +580,27 @@ def active_guild_config_items():
 
 
 def bootstrap_runtime_from_connected_guilds():
+    changed = False
+
     for guild in bot.guilds:
         guild_id = str(guild.id)
 
         if guild_id not in guild_configs:
-            continue
+            guild_configs[guild_id] = new_guild_config(guild)
+            changed = True
 
         guild_configs[guild_id].setdefault("guild_name", guild.name)
+        guild_configs[guild_id].setdefault("guild_owner", str(guild.owner))
         guild_configs[guild_id].setdefault("admin_roles", DEFAULT_ADMIN_ROLES.copy())
         guild_configs[guild_id].setdefault("channels", {})
+
+        if discover_existing_guild_channels(guild, guild_configs[guild_id]):
+            changed = True
+
         ensure_guild_runtime(guild_id)
+
+    if changed:
+        save_guild_configs()
 
 
 # =========================================================
@@ -1078,7 +1235,7 @@ async def setup_command(
             title="WANDERING BOT ALPHA - SERVER COMMAND CENTER",
             description=(
                 "Your server is now connected. This guide is for owners and admins.\n\n"
-                "Use slash commands first. Prefix commands may exist for legacy support, but `/commands` are the clean setup path."
+                "Use slash commands for all bot controls."
             ),
             color=0xF1C40F
         )
@@ -1130,8 +1287,8 @@ async def setup_command(
                 "`/shop` - view black market\n"
                 "`/buy item_name x y` - queue item delivery\n"
                 "`/rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
-                "Admin legacy tools: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`\n"
-                "New admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
+                "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/shopcategories`, `/importtypesxml`\n"
+                "Admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
             ),
             inline=False
         )
@@ -2537,7 +2694,7 @@ async def helpme(ctx):
         title="WANDERING BOT ALPHA - COMMAND CENTER",
         description=(
             "Admin and owner quick guide. Use slash commands where possible.\n"
-            "Legacy prefix commands still exist for some shop management tools."
+            "All controls are available as slash commands."
         ),
         color=0xF1C40F
     )
@@ -2594,7 +2751,10 @@ async def helpme(ctx):
             "`/listrules`\n"
             "`/removerule rule_number`\n"
             "`/importtypesxml source_path default_price`\n"
-            "Legacy admin: `!addshopitem`, `!editshopitem`, `!toggleshopitem`, `!removeshopitem`, `!givepennies`, `!shopcategories`"
+            "`/addshopitem item_name price category`\n"
+            "`/editshopitem item_name price category`\n"
+            "`/toggleshopitem item_name`, `/removeshopitem item_name`\n"
+            "`/givepennies member amount`, `/shopcategories`"
         ),
         inline=False
     )
@@ -3511,7 +3671,7 @@ async def togglebasedamage(ctx, state: str):
     if state not in ["on", "off"]:
 
         await ctx.send(
-            "Usage: !togglebasedamage on/off"
+            "Usage: `/togglebasedamage state:on` or `/togglebasedamage state:off`"
         )
 
         return
@@ -3936,7 +4096,7 @@ async def mylink(ctx):
     if user_id not in linked_players:
 
         await ctx.send(
-            "❌ No linked gamertag found. Use `!linkgamer YourName`"
+            "❌ No linked gamertag found. Use `/linkgamer gamertag:YourName`"
         )
 
         return
@@ -5530,7 +5690,7 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
         ephemeral=True
     )
 
-# Full slash mapping wrappers for legacy commands
+# Slash command wrappers
 @bot.tree.command(name="helpme", description="Show command/help information")
 async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
 @bot.tree.command(name="swearjar", description="Show swear jar leaderboard")
@@ -5608,6 +5768,44 @@ async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y:
 @app_commands.describe(source_path="Optional path to types.xml", default_price="Fallback price")
 async def slash_importtypesxml(interaction: discord.Interaction, source_path: str = None, default_price: int = 100):
     await run_legacy_as_slash(interaction, "importtypesxml", source_path=source_path, default_price=default_price)
+@bot.tree.command(name="addshopitem", description="Admin: add an item to the shop")
+@app_commands.describe(item_name="Item classname", price="Price in pennies", category="Shop category")
+async def slash_addshopitem(interaction: discord.Interaction, item_name: str, price: int, category: str = "General"):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await run_legacy_as_slash(interaction, "addshopitem", item_name=item_name, price=price, category=category)
+@bot.tree.command(name="editshopitem", description="Admin: edit a shop item")
+@app_commands.describe(item_name="Item classname", price="Optional new price", category="Optional new category")
+async def slash_editshopitem(interaction: discord.Interaction, item_name: str, price: int = None, category: str = None):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await run_legacy_as_slash(interaction, "editshopitem", item_name=item_name, price=price, category=category)
+@bot.tree.command(name="toggleshopitem", description="Admin: enable or disable a shop item")
+@app_commands.describe(item_name="Item classname")
+async def slash_toggleshopitem(interaction: discord.Interaction, item_name: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await run_legacy_as_slash(interaction, "toggleshopitem", item_name=item_name)
+@bot.tree.command(name="removeshopitem", description="Admin: remove an item from the shop")
+@app_commands.describe(item_name="Item classname")
+async def slash_removeshopitem(interaction: discord.Interaction, item_name: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await run_legacy_as_slash(interaction, "removeshopitem", item_name=item_name)
+@bot.tree.command(name="givepennies", description="Admin: give pennies to a member")
+@app_commands.describe(member="Discord member", amount="Pennies to add")
+async def slash_givepennies(interaction: discord.Interaction, member: discord.Member, amount: int):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await run_legacy_as_slash(interaction, "givepennies", member=member, amount=amount)
+@bot.tree.command(name="shopcategories", description="Show shop categories")
+async def slash_shopcategories(interaction: discord.Interaction):
+    await run_legacy_as_slash(interaction, "shopcategories")
 @bot.tree.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
@@ -5710,7 +5908,12 @@ async def on_ready():
     load_delivery_queue()
 
     active_count = len(list(active_guild_config_items()))
+    active_names = [
+        guild_configs[guild_id].get("guild_name", guild_id)
+        for guild_id, _ in active_guild_config_items()
+    ]
     print(f"ACTIVE CONFIGURED GUILDS LOADED: {active_count}/{len(guild_configs)}")
+    print(f"ACTIVE GUILDS: {', '.join(active_names) if active_names else 'none'}")
 
     await start_background_tasks()
     await refresh_adm_feeds()
