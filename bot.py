@@ -48,8 +48,8 @@ BOT_IMAGE = (
 )
 
 DEFAULT_MAP_IMAGE_SOURCES = {
-    "chernarus": r"C:\Users\marty\Downloads\cherno.jpeg",
-    "livonia": r"C:\Users\marty\Downloads\livonia.jpeg",
+    "chernarus": "https://i.redd.it/a2mn8bzx93gd1.jpeg",
+    "livonia": "https://i.imgur.com/nzEp9wF.jpeg",
 }
 
 DATA_ROOT = (
@@ -2687,6 +2687,17 @@ async def setup_command(
         )
 
         setup_embed.add_field(
+            name="RAILWAY MAP IMAGE FIX",
+            value=(
+                "Railway cannot use Windows paths like `C:\\Users\\...`. If heatmaps show the drawn fallback map, set public map URLs:\n"
+                "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
+                "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
+                "Use `/mapimagestatus` after setting them. You can also upload a map with `/uploadmapimage`."
+            ),
+            inline=False
+        )
+
+        setup_embed.add_field(
             name="ADMIN SETUP & MODERATION",
             value=(
                 "`/setadminrole role_name` - replace the primary bot admin role\n"
@@ -4226,6 +4237,17 @@ async def helpme(ctx):
             "`/topkills` - top kills\n"
             "`/toplongshots` - longshot leaderboard\n"
             "`/playerstats player_name` - player lookup"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="Railway Map Fix",
+        value=(
+            "If heatmaps use the drawn fallback map, Railway probably cannot read a Windows file path. Use public map URLs:\n"
+            "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
+            "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
+            "Then check `/mapimagestatus`."
         ),
         inline=False
     )
@@ -8880,7 +8902,12 @@ async def mapimagestatus(interaction: discord.Interaction):
     embed.add_field(name="Last Heatmap Render", value=heatmap_render_status(guild_id, heatmap_mode)[:1000], inline=False)
     embed.add_field(
         name="Upload Shortcut",
-        value="Attach a map image in Discord and type `set heatmap chernarus`, `set heatmap livonia`, or `set heatmap sakhal`.",
+        value=(
+            "Railway cannot use `C:\\Users\\...` paths. For public URL setup, run:\n"
+            "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
+            "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
+            "Or attach an image and type `set heatmap chernarus`, `set heatmap livonia`, or `set heatmap sakhal`."
+        ),
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
