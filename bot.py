@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
 
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from discord.ext import commands, tasks
 from discord import app_commands
 
@@ -155,6 +155,7 @@ DEFAULT_CHANNEL_NAMES = {
     "longshots": "🎯🏹・longshots・🏹🎯",
     "restart_alerts": "📢⏰・restart-alerts・⏰📢",
     "welcome": "👋🟩・welcome・🟩👋",
+    "linked_players": "🔗🎮・linked-players・🎮🔗",
     "general_chat": "💬🌲・survivor-chat・🌲💬",
     "ai_chat": "🧠📻・survivor-ai・📻🧠",
     "clips_channel": "🎬⭐・dayz-clips・⭐🎬",
@@ -201,6 +202,7 @@ CHANNEL_ALIASES = {
     "longshots": ["longshots", "longshot", "snipes"],
     "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
     "welcome": ["welcome", "newsurvivor"],
+    "linked_players": ["linkedplayers", "gamerlinks", "linkedgamers", "usernamelinks", "identitylinks"],
     "general_chat": ["survivorchat", "generalchat", "general", "chat"],
     "factions_chat": ["factionschat", "factions", "factionchat"],
     "faction_list": ["factionlist", "factionslist"],
@@ -300,9 +302,9 @@ def extract_adm_coords(line):
     return match.group(1) if match else None
 
 
-def build_adm_map_link(line):
+def build_adm_map_link(line, guild_id=None):
     coords = extract_adm_coords(line)
-    return build_izurvive_link(coords) if coords else None
+    return build_izurvive_link(coords, guild_id) if coords else None
 
 
 def heatmap_mode_for_event(event_type):
@@ -569,7 +571,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
     channel = await get_or_create_feed_channel(guild, config, key, channel_name, private)
     player = extract_player_name(line)
     coords = extract_adm_coords(line)
-    map_link = build_adm_map_link(line)
+    map_link = build_adm_map_link(line, guild_id)
 
     if event_type in ["packed", "placed"]:
         item_name = extract_packed_object(line) if event_type == "packed" else extract_placed_object(line)
@@ -831,8 +833,10 @@ def ensure_player_stats_record(guild_id, player_name):
     if not player_name or player_name == "Unknown":
         return None
 
+    now_text = str(datetime.now(UTC))
     stats = player_stats.setdefault(player_name, {})
     stats.setdefault("guild_id", str(guild_id))
+    stats.setdefault("first_adm_seen", now_text)
     stats.setdefault("kills", 0)
     stats.setdefault("deaths", 0)
     stats.setdefault("zombie_deaths", 0)
@@ -847,7 +851,8 @@ def ensure_player_stats_record(guild_id, player_name):
     stats.setdefault("flags_raised", 0)
     stats.setdefault("flags_lowered", 0)
     stats.setdefault("time_online_seconds", 0)
-    stats["last_seen"] = str(datetime.now(UTC))
+    stats["last_seen"] = now_text
+    stats["last_adm_seen"] = now_text
     return stats
 
 
@@ -907,6 +912,104 @@ def format_duration(seconds):
     if hours:
         return f"{hours}h {minutes}m"
     return f"{minutes}m"
+
+
+def parse_saved_datetime(value):
+    if not value:
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    except Exception:
+        return None
+
+
+def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
+    wanted = normalize_discord_name(typed_name)
+    if not wanted:
+        return None, "Type the exact gamertag that appears in the server ADM logs."
+
+    matches = []
+    for player_name, stats in player_stats.items():
+        if str(stats.get("guild_id", "")) != str(guild_id):
+            continue
+
+        if normalize_discord_name(player_name) == wanted:
+            matches.append((player_name, stats))
+
+    if not matches:
+        return None, "That gamertag has not appeared in this server's ADM logs yet. Join the server first, wait at least 5 minutes, then try again."
+
+    player_name, stats = matches[0]
+    first_seen = parse_saved_datetime(stats.get("first_adm_seen") or stats.get("last_adm_seen") or stats.get("last_seen"))
+    if not first_seen:
+        return None, "That gamertag was found, but its ADM timestamp is missing. Wait for the next ADM scan, then try again."
+
+    age_seconds = (datetime.now(UTC) - first_seen).total_seconds()
+    if age_seconds < minimum_age_seconds:
+        wait_minutes = max(1, int((minimum_age_seconds - age_seconds + 59) // 60))
+        return None, f"That gamertag was just seen in ADM. Wait about `{wait_minutes}` more minute(s), then try again."
+
+    return player_name, None
+
+
+def gamertag_linked_to_other_user(gamertag, user_id):
+    wanted = normalize_discord_name(gamertag)
+    for linked_user_id, data in linked_players.items():
+        if str(linked_user_id) == str(user_id):
+            continue
+        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+            return linked_user_id, data
+    return None, None
+
+
+async def announce_verified_gamer_link(guild, config, member, gamertag):
+    channel = await get_or_create_feed_channel(
+        guild,
+        config,
+        "linked_players",
+        DEFAULT_CHANNEL_NAMES["linked_players"],
+        private=False
+    )
+
+    embed = discord.Embed(
+        title="VERIFIED GAMERTAG LINKED",
+        description=f"{member.mention} is now verified as `{gamertag}`.",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Discord", value=str(member), inline=True)
+    embed.add_field(name="ADM Verified Gamertag", value=gamertag, inline=True)
+    embed.add_field(name="Recognition", value="Identity confirmed from ADM history and ready for economy rewards.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Verified Identity")
+    await channel.send(embed=style_embed(embed))
+
+
+async def link_verified_gamertag_for_member(guild, member, gamertag):
+    guild_id = str(guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+    verified_name, error = find_adm_verified_player(guild_id, gamertag)
+    if error:
+        return False, error
+
+    linked_user_id, linked_data = gamertag_linked_to_other_user(verified_name, member.id)
+    if linked_user_id:
+        return False, f"`{verified_name}` is already linked to `{linked_data.get('discord_name', linked_user_id)}`. Ask staff if this needs correcting."
+
+    user_id = str(member.id)
+    linked_players[user_id] = {
+        "discord_name": str(member),
+        "discord_id": user_id,
+        "guild_id": guild_id,
+        "gamertag": verified_name,
+        "verified_by": "ADM",
+        "linked_at": str(datetime.now(UTC))
+    }
+
+    save_linked_players()
+    await announce_verified_gamer_link(guild, config, member, verified_name)
+    return True, verified_name
 
 # =========================================================
 # WANDERING BOT EMOJI PERSONALITY
@@ -1692,18 +1795,15 @@ def classify_event(line):
 # MULTI GUILD API SEARCH
 # =========================================================
 
-def ping_latest_adm_log(config):
+ADM_LOG_NAME_PATTERN = re.compile(
+    r"^DayZServer_[A-Z0-9]+_x64_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ADM$",
+    re.IGNORECASE
+)
 
-    token = config.get("nitrado_token")
-    service_id = config.get("service_id")
+
+def nitrado_adm_search_paths(config):
     nitrado_user = config.get("nitrado_user")
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
-
-    search_paths = [
+    return [
         f"/games/{nitrado_user}/noftp/dayzxb/config/",
         f"/games/{nitrado_user}/noftp/dayzxb/",
         f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/",
@@ -1715,7 +1815,54 @@ def ping_latest_adm_log(config):
         f"/games/{nitrado_user}/noftp/"
     ]
 
-    for search_path in search_paths:
+
+def parse_nitrado_datetime(value):
+    if not value:
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value, UTC)
+        except Exception:
+            return None
+
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    except Exception:
+        return None
+
+
+def adm_log_datetime(entry):
+    name_match = ADM_LOG_NAME_PATTERN.match(entry.get("name", ""))
+    if name_match:
+        time_text = f"{name_match.group(1)} {name_match.group(2).replace('-', ':')}"
+        try:
+            return datetime.strptime(time_text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+        except Exception:
+            pass
+
+    return parse_nitrado_datetime(entry.get("modified_at"))
+
+
+def list_adm_logs(config, lookback_hours=None):
+
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+
+    cutoff = None
+    if lookback_hours:
+        cutoff = datetime.now(UTC) - timedelta(hours=int(lookback_hours))
+
+    matching_logs = {}
+
+    for search_path in nitrado_adm_search_paths(config):
 
         try:
 
@@ -1754,34 +1901,37 @@ def ping_latest_adm_log(config):
             for entry in entries:
                 print(f"FOUND FILE: {entry.get('name')}")
 
-            matching_logs = [
-                entry for entry in entries
-                if re.match(
-                    r"^DayZServer_[A-Z0-9]+_x64_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.ADM$",
-                    entry.get("name", ""),
-                    re.IGNORECASE
-                )
-            ]
+            for entry in entries:
+                if not ADM_LOG_NAME_PATTERN.match(entry.get("name", "")):
+                    continue
 
-            if not matching_logs:
-                print("NO MATCHING ADM FILES")
-                continue
+                entry_time = adm_log_datetime(entry)
+                if cutoff and entry_time and entry_time < cutoff:
+                    continue
 
-            matching_logs.sort(
-                key=lambda x: x.get("modified_at", ""),
-                reverse=True
-            )
-
-            latest = matching_logs[0]
-
-            print("LATEST ADM FOUND:", latest.get("path"))
-
-            return latest
+                path = entry.get("path")
+                if path:
+                    entry["_adm_datetime"] = entry_time.isoformat() if entry_time else ""
+                    matching_logs[path] = entry
 
         except Exception as error:
             print(error)
 
-    return None
+    logs = list(matching_logs.values())
+    logs.sort(key=lambda item: item.get("_adm_datetime") or item.get("modified_at", ""), reverse=True)
+    return logs
+
+
+def ping_latest_adm_log(config):
+    matching_logs = list_adm_logs(config)
+
+    if not matching_logs:
+        print("NO MATCHING ADM FILES")
+        return None
+
+    latest = matching_logs[0]
+    print("LATEST ADM FOUND:", latest.get("path"))
+    return latest
 
 # =========================================================
 # LIVE DASHBOARD SETTINGS
@@ -1808,7 +1958,22 @@ CUSTOM_FEED_TYPES = [
 # CLICKABLE MAP LINKS
 # =========================================================
 
-def build_izurvive_link(coords):
+def izurvive_map_path(guild_id=None):
+    if guild_id is None:
+        return ""
+
+    map_key = server_map_key(guild_id)
+
+    if map_key == "livonia":
+        return "livonia/"
+
+    if map_key == "sakhal":
+        return "sakhal/"
+
+    return ""
+
+
+def build_izurvive_link(coords, guild_id=None):
 
     try:
 
@@ -1816,8 +1981,9 @@ def build_izurvive_link(coords):
 
         x = split_coords[0].strip()
         y = split_coords[1].strip()
+        map_path = izurvive_map_path(guild_id)
 
-        return f"https://dayz.ginfo.gg/#location={x};{y}"
+        return f"https://dayz.ginfo.gg/{map_path}#location={x};{y}"
 
     except:
         return None
@@ -2186,7 +2352,7 @@ def generate_live_player_map_image(guild_id: str):
     try:
         from PIL import Image, ImageDraw, ImageFont
     except Exception:
-        return None, "Pillow is not installed, so map images cannot be rendered."
+        return None, "Pillow is not installed, so map images cannot be rendered. Add `Pillow` to `requirements.txt` in the Railway deploy root and redeploy."
 
     if not source:
         return None, f"No map image configured for `{map_key}`."
@@ -2289,7 +2455,7 @@ def extract_adm_log_time(line):
     return match.group(1) if match else None
 
 
-def build_pvp_kill_embed(kill_details, line=None, history=False):
+def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None):
     killer = kill_details["killer"]
     victim = kill_details["victim"]
     weapon = kill_details.get("weapon", "Unknown")
@@ -2316,7 +2482,7 @@ def build_pvp_kill_embed(kill_details, line=None, history=False):
         embed.add_field(name="ADM Log Time", value=log_time, inline=True)
 
     if coords:
-        map_link = build_izurvive_link(coords)
+        map_link = build_izurvive_link(coords, guild_id)
         if map_link:
             embed.add_field(name="Kill Location", value=f"[Open Map](<{map_link}>)", inline=False)
 
@@ -2327,7 +2493,7 @@ def build_pvp_kill_embed(kill_details, line=None, history=False):
     return embed
 
 
-def build_longshot_embed(kill_details, is_new_record=False, history=False):
+def build_longshot_embed(kill_details, is_new_record=False, history=False, guild_id=None):
     killer = kill_details["killer"]
     victim = kill_details["victim"]
     weapon = kill_details.get("weapon", "Unknown")
@@ -2349,7 +2515,7 @@ def build_longshot_embed(kill_details, is_new_record=False, history=False):
     embed.add_field(name="Victim", value=victim, inline=True)
 
     if coords:
-        map_link = build_izurvive_link(coords)
+        map_link = build_izurvive_link(coords, guild_id)
         if map_link:
             embed.add_field(name="Kill Location", value=f"[Open Map](<{map_link}>)", inline=False)
 
@@ -2369,7 +2535,7 @@ async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
     longshot_channel = bot.get_channel(channels.get("longshots"))
 
     if killfeed_channel:
-        await killfeed_channel.send(embed=style_embed(build_pvp_kill_embed(kill_details, line, history)))
+        await killfeed_channel.send(embed=style_embed(build_pvp_kill_embed(kill_details, line, history, guild_id)))
 
     distance = float(kill_details.get("distance", 0) or 0)
     guild_longshot = longshot_records.get(str(guild_id), {
@@ -2390,7 +2556,7 @@ async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
         }
 
     if longshot_channel and (is_longshot or is_new_record):
-        await longshot_channel.send(embed=style_embed(build_longshot_embed(kill_details, is_new_record, history)))
+        await longshot_channel.send(embed=style_embed(build_longshot_embed(kill_details, is_new_record, history, guild_id)))
 
     return True, bool(is_longshot or is_new_record)
 # =========================================================
@@ -3018,7 +3184,7 @@ def download_latest_adm(
 # FEED EMBED STYLES
 # =========================================================
 
-def create_feed_embed(title, color, player=None, details=None, weapon=None, coords=None):
+def create_feed_embed(title, color, player=None, details=None, weapon=None, coords=None, guild_id=None):
 
     embed = discord.Embed(
         title=title,
@@ -3040,7 +3206,7 @@ def create_feed_embed(title, color, player=None, details=None, weapon=None, coor
         )
 
     if coords:
-        map_link = build_izurvive_link(coords)
+        map_link = build_izurvive_link(coords, guild_id)
 
         if map_link:
             coords_value = f"[🗺️ {coords}](<{map_link}>)"
@@ -3255,7 +3421,7 @@ async def parse_adm(guild_id, config):
 
             if coords:
 
-                map_link = build_izurvive_link(coords)
+                map_link = build_izurvive_link(coords, guild_id)
 
                 if map_link:
 
@@ -3374,7 +3540,7 @@ async def parse_adm(guild_id, config):
                     inline=True
                 )
 
-            map_link = build_izurvive_link(coords)
+            map_link = build_izurvive_link(coords, guild_id)
 
             if map_link:
 
@@ -3472,7 +3638,7 @@ async def parse_adm(guild_id, config):
 
             if coords:
 
-                map_link = build_izurvive_link(coords)
+                map_link = build_izurvive_link(coords, guild_id)
 
                 if map_link:
 
@@ -3535,7 +3701,7 @@ async def parse_adm(guild_id, config):
                     if coord_lines:
                         embed.add_field(name="Location", value="\n".join(coord_lines), inline=False)
 
-                    map_link = build_izurvive_link(coords)
+                    map_link = build_izurvive_link(coords, guild_id)
                     if map_link:
                         embed.add_field(name="Map", value=f"[Open Map](<{map_link}>)", inline=False)
 
@@ -3652,7 +3818,7 @@ async def parse_adm(guild_id, config):
                 )
 
                 if coords:
-                    map_link = build_izurvive_link(coords)
+                    map_link = build_izurvive_link(coords, guild_id)
                     if map_link:
                         embed.add_field(
                             name="Last Known Location",
@@ -3725,7 +3891,7 @@ async def parse_adm(guild_id, config):
 
                 if coords:
 
-                    map_link = build_izurvive_link(coords)
+                    map_link = build_izurvive_link(coords, guild_id)
 
                     if map_link:
 
@@ -3801,7 +3967,7 @@ async def parse_adm(guild_id, config):
 
                         if coords:
 
-                            map_link = build_izurvive_link(coords)
+                            map_link = build_izurvive_link(coords, guild_id)
 
                             if map_link:
 
@@ -4241,6 +4407,82 @@ async def reject_owner_command(interaction):
         "Owner command rejected.",
         ephemeral=True
     )
+
+
+SENSITIVE_COMMAND_OPTION_NAMES = {
+    "secret_code",
+    "nitrado_token",
+    "ftp_password",
+    "token",
+    "password",
+    "api_key"
+}
+
+
+def format_interaction_options(options):
+    lines = []
+
+    for option in options or []:
+        name = str(option.get("name", "option"))
+        value = option.get("value")
+        nested = option.get("options")
+
+        if nested:
+            nested_text = format_interaction_options(nested)
+            lines.append(f"{name}: {nested_text}")
+            continue
+
+        if name.lower() in SENSITIVE_COMMAND_OPTION_NAMES:
+            value = "[hidden]"
+
+        lines.append(f"{name}: {value}")
+
+    return ", ".join(lines) if lines else "No options"
+
+
+async def log_slash_command_usage(interaction):
+    if not interaction.guild or not interaction.command:
+        return
+
+    try:
+        guild_id = str(interaction.guild.id)
+        config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+        channels = config.setdefault("channels", {})
+        command_log_channel = bot.get_channel(channels.get("command_logs"))
+
+        if not command_log_channel:
+            command_log_channel = await get_or_create_feed_channel(
+                interaction.guild,
+                config,
+                "command_logs",
+                DEFAULT_CHANNEL_NAMES["command_logs"],
+                private=True
+            )
+
+        command_name = interaction.command.qualified_name if interaction.command else "unknown"
+        options_text = format_interaction_options(interaction.data.get("options", []) if interaction.data else [])
+
+        embed = discord.Embed(
+            title="SLASH COMMAND USED",
+            color=0x3498DB
+        )
+        embed.add_field(name="User", value=f"{interaction.user.mention}\n`{interaction.user}`", inline=False)
+        embed.add_field(name="Channel", value=interaction.channel.mention if interaction.channel else "Unknown", inline=True)
+        embed.add_field(name="Command", value=f"/{command_name}", inline=True)
+        embed.add_field(name="Options", value=options_text[:1000], inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Command Logs")
+        await command_log_channel.send(embed=style_embed(embed))
+
+    except Exception as error:
+        print(f"SLASH COMMAND LOG ERROR: {error}")
+
+
+@bot.tree.interaction_check
+async def log_all_slash_commands(interaction: discord.Interaction):
+    await log_slash_command_usage(interaction)
+    return True
+
 
 @bot.listen("on_command")
 async def log_command_usage(ctx):
@@ -5120,8 +5362,8 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
             continue
 
         RADAR_PINGS[throttle_key] = now_ts
-        map_link = f"https://dayz.ginfo.gg/#location={zx};{zy}"
-        player_link = build_izurvive_link(coords)
+        map_link = f"https://dayz.ginfo.gg/{izurvive_map_path(guild_id)}#location={zx};{zy}"
+        player_link = build_izurvive_link(coords, guild_id)
         embed = discord.Embed(
             title="RADAR ZONE TRIGGERED",
             description=f"**{player_name}** entered **{zone.get('name', 'Radar Zone')}**.",
@@ -5360,11 +5602,13 @@ async def restartadm(ctx, force: str = "no"):
 
 
 @bot.tree.command(name="backfillkills", description="Admin: post recent ADM kill history into killfeed and longshots")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     limit="Maximum historical kills to post, 1 to 50",
+    hours="How far back to scan ADM files, defaults to 48 hours",
     force="Repost kills already backfilled by this command"
 )
-async def backfillkills(interaction: discord.Interaction, limit: int = 20, force: bool = False):
+async def backfillkills(interaction: discord.Interaction, limit: int = 20, hours: int = 48, force: bool = False):
 
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -5385,53 +5629,68 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 20, force
         return
 
     limit = max(1, min(50, int(limit or 20)))
+    hours = max(1, min(168, int(hours or 48)))
 
-    latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
-    if not latest_log:
-        await interaction.followup.send("No ADM log found to backfill from.", ephemeral=True)
+    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours)
+    if not adm_logs:
+        latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
+        adm_logs = [latest_log] if latest_log else []
+
+    if not adm_logs:
+        await interaction.followup.send(f"No ADM logs found to backfill from in the last `{hours}` hours.", ephemeral=True)
         return
-
-    downloaded = await asyncio.to_thread(download_latest_adm, guild_id, config, latest_log)
-    if not downloaded:
-        await interaction.followup.send("ADM download failed, so no kill history could be backfilled.", ephemeral=True)
-        return
-
-    adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
-    if not os.path.exists(adm_path):
-        await interaction.followup.send("ADM file was not available after download.", ephemeral=True)
-        return
-
-    with open(adm_path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = [line.strip() for line in f.readlines() if line.strip()]
 
     history_hashes = set(str(item) for item in config.setdefault("killfeed_history_hashes", []))
     selected = []
     seen_signatures = set()
+    scanned_logs = 0
+    failed_downloads = 0
 
-    for line in reversed(lines):
-        if classify_event(line) != "kill":
-            continue
-
-        details = extract_pvp_kill_details(line)
-        if not details:
-            continue
-
-        line_hash = stable_line_hash(line)
-        if not force and line_hash in history_hashes:
-            continue
-
-        signature = pvp_kill_signature(guild_id, details)
-        if signature in seen_signatures:
-            continue
-
-        seen_signatures.add(signature)
-        selected.append((line, line_hash))
-
+    for adm_log in adm_logs:
         if len(selected) >= limit:
             break
 
+        downloaded = await asyncio.to_thread(download_latest_adm, guild_id, config, adm_log)
+        if not downloaded:
+            failed_downloads += 1
+            continue
+
+        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        if not os.path.exists(adm_path):
+            failed_downloads += 1
+            continue
+
+        scanned_logs += 1
+        with open(adm_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [line.strip() for line in f.readlines() if line.strip()]
+
+        for line in reversed(lines):
+            if classify_event(line) != "kill":
+                continue
+
+            details = extract_pvp_kill_details(line)
+            if not details:
+                continue
+
+            line_hash = stable_line_hash(line)
+            if not force and line_hash in history_hashes:
+                continue
+
+            signature = pvp_kill_signature(guild_id, details)
+            if signature in seen_signatures:
+                continue
+
+            seen_signatures.add(signature)
+            selected.append((line, line_hash))
+
+            if len(selected) >= limit:
+                break
+
     if not selected:
-        await interaction.followup.send("No new historical PvP kills found in the latest ADM log.", ephemeral=True)
+        await interaction.followup.send(
+            f"No new historical PvP kills found after scanning `{scanned_logs}` ADM files over `{hours}` hours.",
+            ephemeral=True
+        )
         return
 
     selected.reverse()
@@ -5451,7 +5710,7 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 20, force
     save_guild_configs()
 
     await interaction.followup.send(
-        f"Backfilled `{posted}` historical PvP kills into killfeed. `{longshots_posted}` also went to longshots.",
+        f"Backfilled `{posted}` historical PvP kills after scanning `{scanned_logs}` ADM files over `{hours}` hours. `{longshots_posted}` also went to longshots. Failed downloads: `{failed_downloads}`.",
         ephemeral=True
     )
 
@@ -5984,6 +6243,7 @@ async def wage_loop():
 
 
 @bot.tree.command(name="addfeed", description="Admin: create a scheduled custom feed in a channel")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(channel="Channel to post into", feed_type="text, restart, basedamage, serverstatus, or heatmap", interval_minutes="How often to post, 5 to 10080 minutes", message="Optional custom text for the feed")
 async def addfeed(interaction: discord.Interaction, channel: discord.TextChannel, feed_type: str, interval_minutes: int, message: str = ""):
     if not interaction.user.guild_permissions.administrator:
@@ -6003,6 +6263,7 @@ async def addfeed(interaction: discord.Interaction, channel: discord.TextChannel
 
 
 @bot.tree.command(name="listfeeds", description="Admin: list scheduled custom feeds")
+@app_commands.default_permissions(administrator=True)
 async def listfeeds(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -6024,6 +6285,7 @@ async def listfeeds(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="togglefeed", description="Admin: turn a custom feed on or off")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(feed_id="Feed ID from /listfeeds", enabled="True to enable, false to disable")
 async def togglefeed(interaction: discord.Interaction, feed_id: int, enabled: bool):
     if not interaction.user.guild_permissions.administrator:
@@ -6040,6 +6302,7 @@ async def togglefeed(interaction: discord.Interaction, feed_id: int, enabled: bo
 
 
 @bot.tree.command(name="removefeed", description="Admin: remove a custom scheduled feed")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(feed_id="Feed ID from /listfeeds")
 async def removefeed(interaction: discord.Interaction, feed_id: int):
     if not interaction.user.guild_permissions.administrator:
@@ -6460,6 +6723,8 @@ def has_active_pve_kind(guild_id, kind):
 def linked_user_id_for_player(player_name):
     wanted = normalize_discord_name(player_name)
     for user_id, data in linked_players.items():
+        if data.get("verified_by") != "ADM":
+            continue
         if normalize_discord_name(data.get("gamertag", "")) == wanted:
             return str(user_id)
     return None
@@ -6755,6 +7020,7 @@ async def pve_pvp_advice_loop():
 
 
 @bot.tree.command(name="pvesetup", description="Admin: create or repair the PVE category and channels")
+@app_commands.default_permissions(administrator=True)
 async def pvesetup(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -6786,6 +7052,7 @@ async def pvesetup(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="pveconfig", description="Admin: configure automatic PVE quest posting")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(enabled="Turn auto PVE quests on or off", interval_hours="Hours between themed quest packs, 6 to 168")
 async def pveconfig_command(interaction: discord.Interaction, enabled: bool = True, interval_hours: int = 12):
     if not interaction.user.guild_permissions.administrator:
@@ -6809,6 +7076,7 @@ async def pveconfig_command(interaction: discord.Interaction, enabled: bool = Tr
 
 
 @bot.tree.command(name="pvequestnow", description="Admin: post a random PVE quest now")
+@app_commands.default_permissions(administrator=True)
 async def pvequestnow(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -6853,6 +7121,7 @@ async def pvequests(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="pvecomplete", description="Admin: approve a PVE quest and pay the linked member")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(quest_number="Number from /pvequests", member="Discord member who completed it")
 async def pvecomplete(interaction: discord.Interaction, quest_number: int, member: discord.Member):
     if not interaction.user.guild_permissions.administrator:
@@ -7034,19 +7303,16 @@ async def serverstatus(ctx):
 @bot.command()
 async def linkgamer(ctx, *, gamertag: str):
 
-    user_id = str(ctx.author.id)
-
-    linked_players[user_id] = {
-        "discord_name": str(ctx.author),
-        "gamertag": gamertag
-    }
-
-    save_linked_players()
+    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag)
+    if not success:
+        await ctx.send(result)
+        return
+    gamertag = result
 
     embed = discord.Embed(
-        title="🔗 GAMERTAG LINKED",
+        title="VERIFIED GAMERTAG LINKED",
         description=(
-            f"Your Discord account is now linked to: `{gamertag}`"
+            f"Your Discord account is now linked to ADM verified survivor: `{gamertag}`"
         ),
         color=0x2ECC71
     )
@@ -7072,12 +7338,12 @@ async def linkgamer(ctx, *, gamertag: str):
 )
 @app_commands.describe(gamertag="Your Xbox gamertag")
 async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
-    user_id = str(interaction.user.id)
-    linked_players[user_id] = {
-        "discord_name": str(interaction.user),
-        "gamertag": gamertag
-    }
-    save_linked_players()
+    success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag)
+    if not success:
+        await interaction.response.send_message(result, ephemeral=True)
+        return
+    gamertag = result
+
     embed = discord.Embed(
         title="🔗 GAMERTAG LINKED",
         description=f"Linked to: `{gamertag}`",
@@ -7601,8 +7867,10 @@ DELIVERY_QUEUE_FILE = data_path("delivery_queue.json")
 TYPES_XML_CANDIDATES = [
     data_path("types.xml"),
     os.path.join(GUILD_DATA_FOLDER, "types.xml"),
+    os.path.join(os.getcwd(), "types.xml"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "types.xml.xml"),
+    os.path.join(os.path.expanduser("~"), "Downloads", "types.xml"),
 ]
 
 shop_items = {}
@@ -7615,13 +7883,39 @@ def find_types_xml(source_path=None):
     candidates = []
 
     if source_path:
+        source_path = str(source_path).strip().strip('"')
         candidates.append(source_path)
+
+        if not source_path.lower().endswith(".xml"):
+            candidates.append(f"{source_path}.xml")
+
+        if os.path.isdir(source_path):
+            candidates.append(os.path.join(source_path, "types.xml"))
 
     candidates.extend(TYPES_XML_CANDIDATES)
 
     for candidate in candidates:
         if candidate and os.path.exists(candidate):
             return candidate
+
+    search_roots = [
+        DATA_ROOT,
+        GUILD_DATA_FOLDER,
+        os.getcwd(),
+        os.path.dirname(os.path.abspath(__file__)),
+    ]
+
+    for root in search_roots:
+        if not root or not os.path.isdir(root):
+            continue
+
+        try:
+            for current_root, _, files in os.walk(root):
+                for file_name in files:
+                    if file_name.lower() == "types.xml":
+                        return os.path.join(current_root, file_name)
+        except Exception:
+            continue
 
     return None
 
@@ -8386,7 +8680,7 @@ async def importtypesxml(ctx, source_path: str = None, default_price: int = 100)
     )
 
     if not types_path:
-        await ctx.send("No types.xml file found. Put `types.xml` beside the bot or in `guild_data`.")
+        await ctx.send("No `types.xml` file found. Put it beside the bot, in `guild_data`, or pass the folder/file path as `source_path`.")
         return
 
     embed = discord.Embed(
@@ -8451,6 +8745,7 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     name="playerlottery",
     description="Admin only: pick a random currently-online player"
 )
+@app_commands.default_permissions(administrator=True)
 async def player_lottery(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Admin only.", ephemeral=True)
@@ -8507,6 +8802,7 @@ async def slash_serverstatus(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="supportbot", description="Open an admin ticket with the bot owner")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(issue="Briefly describe your bot issue")
 async def supportbot(interaction: discord.Interaction, issue: str):
 
@@ -8560,6 +8856,7 @@ async def supportbot(interaction: discord.Interaction, issue: str):
 
 
 @bot.tree.command(name="ownerreply", description="Owner only: reply to a support ticket")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(secret_code="Owner secret code", ticket_id="Ticket ID", message="Reply message")
 async def ownerreply(interaction: discord.Interaction, secret_code: str, ticket_id: str, message: str):
 
@@ -8599,6 +8896,7 @@ async def ownerreply(interaction: discord.Interaction, secret_code: str, ticket_
 
 
 @bot.tree.command(name="ownerservers", description="Owner only: list bot servers")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(secret_code="Owner secret code")
 async def ownerservers(interaction: discord.Interaction, secret_code: str):
 
@@ -8636,6 +8934,7 @@ async def ownerservers(interaction: discord.Interaction, secret_code: str):
 
 
 @bot.tree.command(name="ownerremovebot", description="Owner only: remove bot from a server")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(secret_code="Owner secret code", guild_id="Server ID to leave", reason="Optional reason")
 async def ownerremovebot(interaction: discord.Interaction, secret_code: str, guild_id: str, reason: str = "Owner removal"):
 
@@ -8726,6 +9025,7 @@ async def translationconfig(
 
 
 @bot.tree.command(name="addreward", description="Admin: reward pennies when a keyword appears in chat")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to add")
 async def addreward(interaction: discord.Interaction, keyword: str, amount: int):
 
@@ -8747,6 +9047,7 @@ async def addreward(interaction: discord.Interaction, keyword: str, amount: int)
 
 
 @bot.tree.command(name="addpunishment", description="Admin: remove pennies when a keyword appears in chat")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to remove")
 async def addpunishment(interaction: discord.Interaction, keyword: str, amount: int):
 
@@ -8768,6 +9069,7 @@ async def addpunishment(interaction: discord.Interaction, keyword: str, amount: 
 
 
 @bot.tree.command(name="addwage", description="Admin: pay a member recurring pennies")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Member to pay", amount="Pennies per payment", interval_hours="Every how many hours", reason="Reason shown in payroll")
 async def addwage(interaction: discord.Interaction, member: discord.Member, amount: int, interval_hours: int, reason: str = "Server wage"):
     if not interaction.user.guild_permissions.administrator:
@@ -8801,6 +9103,7 @@ async def addwage(interaction: discord.Interaction, member: discord.Member, amou
 
 
 @bot.tree.command(name="listwages", description="Admin: list recurring wages")
+@app_commands.default_permissions(administrator=True)
 async def listwages(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -8821,6 +9124,7 @@ async def listwages(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="removewage", description="Admin: remove a recurring wage")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(wage_id="Wage ID from /listwages")
 async def removewage(interaction: discord.Interaction, wage_id: int):
     if not interaction.user.guild_permissions.administrator:
@@ -8840,6 +9144,7 @@ async def removewage(interaction: discord.Interaction, wage_id: int):
 
 
 @bot.tree.command(name="listrules", description="Admin: list reward and punishment rules")
+@app_commands.default_permissions(administrator=True)
 async def listrules(interaction: discord.Interaction):
 
     if not interaction.user.guild_permissions.administrator:
@@ -8866,6 +9171,7 @@ async def listrules(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="removerule", description="Admin: remove a reward/punishment rule by number")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(rule_number="Rule number from /listrules")
 async def removerule(interaction: discord.Interaction, rule_number: int):
 
@@ -8890,6 +9196,7 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
 
 
 @bot.tree.command(name="addradarzone", description="Admin: alert when ADM activity enters a coordinate radius")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(name="Zone name", x="iZurvive X coordinate", y="iZurvive Y coordinate", radius="Radius in meters")
 async def addradarzone(interaction: discord.Interaction, name: str, x: float, y: float, radius: int):
     if not interaction.user.guild_permissions.administrator:
@@ -8915,13 +9222,17 @@ async def addradarzone(interaction: discord.Interaction, name: str, x: float, y:
         "created_by": str(interaction.user.id)
     })
     save_guild_configs()
+    radar_note = ""
+    if not config.get("channels", {}).get("radar"):
+        radar_note = " Set a radar channel with `/setradarchannel` or alerts have nowhere to post."
     await interaction.response.send_message(
-        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.",
+        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.{radar_note}",
         ephemeral=True
     )
 
 
 @bot.tree.command(name="listradarzones", description="Admin: list configured radar zones")
+@app_commands.default_permissions(administrator=True)
 async def listradarzones(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -8942,6 +9253,7 @@ async def listradarzones(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="removeradarzone", description="Admin: remove a radar zone")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(zone_id="Zone ID from /listradarzones")
 async def removeradarzone(interaction: discord.Interaction, zone_id: int):
     if not interaction.user.guild_permissions.administrator:
@@ -8961,6 +9273,7 @@ async def removeradarzone(interaction: discord.Interaction, zone_id: int):
 
 
 @bot.tree.command(name="setheatmapmode", description="Admin: choose what the heatmap tracks")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, pve, or all")
 async def setheatmapmode(interaction: discord.Interaction, mode: str):
 
@@ -8989,6 +9302,7 @@ async def setheatmapmode(interaction: discord.Interaction, mode: str):
 
 
 @bot.tree.command(name="setservermap", description="Admin: set heatmap scaling to Chernarus, Livonia, or Sakhal")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, or sakhal")
 async def setservermap(interaction: discord.Interaction, map_name: str):
 
@@ -9021,6 +9335,7 @@ async def setservermap(interaction: discord.Interaction, map_name: str):
 
 
 @bot.tree.command(name="setheatmapimage", description="Admin: set the real map image used behind heatmap dots")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image_source="Direct image URL or server file path")
 async def setheatmapimage(interaction: discord.Interaction, map_name: str, image_source: str):
 
@@ -9053,6 +9368,7 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
 
 
 @bot.tree.command(name="uploadmapimage", description="Admin: upload the real map image for heatmaps and /map")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image="Map image file")
 async def uploadmapimage(interaction: discord.Interaction, map_name: str, image: discord.Attachment):
 
@@ -9099,6 +9415,7 @@ async def uploadmapimage(interaction: discord.Interaction, map_name: str, image:
 
 
 @bot.tree.command(name="mapimagestatus", description="Admin: check real map image setup for heatmaps and /map")
+@app_commands.default_permissions(administrator=True)
 async def mapimagestatus(interaction: discord.Interaction):
 
     if not interaction.user.guild_permissions.administrator:
@@ -9241,16 +9558,19 @@ async def send_live_map_response(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="map", description="Admin: show online survivors on the server map")
+@app_commands.default_permissions(administrator=True)
 async def live_map(interaction: discord.Interaction):
     await send_live_map_response(interaction)
 
 
 @bot.tree.command(name="livemap", description="Admin: show online survivors on the server map")
+@app_commands.default_permissions(administrator=True)
 async def slash_livemap_alias(interaction: discord.Interaction):
     await send_live_map_response(interaction)
 
 
 @bot.tree.command(name="createfaction", description="Admin: create an official faction")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     name="Faction name",
     leader="Faction leader",
@@ -9332,6 +9652,7 @@ async def createfaction(
 
 
 @bot.tree.command(name="addfactionmember", description="Admin: add a member to an official faction")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(name="Faction name", member="Discord member")
 async def addfactionmember(interaction: discord.Interaction, name: str, member: discord.Member):
 
@@ -9359,6 +9680,7 @@ async def addfactionmember(interaction: discord.Interaction, name: str, member: 
 
 
 @bot.tree.command(name="removefactionmember", description="Admin: remove a member from an official faction")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(name="Faction name", member="Discord member")
 async def removefactionmember(interaction: discord.Interaction, name: str, member: discord.Member):
 
@@ -9441,6 +9763,7 @@ async def slash_toplongshots(interaction: discord.Interaction): await run_legacy
 @bot.tree.command(name="topkills", description="Show top kill leaderboard")
 async def slash_topkills(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "topkills")
 @bot.tree.command(name="staffroles", description="List staff roles")
+@app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
 @bot.tree.command(name="mylink", description="Show your linked gamertag")
 async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "mylink")
@@ -9450,6 +9773,7 @@ async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
 
 @bot.tree.command(name="setadminrole", description="Set primary admin role")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_setadminrole(interaction: discord.Interaction, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
@@ -9461,6 +9785,7 @@ async def slash_setadminrole(interaction: discord.Interaction, role: discord.Rol
     save_guild_configs()
     await interaction.response.send_message(f"Primary admin role set to {role.mention}.", ephemeral=True)
 @bot.tree.command(name="addstaffrole", description="Add a staff role")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
@@ -9474,6 +9799,7 @@ async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Rol
     save_guild_configs()
     await interaction.response.send_message(f"Staff role added: {role.mention}.", ephemeral=True)
 @bot.tree.command(name="giverole", description="Admin: give an existing role to a real Discord member")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Discord member", role="Existing Discord role")
 async def giverole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
@@ -9482,6 +9808,7 @@ async def giverole(interaction: discord.Interaction, member: discord.Member, rol
     await member.add_roles(role, reason=f"Role given by {interaction.user}")
     await interaction.response.send_message(f"Added {role.mention} to {member.mention}.", ephemeral=True)
 @bot.tree.command(name="removerole", description="Admin: remove an existing role from a real Discord member")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Discord member", role="Existing Discord role")
 async def removerole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
     if not interaction.user.guild_permissions.administrator:
@@ -9493,43 +9820,57 @@ async def removerole(interaction: discord.Interaction, member: discord.Member, r
 @app_commands.describe(faction_name="Faction name")
 async def slash_factionticket(interaction: discord.Interaction, faction_name: str): await run_legacy_as_slash(interaction, "factionticket", faction_name=faction_name)
 @bot.tree.command(name="factionapprove", description="Approve faction request")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(message_id="Ticket message ID")
 async def slash_factionapprove(interaction: discord.Interaction, message_id: int): await run_legacy_as_slash(interaction, "factionapprove", message_id=message_id)
 @bot.tree.command(name="purge", description="Purge recent messages")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(amount="Amount")
 async def slash_purge(interaction: discord.Interaction, amount: int = 10): await run_legacy_as_slash(interaction, "purge", amount=amount)
 @bot.tree.command(name="purgeuser", description="Purge user messages")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Member", amount="Amount")
 async def slash_purgeuser(interaction: discord.Interaction, member: discord.Member, amount: int = 50): await run_legacy_as_slash(interaction, "purgeuser", member=member, amount=amount)
 @bot.tree.command(name="purgebots", description="Purge bot messages")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(amount="Amount")
 async def slash_purgebots(interaction: discord.Interaction, amount: int = 100): await run_legacy_as_slash(interaction, "purgebots", amount=amount)
 @bot.tree.command(name="setradarchannel", description="Set radar channel")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(channel="Channel")
 async def slash_setradarchannel(interaction: discord.Interaction, channel: discord.TextChannel): await run_legacy_as_slash(interaction, "setradarchannel", channel=channel)
 @bot.tree.command(name="radarping", description="Send radar ping")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(x="X", y="Y", reason="Reason")
 async def slash_radarping(interaction: discord.Interaction, x: str, y: str, reason: str = "Survivor Activity"): await run_legacy_as_slash(interaction, "radarping", x=x, y=y, reason=reason)
 @bot.tree.command(name="admstatus", description="Admin: show ADM feed status")
+@app_commands.default_permissions(administrator=True)
 async def slash_admstatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "admstatus")
 @bot.tree.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
+@app_commands.default_permissions(administrator=True)
 async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
 @bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(force="Reprocess recent ADM lines")
 async def slash_restartadm(interaction: discord.Interaction, force: bool = False):
     await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no")
 @bot.tree.command(name="restartserver", description="Restart server")
+@app_commands.default_permissions(administrator=True)
 async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
 @bot.tree.command(name="togglebasedamage", description="Toggle base damage")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(state="on or off")
 async def slash_togglebasedamage(interaction: discord.Interaction, state: str): await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
 @bot.tree.command(name="setrestartinterval", description="Set restart interval")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(hours="Hours 1-24")
 async def slash_setrestartinterval(interaction: discord.Interaction, hours: int): await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
 @bot.tree.command(name="setrestartstart", description="Set restart start hour UTC")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(hour="Hour 0-23")
 async def slash_setrestartstart(interaction: discord.Interaction, hour: int): await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
 @bot.tree.command(name="listrestarts", description="List restart schedule")
+@app_commands.default_permissions(administrator=True)
 async def slash_listrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "listrestarts")
 @bot.tree.command(name="playerstats", description="Lookup player stats")
 @app_commands.describe(player_name="Player name")
@@ -9538,10 +9879,12 @@ async def slash_playerstats(interaction: discord.Interaction, player_name: str):
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
 @bot.tree.command(name="importtypesxml", description="Admin: preload shop from vanilla types.xml")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(source_path="Optional path to types.xml", default_price="Fallback price")
 async def slash_importtypesxml(interaction: discord.Interaction, source_path: str = None, default_price: int = 100):
     await run_legacy_as_slash(interaction, "importtypesxml", source_path=source_path, default_price=default_price)
 @bot.tree.command(name="addshopitem", description="Admin: add an item to the shop")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname", price="Price in pennies", category="Shop category")
 async def slash_addshopitem(interaction: discord.Interaction, item_name: str, price: int, category: str = "General"):
     if not interaction.user.guild_permissions.administrator:
@@ -9549,6 +9892,7 @@ async def slash_addshopitem(interaction: discord.Interaction, item_name: str, pr
         return
     await run_legacy_as_slash(interaction, "addshopitem", item_name=item_name, price=price, category=category)
 @bot.tree.command(name="editshopitem", description="Admin: edit a shop item")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname", price="Optional new price", category="Optional new category")
 async def slash_editshopitem(interaction: discord.Interaction, item_name: str, price: int = None, category: str = None):
     if not interaction.user.guild_permissions.administrator:
@@ -9556,6 +9900,7 @@ async def slash_editshopitem(interaction: discord.Interaction, item_name: str, p
         return
     await run_legacy_as_slash(interaction, "editshopitem", item_name=item_name, price=price, category=category)
 @bot.tree.command(name="toggleshopitem", description="Admin: enable or disable a shop item")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname")
 async def slash_toggleshopitem(interaction: discord.Interaction, item_name: str):
     if not interaction.user.guild_permissions.administrator:
@@ -9563,6 +9908,7 @@ async def slash_toggleshopitem(interaction: discord.Interaction, item_name: str)
         return
     await run_legacy_as_slash(interaction, "toggleshopitem", item_name=item_name)
 @bot.tree.command(name="removeshopitem", description="Admin: remove an item from the shop")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname")
 async def slash_removeshopitem(interaction: discord.Interaction, item_name: str):
     if not interaction.user.guild_permissions.administrator:
@@ -9570,6 +9916,7 @@ async def slash_removeshopitem(interaction: discord.Interaction, item_name: str)
         return
     await run_legacy_as_slash(interaction, "removeshopitem", item_name=item_name)
 @bot.tree.command(name="givepennies", description="Admin: give pennies to a member")
+@app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Discord member", amount="Pennies to add")
 async def slash_givepennies(interaction: discord.Interaction, member: discord.Member, amount: int):
     if not interaction.user.guild_permissions.administrator:
