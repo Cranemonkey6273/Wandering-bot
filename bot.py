@@ -1884,6 +1884,14 @@ def heatmap_render_status(guild_id, mode):
     )
 
 
+def pillow_install_status():
+    try:
+        import PIL
+        return True, f"Pillow installed: `{getattr(PIL, '__version__', 'unknown')}`"
+    except Exception as error:
+        return False, f"Pillow is missing: `{error}`. Add `Pillow` to `requirements.txt` and redeploy Railway."
+
+
 def map_image_source_status(guild_id, map_key):
     source = configured_heatmap_image_source(guild_id, map_key)
 
@@ -2274,6 +2282,117 @@ def generate_live_player_map_image(guild_id: str):
                 os.remove(downloaded_path)
             except Exception:
                 pass
+
+
+def extract_adm_log_time(line):
+    match = re.match(r"^(\d{1,2}:\d{2}:\d{2})", str(line).strip())
+    return match.group(1) if match else None
+
+
+def build_pvp_kill_embed(kill_details, line=None, history=False):
+    killer = kill_details["killer"]
+    victim = kill_details["victim"]
+    weapon = kill_details.get("weapon", "Unknown")
+    distance = float(kill_details.get("distance", 0) or 0)
+    coords = kill_details.get("coords")
+
+    embed = discord.Embed(
+        title="HISTORICAL PLAYER KILL" if history else "PLAYER KILL",
+        color=0x992D22
+    )
+    embed.add_field(name="Killer", value=killer, inline=True)
+    embed.add_field(name="Victim", value=victim, inline=True)
+
+    if distance > 0:
+        embed.add_field(name="Distance", value=f"{distance}m", inline=True)
+
+    embed.add_field(name="Weapon", value=weapon, inline=False)
+
+    if kill_details.get("ammo"):
+        embed.add_field(name="Ammo", value=kill_details["ammo"], inline=True)
+
+    log_time = extract_adm_log_time(line) if line else None
+    if history and log_time:
+        embed.add_field(name="ADM Log Time", value=log_time, inline=True)
+
+    if coords:
+        map_link = build_izurvive_link(coords)
+        if map_link:
+            embed.add_field(name="Kill Location", value=f"[Open Map](<{map_link}>)", inline=False)
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    footer = "Wandering Bot Alpha - PvP History Backfill" if history else "Wandering Bot Alpha - PvP Intelligence"
+    embed.set_footer(text=footer)
+    embed.timestamp = datetime.now(UTC)
+    return embed
+
+
+def build_longshot_embed(kill_details, is_new_record=False, history=False):
+    killer = kill_details["killer"]
+    victim = kill_details["victim"]
+    weapon = kill_details.get("weapon", "Unknown")
+    distance = float(kill_details.get("distance", 0) or 0)
+    coords = kill_details.get("coords")
+
+    if history:
+        title = "HISTORICAL SERVER LONGSHOT RECORD" if is_new_record else "HISTORICAL LONGSHOT"
+    else:
+        title = "NEW SERVER LONGSHOT RECORD" if is_new_record else "LONGSHOT CONFIRMED"
+
+    embed = discord.Embed(
+        title=title,
+        description=f"{killer} dropped {victim} from {distance}m.",
+        color=0xF1C40F
+    )
+    embed.add_field(name="Distance", value=f"{distance}m", inline=True)
+    embed.add_field(name="Weapon", value=weapon, inline=True)
+    embed.add_field(name="Victim", value=victim, inline=True)
+
+    if coords:
+        map_link = build_izurvive_link(coords)
+        if map_link:
+            embed.add_field(name="Kill Location", value=f"[Open Map](<{map_link}>)", inline=False)
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=f"Wandering Bot Alpha - Longshot Tracking - Threshold {LONGSHOT_ANNOUNCE_METERS}m")
+    embed.timestamp = datetime.now(UTC)
+    return embed
+
+
+async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
+    kill_details = extract_pvp_kill_details(line)
+    if not kill_details:
+        return False, False
+
+    channels = config.get("channels", {})
+    killfeed_channel = bot.get_channel(channels.get("killfeed"))
+    longshot_channel = bot.get_channel(channels.get("longshots"))
+
+    if killfeed_channel:
+        await killfeed_channel.send(embed=style_embed(build_pvp_kill_embed(kill_details, line, history)))
+
+    distance = float(kill_details.get("distance", 0) or 0)
+    guild_longshot = longshot_records.get(str(guild_id), {
+        "killer": "None",
+        "distance": 0,
+        "weapon": "Unknown"
+    })
+
+    is_new_record = distance > float(guild_longshot.get("distance", 0) or 0)
+    is_longshot = distance >= LONGSHOT_ANNOUNCE_METERS
+
+    if is_new_record:
+        longshot_records[str(guild_id)] = {
+            "killer": kill_details["killer"],
+            "victim": kill_details["victim"],
+            "distance": distance,
+            "weapon": kill_details.get("weapon", "Unknown")
+        }
+
+    if longshot_channel and (is_longshot or is_new_record):
+        await longshot_channel.send(embed=style_embed(build_longshot_embed(kill_details, is_new_record, history)))
+
+    return True, bool(is_longshot or is_new_record)
 # =========================================================
 # AUTO GUILD SETUP
 # =========================================================
@@ -2680,6 +2799,7 @@ async def setup_command(
                 "`/heatmap` - territory activity summary\n"
                 "`/topkills` - kill leaderboard\n"
                 "`/toplongshots` - global longshot leaderboard\n"
+                "`/backfillkills` - post recent ADM kill history into killfeed and longshots\n"
                 "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
@@ -4236,6 +4356,7 @@ async def helpme(ctx):
             "`/heatmap` - PvP heatmap summary\n"
             "`/topkills` - top kills\n"
             "`/toplongshots` - longshot leaderboard\n"
+            "`/backfillkills` - fill killfeed/longshots from recent ADM history\n"
             "`/playerstats player_name` - player lookup"
         ),
         inline=False
@@ -5236,6 +5357,103 @@ async def restartadm(ctx, force: str = "no"):
 
     embed.set_thumbnail(url=BOT_IMAGE)
     await ctx.send(embed=style_embed(embed))
+
+
+@bot.tree.command(name="backfillkills", description="Admin: post recent ADM kill history into killfeed and longshots")
+@app_commands.describe(
+    limit="Maximum historical kills to post, 1 to 50",
+    force="Repost kills already backfilled by this command"
+)
+async def backfillkills(interaction: discord.Interaction, limit: int = 20, force: bool = False):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    required_keys = ["nitrado_token", "service_id", "nitrado_user"]
+    missing = [key for key in required_keys if not config.get(key)]
+    if missing:
+        await interaction.followup.send(f"Missing setup values: {', '.join(missing)}", ephemeral=True)
+        return
+
+    limit = max(1, min(50, int(limit or 20)))
+
+    latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
+    if not latest_log:
+        await interaction.followup.send("No ADM log found to backfill from.", ephemeral=True)
+        return
+
+    downloaded = await asyncio.to_thread(download_latest_adm, guild_id, config, latest_log)
+    if not downloaded:
+        await interaction.followup.send("ADM download failed, so no kill history could be backfilled.", ephemeral=True)
+        return
+
+    adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+    if not os.path.exists(adm_path):
+        await interaction.followup.send("ADM file was not available after download.", ephemeral=True)
+        return
+
+    with open(adm_path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [line.strip() for line in f.readlines() if line.strip()]
+
+    history_hashes = set(str(item) for item in config.setdefault("killfeed_history_hashes", []))
+    selected = []
+    seen_signatures = set()
+
+    for line in reversed(lines):
+        if classify_event(line) != "kill":
+            continue
+
+        details = extract_pvp_kill_details(line)
+        if not details:
+            continue
+
+        line_hash = stable_line_hash(line)
+        if not force and line_hash in history_hashes:
+            continue
+
+        signature = pvp_kill_signature(guild_id, details)
+        if signature in seen_signatures:
+            continue
+
+        seen_signatures.add(signature)
+        selected.append((line, line_hash))
+
+        if len(selected) >= limit:
+            break
+
+    if not selected:
+        await interaction.followup.send("No new historical PvP kills found in the latest ADM log.", ephemeral=True)
+        return
+
+    selected.reverse()
+    posted = 0
+    longshots_posted = 0
+
+    for line, line_hash in selected:
+        sent, sent_longshot = await send_pvp_kill_feed_message(guild_id, config, line, history=True)
+        if sent:
+            posted += 1
+            if sent_longshot:
+                longshots_posted += 1
+            history_hashes.add(line_hash)
+            remember_processed_line(guild_id, line_hash)
+
+    config["killfeed_history_hashes"] = list(history_hashes)[-500:]
+    save_guild_configs()
+
+    await interaction.followup.send(
+        f"Backfilled `{posted}` historical PvP kills into killfeed. `{longshots_posted}` also went to longshots.",
+        ephemeral=True
+    )
 
 
 @bot.command()
@@ -8891,14 +9109,16 @@ async def mapimagestatus(interaction: discord.Interaction):
     map_key = server_map_key(guild_id)
     source, source_status = map_image_source_status(guild_id, map_key)
     heatmap_mode = guild_heatmap_mode(guild_id)
+    pillow_ok, pillow_message = pillow_install_status()
 
     embed = discord.Embed(
         title="MAP IMAGE STATUS",
         description=source_status,
-        color=0x3498DB if source and (str(source).startswith(("http://", "https://")) or os.path.exists(source)) else 0xE67E22
+        color=0x3498DB if source and pillow_ok and (str(source).startswith(("http://", "https://")) or os.path.exists(source)) else 0xE67E22
     )
     embed.add_field(name="Server Map", value=map_key, inline=True)
     embed.add_field(name="Heatmap Mode", value=heatmap_mode, inline=True)
+    embed.add_field(name="Image Renderer", value=pillow_message[:1000], inline=False)
     embed.add_field(name="Last Heatmap Render", value=heatmap_render_status(guild_id, heatmap_mode)[:1000], inline=False)
     embed.add_field(
         name="Upload Shortcut",
