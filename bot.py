@@ -7,6 +7,8 @@ import re
 import json
 import random
 import hashlib
+import base64
+import io
 import asyncio
 import requests
 import tempfile
@@ -112,6 +114,7 @@ factions = {}
 pve_challenges = {}
 last_ai_direct_response_time = {}
 last_owner_mention_time = {}
+last_ai_image_time = {}
 recent_pvp_kill_signatures = {}
 last_heatmap_render_status = {}
 
@@ -129,6 +132,9 @@ HEATMAP_MODES = [
 ]
 
 LONGSHOT_ANNOUNCE_METERS = 300
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+AI_IMAGE_MODEL = os.getenv("WANDERING_AI_IMAGE_MODEL", "gpt-image-1")
+AI_IMAGE_DEFAULT_COOLDOWN_SECONDS = int(os.getenv("WANDERING_AI_IMAGE_COOLDOWN_SECONDS", "21600"))
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -1198,6 +1204,32 @@ WANDERING_SWEAR_LINES = [
     "Someone tell Chernarus to calm the hell down."
 ]
 
+AI_IMAGE_CAPTIONS = [
+    "Field sketch from the Wandering Bot imagination department.",
+    "I made art. This is either culture or a warning sign.",
+    "Little apocalypse postcard for the chat.",
+    "Visual morale support, because apparently words were not enough.",
+    "Freshly hallucinated survivor nonsense, delivered with questionable confidence."
+]
+
+AI_IMAGE_PROMPTS = {
+    "funny": [
+        "A funny caricature of an adult DayZ-style survivor trying to cook beans over a tiny campfire while wearing mismatched improvised gear, post-apocalyptic forest village, expressive face, comic illustration, non-graphic, no logos, no game UI, no text",
+        "A comedic adult survival character proudly standing beside a badly repaired off-road car in a Chernarus-inspired wasteland, duct tape, smoke, silly confidence, stylized digital painting, non-graphic, no logos, no text",
+        "A cheeky adult survivor in rugged apocalypse clothing being chased by infected through a ruined village while refusing to drop a can of beans, energetic cartoon illustration, non-graphic, no text"
+    ],
+    "gritty": [
+        "A cinematic adult DayZ-inspired survivor at dusk beside a small woodland camp, worn tactical jacket, moody survival atmosphere, ruined Eastern European village in the distance, realistic digital art, non-graphic, no logos, no text",
+        "An adult survivor overlooking a rainy post-apocalyptic valley from a radio tower, backpack, rifle slung safely, dramatic clouds, grounded survival game atmosphere, non-graphic, no text",
+        "A tense but non-violent scene of two adult survivors trading supplies beside a hidden forest stash, realistic post-apocalyptic illustration, muted colors, no logos, no text"
+    ],
+    "pinup": [
+        "A glamorous adult female post-apocalyptic survivor pin-up, age 25, confident pose, rugged DayZ-inspired tactical outfit with crop jacket and cargo pants, tasteful suggestive style, non-nude, no explicit sexual content, ruined campsite background, polished digital illustration, no logos, no text",
+        "A stylish adult female wasteland mechanic pin-up, age 25, repairing a battered off-road car, fitted survival outfit, playful confident expression, tasteful non-nude cheesecake poster style, no explicit sexual content, no logos, no text",
+        "A confident adult female survivor pin-up, age 25, holding a radio beside a campfire, tactical boots and weathered jacket, tasteful suggestive post-apocalyptic poster art, non-nude, no explicit sexual content, no logos, no text"
+    ]
+}
+
 
 def load_wandering_emojis():
     global wandering_emojis
@@ -1263,6 +1295,117 @@ async def maybe_send_wandering_personality(message, now_ts):
         await message.channel.send(
             wb_text("radio", random.choice(WANDERING_SWEAR_LINES))
         )
+
+
+def ai_image_config(config):
+    settings = config.setdefault("ai_images", {})
+    settings.setdefault("enabled", False)
+    settings.setdefault("style", "funny")
+    settings.setdefault("channel_id", None)
+    settings.setdefault("cooldown_seconds", AI_IMAGE_DEFAULT_COOLDOWN_SECONDS)
+    settings.setdefault("chance", 0.006)
+    return settings
+
+
+def generate_ai_image_bytes(style):
+    if not OPENAI_API_KEY:
+        return None, "OPENAI_API_KEY is not set"
+
+    style = str(style or "funny").lower()
+    prompts = AI_IMAGE_PROMPTS.get(style, AI_IMAGE_PROMPTS["funny"])
+    prompt = random.choice(prompts)
+
+    response = requests.post(
+        "https://api.openai.com/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": AI_IMAGE_MODEL,
+            "prompt": prompt,
+            "size": "1024x1024",
+            "n": 1
+        },
+        timeout=120
+    )
+
+    if response.status_code != 200:
+        return None, f"Image API returned {response.status_code}: {response.text[:300]}"
+
+    data = response.json()
+    image_data = (data.get("data") or [{}])[0]
+    b64_json = image_data.get("b64_json")
+    image_url = image_data.get("url")
+
+    if b64_json:
+        return base64.b64decode(b64_json), None
+
+    if image_url:
+        image_response = requests.get(image_url, timeout=60)
+        if image_response.status_code == 200:
+            return image_response.content, None
+        return None, f"Image download returned {image_response.status_code}"
+
+    return None, "Image API did not return image data"
+
+
+async def maybe_send_ai_generated_picture(message, now_ts):
+    if not message.guild:
+        return
+
+    guild_id = str(message.guild.id)
+    config = guild_configs.get(guild_id, {})
+    settings = ai_image_config(config)
+
+    if not settings.get("enabled"):
+        return
+
+    cooldown_seconds = max(3600, int(settings.get("cooldown_seconds") or AI_IMAGE_DEFAULT_COOLDOWN_SECONDS))
+    if now_ts - last_ai_image_time.get(guild_id, 0) < cooldown_seconds:
+        return
+
+    chance = float(settings.get("chance") or 0.006)
+    if random.random() > max(0.001, min(0.05, chance)):
+        return
+
+    channel = None
+    channel_id = settings.get("channel_id")
+    if channel_id:
+        channel = message.guild.get_channel(int(channel_id))
+
+    if not channel:
+        channels = config.get("channels", {})
+        for channel_key in ("ai_chat", "general_chat", "clips_channel"):
+            configured_id = channels.get(channel_key)
+            if configured_id:
+                channel = message.guild.get_channel(int(configured_id))
+                if channel:
+                    break
+
+    channel = channel or message.channel
+    last_ai_image_time[guild_id] = now_ts
+
+    image_bytes, error = await asyncio.to_thread(
+        generate_ai_image_bytes,
+        settings.get("style", "funny")
+    )
+
+    if error:
+        print(f"AI IMAGE ERROR {guild_id}: {error}")
+        return
+
+    file = discord.File(io.BytesIO(image_bytes), filename="wandering_postcard.png")
+    embed = discord.Embed(
+        title="WANDERING BOT POSTCARD",
+        description=random.choice(AI_IMAGE_CAPTIONS),
+        color=0x9B59B6
+    )
+    embed.set_image(url="attachment://wandering_postcard.png")
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - AI Generated DayZ-Inspired Art")
+    embed.timestamp = datetime.now(UTC)
+    await channel.send(embed=style_embed(embed), file=file)
 
 def ensure_folder(path):
     if not os.path.exists(path):
@@ -3118,7 +3261,10 @@ async def setup_command(
                 "`/heatmap` - territory activity summary\n"
                 "`/topkills` - kill leaderboard\n"
                 "`/toplongshots` - global longshot leaderboard\n"
+                "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
                 "`/backfillkills` - post recent ADM kill history into killfeed and longshots\n"
+                "`/setaiimages` - occasional AI-generated DayZ-style pictures\n"
+                "`/aiimagepostnow` - post one AI picture immediately\n"
                 "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
@@ -4385,6 +4531,7 @@ async def on_message(message):
     await maybe_reply_to_bot_mention(message, lower)
     await maybe_owner_mention_remark(message)
     await maybe_send_wandering_personality(message, now_ts)
+    await maybe_send_ai_generated_picture(message, now_ts)
 
     tracker = player_chat_tracker[user_id]
 
@@ -4751,7 +4898,10 @@ async def helpme(ctx):
             "`/heatmap` - PvP heatmap summary\n"
             "`/topkills` - top kills\n"
             "`/toplongshots` - longshot leaderboard\n"
+            "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
             "`/backfillkills` - fill killfeed/longshots from recent ADM history\n"
+            "`/setaiimages` - occasional AI-generated DayZ-style pictures\n"
+            "`/aiimagepostnow` - post one AI picture immediately\n"
             "`/playerstats player_name` - player lookup"
         ),
         inline=False
@@ -5757,11 +5907,11 @@ async def restartadm(ctx, force: str = "no"):
 @bot.tree.command(name="backfillkills", description="Admin: post recent ADM kill history into killfeed and longshots")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    limit="Maximum historical kills to post, 1 to 50",
-    hours="How far back to scan ADM files, defaults to 48 hours",
+    limit="Maximum historical kills to post, 1 to 500",
+    hours="How far back to scan ADM files, defaults to 14 days",
     force="Repost kills already backfilled by this command"
 )
-async def backfillkills(interaction: discord.Interaction, limit: int = 20, hours: int = 48, force: bool = False):
+async def backfillkills(interaction: discord.Interaction, limit: int = 100, hours: int = 336, force: bool = False):
 
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -5781,8 +5931,9 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 20, hours
         await interaction.followup.send(f"Missing setup values: {', '.join(missing)}", ephemeral=True)
         return
 
-    limit = max(1, min(50, int(limit or 20)))
-    hours = max(1, min(168, int(hours or 48)))
+    limit = max(1, min(500, int(limit or 100)))
+    hours = max(1, min(336, int(hours or 336)))
+    ensure_guild_runtime(guild_id)
 
     adm_logs = await asyncio.to_thread(list_adm_logs, config, hours)
     if not adm_logs:
@@ -5849,21 +6000,119 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 20, hours
     selected.reverse()
     posted = 0
     longshots_posted = 0
+    stats_added = 0
 
     for line, line_hash in selected:
+        already_counted = line_hash in processed_lines[guild_id]
         sent, sent_longshot = await send_pvp_kill_feed_message(guild_id, config, line, history=True)
         if sent:
             posted += 1
             if sent_longshot:
                 longshots_posted += 1
+            if force or not already_counted:
+                update_player_stats_from_adm(guild_id, "kill", line)
+                stats_added += 1
             history_hashes.add(line_hash)
             remember_processed_line(guild_id, line_hash)
 
+    save_player_stats()
+    save_processed_adm_lines()
     config["killfeed_history_hashes"] = list(history_hashes)[-500:]
     save_guild_configs()
 
     await interaction.followup.send(
-        f"Backfilled `{posted}` historical PvP kills after scanning `{scanned_logs}` ADM files over `{hours}` hours. `{longshots_posted}` also went to longshots. Failed downloads: `{failed_downloads}`.",
+        f"Backfilled `{posted}` historical PvP kills after scanning `{scanned_logs}` ADM files over `{hours}` hours. `{stats_added}` were added to leaderboard stats and `{longshots_posted}` also went to longshots. Failed downloads: `{failed_downloads}`.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="backfilladmstats", description="Admin: rebuild leaderboard stats from recent ADM history")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    hours="How far back to scan ADM files, defaults to 14 days",
+    force="Count lines even if this bot already processed them"
+)
+async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, force: bool = False):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    required_keys = ["nitrado_token", "service_id", "nitrado_user"]
+    missing = [key for key in required_keys if not config.get(key)]
+    if missing:
+        await interaction.followup.send(f"Missing setup values: {', '.join(missing)}", ephemeral=True)
+        return
+
+    hours = max(1, min(336, int(hours or 336)))
+    ensure_guild_runtime(guild_id)
+
+    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours)
+    if not adm_logs:
+        latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
+        adm_logs = [latest_log] if latest_log else []
+
+    if not adm_logs:
+        await interaction.followup.send(f"No ADM logs found to backfill from in the last `{hours}` hours.", ephemeral=True)
+        return
+
+    scanned_logs = 0
+    failed_downloads = 0
+    counted_events = 0
+    counted_kills = 0
+    skipped_existing = 0
+
+    for adm_log in reversed(adm_logs):
+        if not adm_log:
+            continue
+
+        downloaded = await asyncio.to_thread(download_latest_adm, guild_id, config, adm_log)
+        if not downloaded:
+            failed_downloads += 1
+            continue
+
+        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        if not os.path.exists(adm_path):
+            failed_downloads += 1
+            continue
+
+        scanned_logs += 1
+        with open(adm_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [line.strip() for line in f.readlines() if line.strip()]
+
+        for line in lines:
+            event_type = classify_event(line)
+            if not event_type:
+                continue
+
+            if event_type == "kill" and not extract_pvp_kill_details(line):
+                continue
+
+            line_hash = stable_line_hash(line)
+            if not force and line_hash in processed_lines[guild_id]:
+                skipped_existing += 1
+                continue
+
+            remember_player_location_from_adm(guild_id, line)
+            update_player_stats_from_adm(guild_id, event_type, line)
+            remember_processed_line(guild_id, line_hash)
+            counted_events += 1
+            if event_type == "kill":
+                counted_kills += 1
+
+    save_player_stats()
+    save_processed_adm_lines()
+
+    await interaction.followup.send(
+        f"Backfilled leaderboard stats from `{scanned_logs}` ADM files over `{hours}` hours. Counted `{counted_events}` events including `{counted_kills}` PvP kills. Skipped `{skipped_existing}` already-processed events. Failed downloads: `{failed_downloads}`.",
         ephemeral=True
     )
 
@@ -6470,6 +6719,93 @@ async def removefeed(interaction: discord.Interaction, feed_id: int):
     config["custom_feeds"] = kept
     save_guild_configs()
     await interaction.response.send_message(f"Feed `{feed_id}` removed.", ephemeral=True)
+
+
+@bot.tree.command(name="setaiimages", description="Admin: configure occasional AI generated DayZ-style pictures")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    enabled="Turn occasional AI pictures on or off",
+    channel="Channel where pictures should be posted",
+    style="funny, gritty, or pinup",
+    cooldown_hours="Minimum hours between random picture posts, 1 to 72"
+)
+async def setaiimages(
+    interaction: discord.Interaction,
+    enabled: bool,
+    channel: discord.TextChannel = None,
+    style: str = "funny",
+    cooldown_hours: int = 6
+):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    style = str(style or "funny").lower().strip()
+    if style not in AI_IMAGE_PROMPTS:
+        await interaction.response.send_message("Style must be `funny`, `gritty`, or `pinup`.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = ai_image_config(config)
+    settings["enabled"] = bool(enabled)
+    settings["style"] = style
+    settings["cooldown_seconds"] = max(1, min(72, int(cooldown_hours or 6))) * 3600
+
+    if channel:
+        settings["channel_id"] = channel.id
+
+    save_guild_configs()
+
+    target_channel = channel.mention if channel else "auto-selected chat channel"
+    api_note = "" if OPENAI_API_KEY else "\nWarning: `OPENAI_API_KEY` is not set, so images will not generate until it is added."
+    await interaction.response.send_message(
+        f"AI pictures are now `{'on' if enabled else 'off'}`. Style: `{style}`. Channel: {target_channel}. Cooldown: `{settings['cooldown_seconds'] // 3600}`h.{api_note}",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="aiimagepostnow", description="Admin: post one AI generated DayZ-style picture now")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(style="Optional style override: funny, gritty, or pinup")
+async def aiimagepostnow(interaction: discord.Interaction, style: str = ""):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    settings = ai_image_config(config)
+    chosen_style = str(style or settings.get("style") or "funny").lower().strip()
+
+    if chosen_style not in AI_IMAGE_PROMPTS:
+        await interaction.response.send_message("Style must be `funny`, `gritty`, or `pinup`.", ephemeral=True)
+        return
+
+    if not OPENAI_API_KEY:
+        await interaction.response.send_message("`OPENAI_API_KEY` is not set, so I cannot generate images yet.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    image_bytes, error = await asyncio.to_thread(generate_ai_image_bytes, chosen_style)
+    if error:
+        await interaction.followup.send(f"Image generation failed: `{error[:900]}`", ephemeral=True)
+        return
+
+    file = discord.File(io.BytesIO(image_bytes), filename="wandering_postcard.png")
+    embed = discord.Embed(
+        title="WANDERING BOT POSTCARD",
+        description=random.choice(AI_IMAGE_CAPTIONS),
+        color=0x9B59B6
+    )
+    embed.set_image(url="attachment://wandering_postcard.png")
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - AI Generated DayZ-Inspired Art")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.channel.send(embed=style_embed(embed), file=file)
+    last_ai_image_time[guild_id] = datetime.now(UTC).timestamp()
+    await interaction.followup.send("Posted one AI picture.", ephemeral=True)
 # =========================================================
 # PVE QUEST SYSTEM
 # =========================================================
