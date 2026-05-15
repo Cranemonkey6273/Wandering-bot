@@ -925,6 +925,127 @@ def parse_saved_datetime(value):
         return None
 
 
+def edit_distance(left, right):
+    left = str(left)
+    right = str(right)
+
+    if left == right:
+        return 0
+
+    distances = [
+        [0 for _ in range(len(right) + 1)]
+        for _ in range(len(left) + 1)
+    ]
+
+    for left_index in range(len(left) + 1):
+        distances[left_index][0] = left_index
+
+    for right_index in range(len(right) + 1):
+        distances[0][right_index] = right_index
+
+    for left_index, left_char in enumerate(left, start=1):
+        for right_index, right_char in enumerate(right, start=1):
+            replace_cost = 0 if left_char == right_char else 1
+            distances[left_index][right_index] = min(
+                distances[left_index - 1][right_index] + 1,
+                distances[left_index][right_index - 1] + 1,
+                distances[left_index - 1][right_index - 1] + replace_cost,
+            )
+
+            if (
+                left_index > 1
+                and right_index > 1
+                and left[left_index - 1] == right[right_index - 2]
+                and left[left_index - 2] == right[right_index - 1]
+            ):
+                distances[left_index][right_index] = min(
+                    distances[left_index][right_index],
+                    distances[left_index - 2][right_index - 2] + 1,
+                )
+
+    return distances[-1][-1]
+
+
+def closest_adm_player_name(guild_id, typed_name):
+    wanted = normalize_discord_name(typed_name)
+    if not wanted:
+        return None
+
+    best_name = None
+    best_distance = None
+
+    for player_name, stats in player_stats.items():
+        if str(stats.get("guild_id", "")) != str(guild_id):
+            continue
+
+        candidate = normalize_discord_name(player_name)
+        if not candidate:
+            continue
+
+        distance = edit_distance(wanted, candidate)
+        allowed_distance = 1 if len(candidate) <= 5 else 2 if len(candidate) <= 12 else 3
+        if distance > allowed_distance:
+            continue
+
+        if best_distance is None or distance < best_distance:
+            best_name = player_name
+            best_distance = distance
+
+    return best_name
+
+
+def learn_recent_adm_players_for_linking(guild_id, config, hours=24):
+    ensure_guild_runtime(str(guild_id))
+
+    adm_logs = list_adm_logs(config, hours)
+    if not adm_logs:
+        latest_log = ping_latest_adm_log(config)
+        adm_logs = [latest_log] if latest_log else []
+
+    learned = 0
+    scanned_logs = 0
+
+    for adm_log in adm_logs:
+        if not adm_log:
+            continue
+
+        if not download_latest_adm(guild_id, config, adm_log):
+            continue
+
+        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        if not os.path.exists(adm_path):
+            continue
+
+        scanned_logs += 1
+        log_seen_at = parse_saved_datetime(adm_log.get("_adm_datetime")) or adm_log_datetime(adm_log)
+        log_seen_text = str(log_seen_at or (datetime.now(UTC) - timedelta(hours=hours)))
+
+        with open(adm_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = [line.strip() for line in f.readlines() if line.strip()]
+
+        for line in lines:
+            player_name = extract_player_name(line)
+            if not player_name or player_name == "Unknown":
+                continue
+
+            stats = ensure_player_stats_record(guild_id, player_name)
+            if not stats:
+                continue
+
+            existing_first_seen = parse_saved_datetime(stats.get("first_adm_seen"))
+            if not existing_first_seen or (log_seen_at and log_seen_at < existing_first_seen):
+                stats["first_adm_seen"] = log_seen_text
+
+            stats["last_adm_seen"] = log_seen_text
+            remember_player_location_from_adm(guild_id, line)
+            learned += 1
+
+    if learned:
+        save_player_stats()
+
+    return learned, scanned_logs
+
+
 def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
     wanted = normalize_discord_name(typed_name)
     if not wanted:
@@ -939,6 +1060,10 @@ def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
             matches.append((player_name, stats))
 
     if not matches:
+        suggestion = closest_adm_player_name(guild_id, typed_name)
+        if suggestion:
+            return None, f"That gamertag has not appeared exactly in ADM. Did you mean `{suggestion}`? Try `/linkgamer gamertag:{suggestion}`."
+
         return None, "That gamertag has not appeared in this server's ADM logs yet. Join the server first, wait at least 5 minutes, then try again."
 
     player_name, stats = matches[0]
@@ -986,10 +1111,38 @@ async def announce_verified_gamer_link(guild, config, member, gamertag):
     await channel.send(embed=style_embed(embed))
 
 
+def build_linkgamer_confirmation_embed(member, gamertag):
+    embed = discord.Embed(
+        title="VERIFIED GAMERTAG LINKED",
+        description=f"{member.mention} has linked an ADM verified survivor name.",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Discord User", value=f"{member.mention}\n`{member}`", inline=False)
+    embed.add_field(name="ADM Verified Gamertag", value=f"`{gamertag}`", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Identity System")
+    return embed
+
+
 async def link_verified_gamertag_for_member(guild, member, gamertag):
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
     verified_name, error = find_adm_verified_player(guild_id, gamertag)
+
+    if error:
+        required_keys = ["nitrado_token", "service_id", "nitrado_user"]
+        if all(config.get(key) for key in required_keys):
+            try:
+                await asyncio.to_thread(
+                    learn_recent_adm_players_for_linking,
+                    guild_id,
+                    config,
+                    24
+                )
+                verified_name, error = find_adm_verified_player(guild_id, gamertag)
+            except Exception as scan_error:
+                print(f"LINK ADM LOOKBACK ERROR {guild_id}: {scan_error}")
+
     if error:
         return False, error
 
@@ -7308,6 +7461,8 @@ async def linkgamer(ctx, *, gamertag: str):
         await ctx.send(result)
         return
     gamertag = result
+    await ctx.send(embed=style_embed(build_linkgamer_confirmation_embed(ctx.author, gamertag)))
+    return
 
     embed = discord.Embed(
         title="VERIFIED GAMERTAG LINKED",
@@ -7338,18 +7493,33 @@ async def linkgamer(ctx, *, gamertag: str):
 )
 @app_commands.describe(gamertag="Your Xbox gamertag")
 async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
+    await interaction.response.defer(ephemeral=True)
+
     success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag)
     if not success:
-        await interaction.response.send_message(result, ephemeral=True)
+        await interaction.followup.send(result, ephemeral=True)
         return
     gamertag = result
+    confirmation = style_embed(
+        build_linkgamer_confirmation_embed(interaction.user, gamertag)
+    )
+
+    if interaction.channel:
+        await interaction.channel.send(embed=confirmation)
+        await interaction.followup.send(
+            f"Linked `{gamertag}` and posted the confirmation in this channel.",
+            ephemeral=True
+        )
+    else:
+        await interaction.followup.send(embed=confirmation, ephemeral=True)
+    return
 
     embed = discord.Embed(
         title="🔗 GAMERTAG LINKED",
         description=f"Linked to: `{gamertag}`",
         color=0x2ECC71
     )
-    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
 @bot.command()
