@@ -1127,7 +1127,7 @@ def build_linkgamer_confirmation_embed(member, gamertag):
 async def link_verified_gamertag_for_member(guild, member, gamertag):
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
-    verified_name, error = find_adm_verified_player(guild_id, gamertag)
+    verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
 
     if error:
         required_keys = ["nitrado_token", "service_id", "nitrado_user"]
@@ -1139,7 +1139,7 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
                     config,
                     24
                 )
-                verified_name, error = find_adm_verified_player(guild_id, gamertag)
+                verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
             except Exception as scan_error:
                 print(f"LINK ADM LOOKBACK ERROR {guild_id}: {scan_error}")
 
