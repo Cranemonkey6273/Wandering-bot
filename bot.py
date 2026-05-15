@@ -261,6 +261,10 @@ SWEAR_WORDS = [
 
 def has_staff_permissions(ctx):
 
+    if getattr(getattr(ctx, "author", None), "guild_permissions", None):
+        if ctx.author.guild_permissions.administrator:
+            return True
+
     guild_id = str(ctx.guild.id)
 
     config = guild_configs.get(guild_id, {})
@@ -1000,13 +1004,15 @@ def closest_adm_player_name(guild_id, typed_name):
     return best_name
 
 
-def learn_recent_adm_players_for_linking(guild_id, config, hours=24):
+def learn_recent_adm_players_for_linking(guild_id, config, hours=168, max_logs=40):
     ensure_guild_runtime(str(guild_id))
 
     adm_logs = list_adm_logs(config, hours)
     if not adm_logs:
         latest_log = ping_latest_adm_log(config)
         adm_logs = [latest_log] if latest_log else []
+
+    adm_logs = [adm_log for adm_log in adm_logs if adm_log][:max(1, int(max_logs or 40))]
 
     learned = 0
     scanned_logs = 0
@@ -1143,14 +1149,18 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
                     learn_recent_adm_players_for_linking,
                     guild_id,
                     config,
-                    24
+                    168,
+                    40
                 )
                 verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
             except Exception as scan_error:
                 print(f"LINK ADM LOOKBACK ERROR {guild_id}: {scan_error}")
 
     if error:
-        return False, error
+        return False, (
+            f"{error}\n\n"
+            "I searched the saved stats and recent ADM history. If the name has spaces or symbols, type it exactly as it appears in the ADM log."
+        )
 
     linked_user_id, linked_data = gamertag_linked_to_other_user(verified_name, member.id)
     if linked_user_id:
@@ -1214,19 +1224,19 @@ AI_IMAGE_CAPTIONS = [
 
 AI_IMAGE_PROMPTS = {
     "funny": [
-        "A funny caricature of an adult DayZ-style survivor trying to cook beans over a tiny campfire while wearing mismatched improvised gear, post-apocalyptic forest village, expressive face, comic illustration, non-graphic, no logos, no game UI, no text",
-        "A comedic adult survival character proudly standing beside a badly repaired off-road car in a Chernarus-inspired wasteland, duct tape, smoke, silly confidence, stylized digital painting, non-graphic, no logos, no text",
-        "A cheeky adult survivor in rugged apocalypse clothing being chased by infected through a ruined village while refusing to drop a can of beans, energetic cartoon illustration, non-graphic, no text"
+        "A realistic cinematic photo-style image of an adult DayZ-style survivor trying to cook beans over a tiny campfire while wearing mismatched improvised gear, post-apocalyptic forest village, subtle humor, natural lighting, high-detail survival photography look, non-graphic, no logos, no game UI, no text",
+        "A realistic cinematic photo-style image of an adult survivor proudly standing beside a badly repaired off-road car in a Chernarus-inspired wasteland, duct tape, light smoke, awkward confidence, grounded survival realism, natural colors, non-graphic, no logos, no text",
+        "A realistic cinematic photo-style image of an adult survivor in rugged apocalypse clothing sprinting through a ruined village while stubbornly holding a can of beans, tense but funny survival moment, documentary realism, non-graphic, no text"
     ],
     "gritty": [
-        "A cinematic adult DayZ-inspired survivor at dusk beside a small woodland camp, worn tactical jacket, moody survival atmosphere, ruined Eastern European village in the distance, realistic digital art, non-graphic, no logos, no text",
-        "An adult survivor overlooking a rainy post-apocalyptic valley from a radio tower, backpack, rifle slung safely, dramatic clouds, grounded survival game atmosphere, non-graphic, no text",
-        "A tense but non-violent scene of two adult survivors trading supplies beside a hidden forest stash, realistic post-apocalyptic illustration, muted colors, no logos, no text"
+        "A realistic cinematic photo-style image of an adult DayZ-inspired survivor at dusk beside a small woodland camp, worn tactical jacket, moody survival atmosphere, ruined Eastern European village in the distance, natural film grain, non-graphic, no logos, no text",
+        "A realistic cinematic photo-style image of an adult survivor overlooking a rainy post-apocalyptic valley from a radio tower, backpack, rifle slung safely, dramatic clouds, grounded survival realism, non-graphic, no text",
+        "A tense but non-violent realistic photo-style scene of two adult survivors trading supplies beside a hidden forest stash, post-apocalyptic Eastern European woodland, muted natural colors, no logos, no text"
     ],
     "pinup": [
-        "A glamorous adult female post-apocalyptic survivor pin-up, age 25, confident pose, rugged DayZ-inspired tactical outfit with crop jacket and cargo pants, tasteful suggestive style, non-nude, no explicit sexual content, ruined campsite background, polished digital illustration, no logos, no text",
-        "A stylish adult female wasteland mechanic pin-up, age 25, repairing a battered off-road car, fitted survival outfit, playful confident expression, tasteful non-nude cheesecake poster style, no explicit sexual content, no logos, no text",
-        "A confident adult female survivor pin-up, age 25, holding a radio beside a campfire, tactical boots and weathered jacket, tasteful suggestive post-apocalyptic poster art, non-nude, no explicit sexual content, no logos, no text"
+        "A realistic cinematic photo-style portrait of a glamorous adult female post-apocalyptic survivor, age 25, confident pose, rugged DayZ-inspired tactical outfit with crop jacket and cargo pants, tasteful fashion-editorial style, non-nude, no explicit sexual content, ruined campsite background, no logos, no text",
+        "A realistic cinematic photo-style portrait of a stylish adult female wasteland mechanic, age 25, repairing a battered off-road car, fitted survival outfit, playful confident expression, tasteful non-nude editorial poster style, no explicit sexual content, no logos, no text",
+        "A realistic cinematic photo-style portrait of a confident adult female survivor, age 25, holding a radio beside a campfire, tactical boots and weathered jacket, tasteful post-apocalyptic editorial style, non-nude, no explicit sexual content, no logos, no text"
     ]
 }
 
@@ -3325,8 +3335,8 @@ async def setup_command(
         setup_embed.add_field(
             name="TRANSLATION SYSTEM",
             value=(
-                "`/translationconfig mode target_language source_language source_channel target_channel`\n"
-                "Modes: `off`, `same`, `channel`\n"
+                "`/translationconfig` - configure automatic chat translation\n"
+                "Mode choices: `same` posts beside the original, `channel` forwards to another channel, `off` disables it.\n"
                 "Use `source_language:auto` to auto-detect languages when your translation service supports it.\n"
                 "Same-channel translation posts translated embeds beside chat. Channel mode forwards translations into a chosen channel."
             ),
@@ -3597,6 +3607,10 @@ async def parse_adm(guild_id, config):
         event_type = classify_event(line)
 
         if not event_type:
+            if extract_adm_coords(line):
+                ensure_guild_runtime(guild_id)
+                remember_player_location_from_adm(guild_id, line)
+                await check_radar_zones_for_adm(guild_id, config, "position", line)
             continue
 
         if event_type == "kill":
@@ -4968,7 +4982,7 @@ async def helpme(ctx):
     embed.add_field(
         name="Translation, Factions & Support",
         value=(
-            "`/translationconfig mode target_language source_language source_channel target_channel`\n"
+            "`/translationconfig` - automatic translation: `same`, `channel`, or `off`\n"
             "`/linkgamer gamertag`, `/mylink`\n"
             "`/factionticket faction_name`, `/factionapprove message_id`\n"
             "`/supportbot issue` - admin ticket to the bot owner"
@@ -5630,6 +5644,49 @@ def parse_xy_coords(coords):
         return None
 
 
+def parse_gamertag_list(value):
+    if not value:
+        return []
+
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[,;\n]+", str(value))
+
+    clean_items = []
+    seen = set()
+    for item in raw_items:
+        gamertag = str(item).strip()
+        key = normalize_discord_name(gamertag)
+        if not key or key in seen:
+            continue
+        clean_items.append(gamertag)
+        seen.add(key)
+
+    return clean_items
+
+
+def radar_zone_ignored_gamertags(zone):
+    return parse_gamertag_list(
+        zone.get("ignored_gamertags")
+        or zone.get("ignore_gamertags")
+        or zone.get("ignored_players")
+        or []
+    )
+
+
+def radar_zone_ignores_player(zone, player_name):
+    player_key = normalize_discord_name(player_name)
+    if not player_key:
+        return False
+
+    ignored_keys = {
+        normalize_discord_name(gamertag)
+        for gamertag in radar_zone_ignored_gamertags(zone)
+    }
+    return player_key in ignored_keys
+
+
 async def check_radar_zones_for_adm(guild_id, config, event_type, line):
     zones = config.get("radar_zones", [])
     if not zones:
@@ -5660,6 +5717,9 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
             continue
 
         zone_id = str(zone.get("id"))
+        if radar_zone_ignores_player(zone, player_name):
+            continue
+
         throttle_key = f"{guild_id}:{zone_id}:{player_name}"
         if now_ts - RADAR_PINGS.get(throttle_key, 0) < int(zone.get("cooldown_seconds", 600)):
             continue
@@ -7830,6 +7890,10 @@ async def linkgamer(ctx, *, gamertag: str):
 @app_commands.describe(gamertag="Your Xbox gamertag")
 async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
     await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(
+        "Checking saved ADM stats first. If needed, I will scan recent ADM history for that Xbox gamertag.",
+        ephemeral=True
+    )
 
     success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag)
     if not success:
@@ -9471,15 +9535,20 @@ async def ownerremovebot(interaction: discord.Interaction, secret_code: str, gui
 
 @bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
 @app_commands.describe(
-    mode="off, same, or channel",
+    mode="same posts translations in the same chat, channel forwards them, off disables translation",
     target_language="Target language code, example: en, es, fr, de",
     source_language="Source language code or auto",
     source_channel="Optional source channel. Blank means all channels.",
     target_channel="Required for channel mode"
 )
+@app_commands.choices(mode=[
+    app_commands.Choice(name="same - translate beside the original message", value="same"),
+    app_commands.Choice(name="channel - forward translations to a target channel", value="channel"),
+    app_commands.Choice(name="off - disable automatic translation", value="off"),
+])
 async def translationconfig(
     interaction: discord.Interaction,
-    mode: str,
+    mode: str = "same",
     target_language: str = "en",
     source_language: str = "auto",
     source_channel: discord.TextChannel = None,
@@ -9497,7 +9566,10 @@ async def translationconfig(
         return
 
     if mode == "channel" and not target_channel:
-        await interaction.response.send_message("Channel mode needs a target_channel.", ephemeral=True)
+        await interaction.response.send_message(
+            "`channel` mode means translations are posted into another channel, so choose `target_channel`. Use `same` if you want translations posted beside the original message.",
+            ephemeral=True
+        )
         return
 
     guild_id = str(interaction.guild.id)
@@ -9521,6 +9593,11 @@ async def translationconfig(
 
     embed = discord.Embed(
         title="Translation Config Updated",
+        description=(
+            "`same` posts translations in the same chat.\n"
+            "`channel` forwards translations into the target channel.\n"
+            "`off` disables automatic translation."
+        ),
         color=0x1ABC9C
     )
     embed.add_field(name="Mode", value=mode, inline=True)
@@ -9703,8 +9780,21 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
 
 @bot.tree.command(name="addradarzone", description="Admin: alert when ADM activity enters a coordinate radius")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(name="Zone name", x="iZurvive X coordinate", y="iZurvive Y coordinate", radius="Radius in meters")
-async def addradarzone(interaction: discord.Interaction, name: str, x: float, y: float, radius: int):
+@app_commands.describe(
+    name="Zone name",
+    x="iZurvive X coordinate",
+    y="iZurvive Y coordinate",
+    radius="Radius in meters",
+    ignored_gamertags="Optional comma-separated Xbox gamertags that should not trigger this zone"
+)
+async def addradarzone(
+    interaction: discord.Interaction,
+    name: str,
+    x: float,
+    y: float,
+    radius: int,
+    ignored_gamertags: str = ""
+):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
@@ -9717,6 +9807,7 @@ async def addradarzone(interaction: discord.Interaction, name: str, x: float, y:
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
     zones = config.setdefault("radar_zones", [])
     next_id = (max([int(zone.get("id", 0)) for zone in zones] or [0]) + 1)
+    ignored = parse_gamertag_list(ignored_gamertags)
     zones.append({
         "id": next_id,
         "name": name[:80],
@@ -9725,14 +9816,16 @@ async def addradarzone(interaction: discord.Interaction, name: str, x: float, y:
         "radius": int(radius),
         "enabled": True,
         "cooldown_seconds": 600,
+        "ignored_gamertags": ignored,
         "created_by": str(interaction.user.id)
     })
     save_guild_configs()
     radar_note = ""
     if not config.get("channels", {}).get("radar"):
         radar_note = " Set a radar channel with `/setradarchannel` or alerts have nowhere to post."
+    ignore_note = f" Ignoring: `{', '.join(ignored)}`." if ignored else ""
     await interaction.response.send_message(
-        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.{radar_note}",
+        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.{ignore_note}{radar_note}",
         ephemeral=True
     )
 
@@ -9749,13 +9842,123 @@ async def listradarzones(interaction: discord.Interaction):
         await interaction.response.send_message("No radar zones configured.", ephemeral=True)
         return
 
-    lines = [
-        f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} **{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m"
-        for zone in zones[:25]
-    ]
+    lines = []
+    for zone in zones[:25]:
+        ignored = radar_zone_ignored_gamertags(zone)
+        ignored_text = f" - ignores: {', '.join(ignored[:8])}" if ignored else ""
+        if len(ignored) > 8:
+            ignored_text += f" +{len(ignored) - 8} more"
+        lines.append(
+            f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} **{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m{ignored_text}"
+        )
     embed = discord.Embed(title="RADAR ZONES", description="\n".join(lines), color=0xE74C3C)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="radarstatus", description="Admin: show radar setup and troubleshooting status")
+@app_commands.default_permissions(administrator=True)
+async def radarstatus(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    channels = config.get("channels", {})
+    radar_channel = interaction.guild.get_channel(channels.get("radar")) if channels.get("radar") else None
+    zones = config.get("radar_zones", [])
+    enabled_zones = [zone for zone in zones if zone.get("enabled", True)]
+
+    embed = discord.Embed(
+        title="RADAR STATUS",
+        description=(
+            "Radar checks newly processed ADM lines with coordinates. "
+            "If a player was already in the latest processed lines before this fix, run `/restartadm force` once."
+        ),
+        color=0x3498DB
+    )
+    embed.add_field(
+        name="Radar Channel",
+        value=radar_channel.mention if radar_channel else "Not set. Use `/setradarchannel`.",
+        inline=False
+    )
+    embed.add_field(name="Zones", value=f"{len(enabled_zones)} enabled / {len(zones)} total", inline=True)
+    embed.add_field(name="ADM Loop", value="Running" if adm_loop.is_running() else "Stopped", inline=True)
+    embed.add_field(
+        name="Processed ADM Lines",
+        value=str(len(processed_lines.get(guild_id, set()))),
+        inline=True
+    )
+
+    if zones:
+        zone_lines = []
+        for zone in zones[:10]:
+            ignored = radar_zone_ignored_gamertags(zone)
+            ignore_text = f", ignores {len(ignored)}" if ignored else ""
+            zone_lines.append(
+                f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} {zone.get('name')} - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m{ignore_text}"
+            )
+        embed.add_field(name="Zone Preview", value="\n".join(zone_lines), inline=False)
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="addradarignore", description="Admin: add an Xbox gamertag that will not trigger a radar zone")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(zone_id="Zone ID from /listradarzones", gamertag="Exact Xbox gamertag to ignore")
+async def addradarignore(interaction: discord.Interaction, zone_id: int, gamertag: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.get(str(interaction.guild.id), {})
+    zones = config.get("radar_zones", [])
+    zone = next((item for item in zones if int(item.get("id", 0)) == int(zone_id)), None)
+    if not zone:
+        await interaction.response.send_message("Radar zone not found.", ephemeral=True)
+        return
+
+    ignored = radar_zone_ignored_gamertags(zone)
+    ignored_keys = {normalize_discord_name(item) for item in ignored}
+    if normalize_discord_name(gamertag) not in ignored_keys:
+        ignored.append(gamertag.strip())
+
+    zone["ignored_gamertags"] = ignored
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"`{gamertag}` will no longer trigger radar zone `{zone_id}`.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="removeradarignore", description="Admin: remove an ignored Xbox gamertag from a radar zone")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(zone_id="Zone ID from /listradarzones", gamertag="Xbox gamertag to remove from the ignore list")
+async def removeradarignore(interaction: discord.Interaction, zone_id: int, gamertag: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.get(str(interaction.guild.id), {})
+    zones = config.get("radar_zones", [])
+    zone = next((item for item in zones if int(item.get("id", 0)) == int(zone_id)), None)
+    if not zone:
+        await interaction.response.send_message("Radar zone not found.", ephemeral=True)
+        return
+
+    wanted = normalize_discord_name(gamertag)
+    ignored = [
+        item for item in radar_zone_ignored_gamertags(zone)
+        if normalize_discord_name(item) != wanted
+    ]
+    zone["ignored_gamertags"] = ignored
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"`{gamertag}` removed from radar zone `{zone_id}` ignore list.",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="removeradarzone", description="Admin: remove a radar zone")
