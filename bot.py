@@ -304,7 +304,52 @@ def resolve_guild_role(guild, role_name):
 
 def extract_player_name(line):
     match = re.search(r'Player "([^"]+)"', line)
-    return match.group(1) if match else "Unknown"
+    if match:
+        return match.group(1)
+
+    fallback_patterns = [
+        r'"([^"]+)"\s+\(DEAD\)',
+        r'"([^"]+)"\s+is connected',
+        r'"([^"]+)"\s+has connected',
+        r'"([^"]+)"\s+has disconnected',
+        r'"([^"]+)"\s+hit by',
+        r'"([^"]+)"\s+killed by',
+    ]
+    for pattern in fallback_patterns:
+        fallback = re.search(pattern, line, re.IGNORECASE)
+        if fallback:
+            return fallback.group(1)
+
+    return "Unknown"
+
+
+def extract_adm_player_names(line):
+    names = []
+
+    for match in re.finditer(r'Player "([^"]+)"', line, re.IGNORECASE):
+        names.append(match.group(1))
+
+    for pattern in [
+        r'"([^"]+)"\s+\(DEAD\)',
+        r'"([^"]+)"\s+is connected',
+        r'"([^"]+)"\s+has connected',
+        r'"([^"]+)"\s+has disconnected',
+        r'"([^"]+)"\s+hit by',
+        r'"([^"]+)"\s+killed by',
+    ]:
+        for match in re.finditer(pattern, line, re.IGNORECASE):
+            names.append(match.group(1))
+
+    clean = []
+    seen = set()
+    for name in names:
+        key = normalize_discord_name(name)
+        if not key or key in seen:
+            continue
+        clean.append(name)
+        seen.add(key)
+
+    return clean
 
 
 def extract_adm_coords(line):
@@ -924,6 +969,121 @@ def format_duration(seconds):
     return f"{minutes}m"
 
 
+LEADERBOARD_RANK_ICONS = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+
+def leaderboard_rank_icon(index):
+    if 1 <= index <= len(LEADERBOARD_RANK_ICONS):
+        return LEADERBOARD_RANK_ICONS[index - 1]
+    return f"{index}."
+
+
+def trim_table_text(value, width):
+    text = str(value or "Unknown").replace("\n", " ").strip()
+    if len(text) <= width:
+        return text.ljust(width)
+    return (text[: max(1, width - 1)] + "…").ljust(width)
+
+
+def stat_int(stats, key):
+    try:
+        return int(stats.get(key, 0) or 0)
+    except Exception:
+        return 0
+
+
+def build_kill_leaderboard_rows(rows, limit=10):
+    lines = ["#  Survivor              Kills  Deaths  K/D   Online"]
+
+    for index, (player, stats) in enumerate(rows[:limit], start=1):
+        kills = stat_int(stats, "kills")
+        deaths = stat_int(stats, "deaths")
+        kd = kills if deaths == 0 else round(kills / max(1, deaths), 2)
+        kd_text = f"{kd:.2f}" if isinstance(kd, float) else str(kd)
+        lines.append(
+            f"{index:<2} {trim_table_text(player, 21)} {kills:>5}  {deaths:>6}  {kd_text:>4}  {format_duration(stats.get('time_online_seconds', 0)):>6}"
+        )
+
+    return "```text\n" + "\n".join(lines) + "\n```"
+
+
+def build_simple_leaderboard_table(rows, stat_key, heading, limit=5, formatter=None):
+    lines = [f"#  Survivor              {heading}"]
+
+    for index, (player, stats) in enumerate(rows[:limit], start=1):
+        value = stats.get(stat_key, 0)
+        if formatter:
+            value = formatter(value)
+        lines.append(f"{index:<2} {trim_table_text(player, 21)} {str(value):>8}")
+
+    if len(lines) == 1:
+        return "No data yet. ADM activity will fill this in."
+
+    return "```text\n" + "\n".join(lines) + "\n```"
+
+
+def build_topkills_grid_embed(guild):
+    guild_id = str(guild.id)
+    guild_players = [
+        (player, stats)
+        for player, stats in player_stats.items()
+        if str(stats.get("guild_id", "")) == guild_id
+    ]
+    rows = guild_players or list(player_stats.items())
+
+    sorted_players = sorted(
+        rows,
+        key=lambda row: row[1].get("kills", 0),
+        reverse=True
+    )
+
+    total_kills = sum(stat_int(stats, "kills") for _, stats in rows)
+    total_deaths = sum(stat_int(stats, "deaths") for _, stats in rows)
+
+    embed = discord.Embed(
+        title="☠️ SERVER TOP KILLS",
+        description=(
+            "Clear combat grid: kills, deaths, K/D, and tracked online time.\n"
+            + build_kill_leaderboard_rows(sorted_players, 10)
+        ),
+        color=0x992D22
+    )
+    embed.add_field(name="☠️ Total Kills", value=str(total_kills), inline=True)
+    embed.add_field(name="💀 Total Deaths", value=str(total_deaths), inline=True)
+    embed.add_field(name="👥 Survivors Ranked", value=str(len(rows)), inline=True)
+    embed.add_field(
+        name="📍 Scope",
+        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    return style_embed(embed)
+
+
+def build_longshots_grid_embed():
+    sorted_records = sorted(
+        longshot_records.items(),
+        key=lambda row: row[1].get("distance", 0),
+        reverse=True
+    )
+
+    lines = ["#  Shooter               Dist   Server"]
+    for index, (guild_id, data) in enumerate(sorted_records[:10], start=1):
+        guild_name = guild_configs.get(guild_id, {}).get("guild_name", "Unknown Server")
+        lines.append(
+            f"{index:<2} {trim_table_text(data.get('killer'), 21)} {str(data.get('distance', 0)) + 'm':>6}  {trim_table_text(guild_name, 18).strip()}"
+        )
+
+    embed = discord.Embed(
+        title="🎯 GLOBAL LONGSHOT LEADERBOARD",
+        description="Longest confirmed shots across all connected servers.\n```text\n" + "\n".join(lines) + "\n```",
+        color=0xF1C40F
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Longshot Intelligence")
+    return style_embed(embed)
+
+
 def parse_saved_datetime(value):
     if not value:
         return None
@@ -1036,21 +1196,22 @@ def learn_recent_adm_players_for_linking(guild_id, config, hours=168, max_logs=4
             lines = [line.strip() for line in f.readlines() if line.strip()]
 
         for line in lines:
-            player_name = extract_player_name(line)
-            if not player_name or player_name == "Unknown":
-                continue
+            for player_name in extract_adm_player_names(line):
+                if not player_name or player_name == "Unknown":
+                    continue
 
-            stats = ensure_player_stats_record(guild_id, player_name)
-            if not stats:
-                continue
+                stats = ensure_player_stats_record(guild_id, player_name)
+                if not stats:
+                    continue
 
-            existing_first_seen = parse_saved_datetime(stats.get("first_adm_seen"))
-            if not existing_first_seen or (log_seen_at and log_seen_at < existing_first_seen):
-                stats["first_adm_seen"] = log_seen_text
+                existing_first_seen = parse_saved_datetime(stats.get("first_adm_seen"))
+                if not existing_first_seen or (log_seen_at and log_seen_at < existing_first_seen):
+                    stats["first_adm_seen"] = log_seen_text
 
-            stats["last_adm_seen"] = log_seen_text
+                stats["last_adm_seen"] = log_seen_text
+                learned += 1
+
             remember_player_location_from_adm(guild_id, line)
-            learned += 1
 
     if learned:
         save_player_stats()
@@ -1140,12 +1301,14 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
     verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
+    learned = 0
+    scanned_logs = 0
 
     if error:
         required_keys = ["nitrado_token", "service_id", "nitrado_user"]
         if all(config.get(key) for key in required_keys):
             try:
-                await asyncio.to_thread(
+                learned, scanned_logs = await asyncio.to_thread(
                     learn_recent_adm_players_for_linking,
                     guild_id,
                     config,
@@ -1157,9 +1320,12 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
                 print(f"LINK ADM LOOKBACK ERROR {guild_id}: {scan_error}")
 
     if error:
+        suggestion = closest_adm_player_name(guild_id, gamertag)
+        suggestion_text = f"\nClosest ADM name I know: `{suggestion}`." if suggestion else ""
         return False, (
             f"{error}\n\n"
-            "I searched the saved stats and recent ADM history. If the name has spaces or symbols, type it exactly as it appears in the ADM log."
+            f"I searched saved stats and scanned `{scanned_logs}` recent ADM log(s), learning `{learned}` player name entry/entries.{suggestion_text}\n"
+            "If the name has spaces or symbols, type it exactly as it appears in the ADM log. Staff can run `/admplayers` to see names I have learned."
         )
 
     linked_user_id, linked_data = gamertag_linked_to_other_user(verified_name, member.id)
@@ -7922,6 +8088,51 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
+@bot.tree.command(name="admplayers", description="Admin: show ADM player names the bot has learned")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(search="Optional text to filter gamertags")
+async def admplayers(interaction: discord.Interaction, search: str = ""):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    wanted = normalize_discord_name(search)
+    rows = [
+        (player, stats)
+        for player, stats in player_stats.items()
+        if str(stats.get("guild_id", "")) == guild_id
+        and (not wanted or wanted in normalize_discord_name(player))
+    ]
+    rows.sort(
+        key=lambda row: parse_saved_datetime(row[1].get("last_adm_seen") or row[1].get("last_seen")) or datetime.min.replace(tzinfo=UTC),
+        reverse=True
+    )
+
+    if not rows:
+        await interaction.response.send_message(
+            "No ADM player names found for this server yet. Run `/restartadm force` after someone joins, then try again.",
+            ephemeral=True
+        )
+        return
+
+    lines = ["#  Gamertag              Last ADM Seen"]
+    for index, (player, stats) in enumerate(rows[:25], start=1):
+        seen = parse_saved_datetime(stats.get("last_adm_seen") or stats.get("last_seen"))
+        seen_text = seen.strftime("%Y-%m-%d %H:%M") if seen else "unknown"
+        lines.append(f"{index:<2} {trim_table_text(player, 21)} {seen_text}")
+
+    embed = discord.Embed(
+        title="ADM LEARNED PLAYERS",
+        description="These are the Xbox/ADM names the bot can currently match for `/linkgamer`.\n```text\n" + "\n".join(lines) + "\n```",
+        color=0x3498DB
+    )
+    embed.add_field(name="Matches", value=str(len(rows)), inline=True)
+    embed.add_field(name="Filter", value=search or "None", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
 @bot.command()
 async def mylink(ctx):
 
@@ -8321,17 +8532,17 @@ async def leaderboard_loop():
                     key=lambda row: row[1].get(stat_key, 0),
                     reverse=True
                 )
-                lines = []
+                lines = [f"#  Survivor              {label}"]
                 medals = ["🥇", "🥈", "🥉", "4.", "5."]
                 for idx, (player, stats) in enumerate(sorted_rows[:limit], start=1):
                     value = stats.get(stat_key, 0)
                     if formatter:
                         value = formatter(value)
                     rank = medals[idx - 1] if idx <= len(medals) else f"{idx}."
-                    lines.append(f"{rank} {player[:20]:<20} {value}")
-                if not lines:
+                    lines.append(f"{idx:<2} {trim_table_text(player, 21)} {str(value):>8}")
+                if len(lines) == 1:
                     return "No data yet. ADM activity will fill this in."
-                return f"```{'Rank Survivor             ' + label}\n" + "\n".join(lines) + "```"
+                return "```text\n" + "\n".join(lines) + "\n```"
 
             global_rows = list(player_stats.items())
             global_longshots = sorted(
@@ -8339,12 +8550,12 @@ async def leaderboard_loop():
                 key=lambda row: row[1].get("distance", 0),
                 reverse=True
             )[:5]
-            global_longshot_lines = []
+            global_longshot_lines = ["#  Shooter               Dist"]
             medals = ["🥇", "🥈", "🥉", "4.", "5."]
             for idx, (record_guild_id, record) in enumerate(global_longshots, start=1):
                 rank = medals[idx - 1] if idx <= len(medals) else f"{idx}."
                 global_longshot_lines.append(
-                    f"{rank} {str(record.get('killer', 'Unknown'))[:18]:<18} {record.get('distance', 0)}m"
+                    f"{idx:<2} {trim_table_text(record.get('killer', 'Unknown'), 21)} {str(record.get('distance', 0)) + 'm':>6}"
                 )
 
             embed = discord.Embed(
@@ -8355,50 +8566,50 @@ async def leaderboard_loop():
                 color=0xF1C40F
             )
             embed.add_field(
-                name="Server Top Kills",
+                name="☠️ Server Kills",
                 value=board_lines("kills", "Kills"),
                 inline=True
             )
             embed.add_field(
-                name="Server Deaths",
+                name="💀 Server Deaths",
                 value=board_lines("deaths", "Deaths"),
                 inline=True
             )
             embed.add_field(
-                name="Server Time Played",
+                name="⏱️ Server Time",
                 value=board_lines("time_online_seconds", "Time", formatter=format_duration),
                 inline=True
             )
             embed.add_field(
-                name="Server Builders",
+                name="🔨 Builders",
                 value=board_lines("builds", "Builds"),
                 inline=True
             )
             embed.add_field(
-                name="Server Placements",
+                name="📦 Placements",
                 value=board_lines("placements", "Placed"),
                 inline=True
             )
             embed.add_field(
-                name="Server PVE Hunting",
+                name="🏹 PVE Hunting",
                 value=board_lines("animals_hunted", "Hunts"),
                 inline=True
             )
             embed.add_field(
-                name="Global Top Kills",
+                name="🌍 Global Kills",
                 value=board_lines("kills", "Kills", source_rows=global_rows),
                 inline=True
             )
             embed.add_field(
-                name="Global Time Played",
+                name="🌍 Global Time",
                 value=board_lines("time_online_seconds", "Time", formatter=format_duration, source_rows=global_rows),
                 inline=True
             )
             embed.add_field(
-                name="Global Longshots",
+                name="🎯 Global Longshots",
                 value=(
-                    f"```Rank Survivor           Distance\n" + "\n".join(global_longshot_lines) + "```"
-                    if global_longshot_lines else "No longshot data yet."
+                    "```text\n" + "\n".join(global_longshot_lines) + "\n```"
+                    if len(global_longshot_lines) > 1 else "No longshot data yet."
                 ),
                 inline=True
             )
@@ -10468,9 +10679,17 @@ async def slash_swearjar(interaction: discord.Interaction): await run_legacy_as_
 @bot.tree.command(name="heatmap", description="Show territory heatmap summary")
 async def slash_heatmap(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "heatmap")
 @bot.tree.command(name="toplongshots", description="Show longshot leaderboard")
-async def slash_toplongshots(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "toplongshots")
+async def slash_toplongshots(interaction: discord.Interaction):
+    if not longshot_records:
+        await interaction.response.send_message("No longshot records yet.", ephemeral=True)
+        return
+    await interaction.response.send_message(embed=build_longshots_grid_embed(), ephemeral=True)
 @bot.tree.command(name="topkills", description="Show top kill leaderboard")
-async def slash_topkills(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "topkills")
+async def slash_topkills(interaction: discord.Interaction):
+    if not player_stats:
+        await interaction.response.send_message("No stats available.", ephemeral=True)
+        return
+    await interaction.response.send_message(embed=build_topkills_grid_embed(interaction.guild), ephemeral=True)
 @bot.tree.command(name="staffroles", description="List staff roles")
 @app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
