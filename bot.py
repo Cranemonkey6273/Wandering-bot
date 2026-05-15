@@ -70,6 +70,7 @@ LINKED_PLAYERS_FILE = data_path("linked_players.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
+PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
 
 # =========================================================
 # GLOBALS
@@ -101,6 +102,7 @@ last_emoji_showcase_time = {}
 support_tickets = {}
 wandering_emojis = {}
 factions = {}
+pve_challenges = {}
 last_ai_direct_response_time = {}
 last_owner_mention_time = {}
 
@@ -113,6 +115,7 @@ HEATMAP_MODES = [
     "flags",
     "suicide",
     "placed",
+    "pve",
     "all"
 ]
 
@@ -130,8 +133,6 @@ DEFAULT_CHANNEL_NAMES = {
     "disconnects": "🔴⛔・disconnects・⛔🔴",
     "zombie_feed": "🧟🧟・zombie-feed・🧟🧟",
     "unconscious_feed": "🩹⚠️・unconscious-feed・⚠️🩹",
-    "cuts_feed": "🩸⚕️・injury-intel・⚕️🩸",
-    "placed_feed": "🧰🏕️・placement-intel・🏕️🧰",
     "online": "✅🎮・online-survivors・🎮✅",
     "leaderboards": "🏆📊・leaderboards・📊🏆",
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
@@ -152,6 +153,14 @@ DEFAULT_CHANNEL_NAMES = {
     "purchase_logs": "💳📦・purchase-logs・📦💳",
     "vehicle_rentals": "🚗💰・vehicle-rentals・💰🚗",
     "rental_logs": "🛻📒・rental-logs・📒🛻",
+    "pve_quests": "🧭📜・pve-quests・📜🧭",
+    "pve_hunting": "🦌🏹・pve-hunting・🏹🦌",
+    "pve_collection": "🎒🥫・pve-collection・🥫🎒",
+    "pve_fishing": "🎣🐟・pve-fishing・🐟🎣",
+    "pve_crafting": "🪓🛠️・pve-crafting・🛠️🪓",
+    "pve_expeditions": "🗺️⛺・pve-expeditions・⛺🗺️",
+    "pve_info": "📘🌿・pve-info・🌿📘",
+    "pve_heatmap": "🦌🗺️・pve-heatmap・🗺️🦌",
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
@@ -179,12 +188,18 @@ CHANNEL_ALIASES = {
     "purchase_logs": ["purchaselogs", "purchases"],
     "vehicle_rentals": ["vehiclerentals", "rentvehicles", "rentals"],
     "rental_logs": ["rentallogs"],
+    "pve_quests": ["pvequests", "quests", "missions", "pvemissions"],
+    "pve_hunting": ["pvehunting", "hunting", "animalhunts"],
+    "pve_collection": ["pvecollection", "collection", "scavenger", "gathering"],
+    "pve_fishing": ["pvefishing", "fishing", "fish"],
+    "pve_crafting": ["pvecrafting", "crafting", "bushcraft"],
+    "pve_expeditions": ["pveexpeditions", "expeditions", "exploration", "survivalruns"],
+    "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
+    "pve_heatmap": ["pveheatmap", "animalheatmap"],
     "faction_tickets": ["factiontickets", "factionrequests"],
     "faction_staff": ["factionstaff"],
     "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
     "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
-    "cuts_feed": ["cutsfeed", "injuryintel", "injuryfeed", "bleedoutfeed"],
-    "placed_feed": ["placedfeed", "placementintel", "placementfeed", "buildplaced"],
     "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
 }
 
@@ -274,12 +289,13 @@ def heatmap_mode_for_event(event_type):
         "suicide": "suicide",
         "packed": "placed",
         "placed": "placed",
+        "animal_kill": "pve",
     }.get(event_type)
 
 
 def guild_heatmap_mode(guild_id):
-    mode = guild_configs.get(str(guild_id), {}).get("heatmap_mode", "pvp")
-    return mode if mode in HEATMAP_MODES else "pvp"
+    mode = guild_configs.get(str(guild_id), {}).get("heatmap_mode", "all")
+    return mode if mode in HEATMAP_MODES else "all"
 
 
 def heat_counts_for_mode(guild_id, mode):
@@ -336,6 +352,11 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False):
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
+            if existing.name != name:
+                try:
+                    await existing.edit(name=name)
+                except Exception:
+                    pass
             return existing
 
     for channel in guild.text_channels:
@@ -359,20 +380,45 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False):
     return channel
 
 
+def split_adm_coords(coords):
+    if not coords:
+        return None, None, None
+
+    parts = [part.strip() for part in str(coords).split(",")]
+    x = parts[0] if len(parts) > 0 else None
+    z = parts[1] if len(parts) > 1 else None
+    y = parts[2] if len(parts) > 2 else None
+    return x, z, y
+
+
+def extract_placed_object(line):
+    match = re.search(r"\bplaced\s+([^<]+)", line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().replace("_", " ")
+    return "Unknown item"
+
+
+def extract_packed_object(line):
+    match = re.search(r"\bpacked\s+([^<]+)", line, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().replace("_", " ")
+    return "Unknown item"
+
+
 async def send_special_adm_feed(guild_id, config, event_type, line):
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
         return
 
     feed_map = {
-        "flag_raise": ("flag_feed", "🏴📡・flag-intel・📡🏴", True, "🏴 FLAG RAISED", 0x2ECC71),
-        "flag_lower": ("flag_feed", "🏴📡・flag-intel・📡🏴", True, "🏴 FLAG LOWERED", 0xE67E22),
-        "cut": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "🩸 SURVIVOR INJURED", 0xE74C3C),
-        "bleedout": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "☠️ SURVIVOR BLED OUT", 0x8E1B1B),
-        "suicide": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "⚰️ SUICIDE EVENT", 0x6C3483),
-        "respawn": ("cuts_feed", "🩸⚕️・injury-intel・⚕️🩸", True, "🔁 RESPAWN CHOSEN", 0x3498DB),
-        "packed": ("placed_feed", "🧰🏕️・placement-intel・🏕️🧰", True, "📦 ITEM PACKED", 0xF1C40F),
-        "placed": ("placed_feed", "🧰🏕️・placement-intel・🏕️🧰", True, "🧱 PLACEMENT ACTIVITY", 0x1ABC9C),
+        "flag_raise": ("flag_feed", "flag-feed", True, "FLAG RAISED", 0x2ECC71),
+        "flag_lower": ("flag_feed", "flag-feed", True, "FLAG LOWERED", 0xE67E22),
+        "cut": ("cuts_feed", "cuts-feed", True, "SURVIVOR DAMAGE", 0xE74C3C),
+        "bleedout": ("cuts_feed", "cuts-feed", True, "SURVIVOR BLED OUT", 0x992D22),
+        "suicide": ("cuts_feed", "cuts-feed", True, "SUICIDE EVENT", 0x992D22),
+        "respawn": ("cuts_feed", "cuts-feed", True, "RESPAWN CHOSEN", 0x3498DB),
+        "packed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "ITEM PACKED", 0xF1C40F),
+        "placed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "PLACEMENT ACTIVITY", 0x00D1B2),
     }
 
     if event_type not in feed_map:
@@ -381,30 +427,46 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
     key, channel_name, private, title, color = feed_map[event_type]
     channel = await get_or_create_feed_channel(guild, config, key, channel_name, private)
     player = extract_player_name(line)
+    coords = extract_adm_coords(line)
     map_link = build_adm_map_link(line)
 
-    details = "Event captured from ADM feed."
-    if event_type == "placed":
-        placed_match = re.search(r'placed ([^<]+)', line, re.IGNORECASE)
-        if placed_match:
-            details = f"Placed: {placed_match.group(1).strip()[:120]}"
-    elif event_type == "packed":
-        packed_match = re.search(r'packed ([^<]+)', line, re.IGNORECASE)
-        if packed_match:
-            details = f"Packed: {packed_match.group(1).strip()[:120]}"
-    elif event_type in {"cut", "bleedout", "suicide", "respawn"}:
-        details = "Medical/combat status event logged."
+    if event_type in ["packed", "placed"]:
+        item_name = extract_packed_object(line) if event_type == "packed" else extract_placed_object(line)
+        x, z, _ = split_adm_coords(coords)
+        embed = discord.Embed(
+            title="🧰 ITEM PACKED" if event_type == "packed" else "📦 ITEM PLACED",
+            color=color
+        )
+        embed.add_field(name="Player", value=player, inline=False)
+        embed.add_field(name="Item", value=item_name, inline=False)
 
-    embed = create_feed_embed(
+        if x or z:
+            coord_lines = []
+            if x:
+                coord_lines.append(f"X: {x}")
+            if z:
+                coord_lines.append(f"Z: {z}")
+            embed.add_field(name="Coordinates", value="\n".join(coord_lines), inline=False)
+
+        if map_link:
+            embed.add_field(name="Map", value=f"[Open Map](<{map_link}>)", inline=False)
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Placement Intelligence")
+        await channel.send(embed=style_embed(embed))
+        return
+
+    embed = discord.Embed(
         title=title,
-        color=color,
-        player=player,
-        details=details,
-        coords=extract_adm_coords(line)
+        description=f"```{line[:1000]}```",
+        color=color
     )
+    embed.add_field(name="Survivor", value=player, inline=True)
     if map_link:
         embed.add_field(name="Map", value=f"[Open Location](<{map_link}>)", inline=True)
-    await channel.send(embed=embed)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
+    await channel.send(embed=style_embed(embed))
 
 
 async def send_swear_jar_feed(message, found_words, fine, pennies_total):
@@ -434,7 +496,33 @@ async def send_swear_jar_feed(message, found_words, fine, pennies_total):
 
 
 async def maybe_reply_to_bot_mention(message, lower):
-    if bot.user not in message.mentions:
+    if not message.guild:
+        return
+
+    guild_id = str(message.guild.id) if message.guild else None
+    channels = guild_configs.get(guild_id, {}).get("channels", {}) if guild_id else {}
+    ai_channel_id = channels.get("ai_chat") if guild_id else None
+    in_ai_channel = bool(ai_channel_id and message.channel.id == ai_channel_id)
+    pve_channel_ids = {
+        channels.get(key)
+        for key in [
+            "pve_quests",
+            "pve_hunting",
+            "pve_collection",
+            "pve_fishing",
+            "pve_crafting",
+            "pve_expeditions",
+            "pve_info",
+            "pve_heatmap"
+        ]
+    }
+    in_pve_channel = message.channel.id in pve_channel_ids
+    pve_help_request = in_pve_channel and any(
+        word in lower
+        for word in ["quest", "mission", "where", "find", "hunt", "fish", "craft", "help", "reward"]
+    )
+
+    if bot.user not in message.mentions and not in_ai_channel and not pve_help_request:
         return
 
     now_ts = datetime.now(UTC).timestamp()
@@ -445,38 +533,54 @@ async def maybe_reply_to_bot_mention(message, lower):
 
     last_ai_direct_response_time[key] = now_ts
 
-    help_lines = [
-        "I am awake. Unfortunately for everyone, I have opinions. Ask me about raids, loot, bases, sickness, or why your car achieved orbit.",
+    topic_lines = []
+
+    if any(word in lower for word in ["loot", "where find", "where to find", "guns", "weapon"]):
+        topic_lines = [
+            "Loot advice: hit hunting camps, military tents, police stations, medical buildings, then get out before someone turns you into a cautionary tale.",
+            "If you need weapons, stop licking coastal sheds and move inland. Police for basics, hunting spots for rifles, military zones for proper trouble.",
+            "Best loot route is simple: food first, blade second, meds third, ego last. Most people die because they reverse that list like absolute wankers.",
+        ]
+    elif any(word in lower for word in ["base", "build", "raid"]):
+        topic_lines = [
+            "Base advice: small, ugly, hidden and boring survives longer than a giant castle screaming 'please raid me'.",
+            "Raid tip: screenshots, clips, timestamps. Evidence first, angry shouting second. I know, tragic.",
+            "Build low-profile and stash smart. Big obvious bases are just community piñatas with doors.",
+        ]
+    elif any(word in lower for word in ["sick", "ill", "blood", "health", "medicine", "meds"]):
+        topic_lines = [
+            "Medical advice: disinfect wounds, keep tetra/charcoal/vitamins, and stop drinking mystery pond water like it owes you money.",
+            "If your survivor is coughing, bleeding and seeing grey, congratulations, you have discovered consequences. Bandage, eat, hydrate, warm up.",
+        ]
+    elif any(word in lower for word in ["car", "truck", "drive", "vehicle"]):
+        topic_lines = [
+            "Vehicle advice: if the server stutters, slow down. DayZ cars punish optimism with aerospace engineering.",
+            "Check plug, battery, radiator and fuel. Then pray, because the car still has a personality problem.",
+        ]
+    elif any(word in lower for word in ["quest", "mission", "reward"]):
+        topic_lines = [
+            "Quest advice: pick a route, bring food, screenshot proof for anything the logs cannot track, and link your gamertag so I can pay you when the server catches your heroics.",
+            "Mission board wisdom: easy quests are for relaxing, hard quests are for stories, and expedition chains are where the shiny rewards live.",
+            "If the quest is hunting, infected, building, or placement based, I can often track it from ADM logs. If it is exploration or collection, staff can approve it with `/pvecomplete`.",
+        ]
+    elif any(word in lower for word in ["fish", "fishing"]):
+        topic_lines = [
+            "Fishing advice: bones for hooks, rope for the rod, worms if you are feeling fancy. Cook the fish. Raw fish is just regret with scales.",
+            "Find quiet water, stop sprinting, and let the apocalypse become a camping trip for five minutes. Weirdly healing, honestly.",
+        ]
+    elif any(word in lower for word in ["craft", "crafting"]):
+        topic_lines = [
+            "Crafting advice: bark, sticks, stones, bones, rope and rags are the holy little pile of survival nonsense. Keep a blade and you can improvise half your life back.",
+            "If a quest asks for crafting, screenshot the finished kit unless the ADM logs catch the event. Staff can approve the rest.",
+        ]
+
+    help_lines = topic_lines or [
+        "I am awake. Unfortunately for everyone, I have opinions. Ask me about raids, loot, bases, sickness, cars, or why your last plan was bollocks.",
         "Yes, survivor? I can help with bot commands, DayZ advice, or emotional support after another deeply avoidable death.",
         "Radio check received. Tell me what you need and I will pretend we are all making sensible choices.",
     ]
 
     await message.channel.send(wb_text("ai", random.choice(help_lines)))
-
-    # Occasional DayZ-themed AI image response (about 20% chance) if enabled.
-    if random.random() < 0.20:
-        image_url = generate_dayz_image_url(message.content)
-        if image_url:
-            embed = discord.Embed(
-                title="🎨 DayZ Field Sketch",
-                description="AI-generated vibe image based on the conversation.",
-                color=0x8E44AD
-            )
-            embed.set_image(url=image_url)
-            embed.set_footer(text="Generated image may be stylized/non-literal.")
-            await message.channel.send(embed=style_embed(embed))
-
-
-def generate_dayz_image_url(prompt_text: str):
-    cleaned = re.sub(r"\s+", " ", str(prompt_text)).strip()
-    if not cleaned:
-        cleaned = "DayZ survivor scene at sunset, cinematic, realistic"
-    full_prompt = f"DayZ style scene, Chernarus mood, {cleaned[:180]}"
-    try:
-        from urllib.parse import quote_plus
-        return f"https://image.pollinations.ai/prompt/{quote_plus(full_prompt)}"
-    except Exception:
-        return None
 
 
 async def maybe_owner_mention_remark(message):
@@ -514,6 +618,99 @@ def faction_display_lines(faction):
         f"Flag: {faction.get('flag', 'Not set')}",
         f"Role: <@&{faction.get('role_id')}>" if faction.get("role_id") else "Role: Not set",
     ]
+
+
+def ensure_player_stats_record(guild_id, player_name):
+    if not player_name or player_name == "Unknown":
+        return None
+
+    stats = player_stats.setdefault(player_name, {})
+    stats.setdefault("guild_id", str(guild_id))
+    stats.setdefault("kills", 0)
+    stats.setdefault("deaths", 0)
+    stats.setdefault("zombie_deaths", 0)
+    stats.setdefault("suicides", 0)
+    stats.setdefault("cuts", 0)
+    stats.setdefault("bleedouts", 0)
+    stats.setdefault("builds", 0)
+    stats.setdefault("placements", 0)
+    stats.setdefault("packed", 0)
+    stats.setdefault("raids", 0)
+    stats.setdefault("animals_hunted", 0)
+    stats.setdefault("flags_raised", 0)
+    stats.setdefault("flags_lowered", 0)
+    stats.setdefault("time_online_seconds", 0)
+    stats["last_seen"] = str(datetime.now(UTC))
+    return stats
+
+
+def add_player_stat(guild_id, player_name, key, amount=1):
+    stats = ensure_player_stats_record(guild_id, player_name)
+    if not stats:
+        return
+    stats[key] = stats.get(key, 0) + amount
+
+
+def update_player_stats_from_adm(guild_id, event_type, line):
+    player_name = extract_player_name(line)
+
+    if event_type == "kill":
+        direct = re.search(r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)', line)
+        reverse = re.search(r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)', line)
+
+        if direct:
+            killer = direct.group(1)
+            victim = direct.group(2)
+            add_player_stat(guild_id, killer, "kills")
+            add_player_stat(guild_id, victim, "deaths")
+            return
+
+        if reverse:
+            victim = reverse.group(1)
+            killer = reverse.group(2)
+            add_player_stat(guild_id, killer, "kills")
+            add_player_stat(guild_id, victim, "deaths")
+            return
+
+    if event_type == "disconnect":
+        stats = ensure_player_stats_record(guild_id, player_name)
+        started = player_online_times.get(str(guild_id), {}).get(player_name)
+        if stats and started:
+            stats["time_online_seconds"] = stats.get("time_online_seconds", 0) + int(
+                (datetime.now(UTC) - started).total_seconds()
+            )
+        return
+
+    if event_type == "cut" and "killed by" in line.lower():
+        add_player_stat(guild_id, player_name, "cuts")
+        add_player_stat(guild_id, player_name, "deaths")
+        return
+
+    stat_map = {
+        "zombie_kill": ("zombie_deaths", "deaths"),
+        "suicide": ("suicides", "deaths"),
+        "bleedout": ("bleedouts", "deaths"),
+        "cut": ("cuts",),
+        "build": ("builds",),
+        "placed": ("placements",),
+        "packed": ("packed",),
+        "raid": ("raids",),
+        "animal_kill": ("animals_hunted",),
+        "flag_raise": ("flags_raised",),
+        "flag_lower": ("flags_lowered",),
+    }
+
+    for stat_key in stat_map.get(event_type, []):
+        add_player_stat(guild_id, player_name, stat_key)
+
+
+def format_duration(seconds):
+    seconds = int(seconds or 0)
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
 
 # =========================================================
 # WANDERING BOT EMOJI PERSONALITY
@@ -651,12 +848,6 @@ def new_guild_config(guild):
         "nitrado_user": "",
         "ftp_user": "",
         "ftp_password": "",
-        "vehicle_reset_enabled": False,
-        "vehicle_reset_schedule_utc_hour": 5,
-        "vehicle_reset_baseline_events_path": "",
-        "vehicle_reset_target_events_path": "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml",
-        "vehicle_reset_persistence_paths": [],
-        "vehicle_reset_last_run_date": "",
         "channels": {}
     }
 
@@ -692,6 +883,78 @@ def discover_existing_guild_channels(guild, config):
                 break
 
     return changed
+
+
+async def ensure_pve_channels(guild, config):
+    channels = config.setdefault("channels", {})
+
+    category_name = "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌"
+    pve_category = None
+    for category in guild.categories:
+        normalized = normalize_discord_name(category.name)
+        if "pve" in normalized or "pvemissions" in normalized:
+            pve_category = category
+            break
+
+    if not pve_category:
+        pve_category = await guild.create_category(category_name)
+    elif pve_category.name != category_name:
+        try:
+            await pve_category.edit(name=category_name)
+        except Exception:
+            pass
+
+    async def ensure_channel(key):
+        name = DEFAULT_CHANNEL_NAMES[key]
+        existing_id = channels.get(key)
+        if existing_id:
+            existing = guild.get_channel(existing_id)
+            if existing:
+                try:
+                    await existing.edit(name=name, category=pve_category)
+                except Exception:
+                    pass
+                return existing
+
+        for channel in guild.text_channels:
+            if channel_matches_saved_key(channel, key):
+                channels[key] = channel.id
+                try:
+                    await channel.edit(name=name, category=pve_category)
+                except Exception:
+                    pass
+                return channel
+
+        channel = await guild.create_text_channel(name, category=pve_category)
+        channels[key] = channel.id
+        return channel
+
+    created = {}
+    for key in [
+        "pve_quests",
+        "pve_hunting",
+        "pve_collection",
+        "pve_fishing",
+        "pve_crafting",
+        "pve_expeditions",
+        "pve_info",
+        "pve_heatmap"
+    ]:
+        created[key] = await ensure_channel(key)
+
+    config.setdefault("pve", {"enabled": True, "interval_hours": 72})
+    save_guild_configs()
+    return created
+
+
+async def ensure_pve_channels_for_active_guilds():
+    for guild in bot.guilds:
+        try:
+            guild_id = str(guild.id)
+            config = guild_configs.setdefault(guild_id, new_guild_config(guild))
+            await ensure_pve_channels(guild, config)
+        except Exception as error:
+            print(f"PVE SETUP ERROR {guild.id}: {error}")
 
 
 class SlashContextAdapter:
@@ -912,22 +1175,6 @@ def save_player_stats():
     save_json(PLAYER_STATS_FILE, player_stats)
 
 
-def ensure_player_stat_record(player_name, guild_id=None):
-    if player_name not in player_stats or not isinstance(player_stats.get(player_name), dict):
-        player_stats[player_name] = {
-            "kills": 0,
-            "deaths": 0,
-            "raids": 0,
-            "builds": 0,
-            "guild_id": str(guild_id) if guild_id is not None else ""
-        }
-
-    if guild_id is not None:
-        player_stats[player_name]["guild_id"] = str(guild_id)
-
-    return player_stats[player_name]
-
-
 def load_heatmap():
     global territory_heat
     territory_heat = load_json(HEATMAP_FILE)
@@ -973,6 +1220,15 @@ def save_factions():
     save_json(FACTIONS_FILE, factions)
 
 
+def load_pve_challenges():
+    global pve_challenges
+    pve_challenges = load_json(PVE_CHALLENGES_FILE)
+
+
+def save_pve_challenges():
+    save_json(PVE_CHALLENGES_FILE, pve_challenges)
+
+
 def stable_line_hash(line):
     return hashlib.sha256(
         line.encode("utf-8", errors="ignore")
@@ -988,16 +1244,6 @@ def load_processed_adm_lines():
     for guild_id, hashes in data.items():
         if isinstance(hashes, list):
             processed_lines[str(guild_id)] = set(str(item) for item in hashes)
-
-
-def stamp_adm_tail_checkpoint(guild_id, lines):
-    guild_id = str(guild_id)
-    if not lines:
-        return
-    tail_hash = stable_line_hash(lines[-1].strip())
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    config["adm_last_tail_hash"] = tail_hash
-    save_guild_configs()
 
 
 def save_processed_adm_lines():
@@ -1075,7 +1321,24 @@ def get_zone_from_line(line):
             if keyword in lower:
                 return zone
 
+    coords = extract_adm_coords(line)
+    if coords:
+        return zone_from_coords(coords)
+
     return "Unknown"
+
+
+def zone_from_coords(coords):
+    try:
+        x_text, y_text = coords.split(",")[:2]
+        x = float(x_text.strip())
+        y = float(y_text.strip())
+    except Exception:
+        return "Unknown"
+
+    east_west = "West" if x < 5120 else "Central" if x < 10240 else "East"
+    north_south = "South" if y < 5120 else "Midlands" if y < 10240 else "North"
+    return f"{north_south} {east_west}"
 
 
 def ensure_guild_runtime(guild_id):
@@ -1121,6 +1384,24 @@ def classify_event(line):
 
     lower = line.lower()
     zombie_terms = ["infected", "zombie", "zmb"]
+    animal_terms = [
+        "animal_",
+        "deer",
+        "stag",
+        "doe",
+        "boar",
+        "pig",
+        "cow",
+        "sheep",
+        "goat",
+        "wolf",
+        "bear",
+        "chicken",
+        "hen",
+        "rooster",
+        "fox",
+        "hare"
+    ]
     unconscious_terms = [
         "unconscious",
         "unconsciousness",
@@ -1151,14 +1432,17 @@ def classify_event(line):
     if "bled out" in lower or "bleed sources" in lower:
         return "bleedout"
 
-    if " packed " in lower:
+    if re.search(r"\bpacked\b", lower):
         return "packed"
 
-    if " placed " in lower:
+    if re.search(r"\bplaced\b", lower):
         return "placed"
 
     if any(term in lower for term in unconscious_terms):
         return "unconscious"
+
+    if any(term in lower for term in animal_terms) and any(word in lower for word in ["killed", "dead", "died"]):
+        return "animal_kill"
 
     if any(term in lower for term in zombie_terms):
 
@@ -1286,13 +1570,14 @@ def ping_latest_adm_log(config):
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 30
-LEADERBOARD_UPDATE_MINUTES = 30
-HEATMAP_UPDATE_MINUTES = 30
+ONLINE_UPDATE_MINUTES = 15
+LEADERBOARD_UPDATE_MINUTES = 15
+HEATMAP_UPDATE_MINUTES = 15
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
 last_heatmap_message_ids = {}
+last_pve_heatmap_message_ids = {}
 
 # =========================================================
 # CLICKABLE MAP LINKS
@@ -1316,7 +1601,10 @@ def build_izurvive_link(coords):
 ZONE_POINTS = {
     "NWAF": (330, 120), "Tisy": (220, 70), "Zelenogorsk": (170, 220),
     "Chernogorsk": (120, 290), "Elektrozavodsk": (360, 300), "Vybor": (210, 140),
-    "Berezino": (430, 150), "Severograd": (360, 95)
+    "Berezino": (430, 150), "Severograd": (360, 95),
+    "South West": (95, 305), "South Central": (255, 305), "South East": (420, 305),
+    "Midlands West": (95, 195), "Midlands Central": (255, 195), "Midlands East": (420, 195),
+    "North West": (95, 85), "North Central": (255, 85), "North East": (420, 85)
 }
 
 
@@ -1329,7 +1617,7 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
     height = 384
     mode = mode or guild_heatmap_mode(guild_id)
     pixels = [
-        [(94, 126, 102, 255) for _ in range(width)]
+        [(46, 66, 55, 255) for _ in range(width)]
         for _ in range(height)
     ]
 
@@ -1374,16 +1662,16 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
     def draw_grid():
         for x in range(0, width, 64):
             for y in range(height):
-                blend_pixel(x, y, (170, 200, 180, 80))
+                blend_pixel(x, y, (95, 120, 105, 70))
 
         for y in range(0, height, 48):
             for x in range(width):
-                blend_pixel(x, y, (170, 200, 180, 80))
+                blend_pixel(x, y, (95, 120, 105, 70))
 
         for x in range(40, width - 40):
             coast_y = int(300 + math.sin(x / 24) * 18)
             for y in range(coast_y, height):
-                blend_pixel(x, y, (72, 124, 170, 180))
+                blend_pixel(x, y, (36, 72, 95, 210))
 
     def png_chunk(chunk_type, data):
         chunk = chunk_type + data
@@ -1456,6 +1744,7 @@ async def on_guild_join(guild):
     economy_category = await guild.create_category("💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await guild.create_category("🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await guild.create_category("❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
+    pve_category = await guild.create_category("🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
 
     async def make_channel(name, *, cat=None):
 
@@ -1495,6 +1784,14 @@ async def on_guild_join(guild):
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
     vehicle_rentals = await make_channel("🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
     rental_logs = await make_channel("🛻📒・rental-logs・📒🛻", cat=economy_category)
+    pve_quests = await make_channel("🧭📜・pve-quests・📜🧭", cat=pve_category)
+    pve_hunting = await make_channel("🦌🏹・pve-hunting・🏹🦌", cat=pve_category)
+    pve_collection = await make_channel("🎒🥫・pve-collection・🥫🎒", cat=pve_category)
+    pve_fishing = await make_channel("🎣🐟・pve-fishing・🐟🎣", cat=pve_category)
+    pve_crafting = await make_channel("🪓🛠️・pve-crafting・🛠️🪓", cat=pve_category)
+    pve_expeditions = await make_channel("🗺️⛺・pve-expeditions・⛺🗺️", cat=pve_category)
+    pve_info = await make_channel("📘🌿・pve-info・🌿📘", cat=pve_category)
+    pve_heatmap = await make_channel("🦌🗺️・pve-heatmap・🗺️🦌", cat=pve_category)
     owner_overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
         guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -1538,6 +1835,14 @@ async def on_guild_join(guild):
             "purchase_logs": purchase_logs.id,
             "vehicle_rentals": vehicle_rentals.id,
             "rental_logs": rental_logs.id,
+            "pve_quests": pve_quests.id,
+            "pve_hunting": pve_hunting.id,
+            "pve_collection": pve_collection.id,
+            "pve_fishing": pve_fishing.id,
+            "pve_crafting": pve_crafting.id,
+            "pve_expeditions": pve_expeditions.id,
+            "pve_info": pve_info.id,
+            "pve_heatmap": pve_heatmap.id,
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id,
             "zombie_feed": zombie_feed.id,
@@ -1603,7 +1908,8 @@ async def setup_command(
         "staff_ops": ["staffops", "staff", "admin", "adminlogs"],
         "economy": ["economy", "blackmarket", "shop"],
         "factions": ["factions", "faction"],
-        "support": ["helpsupport", "helpdesk", "support"]
+        "support": ["helpsupport", "helpdesk", "support"],
+        "pve": ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"]
     }
 
     async def ensure_category(category_key, name):
@@ -1631,6 +1937,7 @@ async def setup_command(
     economy_category = await ensure_category("economy", "💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
+    pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
 
     channel_aliases = {
         "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
@@ -1659,7 +1966,15 @@ async def setup_command(
         "faction_tickets": ["factiontickets", "factionrequests"],
         "faction_staff": ["factionstaff"],
         "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
-        "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"]
+        "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
+        "pve_quests": ["pvequests", "quests", "missions", "pvemissions"],
+        "pve_hunting": ["pvehunting", "hunting", "animalhunts"],
+        "pve_collection": ["pvecollection", "collection", "scavenger", "gathering"],
+        "pve_fishing": ["pvefishing", "fishing", "fish"],
+        "pve_crafting": ["pvecrafting", "crafting", "bushcraft"],
+        "pve_expeditions": ["pveexpeditions", "expeditions", "exploration", "survivalruns"],
+        "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
+        "pve_heatmap": ["pveheatmap", "animalheatmap"]
     }
 
     def channel_matches_key(channel, key, desired_name):
@@ -1737,6 +2052,7 @@ async def setup_command(
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
     await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
     await ensure_channel("rental_logs", "🛻📒・rental-logs・📒🛻", cat=economy_category)
+    pve_channels = await ensure_pve_channels(interaction.guild, guild_configs[guild_id])
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -1903,45 +2219,6 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
         print(error)
         return False
 
-
-def run_vehicle_reset(config):
-    try:
-        ftp_host = "ftp.nitrado.net"
-        ftp_user = config.get("ftp_user")
-        ftp_pass = config.get("ftp_password")
-
-        if not ftp_user or not ftp_pass:
-            return False, "FTP details are missing."
-
-        baseline_path = config.get("vehicle_reset_baseline_events_path", "").strip()
-        target_events_path = config.get("vehicle_reset_target_events_path", "").strip()
-        persistence_paths = config.get("vehicle_reset_persistence_paths", [])
-
-        if not baseline_path or not os.path.exists(baseline_path):
-            return False, "Baseline events.xml path is missing or not found on bot host."
-
-        ftp = FTP_TLS(ftp_host)
-        ftp.login(ftp_user, ftp_pass)
-        ftp.prot_p()
-
-        with open(baseline_path, "rb") as events_file:
-            ftp.storbinary(f"STOR {target_events_path}", events_file)
-
-        deleted = 0
-        for remote_path in persistence_paths:
-            if not str(remote_path).strip():
-                continue
-            try:
-                ftp.delete(remote_path)
-                deleted += 1
-            except Exception:
-                continue
-
-        ftp.quit()
-        return True, f"Uploaded events.xml and deleted {deleted} configured persistence file(s)."
-    except Exception as error:
-        return False, str(error)
-
 # =========================================================
 # DOWNLOAD ADM
 # =========================================================
@@ -2087,21 +2364,6 @@ async def parse_adm(guild_id, config):
 
         lines = f.readlines()
 
-    config_tail_hash = str(config.get("adm_last_tail_hash", "")).strip()
-    if lines and not config_tail_hash:
-        # First run after setup/redeploy: checkpoint current tail so old events are not replayed.
-        stamp_adm_tail_checkpoint(guild_id, lines)
-        return
-
-    if lines and config_tail_hash:
-        start_index = None
-        for idx, raw in enumerate(lines):
-            if stable_line_hash(raw.strip()) == config_tail_hash:
-                start_index = idx + 1
-                break
-        if start_index is not None:
-            lines = lines[start_index:]
-
     channels = config.get("channels", {})
 
     killfeed_channel = bot.get_channel(
@@ -2148,6 +2410,8 @@ async def parse_adm(guild_id, config):
         print(f"EVENT: {event_type} | {line}")
 
         ensure_guild_runtime(guild_id)
+        update_player_stats_from_adm(guild_id, event_type, line)
+        save_player_stats()
 
         zone = get_zone_from_line(line)
         coords = extract_adm_coords(line)
@@ -2156,6 +2420,7 @@ async def parse_adm(guild_id, config):
         if heat_mode:
             increase_heat(guild_id, zone, heat_mode, coords)
 
+        await process_pve_progress_from_adm(guild_id, config, event_type, line)
         await send_special_adm_feed(guild_id, config, event_type, line)
 
         if event_type in [
@@ -2491,6 +2756,57 @@ async def parse_adm(guild_id, config):
 
             await raid_channel.send(embed=embed)
 
+        # ================= PVE HUNTING =================
+
+        elif event_type == "animal_kill":
+
+            hunting_channel = bot.get_channel(
+                channels.get("pve_hunting")
+            )
+
+            if not hunting_channel:
+                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                if guild:
+                    created = await ensure_pve_channels(guild, config)
+                    hunting_channel = created.get("pve_hunting")
+
+            if hunting_channel:
+
+                player_name = extract_player_name(line)
+                coords = extract_adm_coords(line)
+                animal_match = re.search(
+                    r"(Animal_[A-Za-z0-9_]+|bear|wolf|deer|stag|boar|cow|sheep|goat|chicken|hen|rooster|fox|hare)",
+                    line,
+                    re.IGNORECASE
+                )
+                animal_name = animal_match.group(1).replace("Animal_", "").replace("_", " ").title() if animal_match else "Animal"
+
+                embed = discord.Embed(
+                    title="🏹 PVE HUNTING ACTIVITY",
+                    color=0x2ECC71
+                )
+
+                embed.add_field(name="Hunter", value=player_name, inline=True)
+                embed.add_field(name="Target", value=animal_name, inline=True)
+
+                if coords:
+                    x, z, _ = split_adm_coords(coords)
+                    coord_lines = []
+                    if x:
+                        coord_lines.append(f"X: {x}")
+                    if z:
+                        coord_lines.append(f"Z: {z}")
+                    if coord_lines:
+                        embed.add_field(name="Location", value="\n".join(coord_lines), inline=False)
+
+                    map_link = build_izurvive_link(coords)
+                    if map_link:
+                        embed.add_field(name="Map", value=f"[Open Map](<{map_link}>)", inline=False)
+
+                embed.set_thumbnail(url=BOT_IMAGE)
+                embed.set_footer(text="Wandering Bot Alpha - PVE Hunting Feed")
+                await hunting_channel.send(embed=style_embed(embed))
+
                 # ================= ZOMBIES =================
 
         elif event_type == "zombie_hit":
@@ -2627,6 +2943,10 @@ async def parse_adm(guild_id, config):
                 r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
                 line
             )
+            reverse_killer_match = re.search(
+                r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)',
+                line
+            )
 
             coords_match = re.search(
                 r'pos=<([^>]+)>',
@@ -2638,11 +2958,16 @@ async def parse_adm(guild_id, config):
                 if coords_match else None
             )
 
-            if killer_match:
+            if killer_match or reverse_killer_match:
 
-                killer = killer_match.group(1)
-                victim = killer_match.group(2)
-                weapon = killer_match.group(3)
+                if killer_match:
+                    killer = killer_match.group(1)
+                    victim = killer_match.group(2)
+                    weapon = killer_match.group(3)
+                else:
+                    victim = reverse_killer_match.group(1)
+                    killer = reverse_killer_match.group(2)
+                    weapon = reverse_killer_match.group(3)
 
                 distance_match = re.search(
                     r'from ([0-9]+\.?[0-9]*)m',
@@ -2780,16 +3105,6 @@ async def parse_adm(guild_id, config):
                         await longshot_channel.send(
                             embed=style_embed(longshot_embed)
                         )
-
-                killer_stats = ensure_player_stat_record(killer, guild_id)
-                victim_stats = ensure_player_stat_record(victim, guild_id)
-                killer_stats["kills"] = int(killer_stats.get("kills", 0)) + 1
-                victim_stats["deaths"] = int(victim_stats.get("deaths", 0)) + 1
-                save_player_stats()
-
-    # Update tail checkpoint after processing so redeploys continue from newest known line.
-    if lines:
-        stamp_adm_tail_checkpoint(guild_id, lines)
 
 # =========================================================
 # ADM LOOP
@@ -3388,162 +3703,6 @@ async def helpme(ctx):
 
     await ctx.send(embed=style_embed(embed))
 
-    admin_vehicle_embed = discord.Embed(
-        title="🛠️ ADMIN GUIDE: VEHICLE-ONLY RESET (How To Use)",
-        description=(
-            "This guide is for owners/admins only. It explains what each vehicle reset command does "
-            "and the safe order to run them."
-        ),
-        color=0x3498DB
-    )
-
-    admin_vehicle_embed.add_field(
-        name="1) Configure baseline + schedule",
-        value=(
-            "`/configurevehiclereset enabled schedule_utc_hour baseline_events_path target_events_path`\n"
-            "Example: `/configurevehiclereset on 5 /home/container/events_baseline.xml "
-            "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml`\n"
-            "- `enabled`: `on/off`\n"
-            "- `schedule_utc_hour`: 0-23 UTC\n"
-            "- `baseline_events_path`: local file on bot host\n"
-            "- `target_events_path`: remote server events.xml path"
-        ),
-        inline=False
-    )
-
-    admin_vehicle_embed.add_field(
-        name="2) Set vehicle persistence files only",
-        value=(
-            "`/setvehiclepersistpaths path1,path2,path3`\n"
-            "Only include files related to vehicle persistence. "
-            "If you include broader persistence files, other world state may reset too."
-        ),
-        inline=False
-    )
-
-    admin_vehicle_embed.add_field(
-        name="3) Run instantly or let scheduler run daily",
-        value=(
-            "`/runvehiclereset` runs now.\n"
-            "Scheduler runs daily at configured UTC hour when enabled.\n"
-            "Use admin logs/console to verify success messages."
-        ),
-        inline=False
-    )
-
-    admin_vehicle_embed.add_field(
-        name="What this reset does",
-        value=(
-            "1. Uploads your baseline `events.xml`.\n"
-            "2. Deletes only configured persistence paths.\n"
-            "3. Leaves everything else untouched unless you configured broad paths."
-        ),
-        inline=False
-    )
-
-    admin_vehicle_embed.set_thumbnail(url=BOT_IMAGE)
-    admin_vehicle_embed.set_footer(text="Always backup before resets.")
-
-    await ctx.send(embed=style_embed(admin_vehicle_embed))
-
-    admin_full_guide = discord.Embed(
-        title="📘 ADMIN GUIDE: WHAT COMMANDS DO + HOW TO USE THEM",
-        description=(
-            "Quick practical guide for server owners/admins. "
-            "Use slash commands; examples show the normal usage pattern."
-        ),
-        color=0x9B59B6
-    )
-
-    admin_full_guide.add_field(
-        name="👥 Roles & Permissions",
-        value=(
-            "`/setadminrole role_name` → sets primary bot admin role.\n"
-            "`/addstaffrole role_name` → allows additional role to use admin tools.\n"
-            "`/staffroles` → lists who can run admin commands."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="🧹 Moderation",
-        value=(
-            "`/purge amount` → delete recent messages in current channel.\n"
-            "`/purgeuser member amount` → delete recent messages by one member.\n"
-            "`/purgebots amount` → clean recent bot messages."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="🖥️ Server Control & Restart Tools",
-        value=(
-            "`/restartserver` → requests a Nitrado restart.\n"
-            "`/setrestartinterval hours` + `/setrestartstart hour` → define UTC restart cadence.\n"
-            "`/listrestarts` → shows current restart schedule.\n"
-            "`/togglebasedamage state` → log/announce base damage state.\n"
-            "`/admstatus` + `/restartadm force` → monitor/recover ADM feed loop."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="📡 Radar / Alerts",
-        value=(
-            "`/setradarchannel channel` → where radar pings are posted.\n"
-            "`/radarping x y reason` → send manual map ping with context for staff/player alerts."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="🛒 Economy & Shop Admin",
-        value=(
-            "`/importtypesxml source_path default_price` → bulk import shop items from types.xml.\n"
-            "`/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem` → maintain shop catalog.\n"
-            "`/givepennies member amount` → manual balance adjustments.\n"
-            "`/shopcategories` → review catalog counts by category."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="⚖️ Auto Reward / Punishment Rules",
-        value=(
-            "`/addreward keyword amount` → add pennies when keyword appears.\n"
-            "`/addpunishment keyword amount` → remove pennies when keyword appears.\n"
-            "`/listrules` + `/removerule rule_number` → audit and clean chat economy rules."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="🌍 Translation, Identity, Factions, Support",
-        value=(
-            "`/translationconfig ...` → set auto translation mode/channel/languages.\n"
-            "`/linkgamer gamertag`, `/mylink` → map Discord ↔ gamertag identity.\n"
-            "`/factionticket`, `/factionapprove` → faction request pipeline.\n"
-            "`/supportbot issue` → private admin ticket to bot owner."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.add_field(
-        name="🧠 Safe Usage Pattern (Recommended)",
-        value=(
-            "1) Configure roles first (`/setadminrole`, `/addstaffrole`).\n"
-            "2) Configure server/restart channels and radar.\n"
-            "3) Configure economy/shop and moderation rules.\n"
-            "4) Run vehicle reset setup only after backups are verified."
-        ),
-        inline=False
-    )
-
-    admin_full_guide.set_thumbnail(url=BOT_IMAGE)
-    admin_full_guide.set_footer(text="Need details for a command? Ask admin to run /helpme again.")
-
-    await ctx.send(embed=style_embed(admin_full_guide))
-
 @bot.command()
 async def online(ctx):
 
@@ -3654,63 +3813,6 @@ async def heatmap(ctx):
     await ctx.send(
         embed=style_embed(embed)
     )
-
-
-@bot.command()
-async def pvestatus(ctx):
-    embed = discord.Embed(
-        title="🛡️ PVE SYSTEM STATUS",
-        description="PVE command layer is active for announcements and planning.",
-        color=0x2ECC71
-    )
-    embed.add_field(
-        name="Current",
-        value="Use existing feeds (`/zombiefeed`, `/unconsciousfeed`, `/heatmap`) for live PVE pressure monitoring.",
-        inline=False
-    )
-    embed.add_field(
-        name="Planned Expansion",
-        value="Rotating PVE objectives, faction PVE contracts, and timed hotspot alerts.",
-        inline=False
-    )
-    await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-async def quests(ctx):
-    embed = discord.Embed(
-        title="📜 QUEST BOARD",
-        description="Quest module is currently informational.",
-        color=0xF1C40F
-    )
-    embed.add_field(
-        name="How to use now",
-        value="Staff can post active quests in your announcements/help channels and track completion manually.",
-        inline=False
-    )
-    embed.add_field(
-        name="Next step",
-        value="Automated quest templates + reward payouts can be wired into the wallet/shop system.",
-        inline=False
-    )
-    await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-async def dayzimage(ctx, *, prompt: str = "abandoned military checkpoint at dusk"):
-    image_url = generate_dayz_image_url(prompt)
-    if not image_url:
-        await ctx.send("❌ Could not generate image URL right now.")
-        return
-
-    embed = discord.Embed(
-        title="🖼️ DAYZ AI IMAGE",
-        description=f"Prompt: `{prompt[:180]}`",
-        color=0x9B59B6
-    )
-    embed.set_image(url=image_url)
-    embed.set_footer(text="AI generated scene for community flavor content.")
-    await ctx.send(embed=style_embed(embed))
 
 
 @bot.command()
@@ -4823,6 +4925,746 @@ async def send_ai_alert(guild_id, config, line):
         embed=style_embed(embed)
     )
 
+
+# =========================================================
+# PVE QUEST SYSTEM
+# =========================================================
+
+PVE_CHALLENGE_BANK = [
+    {
+        "kind": "Hunting",
+        "title": "Campfire Supper",
+        "goal": "Hunt {count} deer, boar, goat, sheep, cow, or stag and bring proof to staff.",
+        "reward": "Admin-chosen pennies, food, ammo, or medical kit.",
+        "tips": "Try forest edges, open fields near farms, and quiet inland valleys."
+    },
+    {
+        "kind": "Hunting",
+        "title": "Predator Control",
+        "goal": "Clear {count} wolves or bears as a group challenge.",
+        "reward": "Admin-chosen weapons, ammo, or faction supplies.",
+        "tips": "Travel warm, carry bandages, and do not fight predators in thick trees unless you enjoy screaming."
+    },
+    {
+        "kind": "Collection",
+        "title": "Medical Run",
+        "goal": "Collect {count} medical items: tetra, charcoal, vitamins, bandages, saline, or morphine.",
+        "reward": "Admin-chosen medical bundle or pennies.",
+        "tips": "Clinics, hospitals, summer camps, and hunting camps are worth checking."
+    },
+    {
+        "kind": "Collection",
+        "title": "Pantry Raid",
+        "goal": "Collect {count} sealed food or drink items for a survivor stash.",
+        "reward": "Admin-chosen food crate or shop credit.",
+        "tips": "Coastal towns are fine early, but inland houses and hunting cabins are usually less picked clean."
+    },
+    {
+        "kind": "Repair",
+        "title": "Roadside Rescue",
+        "goal": "Find and repair one working vehicle part set: spark plug, battery, radiator, and fuel.",
+        "reward": "Admin-chosen vehicle supplies or fuel reward.",
+        "tips": "Industrial sheds, garages, and vehicle wrecks are your best bet."
+    },
+    {
+        "kind": "Explorer",
+        "title": "Quiet Places",
+        "goal": "Visit {count} named towns or landmarks and post screenshots.",
+        "reward": "Admin-chosen exploration reward.",
+        "tips": "Move light, avoid obvious roads, and mark your route before the server teaches you humility."
+    },
+    {
+        "kind": "Survival",
+        "title": "Off-Grid Night",
+        "goal": "Survive one full night cycle with only hunted, fished, or foraged food.",
+        "reward": "Admin-chosen survival bundle.",
+        "tips": "A knife, rope, bones, hooks, and patience. That last one is usually where people fall apart."
+    },
+    {
+        "kind": "Fishing",
+        "title": "River Supper",
+        "goal": "Catch {count} fish and cook them at a campfire.",
+        "reward": "Admin-chosen food reward, cooking kit, or pennies.",
+        "tips": "Bones make hooks, rope makes a fishing rod, and quiet water beats sprinting around hungry like a muppet."
+    },
+    {
+        "kind": "Fishing",
+        "title": "Coastal Angler",
+        "goal": "Catch {count} fish from coastal water and post proof of the catch.",
+        "reward": "Admin-chosen coastal survivor kit.",
+        "tips": "The coast can feed you if you stop treating it like a loading screen."
+    },
+    {
+        "kind": "Crafting",
+        "title": "Bushcraft Basics",
+        "goal": "Craft a fireplace, hand drill kit, improvised fishing rod, and stone knife.",
+        "reward": "Admin-chosen survival tools or shop credit.",
+        "tips": "Small stones, bark, sticks, rope, and bones are worth more than panic."
+    },
+    {
+        "kind": "Crafting",
+        "title": "Field Medic",
+        "goal": "Prepare {count} clean bandages or medical supplies and deliver them to a safe stash.",
+        "reward": "Admin-chosen medical reward.",
+        "tips": "Disinfected gear saves lives. Dirty rags save nobody, except maybe the infection."
+    },
+    {
+        "kind": "Collection",
+        "title": "Mechanic's Shopping List",
+        "goal": "Collect a spark plug, car battery, truck battery, radiator, tire repair kit, and fuel can.",
+        "reward": "Admin-chosen vehicle reward.",
+        "tips": "Garages, sheds, industrial yards, and wrecks are the places to haunt."
+    },
+    {
+        "kind": "Collection",
+        "title": "Warm Hands, Warm Head",
+        "goal": "Collect {count} warm clothing items: gloves, hats, jackets, boots, or hunting clothes.",
+        "reward": "Admin-chosen winter kit or pennies.",
+        "tips": "Hunting cabins and inland villages are usually better than coastal leftovers."
+    },
+    {
+        "kind": "Explorer",
+        "title": "Radio Tower Run",
+        "goal": "Visit {count} radio towers, castles, camps, or named landmarks and post screenshots.",
+        "reward": "Admin-chosen expedition reward.",
+        "tips": "Bring binoculars, food, and enough sense to leave before the shooting starts."
+    },
+    {
+        "kind": "Explorer",
+        "title": "Pilgrim Trail",
+        "goal": "Travel from the coast to an inland safe zone without using a vehicle.",
+        "reward": "Admin-chosen travel reward.",
+        "tips": "Navigation, water stops, and not sprinting everywhere like an idiot are the real challenge."
+    },
+    {
+        "kind": "Rescue",
+        "title": "Medic Escort",
+        "goal": "Escort another survivor to a clinic, camp, or safe base and keep them alive.",
+        "reward": "Admin-chosen team reward.",
+        "tips": "A good escort watches tree lines. A bad escort asks why everyone is dead."
+    },
+    {
+        "kind": "Base Support",
+        "title": "Camp Builder",
+        "goal": "Gather {count} base supplies: nails, planks, rope, wire, tools, or code locks.",
+        "reward": "Admin-chosen building supply reward.",
+        "tips": "Industrial zones, sheds, and lumber piles make builders happy. Raiders are also happy, but ignore that."
+    },
+    {
+        "kind": "Zombie Control",
+        "title": "Town Cleanup",
+        "goal": "Clear {count} infected from a town, clinic, police station, or military camp.",
+        "reward": "Admin-chosen ammo, food, or medical reward.",
+        "tips": "Use doors, spacing, and quiet weapons. Running into the street yelling is a lifestyle choice, not a tactic."
+    },
+    {
+        "kind": "Treasure Hunt",
+        "title": "Cache Finder",
+        "goal": "Find a buried stash, hidden crate, or abandoned camp and post proof without revealing the exact spot publicly.",
+        "reward": "Admin-chosen discovery reward.",
+        "tips": "Look for disturbed ground, odd tree lines, and places players think are clever. They usually are not."
+    },
+]
+
+
+PVE_GENERATED_QUEST_SEEDS = [
+    ("Hunting", "Deer Trail", "Hunt {count} deer, stag, or doe and return with proof.", "animal_kill", 500, "Easy", "Move along forest edges and listen more than you sprint."),
+    ("Hunting", "Farmyard Forager", "Hunt {count} chickens, goats, sheep, cows, or pigs.", "animal_kill", 450, "Easy", "Farms and small villages are better than wandering in circles swearing at bushes."),
+    ("Hunting", "Wolf Line", "Survive and clear {count} wolves.", "animal_kill", 900, "Medium", "Bandages first, confidence second. Wolves love idiots with empty stamina."),
+    ("Hunting", "Bear Story", "Bring down {count} bear as a squad and live to brag about it.", "animal_kill", 1800, "Hard", "Shoot together, spread out, and avoid heroic solo nonsense."),
+    ("Zombie Control", "Clinic Sweep", "Clear {count} infected near medical buildings.", "zombie_kill", 650, "Easy", "Doors, blades, stamina. The holy trinity of not getting slapped silly."),
+    ("Zombie Control", "Police Station Cleanup", "Clear {count} infected around police or security buildings.", "zombie_kill", 750, "Medium", "Keep it quiet unless you want every infected in town joining your committee meeting."),
+    ("Zombie Control", "Camp Sanitiser", "Clear {count} infected from camps, checkpoints, or military tents.", "zombie_kill", 1100, "Hard", "Good loot usually has bad neighbours."),
+    ("Base Support", "Quiet Builder", "Place or build {count} useful camp structures or storage items.", "placed", 700, "Easy", "Small camps make better stories than giant raid invitations."),
+    ("Base Support", "Supply Stacker", "Place {count} crates, barrels, tents, shelters, or storage pieces.", "placed", 850, "Medium", "Hide it like you care about keeping it."),
+    ("Crafting", "Camp Hands", "Craft or place {count} camp utility items.", "placed", 800, "Medium", "Fireplaces, shelters and storage turn panic into a plan."),
+    ("Explorer", "Northern Drift", "Visit {count} northern landmarks and post screenshots.", None, 900, "Medium", "The north rewards patience and punishes tourist behaviour."),
+    ("Explorer", "Coastal Memory", "Visit {count} coastal landmarks without using a vehicle.", None, 500, "Easy", "The coast is not just where people yell for apples."),
+    ("Explorer", "Castle Loop", "Visit {count} castles, towers, or ruins and post proof.", None, 1000, "Medium", "Old stones, good views, terrible ambush potential."),
+    ("Fishing", "Still Water", "Catch and cook {count} fish.", None, 600, "Easy", "Fish quests are peace with a side order of bone hooks."),
+    ("Fishing", "Feast Prep", "Catch {count} fish and deliver them to a camp or faction stash.", None, 900, "Medium", "A fed group makes fewer stupid decisions. Usually."),
+    ("Collection", "Medicine Cabinet", "Collect {count} medical supplies and post proof.", None, 700, "Easy", "Tetra, charcoal, vitamins, saline, morphine, bandages. Hoard responsibly."),
+    ("Collection", "Warm Kit", "Collect {count} warm clothing pieces for cold-weather survivors.", None, 650, "Easy", "Gloves are not glamorous, but neither is frostbite."),
+    ("Collection", "Builder's Bundle", "Collect {count} building supplies: nails, planks, wire, rope, locks, or tools.", None, 900, "Medium", "Every nail has a destiny. Usually in a wall someone later complains about."),
+    ("Repair", "Garage Goblin", "Find a working vehicle part set and post proof.", None, 1200, "Hard", "Battery, plug, radiator, fuel. Then the car may still betray you."),
+    ("Rescue", "Good Samaritan", "Escort or resupply another survivor and post proof.", None, 1000, "Medium", "PVE is better when someone else survives because you showed up."),
+    ("Treasure Hunt", "Little Mystery", "Find a scenic, hidden, or strange spot and post a screenshot clue.", None, 600, "Easy", "Discovery counts. Not everything needs to bleed."),
+    ("Treasure Hunt", "Lost Cache", "Find or create a small hidden cache for another survivor to discover.", None, 1300, "Hard", "Leave a story, not just loot."),
+    ("Survival", "Rainwalk", "Travel during bad weather and reach shelter with proof.", None, 800, "Medium", "Sometimes the mission is just getting warm again."),
+    ("Survival", "No-Shop Supper", "Feed yourself from hunting, fishing, or foraging only.", None, 900, "Medium", "Escape, not grind. Make a little camp and breathe for once."),
+]
+
+PVE_CHAIN_QUESTS = [
+    {
+        "kind": "Quest Line",
+        "title": "The Hermit's Map I",
+        "goal": "Find a quiet landmark and post a screenshot clue. This starts the Hermit's Map line.",
+        "reward": "700 pennies and access to the next story step.",
+        "tips": "Look for places people pass without seeing.",
+        "difficulty": "Easy",
+        "reward_pennies": 700,
+        "quest_line": "The Hermit's Map",
+        "target_event": None,
+    },
+    {
+        "kind": "Quest Line",
+        "title": "The Hermit's Map II",
+        "goal": "Travel to a second landmark at least one region away and post proof.",
+        "reward": "1200 pennies and a larger expedition reward.",
+        "tips": "A journey feels better when it has a reason.",
+        "difficulty": "Medium",
+        "reward_pennies": 1200,
+        "quest_line": "The Hermit's Map",
+        "target_event": None,
+    },
+    {
+        "kind": "Quest Line",
+        "title": "The Hermit's Map III",
+        "goal": "Build a tiny traveller cache with food, fire, and one useful tool for the next survivor.",
+        "reward": "2500 pennies and admin-chosen rare reward.",
+        "tips": "The best PVE stories leave something behind.",
+        "difficulty": "Hard",
+        "reward_pennies": 2500,
+        "quest_line": "The Hermit's Map",
+        "target_event": "placed",
+        "target_count": 3,
+    },
+    {
+        "kind": "Quest Line",
+        "title": "Warden of the Woods I",
+        "goal": "Hunt {count} wild animals without dying.",
+        "reward": "900 pennies and the next hunt unlock.",
+        "tips": "The woods pay attention. Try doing the same.",
+        "difficulty": "Medium",
+        "reward_pennies": 900,
+        "quest_line": "Warden of the Woods",
+        "target_event": "animal_kill",
+    },
+    {
+        "kind": "Quest Line",
+        "title": "Warden of the Woods II",
+        "goal": "Clear {count} predators or infected from a wilderness route.",
+        "reward": "1800 pennies and admin-chosen hunter gear.",
+        "tips": "This is where the woods start negotiating with your ammo count.",
+        "difficulty": "Hard",
+        "reward_pennies": 1800,
+        "quest_line": "Warden of the Woods",
+        "target_event": "animal_kill",
+    },
+]
+
+for idx, seed in enumerate(PVE_GENERATED_QUEST_SEEDS, start=1):
+    kind, title, goal, target_event, reward_pennies, difficulty, tips = seed
+    for variant in range(1, 4):
+        PVE_CHALLENGE_BANK.append({
+            "kind": kind,
+            "title": f"{title} {variant}",
+            "goal": goal,
+            "reward": f"{reward_pennies + (variant * 75)} pennies plus any admin bonus.",
+            "tips": tips,
+            "difficulty": difficulty,
+            "reward_pennies": reward_pennies + (variant * 75),
+            "target_event": target_event,
+        })
+
+PVE_CHALLENGE_BANK.extend(PVE_CHAIN_QUESTS)
+
+PVE_INFO_TOPICS = {
+    "loot": (
+        "Loot tip: food and knives first, meds second, weapons third. Police stations, hunting camps, "
+        "medical buildings, summer camps, and military tents all have different value. Stop checking the same empty shed like it owes you rent."
+    ),
+    "hunting": (
+        "Hunting tip: animals like open fields, forest edges, farms, and quiet inland routes. Listen before sprinting in. "
+        "Wolves mean free meat if you are prepared, and a funeral if you are not."
+    ),
+    "medical": (
+        "Medical tip: keep disinfected bandages, tetra, charcoal, vitamins, and a blood/saline plan. "
+        "Dirty rags and mystery pond water are how survivors become cautionary decoration."
+    ),
+    "building": (
+        "Building tip: hidden, ugly, and boring survives longer than huge and shiny. Stash smart, keep tools split, and do not advertise your life savings with walls."
+    ),
+    "vehicles": (
+        "Vehicle tip: spark plug, battery, radiator, fuel, water in the radiator, then drive gently. "
+        "DayZ cars punish confidence with physics lessons."
+    ),
+    "fishing": (
+        "Fishing tip: bones make hooks, rope makes a rod, and worms help. Cook the fish before eating unless your survivor is auditioning for stomach problems."
+    ),
+    "crafting": (
+        "Crafting tip: bark, sticks, rope, bones, stones, rags, and duct tape solve more problems than people admit. Carry a blade and stop binning useful junk."
+    ),
+    "expeditions": (
+        "Expedition tip: plan water stops, move through cover, carry a compass, and leave space for loot. The long way round is often the alive way round."
+    ),
+    "collections": (
+        "Collection tip: split the shopping list between players. One person checks medical, one hits sheds, one covers food. Teamwork, tragically, works."
+    ),
+    "zombies": (
+        "Infected tip: doors are weapons, stamina is life, and loud guns invite an audience. A quiet blade saves ammo and dignity."
+    ),
+}
+
+
+def pve_config(config):
+    return config.setdefault("pve", {"enabled": True, "interval_hours": 72})
+
+
+def pve_reward_for_difficulty(difficulty):
+    return {
+        "Easy": 350,
+        "Medium": 800,
+        "Hard": 1500,
+        "Legendary": 3000,
+    }.get(difficulty, 600)
+
+
+def pve_target_count(template, count):
+    if template.get("target_count"):
+        return int(template.get("target_count"))
+    if template.get("target_event"):
+        return int(count)
+    return 0
+
+
+def generate_pve_challenge():
+    template = random.choice(PVE_CHALLENGE_BANK)
+    difficulty = template.get("difficulty", random.choice(["Easy", "Easy", "Medium", "Medium", "Hard"]))
+    count_choices = {
+        "Easy": [2, 3, 4, 5],
+        "Medium": [5, 7, 8, 10],
+        "Hard": [10, 12, 15],
+        "Legendary": [15, 20, 25],
+    }.get(difficulty, [3, 5, 7])
+    count = random.choice(count_choices)
+    reward_pennies = int(template.get("reward_pennies", pve_reward_for_difficulty(difficulty)))
+    target_count = pve_target_count(template, count)
+    return {
+        "id": f"pve-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}",
+        "kind": template["kind"],
+        "title": template["title"],
+        "goal": template["goal"].format(count=count),
+        "reward": template.get("reward", f"{reward_pennies} pennies plus any admin bonus."),
+        "reward_pennies": reward_pennies,
+        "difficulty": difficulty,
+        "tips": template["tips"],
+        "target_event": template.get("target_event"),
+        "target_count": target_count,
+        "progress": {},
+        "quest_line": template.get("quest_line"),
+        "created": str(datetime.now(UTC)),
+        "status": "active"
+    }
+
+
+def pve_themed_channel_key(challenge):
+    return {
+        "hunting": "pve_hunting",
+        "fishing": "pve_fishing",
+        "collection": "pve_collection",
+        "crafting": "pve_crafting",
+        "repair": "pve_crafting",
+        "explorer": "pve_expeditions",
+        "survival": "pve_expeditions",
+        "rescue": "pve_expeditions",
+        "base support": "pve_crafting",
+        "zombie control": "pve_expeditions",
+        "treasure hunt": "pve_expeditions",
+        "quest line": "pve_expeditions",
+    }.get(str(challenge.get("kind", "")).lower())
+
+
+def linked_user_id_for_player(player_name):
+    wanted = normalize_discord_name(player_name)
+    for user_id, data in linked_players.items():
+        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+            return str(user_id)
+    return None
+
+
+def award_pve_pennies(player_name, challenge):
+    user_id = linked_user_id_for_player(player_name)
+    if not user_id:
+        return False, "No linked Discord member found"
+
+    wallet = wallets.setdefault(user_id, {
+        "name": linked_players.get(user_id, {}).get("discord_name", player_name),
+        "balance": 0,
+        "daily_transactions": 0
+    })
+    reward = int(challenge.get("reward_pennies", 0))
+    wallet["balance"] = wallet.get("balance", 0) + reward
+    save_wallets()
+    return True, f"{reward} pennies paid"
+
+
+def pve_progress_text(challenge):
+    target_count = int(challenge.get("target_count", 0) or 0)
+    if not target_count:
+        return "Manual approval"
+
+    progress = challenge.get("progress", {})
+    if not progress:
+        return f"0/{target_count}"
+
+    leader, amount = max(progress.items(), key=lambda row: row[1])
+    return f"{leader}: {amount}/{target_count}"
+
+
+async def post_pve_challenge(guild_id, config, *, manual=False):
+    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    if not guild:
+        return False, "Guild not found"
+
+    channels = config.setdefault("channels", {})
+    quest_channel = bot.get_channel(channels.get("pve_quests"))
+    if not quest_channel:
+        created = await ensure_pve_channels(guild, config)
+        quest_channel = created.get("pve_quests")
+
+    if not quest_channel:
+        return False, "PVE quest channel missing"
+
+    challenge = generate_pve_challenge()
+    guild_challenges = pve_challenges.setdefault(str(guild_id), [])
+    guild_challenges.append(challenge)
+    pve_challenges[str(guild_id)] = guild_challenges[-25:]
+    save_pve_challenges()
+
+    embed = discord.Embed(
+        title=f"🌲 PVE QUEST: {challenge['title']}",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Type", value=challenge["kind"], inline=True)
+    embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
+    embed.add_field(name="Status", value="Manual Post" if manual else "Auto Generated", inline=True)
+    embed.add_field(name="Objective", value=challenge["goal"], inline=False)
+    embed.add_field(name="Reward", value=challenge["reward"], inline=False)
+    if challenge.get("target_event"):
+        embed.add_field(
+            name="Auto Tracking",
+            value=f"ADM tracked: `{challenge['target_event']}` events, target `{challenge.get('target_count', 0)}`.",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Completion",
+            value="Post proof for staff. Admins can approve with `/pvecomplete`.",
+            inline=False
+        )
+    if challenge.get("quest_line"):
+        embed.add_field(name="Quest Line", value=challenge["quest_line"], inline=True)
+    embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Mission Board")
+
+    await quest_channel.send(embed=style_embed(embed))
+
+    themed_channel_key = pve_themed_channel_key(challenge)
+
+    if themed_channel_key:
+        themed_channel = bot.get_channel(channels.get(themed_channel_key))
+        if themed_channel and themed_channel.id != quest_channel.id:
+            themed_embed = discord.Embed.from_dict(embed.to_dict())
+            await themed_channel.send(embed=style_embed(themed_embed))
+
+    return True, challenge["title"]
+
+
+async def send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status):
+    channels = config.get("channels", {})
+    quest_channel = bot.get_channel(channels.get("pve_quests"))
+    themed_channel = bot.get_channel(channels.get(pve_themed_channel_key(challenge)))
+
+    embed = discord.Embed(
+        title="🏕️ PVE QUEST COMPLETE",
+        description=f"**{player_name}** completed **{challenge.get('title')}**.",
+        color=0xF1C40F
+    )
+    embed.add_field(name="Type", value=challenge.get("kind", "PVE"), inline=True)
+    embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
+    embed.add_field(name="Reward", value=reward_status, inline=False)
+    if challenge.get("quest_line"):
+        embed.add_field(name="Quest Line", value=challenge["quest_line"], inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+
+    sent = False
+    for channel in [quest_channel, themed_channel]:
+        if channel and (not sent or channel.id != quest_channel.id):
+            await channel.send(embed=style_embed(discord.Embed.from_dict(embed.to_dict())))
+            sent = True
+
+
+async def process_pve_progress_from_adm(guild_id, config, event_type, line):
+    guild_quests = pve_challenges.get(str(guild_id), [])
+    if not guild_quests:
+        return
+
+    player_name = extract_player_name(line)
+    if not player_name or player_name == "Unknown":
+        return
+
+    changed = False
+
+    for challenge in guild_quests:
+        if challenge.get("status") != "active":
+            continue
+
+        target_event = challenge.get("target_event")
+        if not target_event or target_event != event_type:
+            continue
+
+        target_count = int(challenge.get("target_count", 0) or 0)
+        if target_count <= 0:
+            continue
+
+        progress = challenge.setdefault("progress", {})
+        progress[player_name] = int(progress.get(player_name, 0)) + 1
+        changed = True
+
+        if progress[player_name] >= target_count:
+            challenge["status"] = "completed"
+            challenge["completed_by"] = player_name
+            challenge["completed"] = str(datetime.now(UTC))
+            paid, reward_status = award_pve_pennies(player_name, challenge)
+            if not paid:
+                reward_status = f"{challenge.get('reward_pennies', 0)} pennies pending. Survivor must link gamertag with `/linkgamer`."
+            await send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status)
+
+    if changed:
+        save_pve_challenges()
+
+
+@tasks.loop(minutes=30)
+async def pve_challenge_loop():
+    now_ts = datetime.now(UTC).timestamp()
+
+    for guild_id, config in active_guild_config_items():
+        try:
+            settings = pve_config(config)
+            if not settings.get("enabled", True):
+                continue
+
+            interval_hours = int(settings.get("interval_hours", 72))
+            interval_hours = max(6, min(168, interval_hours))
+            last_post = float(settings.get("last_post_ts", 0))
+
+            if now_ts - last_post < interval_hours * 3600:
+                continue
+
+            success, _ = await post_pve_challenge(guild_id, config)
+            if success:
+                settings["last_post_ts"] = now_ts
+                save_guild_configs()
+
+        except Exception as error:
+            print(f"PVE CHALLENGE LOOP ERROR {guild_id}: {error}")
+
+
+@bot.tree.command(name="pvesetup", description="Admin: create or repair the PVE category and channels")
+async def pvesetup(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    channels = await ensure_pve_channels(interaction.guild, config)
+
+    info_channel = channels.get("pve_info")
+    if info_channel:
+        embed = discord.Embed(
+            title="PVE MISSIONS ONLINE",
+            description="PVE quests, hunting, collection, fishing, crafting, expeditions, survival advice, and PVE heatmap channels are ready.",
+            color=0x2ECC71
+        )
+        embed.add_field(name="Quest Feed", value="Auto quests post in the PVE quest channel.", inline=False)
+        embed.add_field(name="Themed Feeds", value="Fishing, hunting, crafting, collection, and expedition quests also copy into their own channels.", inline=False)
+        embed.add_field(name="Admin Controls", value="Use `/pveconfig` and `/pvequestnow` to tune the mission board.", inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        await info_channel.send(embed=style_embed(embed))
+
+    await interaction.response.send_message("PVE category and channels are ready.", ephemeral=True)
+
+
+@bot.tree.command(name="pveconfig", description="Admin: configure automatic PVE quest posting")
+@app_commands.describe(enabled="Turn auto PVE quests on or off", interval_hours="Hours between quests, 6 to 168")
+async def pveconfig_command(interaction: discord.Interaction, enabled: bool = True, interval_hours: int = 72):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    interval_hours = max(6, min(168, int(interval_hours)))
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = pve_config(config)
+    settings["enabled"] = enabled
+    settings["interval_hours"] = interval_hours
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        f"PVE auto quests are {'on' if enabled else 'off'} every {interval_hours} hours.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="pvequestnow", description="Admin: post a random PVE quest now")
+async def pvequestnow(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    success, message = await post_pve_challenge(guild_id, config, manual=True)
+    await interaction.followup.send(
+        f"PVE quest posted: {message}" if success else f"PVE quest failed: {message}",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="pvequests", description="Show recent PVE quests")
+async def pvequests(interaction: discord.Interaction):
+    guild_quests = pve_challenges.get(str(interaction.guild.id), [])
+    if not guild_quests:
+        await interaction.response.send_message("No PVE quests have been posted yet.", ephemeral=True)
+        return
+
+    lines = [
+        (
+            f"{idx}. **{quest.get('title')}** - {quest.get('kind')} - "
+            f"{quest.get('status', 'active')} - {pve_progress_text(quest)} - "
+            f"{quest.get('reward_pennies', 0)} pennies"
+        )
+        for idx, quest in enumerate(reversed(guild_quests[-10:]), start=1)
+    ]
+    embed = discord.Embed(
+        title="RECENT PVE QUESTS",
+        description="\n".join(lines),
+        color=0x2ECC71
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="pvecomplete", description="Admin: approve a PVE quest and pay the linked member")
+@app_commands.describe(quest_number="Number from /pvequests", member="Discord member who completed it")
+async def pvecomplete(interaction: discord.Interaction, quest_number: int, member: discord.Member):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    guild_quests = pve_challenges.get(guild_id, [])
+    recent = list(reversed(guild_quests[-10:]))
+
+    if quest_number < 1 or quest_number > len(recent):
+        await interaction.response.send_message("Quest number not found. Use `/pvequests` first.", ephemeral=True)
+        return
+
+    challenge = recent[quest_number - 1]
+    user_id = str(member.id)
+    linked = linked_players.get(user_id, {})
+    player_name = linked.get("gamertag") or str(member)
+
+    challenge["status"] = "completed"
+    challenge["completed_by"] = player_name
+    challenge["completed_discord_id"] = user_id
+    challenge["completed"] = str(datetime.now(UTC))
+
+    wallet = wallets.setdefault(user_id, {
+        "name": str(member),
+        "balance": 0,
+        "daily_transactions": 0
+    })
+    reward = int(challenge.get("reward_pennies", 0))
+    wallet["balance"] = wallet.get("balance", 0) + reward
+    save_wallets()
+    save_pve_challenges()
+
+    await send_pve_completion_feed(
+        guild_id,
+        guild_configs.get(guild_id, {}),
+        player_name,
+        challenge,
+        f"{reward} pennies paid to {member.mention}"
+    )
+
+    await interaction.response.send_message(
+        f"Approved `{challenge.get('title')}` for {member.mention} and paid {reward} pennies.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="pveguide", description="Get AI-style guidance for a recent PVE quest")
+@app_commands.describe(quest_number="Number from /pvequests")
+async def pveguide(interaction: discord.Interaction, quest_number: int = 1):
+    guild_quests = pve_challenges.get(str(interaction.guild.id), [])
+    recent = list(reversed(guild_quests[-10:]))
+
+    if not recent or quest_number < 1 or quest_number > len(recent):
+        await interaction.response.send_message("No matching quest found. Use `/pvequests` first.", ephemeral=True)
+        return
+
+    quest = recent[quest_number - 1]
+    tracked = (
+        f"I can track this one from ADM logs when I see `{quest.get('target_event')}` events."
+        if quest.get("target_event")
+        else "This one needs screenshots, clips, or staff approval because logs cannot prove the fun bits."
+    )
+    line = (
+        f"**{quest.get('title')}**\n"
+        f"{quest.get('goal')}\n\n"
+        f"{quest.get('tips')}\n\n"
+        f"{tracked}\n"
+        f"Reward: `{quest.get('reward_pennies', 0)}` pennies. Link your gamertag so I can pay you without making everyone do paperwork."
+    )
+    embed = discord.Embed(
+        title="🧠 PVE QUEST GUIDE",
+        description=line,
+        color=0x1ABC9C
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="pverewards", description="Show how PVE rewards work")
+async def pverewards(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="PVE REWARDS",
+        description=(
+            "Tracked quests pay automatically when your Discord is linked to your gamertag. "
+            "Story, collection, exploration, and shenanigan quests can be approved by staff with `/pvecomplete`."
+        ),
+        color=0xF1C40F
+    )
+    embed.add_field(name="Easy", value="Around 350-700 pennies", inline=True)
+    embed.add_field(name="Medium", value="Around 800-1300 pennies", inline=True)
+    embed.add_field(name="Hard", value="Around 1500+ pennies", inline=True)
+    embed.add_field(name="Quest Lines", value="Multi-step stories can lead to bigger admin rewards.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="pveinfo", description="Get PVE survival advice")
+@app_commands.describe(topic="loot, hunting, medical, building, vehicles, fishing, crafting, expeditions, collections, or zombies")
+async def pveinfo(interaction: discord.Interaction, topic: str = "loot"):
+    key = topic.lower().strip()
+    advice = PVE_INFO_TOPICS.get(key)
+    if not advice:
+        advice = "Pick one of: loot, hunting, medical, building, vehicles, fishing, crafting, expeditions, collections, zombies."
+
+    embed = discord.Embed(
+        title=f"PVE INFO: {key.upper()}",
+        description=advice,
+        color=0x1ABC9C
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
 # =========================================================
 # LIVE SERVER STATUS
 # =========================================================
@@ -5080,9 +5922,9 @@ async def start_background_tasks():
 
         if not restart_delivery_processor.is_running():
             restart_delivery_processor.start()
-        
-        if not scheduled_vehicle_reset_loop.is_running():
-            scheduled_vehicle_reset_loop.start()
+
+        if not pve_challenge_loop.is_running():
+            pve_challenge_loop.start()
 
     except RuntimeError:
         pass
@@ -5192,7 +6034,7 @@ async def heatmap_loop():
                 title=f"🔥 LIVE {heatmap_mode.upper()} HEATMAP",
                 description=(
                     "\n".join(lines)
-                    if lines else "No PvP activity detected yet."
+                    if lines else f"No {heatmap_mode} activity detected yet."
                 ),
                 color=0x9B59B6
             )
@@ -5225,6 +6067,48 @@ async def heatmap_loop():
 
             sent_message = await heatmap_channel.send(embed=embed, file=file)
             last_heatmap_message_ids[guild_id] = sent_message.id
+
+            pve_heatmap_channel = bot.get_channel(
+                channels.get("pve_heatmap")
+            )
+
+            if pve_heatmap_channel:
+                pve_counts = heat_counts_for_mode(guild_id, "pve")
+                pve_lines = [
+                    f"🦌 {zone} — {count} PVE events"
+                    for zone, count in sorted(pve_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                ]
+                pve_embed = discord.Embed(
+                    title="🦌 LIVE PVE HUNTING HEATMAP",
+                    description="\n".join(pve_lines) if pve_lines else "No PVE hunting activity detected yet.",
+                    color=0x2ECC71
+                )
+                pve_embed.add_field(
+                    name="Status",
+                    value="Tracking animal and PVE hunting activity across the server.",
+                    inline=False
+                )
+                pve_heatmap_path = generate_guild_heatmap_image(guild_id, "pve")
+                pve_file = discord.File(pve_heatmap_path, filename="pve_heatmap.png")
+                pve_embed.set_image(url="attachment://pve_heatmap.png")
+                pve_embed.set_thumbnail(url=BOT_IMAGE)
+                pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 15 Minutes")
+
+                old_pve_message_id = last_pve_heatmap_message_ids.get(guild_id)
+                if old_pve_message_id:
+                    try:
+                        old_pve_message = await pve_heatmap_channel.fetch_message(old_pve_message_id)
+                        await old_pve_message.delete()
+                    except Exception:
+                        pass
+
+                pve_sent_message = await pve_heatmap_channel.send(embed=pve_embed, file=pve_file)
+                last_pve_heatmap_message_ids[guild_id] = pve_sent_message.id
+                try:
+                    os.remove(pve_heatmap_path)
+                except Exception:
+                    pass
+
             try:
                 os.remove(heatmap_path)
             except Exception:
@@ -5253,57 +6137,64 @@ async def leaderboard_loop():
             if not leaderboard_channel:
                 continue
 
-            sorted_players = sorted(
-                player_stats.items(),
-                key=lambda x: x[1].get("kills", 0),
-                reverse=True
-            )
+            guild_only = [
+                (player, stats)
+                for player, stats in player_stats.items()
+                if str(stats.get("guild_id", "")) == guild_id
+            ]
 
-            lines = []
-
-            for index, (player, stats) in enumerate(
-                sorted_players[:10],
-                start=1
-            ):
-
-                lines.append(
-                    f"{index}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
+            def board_lines(stat_key, icon, limit=5, formatter=None):
+                sorted_rows = sorted(
+                    guild_only,
+                    key=lambda row: row[1].get(stat_key, 0),
+                    reverse=True
                 )
-
-            global_lines = lines[:5]
-
-            guild_lines = []
-            guild_only = []
-            for player, stats in player_stats.items():
-                if str(stats.get("guild_id", "")) == guild_id:
-                    guild_only.append((player, stats))
-            guild_only.sort(key=lambda x: x[1].get("kills", 0), reverse=True)
-            for idx, (player, stats) in enumerate(guild_only[:5], start=1):
-                guild_lines.append(
-                    f"{idx}. {player} — ☠️ {stats.get('kills', 0)} | 💀 {stats.get('deaths', 0)}"
-                )
+                lines = []
+                for idx, (player, stats) in enumerate(sorted_rows[:limit], start=1):
+                    value = stats.get(stat_key, 0)
+                    if formatter:
+                        value = formatter(value)
+                    lines.append(f"{idx}. {player} - {icon} {value}")
+                return "\n".join(lines) if lines else "Waiting for ADM data."
 
             embed = discord.Embed(
-                title="🏆 LEADERBOARDS (GLOBAL + THIS SERVER) 🏆",
+                title="DAYZ SERVER LEADERBOARDS",
                 color=0xF1C40F
             )
             embed.add_field(
-                name="🌍 Global Top 5",
-                value=(
-                    "\n".join(global_lines)
-                    if global_lines else
-                    "No kill stats yet. Leaderboard fills after kill events are detected in ADM."
-                ),
-                inline=False
+                name="Top Kills",
+                value=board_lines("kills", "kills"),
+                inline=True
             )
             embed.add_field(
-                name="🏠 This Server Top 5",
-                value=(
-                    "\n".join(guild_lines)
-                    if guild_lines else
-                    "No server-specific kill stats yet. Check ADM feed and wait for next kill event."
-                ),
-                inline=False
+                name="Most Deaths",
+                value=board_lines("deaths", "deaths"),
+                inline=True
+            )
+            embed.add_field(
+                name="Time Played",
+                value=board_lines("time_online_seconds", "online", formatter=format_duration),
+                inline=True
+            )
+            embed.add_field(
+                name="Builders",
+                value=board_lines("builds", "builds"),
+                inline=True
+            )
+            embed.add_field(
+                name="Placements",
+                value=board_lines("placements", "placed"),
+                inline=True
+            )
+            embed.add_field(
+                name="PVE Hunting",
+                value=board_lines("animals_hunted", "hunts"),
+                inline=True
+            )
+            embed.add_field(
+                name="Trouble Board",
+                value=board_lines("cuts", "damage"),
+                inline=True
             )
 
             embed.set_thumbnail(url=BOT_IMAGE)
@@ -5961,31 +6852,6 @@ async def restart_delivery_processor():
             print(error)
 
 
-@tasks.loop(minutes=5)
-async def scheduled_vehicle_reset_loop():
-    now = datetime.now(UTC)
-    today = now.date().isoformat()
-
-    for guild_id, config in active_guild_config_items():
-        try:
-            if not config.get("vehicle_reset_enabled", False):
-                continue
-
-            schedule_hour = int(config.get("vehicle_reset_schedule_utc_hour", 5))
-            last_run = str(config.get("vehicle_reset_last_run_date", ""))
-
-            if now.hour != schedule_hour or now.minute > 5 or last_run == today:
-                continue
-
-            ok, msg = run_vehicle_reset(config)
-            if ok:
-                config["vehicle_reset_last_run_date"] = today
-                save_guild_configs()
-            print(f"[VEHICLE RESET][{guild_id}] {msg}")
-        except Exception as error:
-            print(f"[VEHICLE RESET][{guild_id}] {error}")
-
-
 # =========================================================
 # TYPES.XML SHOP MANAGEMENT SYSTEM
 # =========================================================
@@ -6165,46 +7031,6 @@ async def importtypesxml(ctx, source_path: str = None, default_price: int = 100)
     embed.set_thumbnail(url=BOT_IMAGE)
 
     await ctx.send(embed=style_embed(embed))
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def configurevehiclereset(
-    ctx,
-    enabled: str,
-    schedule_utc_hour: int,
-    baseline_events_path: str,
-    target_events_path: str = "/dayzxb/mpmissions/dayzOffline.chernarusplus/db/events.xml"
-):
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
-    config["vehicle_reset_enabled"] = enabled.lower() in {"on", "true", "1", "yes"}
-    config["vehicle_reset_schedule_utc_hour"] = max(0, min(23, schedule_utc_hour))
-    config["vehicle_reset_baseline_events_path"] = baseline_events_path
-    config["vehicle_reset_target_events_path"] = target_events_path
-    save_guild_configs()
-    await ctx.send("✅ Vehicle reset configuration saved.")
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def setvehiclepersistpaths(ctx, *, paths_csv: str):
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
-    config["vehicle_reset_persistence_paths"] = [
-        p.strip() for p in paths_csv.split(",") if p.strip()
-    ]
-    save_guild_configs()
-    await ctx.send(f"✅ Saved {len(config['vehicle_reset_persistence_paths'])} vehicle persistence path(s).")
-
-
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def runvehiclereset(ctx):
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.setdefault(guild_id, new_guild_config(ctx.guild))
-    ok, msg = run_vehicle_reset(config)
-    await ctx.send(("✅" if ok else "❌") + f" {msg}")
 
 
 # =========================================================
@@ -6622,7 +7448,7 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
 
 
 @bot.tree.command(name="setheatmapmode", description="Admin: choose what the heatmap tracks")
-@app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, or all")
+@app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, pve, or all")
 async def setheatmapmode(interaction: discord.Interaction, mode: str):
 
     if not interaction.user.guild_permissions.administrator:
@@ -6672,7 +7498,11 @@ async def setservermap(interaction: discord.Interaction, map_name: str):
 @app_commands.describe(
     name="Faction name",
     leader="Faction leader",
-    members="Optional extra members as @mentions",
+    member_1="Optional faction member",
+    member_2="Optional faction member",
+    member_3="Optional faction member",
+    member_4="Optional faction member",
+    member_5="Optional faction member",
     flag="Faction flag/name",
     role_color="Hex colour, example #2ecc71"
 )
@@ -6680,7 +7510,11 @@ async def createfaction(
     interaction: discord.Interaction,
     name: str,
     leader: discord.Member,
-    members: str = "",
+    member_1: discord.Member = None,
+    member_2: discord.Member = None,
+    member_3: discord.Member = None,
+    member_4: discord.Member = None,
+    member_5: discord.Member = None,
     flag: str = "Not set",
     role_color: str = "#2ecc71"
 ):
@@ -6709,10 +7543,9 @@ async def createfaction(
     )
 
     member_ids = {leader.id}
-    for mention_id in re.findall(r"\d{15,25}", members or ""):
-        member = interaction.guild.get_member(int(mention_id))
-        if member:
-            member_ids.add(member.id)
+    for picked_member in [member_1, member_2, member_3, member_4, member_5]:
+        if picked_member:
+            member_ids.add(picked_member.id)
 
     assigned = []
     for member_id in member_ids:
@@ -6859,15 +7692,6 @@ async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 @bot.tree.command(name="shop", description="Show shop")
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
-@bot.tree.command(name="pvestatus", description="Show PVE module status")
-async def slash_pvestatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "pvestatus")
-@bot.tree.command(name="quests", description="Show quest board status")
-async def slash_quests(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "quests")
-@bot.tree.command(name="dayzimage", description="Generate a DayZ-themed AI image")
-@app_commands.describe(prompt="Describe the scene")
-async def slash_dayzimage(interaction: discord.Interaction, prompt: str): await run_legacy_as_slash(interaction, "dayzimage", prompt=prompt)
-@bot.tree.command(name="runvehiclereset", description="Admin: run vehicle-only reset now")
-async def slash_runvehiclereset(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "runvehiclereset")
 
 @bot.tree.command(name="setadminrole", description="Set primary admin role")
 @app_commands.describe(role="Existing Discord role")
@@ -7093,12 +7917,14 @@ async def on_ready():
     load_guild_configs()
     load_processed_adm_lines()
     bootstrap_runtime_from_connected_guilds()
+    await ensure_pve_channels_for_active_guilds()
     load_player_stats()
     load_heatmap()
     load_swear_jar()
     load_linked_players()
     load_support_tickets()
     load_factions()
+    load_pve_challenges()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
