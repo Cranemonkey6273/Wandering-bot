@@ -76,6 +76,7 @@ SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
 PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
+MAP_IMAGE_FOLDER = data_path("map_images")
 
 # =========================================================
 # GLOBALS
@@ -112,6 +113,7 @@ pve_challenges = {}
 last_ai_direct_response_time = {}
 last_owner_mention_time = {}
 recent_pvp_kill_signatures = {}
+last_heatmap_render_status = {}
 
 HEATMAP_MODES = [
     "pvp",
@@ -144,6 +146,8 @@ DEFAULT_CHANNEL_NAMES = {
     "unconscious_feed": "🩹⚠️・unconscious-feed・⚠️🩹",
     "cuts_feed": "🩸🩹・cuts-feed・🩹🩸",
     "suicide_feed": "💀🧠・suicide-feed・🧠💀",
+    "flag_feed": "🚩🏴・flag-feed・🏴🚩",
+    "placed_feed": "📦🧰・placed-feed・🧰📦",
     "pvp_intel": "⚔️📡・pvp-intel・📡⚔️",
     "online": "✅🎮・online-survivors・🎮✅",
     "leaderboards": "🏆📊・leaderboards・📊🏆",
@@ -175,6 +179,14 @@ DEFAULT_CHANNEL_NAMES = {
     "pve_help": "❔🌿・pve-help・🌿❔",
     "pve_heatmap": "🦌🗺️・pve-heatmap・🗺️🦌",
     "company_announcements": "📢・wandering-company-announcements・📢"
+}
+
+PVE_THEMED_QUEST_KINDS = {
+    "pve_hunting": "Hunting",
+    "pve_collection": "Collection",
+    "pve_fishing": "Fishing",
+    "pve_crafting": "Crafting",
+    "pve_expeditions": "Explorer",
 }
 
 CHANNEL_ALIASES = {
@@ -215,6 +227,8 @@ CHANNEL_ALIASES = {
     "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
     "cuts_feed": ["cutsfeed", "cuts", "damagefeed", "survivordamage"],
     "suicide_feed": ["suicidefeed", "suicides", "suicide"],
+    "flag_feed": ["flagfeed", "flags", "territoryflags", "flagactivity"],
+    "placed_feed": ["placedfeed", "placements", "placed", "packed", "itemactivity"],
     "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
     "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
 }
@@ -538,14 +552,14 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
         return
 
     feed_map = {
-        "flag_raise": ("flag_feed", "flag-feed", True, "FLAG RAISED", 0x2ECC71),
-        "flag_lower": ("flag_feed", "flag-feed", True, "FLAG LOWERED", 0xE67E22),
-        "cut": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "SURVIVOR DAMAGE", 0xE74C3C),
-        "bleedout": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "SURVIVOR BLED OUT", 0x992D22),
-        "suicide": ("suicide_feed", "💀🧠・suicide-feed・🧠💀", True, "SUICIDE EVENT", 0x8E44AD),
-        "respawn": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "RESPAWN CHOSEN", 0x3498DB),
-        "packed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "ITEM PACKED", 0xF1C40F),
-        "placed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "PLACEMENT ACTIVITY", 0x00D1B2),
+        "flag_raise": ("flag_feed", DEFAULT_CHANNEL_NAMES["flag_feed"], True, "🚩 FLAG RAISED", 0x2ECC71),
+        "flag_lower": ("flag_feed", DEFAULT_CHANNEL_NAMES["flag_feed"], True, "🏴 FLAG LOWERED", 0xE67E22),
+        "cut": ("cuts_feed", DEFAULT_CHANNEL_NAMES["cuts_feed"], True, "🩸 SURVIVOR DAMAGE", 0xE74C3C),
+        "bleedout": ("cuts_feed", DEFAULT_CHANNEL_NAMES["cuts_feed"], True, "🩹 SURVIVOR BLED OUT", 0x992D22),
+        "suicide": ("suicide_feed", DEFAULT_CHANNEL_NAMES["suicide_feed"], True, "💀 SUICIDE EVENT", 0x8E44AD),
+        "respawn": ("cuts_feed", DEFAULT_CHANNEL_NAMES["cuts_feed"], True, "🔵 RESPAWN CHOSEN", 0x3498DB),
+        "packed": ("placed_feed", DEFAULT_CHANNEL_NAMES["placed_feed"], True, "🧰 ITEM PACKED", 0xF1C40F),
+        "placed": ("placed_feed", DEFAULT_CHANNEL_NAMES["placed_feed"], True, "📦 ITEM PLACED", 0x00D1B2),
     }
 
     if event_type not in feed_map:
@@ -591,7 +605,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
         elif "committed suicide" in lower:
             method = "Committed suicide"
 
-        embed = discord.Embed(title="SUICIDE LOGGED", color=color)
+        embed = discord.Embed(title=title, color=color)
         embed.add_field(name="Survivor", value=player, inline=True)
         embed.add_field(name="Method", value=method, inline=True)
 
@@ -1837,20 +1851,75 @@ def configured_heatmap_image_source(guild_id, map_key):
     return images.get(map_key) or images.get("default") or DEFAULT_MAP_IMAGE_SOURCES.get(map_key)
 
 
-def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=384):
+def normalize_map_image_key(map_name):
+    wanted = normalize_discord_name(map_name)
+
+    if wanted in ["cherno", "chernarusplus", "chernarus"]:
+        return "chernarus"
+
+    if wanted in ["livonia", "enoch"]:
+        return "livonia"
+
+    if wanted in ["sakhal", "sakhalplus"]:
+        return "sakhal"
+
+    if wanted == "default":
+        return "default"
+
+    return None
+
+
+def heatmap_status_key(guild_id, mode):
+    return f"{guild_id}:{mode or 'all'}"
+
+
+def set_heatmap_render_status(guild_id, mode, message):
+    last_heatmap_render_status[heatmap_status_key(str(guild_id), mode)] = message
+
+
+def heatmap_render_status(guild_id, mode):
+    return last_heatmap_render_status.get(
+        heatmap_status_key(str(guild_id), mode),
+        "No heatmap render has happened since the bot started."
+    )
+
+
+def map_image_source_status(guild_id, map_key):
     source = configured_heatmap_image_source(guild_id, map_key)
+
     if not source:
+        return None, f"No map image configured for `{map_key}`."
+
+    if str(source).startswith(("http://", "https://")):
+        return source, f"Using URL image for `{map_key}`."
+
+    if os.path.exists(source):
+        return source, f"Using local image for `{map_key}`: `{source}`"
+
+    return source, f"Configured image is missing from this bot process: `{source}`"
+
+
+def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=384):
+    source, source_status = map_image_source_status(guild_id, map_key)
+    if not source:
+        set_heatmap_render_status(guild_id, mode, source_status)
+        return None
+
+    if not str(source).startswith(("http://", "https://")) and not os.path.exists(source):
+        set_heatmap_render_status(guild_id, mode, source_status)
         return None
 
     try:
         from PIL import Image, ImageDraw
-    except Exception:
+    except Exception as error:
+        set_heatmap_render_status(guild_id, mode, f"Pillow is not installed or could not load: {error}")
         return None
 
     try:
         if str(source).startswith(("http://", "https://")):
             response = requests.get(source, timeout=20)
             if response.status_code != 200:
+                set_heatmap_render_status(guild_id, mode, f"Map image download failed with status `{response.status_code}`.")
                 return None
             image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
             image_file.write(response.content)
@@ -1891,6 +1960,7 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
         fd, path = tempfile.mkstemp(prefix=f"heat_{guild_id}_real_", suffix=".png")
         os.close(fd)
         final.save(path, "PNG")
+        set_heatmap_render_status(guild_id, mode, f"Real map image rendered. {source_status}")
 
         if str(source).startswith(("http://", "https://")):
             try:
@@ -1902,6 +1972,7 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
 
     except Exception as error:
         print(f"REAL HEATMAP ERROR {guild_id}: {error}")
+        set_heatmap_render_status(guild_id, mode, f"Real map render failed: {error}")
         return None
 
 
@@ -1919,6 +1990,13 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
     real_map_path = generate_real_map_heatmap_image(guild_id, mode, map_key, width, height)
     if real_map_path:
         return real_map_path
+
+    current_status = heatmap_render_status(guild_id, mode)
+    set_heatmap_render_status(
+        guild_id,
+        mode,
+        f"Using fallback drawn map because the real image was unavailable. {current_status}"
+    )
 
     pixels = [
         [(36, 58, 49, 255) for _ in range(width)]
@@ -2241,6 +2319,8 @@ async def on_guild_join(guild):
     unconscious_feed = await make_channel("🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
     cuts_feed = await guild.create_text_channel("🩸🩹・cuts-feed・🩹🩸", category=live_category, overwrites=staff_overwrites)
     suicide_feed = await guild.create_text_channel("💀🧠・suicide-feed・🧠💀", category=live_category, overwrites=staff_overwrites)
+    flag_feed = await guild.create_text_channel("🚩🏴・flag-feed・🏴🚩", category=live_category, overwrites=staff_overwrites)
+    placed_feed = await guild.create_text_channel("📦🧰・placed-feed・🧰📦", category=live_category, overwrites=staff_overwrites)
     pvp_intel = await make_channel("⚔️📡・pvp-intel・📡⚔️", cat=live_category)
 
     online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
@@ -2332,6 +2412,8 @@ async def on_guild_join(guild):
             "unconscious_feed": unconscious_feed.id,
             "cuts_feed": cuts_feed.id,
             "suicide_feed": suicide_feed.id,
+            "flag_feed": flag_feed.id,
+            "placed_feed": placed_feed.id,
             "pvp_intel": pvp_intel.id,
             "pve_help": pve_help.id,
             "company_announcements": company_announcements.id
@@ -2456,6 +2538,8 @@ async def setup_command(
         "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
         "cuts_feed": ["cutsfeed", "cuts", "damagefeed", "survivordamage"],
         "suicide_feed": ["suicidefeed", "suicides", "suicide"],
+        "flag_feed": ["flagfeed", "flags", "territoryflags", "flagactivity"],
+        "placed_feed": ["placedfeed", "placements", "placed", "packed", "itemactivity"],
         "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
         "pve_quests": ["pvequests", "quests", "missions", "pvemissions"],
         "pve_hunting": ["pvehunting", "hunting", "animalhunts"],
@@ -2535,6 +2619,8 @@ async def setup_command(
     await ensure_channel("unconscious_feed", "🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
     await ensure_channel("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", cat=live_category, private=True)
     await ensure_channel("suicide_feed", "💀🧠・suicide-feed・🧠💀", cat=live_category, private=True)
+    await ensure_channel("flag_feed", "🚩🏴・flag-feed・🏴🚩", cat=live_category, private=True)
+    await ensure_channel("placed_feed", "📦🧰・placed-feed・🧰📦", cat=live_category, private=True)
     await ensure_channel("pvp_intel", "⚔️📡・pvp-intel・📡⚔️", cat=live_category)
 
     await ensure_channel("online", "✅🎮・online-survivors・🎮✅", cat=info_category)
@@ -2590,9 +2676,11 @@ async def setup_command(
             value=(
                 "`/online` - current tracked survivors online\n"
                 "`/serverstatus` - bot and tracking status\n"
+                "`/map` - admin-only live survivor map using latest ADM positions\n"
                 "`/heatmap` - territory activity summary\n"
                 "`/topkills` - kill leaderboard\n"
                 "`/toplongshots` - global longshot leaderboard\n"
+                "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
             inline=False
@@ -3773,6 +3861,9 @@ async def on_message(message):
 
     lower = message.content.lower()
 
+    if await maybe_save_map_image_from_message(message, lower):
+        return
+
     await maybe_translate_message(message)
     await apply_chat_reward_punishment_rules(message, lower)
 
@@ -4130,6 +4221,7 @@ async def helpme(ctx):
         value=(
             "`/online` - online survivors\n"
             "`/serverstatus` - bot status\n"
+            "`/map` - admin-only live survivor map\n"
             "`/heatmap` - PvP heatmap summary\n"
             "`/topkills` - top kills\n"
             "`/toplongshots` - longshot leaderboard\n"
@@ -4374,28 +4466,44 @@ async def topkills(ctx):
 
         return
 
+    guild_id = str(ctx.guild.id)
+    guild_players = [
+        (player, stats)
+        for player, stats in player_stats.items()
+        if str(stats.get("guild_id", "")) == guild_id
+    ]
+    rows = guild_players or list(player_stats.items())
+
     sorted_players = sorted(
-        player_stats.items(),
+        rows,
         key=lambda x: x[1].get("kills", 0),
         reverse=True
     )
 
     lines = []
+    medals = ["🥇", "🥈", "🥉"]
 
     for index, (player, stats) in enumerate(
         sorted_players[:10],
         start=1
     ):
+        rank = medals[index - 1] if index <= len(medals) else f"{index}."
 
         lines.append(
-            f"{index}. {player} - {stats.get('kills', 0)} kills"
+            f"{rank} **{player}** - `{stats.get('kills', 0)}` kills | `{stats.get('deaths', 0)}` deaths | `{format_duration(stats.get('time_online_seconds', 0))}` online"
         )
 
     embed = discord.Embed(
-        title="☠️ TOP KILLS",
+        title="☠️ SERVER TOP KILLS",
         description="\n".join(lines),
         color=0x992D22
     )
+    embed.add_field(
+        name="Scope",
+        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
 
     await ctx.send(
         embed=style_embed(embed)
@@ -6079,6 +6187,28 @@ def pve_themed_channel_key(challenge):
     }.get(str(challenge.get("kind", "")).lower())
 
 
+def pve_channel_for_kind(kind):
+    return {
+        "hunting": "pve_hunting",
+        "collection": "pve_collection",
+        "fishing": "pve_fishing",
+        "crafting": "pve_crafting",
+        "repair": "pve_crafting",
+        "explorer": "pve_expeditions",
+        "survival": "pve_expeditions",
+        "rescue": "pve_expeditions",
+        "treasure hunt": "pve_expeditions",
+        "quest line": "pve_expeditions",
+    }.get(str(kind).lower())
+
+
+def pve_active_quest_for_channel(guild_id, channel_key):
+    for challenge in reversed(pve_challenges.get(str(guild_id), [])):
+        if challenge.get("status") == "active" and challenge.get("channel_key") == channel_key:
+            return challenge
+    return None
+
+
 def has_active_pve_kind(guild_id, kind):
     wanted = str(kind).lower()
     for challenge in pve_challenges.get(str(guild_id), []):
@@ -6189,16 +6319,20 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
     if not guild:
         return False, "Guild not found"
 
-    if not manual and has_active_pve_kind(guild_id, kind):
+    channel_key = pve_channel_for_kind(kind)
+    if not channel_key:
+        return False, f"No themed PVE channel for {kind}"
+
+    if not manual and pve_active_quest_for_channel(guild_id, channel_key):
         return False, f"Active {kind} quest already exists"
 
     channels = config.setdefault("channels", {})
-    if not channels.get("pve_quests"):
+    if not channels.get(channel_key):
         await ensure_pve_channels(guild, config)
 
     challenge = generate_pve_challenge(kind)
-    channel_key = pve_themed_channel_key(challenge) or "pve_quests"
-    channel = bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("pve_quests"))
+    challenge["channel_key"] = channel_key
+    channel = bot.get_channel(channels.get(channel_key))
     if not channel:
         return False, "PVE channel missing"
 
@@ -6208,24 +6342,37 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
     save_pve_challenges()
 
     embed = discord.Embed(
-        title=f"DAILY {challenge['kind'].upper()} QUEST: {challenge['title']}",
+        title=f"{challenge['kind'].upper()} QUEST: {challenge['title']}",
         color=0x2ECC71
     )
+    embed.add_field(name="Quest Slot", value=channel.mention, inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
     embed.add_field(name="Reward", value=challenge["reward"], inline=True)
     embed.add_field(name="Objective", value=challenge["goal"], inline=False)
-    embed.add_field(name="Completion", value="Tracked by ADM logs where possible. Otherwise post proof for staff approval.", inline=False)
+    embed.add_field(
+        name="Completion",
+        value="This channel keeps one active quest. Staff approve it with `/pvecomplete`, then I post the next one automatically.",
+        inline=False
+    )
     embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Themed PVE Quest Feed")
+    embed.set_footer(text="Wandering Bot Alpha - Channel PVE Quest Feed")
     await channel.send(embed=style_embed(embed))
     return True, challenge["title"]
 
 
 async def post_pve_daily_pack(guild_id, config):
-    kinds = ["Hunting", "Collection", "Fishing", "Crafting", "Explorer"]
     posted = []
-    for kind in kinds:
+    for kind in PVE_THEMED_QUEST_KINDS.values():
+        success, title = await post_pve_themed_challenge(guild_id, config, kind)
+        if success:
+            posted.append(title)
+    return posted
+
+
+async def ensure_pve_channel_quests(guild_id, config):
+    posted = []
+    for kind in PVE_THEMED_QUEST_KINDS.values():
         success, title = await post_pve_themed_challenge(guild_id, config, kind)
         if success:
             posted.append(title)
@@ -6292,6 +6439,10 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
             if not paid:
                 reward_status = f"{challenge.get('reward_pennies', 0)} pennies pending. Survivor must link gamertag with `/linkgamer`."
             await send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status)
+            channel_key = challenge.get("channel_key") or pve_themed_channel_key(challenge)
+            next_kind = PVE_THEMED_QUEST_KINDS.get(channel_key)
+            if next_kind:
+                await post_pve_themed_challenge(guild_id, config, next_kind, manual=True)
 
     if changed:
         save_pve_challenges()
@@ -6299,24 +6450,15 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
 
 @tasks.loop(minutes=30)
 async def pve_challenge_loop():
-    now_ts = datetime.now(UTC).timestamp()
-
     for guild_id, config in active_guild_config_items():
         try:
             settings = pve_config(config)
             if not settings.get("enabled", True):
                 continue
 
-            interval_hours = int(settings.get("interval_hours", 12))
-            interval_hours = max(6, min(168, interval_hours))
-            last_post = float(settings.get("last_post_ts", 0))
-
-            if now_ts - last_post < interval_hours * 3600:
-                continue
-
-            posted = await post_pve_daily_pack(guild_id, config)
+            posted = await ensure_pve_channel_quests(guild_id, config)
             if posted:
-                settings["last_post_ts"] = now_ts
+                settings["last_post_ts"] = datetime.now(UTC).timestamp()
                 save_guild_configs()
 
         except Exception as error:
@@ -6386,16 +6528,21 @@ async def pvesetup(interaction: discord.Interaction):
     if info_channel:
         embed = discord.Embed(
             title="PVE MISSIONS ONLINE",
-            description="PVE quests, hunting, collection, fishing, crafting, expeditions, survival advice, and PVE heatmap channels are ready.",
+            description="PVE hunting, collection, fishing, crafting, and expedition quest channels are ready.",
             color=0x2ECC71
         )
-        embed.add_field(name="Quest Feed", value="Auto quests post in the PVE quest channel.", inline=False)
-        embed.add_field(name="Themed Feeds", value="Fishing, hunting, crafting, collection, and expedition quests also copy into their own channels.", inline=False)
-        embed.add_field(name="Admin Controls", value="Use `/pveconfig` and `/pvequestnow` to tune the mission board.", inline=False)
+        embed.add_field(name="Quest Slots", value="Each themed channel keeps one active quest until staff completes it.", inline=False)
+        embed.add_field(name="Auto Replacement", value="When staff approves a quest with `/pvecomplete`, I post the next random quest in that same channel.", inline=False)
+        embed.add_field(name="Admin Controls", value="Use `/pvequests`, `/pvecomplete`, and `/pveconfig` to manage the board.", inline=False)
         embed.set_thumbnail(url=BOT_IMAGE)
         await info_channel.send(embed=style_embed(embed))
 
-    await interaction.response.send_message("PVE category and channels are ready.", ephemeral=True)
+    posted = await ensure_pve_channel_quests(guild_id, config)
+
+    await interaction.response.send_message(
+        f"PVE category and channels are ready. Posted `{len(posted)}` missing channel quests.",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(name="pveconfig", description="Admin: configure automatic PVE quest posting")
@@ -6413,8 +6560,10 @@ async def pveconfig_command(interaction: discord.Interaction, enabled: bool = Tr
     settings["interval_hours"] = interval_hours
     save_guild_configs()
 
+    posted = await ensure_pve_channel_quests(guild_id, config) if enabled else []
+
     await interaction.response.send_message(
-        f"PVE themed quest packs are {'on' if enabled else 'off'} every {interval_hours} hours.",
+        f"PVE themed quest slots are {'on' if enabled else 'off'}. Posted `{len(posted)}` missing quests.",
         ephemeral=True
     )
 
@@ -6442,13 +6591,17 @@ async def pvequests(interaction: discord.Interaction):
         await interaction.response.send_message("No PVE quests have been posted yet.", ephemeral=True)
         return
 
+    active = [quest for quest in guild_quests if quest.get("status") == "active"]
+    completed = [quest for quest in guild_quests if quest.get("status") != "active"]
+    display_quests = active + list(reversed(completed[-10:]))
+
     lines = [
         (
             f"{idx}. **{quest.get('title')}** - {quest.get('kind')} - "
             f"{quest.get('status', 'active')} - {pve_progress_text(quest)} - "
             f"{quest.get('reward_pennies', 0)} pennies"
         )
-        for idx, quest in enumerate(reversed(guild_quests[-10:]), start=1)
+        for idx, quest in enumerate(display_quests[:15], start=1)
     ]
     embed = discord.Embed(
         title="RECENT PVE QUESTS",
@@ -6468,11 +6621,15 @@ async def pvecomplete(interaction: discord.Interaction, quest_number: int, membe
 
     guild_id = str(interaction.guild.id)
     guild_quests = pve_challenges.get(guild_id, [])
-    recent = list(reversed(guild_quests[-10:]))
+    active = [quest for quest in guild_quests if quest.get("status") == "active"]
+    completed = [quest for quest in guild_quests if quest.get("status") != "active"]
+    recent = (active + list(reversed(completed[-10:])))[:15]
 
     if quest_number < 1 or quest_number > len(recent):
         await interaction.response.send_message("Quest number not found. Use `/pvequests` first.", ephemeral=True)
         return
+
+    await interaction.response.defer(ephemeral=True)
 
     challenge = recent[quest_number - 1]
     user_id = str(member.id)
@@ -6502,7 +6659,17 @@ async def pvecomplete(interaction: discord.Interaction, quest_number: int, membe
         f"{reward} pennies paid to {member.mention}"
     )
 
-    await interaction.response.send_message(
+    channel_key = challenge.get("channel_key") or pve_themed_channel_key(challenge)
+    next_kind = PVE_THEMED_QUEST_KINDS.get(channel_key)
+    if next_kind:
+        await post_pve_themed_challenge(
+            guild_id,
+            guild_configs.get(guild_id, {}),
+            next_kind,
+            manual=True
+        )
+
+    await interaction.followup.send(
         f"Approved `{challenge.get('title')}` for {member.mention} and paid {reward} pennies.",
         ephemeral=True
     )
@@ -6966,6 +7133,11 @@ async def heatmap_loop():
             heatmap_path = generate_guild_heatmap_image(guild_id, heatmap_mode)
             file = discord.File(heatmap_path, filename="heatmap.png")
             embed.set_image(url="attachment://heatmap.png")
+            embed.add_field(
+                name="Map Image",
+                value=heatmap_render_status(guild_id, heatmap_mode)[:1000],
+                inline=False
+            )
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -7009,6 +7181,11 @@ async def heatmap_loop():
                 pve_heatmap_path = generate_guild_heatmap_image(guild_id, "pve")
                 pve_file = discord.File(pve_heatmap_path, filename="pve_heatmap.png")
                 pve_embed.set_image(url="attachment://pve_heatmap.png")
+                pve_embed.add_field(
+                    name="Map Image",
+                    value=heatmap_render_status(guild_id, "pve")[:1000],
+                    inline=False
+                )
                 pve_embed.set_thumbnail(url=BOT_IMAGE)
                 pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour")
 
@@ -7069,14 +7246,16 @@ async def leaderboard_loop():
                     reverse=True
                 )
                 lines = []
+                medals = ["🥇", "🥈", "🥉", "4.", "5."]
                 for idx, (player, stats) in enumerate(sorted_rows[:limit], start=1):
                     value = stats.get(stat_key, 0)
                     if formatter:
                         value = formatter(value)
-                    lines.append(f"{idx:<2} {player[:18]:<18} {value}")
+                    rank = medals[idx - 1] if idx <= len(medals) else f"{idx}."
+                    lines.append(f"{rank} {player[:20]:<20} {value}")
                 if not lines:
-                    return "Waiting for ADM data."
-                return f"```{'#  Survivor           ' + label}\n" + "\n".join(lines) + "```"
+                    return "No data yet. ADM activity will fill this in."
+                return f"```{'Rank Survivor             ' + label}\n" + "\n".join(lines) + "```"
 
             global_rows = list(player_stats.items())
             global_longshots = sorted(
@@ -7085,13 +7264,18 @@ async def leaderboard_loop():
                 reverse=True
             )[:5]
             global_longshot_lines = []
+            medals = ["🥇", "🥈", "🥉", "4.", "5."]
             for idx, (record_guild_id, record) in enumerate(global_longshots, start=1):
+                rank = medals[idx - 1] if idx <= len(medals) else f"{idx}."
                 global_longshot_lines.append(
-                    f"{idx:<2} {str(record.get('killer', 'Unknown'))[:16]:<16} {record.get('distance', 0)}m"
+                    f"{rank} {str(record.get('killer', 'Unknown'))[:18]:<18} {record.get('distance', 0)}m"
                 )
 
             embed = discord.Embed(
-                title="DAYZ SERVER LEADERBOARDS",
+                title="🏆 DAYZ SERVER COMMAND BOARD",
+                description=(
+                    "Server rankings, global bragging rights, and survival stats refreshed automatically."
+                ),
                 color=0xF1C40F
             )
             embed.add_field(
@@ -7137,8 +7321,8 @@ async def leaderboard_loop():
             embed.add_field(
                 name="Global Longshots",
                 value=(
-                    f"```#  Survivor         Distance\n" + "\n".join(global_longshot_lines) + "```"
-                    if global_longshot_lines else "Waiting for longshot data."
+                    f"```Rank Survivor           Distance\n" + "\n".join(global_longshot_lines) + "```"
+                    if global_longshot_lines else "No longshot data yet."
                 ),
                 inline=True
             )
@@ -8604,18 +8788,13 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    wanted = normalize_discord_name(map_name)
-    if wanted not in ["chernarus", "livonia", "enoch", "sakhal", "sakhalplus", "default"]:
+    wanted = normalize_map_image_key(map_name)
+    if not wanted:
         await interaction.response.send_message(
             "Map must be `chernarus`, `livonia`, `sakhal`, or `default`.",
             ephemeral=True
         )
         return
-
-    if wanted == "enoch":
-        wanted = "livonia"
-    elif wanted == "sakhalplus":
-        wanted = "sakhal"
 
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
@@ -8623,10 +8802,205 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
     images[wanted] = image_source.strip()
     save_guild_configs()
 
+    warning = ""
+    if not image_source.startswith(("http://", "https://")) and not os.path.exists(image_source):
+        warning = "\nWarning: that file path is not visible from this bot process, so upload the image with `/uploadmapimage` instead."
+
     await interaction.response.send_message(
-        f"Heatmap image for `{wanted}` set. The next heatmap refresh will draw heat over that image.",
+        f"Heatmap image for `{wanted}` set. The next heatmap refresh will draw heat over that image.{warning}",
         ephemeral=True
     )
+
+
+@bot.tree.command(name="uploadmapimage", description="Admin: upload the real map image for heatmaps and /map")
+@app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image="Map image file")
+async def uploadmapimage(interaction: discord.Interaction, map_name: str, image: discord.Attachment):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    wanted = normalize_map_image_key(map_name)
+    if not wanted:
+        await interaction.response.send_message(
+            "Map must be `chernarus`, `livonia`, `sakhal`, or `default`.",
+            ephemeral=True
+        )
+        return
+
+    filename = image.filename or ""
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in [".png", ".jpg", ".jpeg", ".webp"]:
+        await interaction.response.send_message("Please upload a PNG, JPG, JPEG, or WEBP image.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild_id = str(interaction.guild.id)
+    folder = os.path.join(MAP_IMAGE_FOLDER, guild_id)
+    ensure_folder(folder)
+    target_path = os.path.join(folder, f"{wanted}{extension}")
+
+    try:
+        await image.save(target_path)
+    except Exception as error:
+        await interaction.followup.send(f"Failed to save map image: {error}", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    images = config.setdefault("heatmap_images", {})
+    images[wanted] = target_path
+    save_guild_configs()
+
+    await interaction.followup.send(
+        f"Uploaded map image for `{wanted}`. Heatmaps and `/map` will use it on the next render.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="mapimagestatus", description="Admin: check real map image setup for heatmaps and /map")
+async def mapimagestatus(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    map_key = server_map_key(guild_id)
+    source, source_status = map_image_source_status(guild_id, map_key)
+    heatmap_mode = guild_heatmap_mode(guild_id)
+
+    embed = discord.Embed(
+        title="MAP IMAGE STATUS",
+        description=source_status,
+        color=0x3498DB if source and (str(source).startswith(("http://", "https://")) or os.path.exists(source)) else 0xE67E22
+    )
+    embed.add_field(name="Server Map", value=map_key, inline=True)
+    embed.add_field(name="Heatmap Mode", value=heatmap_mode, inline=True)
+    embed.add_field(name="Last Heatmap Render", value=heatmap_render_status(guild_id, heatmap_mode)[:1000], inline=False)
+    embed.add_field(
+        name="Upload Shortcut",
+        value="Attach a map image in Discord and type `set heatmap chernarus`, `set heatmap livonia`, or `set heatmap sakhal`.",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+async def maybe_save_map_image_from_message(message, lower):
+    if not message.guild or not message.attachments:
+        return False
+
+    if not message.author.guild_permissions.administrator:
+        return False
+
+    if "map" not in lower and "heatmap" not in lower:
+        return False
+
+    if not any(word in lower for word in ["set", "upload", "save", "use"]):
+        return False
+
+    wanted = None
+    for candidate in ["chernarus", "cherno", "livonia", "enoch", "sakhal", "sakhalplus", "default"]:
+        if candidate in lower:
+            wanted = normalize_map_image_key(candidate)
+            break
+
+    if not wanted:
+        await message.channel.send(
+            "I can save that as a map image, but tell me which one: `set heatmap chernarus`, `set heatmap livonia`, or `set heatmap sakhal`."
+        )
+        return True
+
+    attachment = message.attachments[0]
+    filename = attachment.filename or ""
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in [".png", ".jpg", ".jpeg", ".webp"]:
+        await message.channel.send("Please attach a PNG, JPG, JPEG, or WEBP map image.")
+        return True
+
+    guild_id = str(message.guild.id)
+    folder = os.path.join(MAP_IMAGE_FOLDER, guild_id)
+    ensure_folder(folder)
+    target_path = os.path.join(folder, f"{wanted}{extension}")
+
+    try:
+        await attachment.save(target_path)
+    except Exception as error:
+        await message.channel.send(f"Failed to save the map image: {error}")
+        return True
+
+    config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
+    images = config.setdefault("heatmap_images", {})
+    images[wanted] = target_path
+    save_guild_configs()
+
+    await message.channel.send(
+        f"Saved `{wanted}` map image. Heatmaps and `/map` will use it on the next render. Run `/mapimagestatus` if you want to check it."
+    )
+    return True
+
+
+async def send_live_map_response(interaction: discord.Interaction):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild_id = str(interaction.guild.id)
+    ensure_guild_runtime(guild_id)
+
+    if not online_players.get(guild_id):
+        await interaction.followup.send("No online survivors are currently tracked.", ephemeral=True)
+        return
+
+    map_path, error = await asyncio.to_thread(generate_live_player_map_image, guild_id)
+
+    if not map_path:
+        await interaction.followup.send(f"Could not render live map: {error}", ephemeral=True)
+        return
+
+    online_count = len(online_players.get(guild_id, set()))
+    plotted_count = sum(
+        1
+        for player in online_players.get(guild_id, set())
+        if player_last_coords.get(guild_id, {}).get(player, {}).get("coords")
+    )
+    map_key = server_map_key(guild_id)
+    map_name = {"livonia": "Livonia", "sakhal": "Sakhal"}.get(map_key, "Chernarus")
+
+    embed = discord.Embed(
+        title=f"LIVE SURVIVOR MAP - {map_name.upper()}",
+        description=(
+            f"Showing latest known ADM positions for online survivors.\n"
+            f"Plotted `{plotted_count}` of `{online_count}` tracked online players."
+        ),
+        color=0xE74C3C
+    )
+    embed.set_image(url="attachment://live_player_map.png")
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Admin Live Map")
+
+    file = discord.File(map_path, filename="live_player_map.png")
+    await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+
+    try:
+        os.remove(map_path)
+    except Exception:
+        pass
+
+
+@bot.tree.command(name="map", description="Admin: show online survivors on the server map")
+async def live_map(interaction: discord.Interaction):
+    await send_live_map_response(interaction)
+
+
+@bot.tree.command(name="livemap", description="Admin: show online survivors on the server map")
+async def slash_livemap_alias(interaction: discord.Interaction):
+    await send_live_map_response(interaction)
 
 
 @bot.tree.command(name="createfaction", description="Admin: create an official faction")
@@ -9066,6 +9440,15 @@ async def on_ready():
     load_wallets()
     load_delivery_queue()
 
+    for guild_id, config in active_guild_config_items():
+        try:
+            if pve_config(config).get("enabled", True):
+                posted = await ensure_pve_channel_quests(guild_id, config)
+                if posted:
+                    print(f"PVE QUEST SLOTS SEEDED {guild_display_name(guild_id)}: {len(posted)}")
+        except Exception as error:
+            print(f"PVE QUEST SLOT SEED ERROR {guild_id}: {error}")
+
     active_count = len(list(active_guild_config_items()))
     active_names = [
         guild_configs[guild_id].get("guild_name", guild_id)
@@ -9085,6 +9468,14 @@ async def on_ready():
         print(f"SLASH COMMANDS SYNCED: {len(synced)}")
     except Exception as sync_error:
         print(sync_error)
+
+    for guild in bot.guilds:
+        try:
+            bot.tree.copy_global_to(guild=guild)
+            guild_synced = await bot.tree.sync(guild=guild)
+            print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
+        except Exception as sync_error:
+            print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
 
 # =========================================================
 # START
