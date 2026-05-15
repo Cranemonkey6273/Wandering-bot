@@ -47,6 +47,11 @@ BOT_IMAGE = (
     "7A382429-B666-4A9F-B890-17C0F7981709.png"
 )
 
+DEFAULT_MAP_IMAGE_SOURCES = {
+    "chernarus": r"C:\Users\marty\Downloads\cherno.jpeg",
+    "livonia": r"C:\Users\marty\Downloads\livonia.jpeg",
+}
+
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
     or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
@@ -79,6 +84,7 @@ PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
 guild_configs = {}
 processed_lines = {}
 online_players = {}
+player_last_coords = {}
 player_online_times = {}
 territory_heat = {}
 zone_keywords = {
@@ -105,6 +111,7 @@ factions = {}
 pve_challenges = {}
 last_ai_direct_response_time = {}
 last_owner_mention_time = {}
+recent_pvp_kill_signatures = {}
 
 HEATMAP_MODES = [
     "pvp",
@@ -118,6 +125,8 @@ HEATMAP_MODES = [
     "pve",
     "all"
 ]
+
+LONGSHOT_ANNOUNCE_METERS = 300
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -133,6 +142,9 @@ DEFAULT_CHANNEL_NAMES = {
     "disconnects": "🔴⛔・disconnects・⛔🔴",
     "zombie_feed": "🧟🧟・zombie-feed・🧟🧟",
     "unconscious_feed": "🩹⚠️・unconscious-feed・⚠️🩹",
+    "cuts_feed": "🩸🩹・cuts-feed・🩹🩸",
+    "suicide_feed": "💀🧠・suicide-feed・🧠💀",
+    "pvp_intel": "⚔️📡・pvp-intel・📡⚔️",
     "online": "✅🎮・online-survivors・🎮✅",
     "leaderboards": "🏆📊・leaderboards・📊🏆",
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
@@ -160,6 +172,7 @@ DEFAULT_CHANNEL_NAMES = {
     "pve_crafting": "🪓🛠️・pve-crafting・🛠️🪓",
     "pve_expeditions": "🗺️⛺・pve-expeditions・⛺🗺️",
     "pve_info": "📘🌿・pve-info・🌿📘",
+    "pve_help": "❔🌿・pve-help・🌿❔",
     "pve_heatmap": "🦌🗺️・pve-heatmap・🗺️🦌",
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
@@ -200,6 +213,9 @@ CHANNEL_ALIASES = {
     "faction_staff": ["factionstaff"],
     "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
     "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
+    "cuts_feed": ["cutsfeed", "cuts", "damagefeed", "survivordamage"],
+    "suicide_feed": ["suicidefeed", "suicides", "suicide"],
+    "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
     "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
 }
 
@@ -318,7 +334,32 @@ def heat_counts_for_mode(guild_id, mode):
     return heat_data.get("__modes__", {}).get(mode, {})
 
 
-def map_coords_to_pixel(coords):
+def server_map_key(guild_id):
+    configured = guild_configs.get(str(guild_id), {}).get("server_map", "chernarus")
+    key = normalize_discord_name(configured)
+
+    if key in ["livonia", "enoch"]:
+        return "livonia"
+
+    if key in ["sakhal", "sakhalplus"]:
+        return "sakhal"
+
+    return "chernarus"
+
+
+def server_map_size(guild_id):
+    map_key = server_map_key(guild_id)
+
+    if map_key == "livonia":
+        return 12800, 12800
+
+    if map_key == "sakhal":
+        return 15360, 15360
+
+    return 15360, 15360
+
+
+def map_coords_to_pixel(coords, guild_id=None, width=512, height=384):
     try:
         x_text, y_text = coords.split(",")[:2]
         x = float(x_text.strip())
@@ -326,9 +367,9 @@ def map_coords_to_pixel(coords):
     except Exception:
         return None
 
-    # Chernarus-ish ADM coordinate range. Good enough for useful plotting.
-    px = int(max(0, min(511, (x / 15360) * 512)))
-    py = int(max(0, min(383, 384 - ((y / 15360) * 384))))
+    map_width, map_height = server_map_size(guild_id) if guild_id else (15360, 15360)
+    px = int(max(0, min(width - 1, (x / map_width) * width)))
+    py = int(max(0, min(height - 1, height - ((y / map_height) * height))))
     return px, py
 
 
@@ -374,7 +415,21 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False):
             if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
                 overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-    channel = await guild.create_text_channel(name, overwrites=overwrites)
+    category = None
+    category_key = "live"
+    if key in ["pve_help", "pve_info", "pve_heatmap"]:
+        category_key = "pve"
+
+    for existing_category in guild.categories:
+        normalized = normalize_discord_name(existing_category.name)
+        if category_key == "pve" and ("pve" in normalized or "pvemissions" in normalized):
+            category = existing_category
+            break
+        if category_key == "live" and ("livefeeds" in normalized or "liveserverfeeds" in normalized):
+            category = existing_category
+            break
+
+    channel = await guild.create_text_channel(name, overwrites=overwrites, category=category)
     channels[key] = channel.id
     save_guild_configs()
     return channel
@@ -405,6 +460,78 @@ def extract_packed_object(line):
     return "Unknown item"
 
 
+def extract_pvp_kill_details(line):
+    direct = re.search(r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)', line)
+    reverse = re.search(r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)', line)
+    hit_death = re.search(
+        r'"([^"]+)"\s+\(DEAD\).*?hit by Player "([^"]+)".*?for ([0-9]+\.?[0-9]*) damage \(([^)]+)\) with ([^ ]+) from ([0-9]+\.?[0-9]*) meters?',
+        line,
+        re.IGNORECASE
+    )
+
+    details = None
+    if direct:
+        details = {
+            "killer": direct.group(1),
+            "victim": direct.group(2),
+            "weapon": direct.group(3),
+        }
+    elif reverse:
+        details = {
+            "victim": reverse.group(1),
+            "killer": reverse.group(2),
+            "weapon": reverse.group(3),
+        }
+    elif hit_death:
+        details = {
+            "victim": hit_death.group(1),
+            "killer": hit_death.group(2),
+            "damage": hit_death.group(3),
+            "ammo": hit_death.group(4),
+            "weapon": hit_death.group(5),
+            "distance": float(hit_death.group(6)),
+        }
+
+    if not details:
+        return None
+
+    distance_match = re.search(r'from ([0-9]+\.?[0-9]*)\s*m(?:eters?)?', line, re.IGNORECASE)
+    if distance_match:
+        details["distance"] = float(distance_match.group(1))
+    else:
+        details.setdefault("distance", 0)
+
+    coords = extract_adm_coords(line)
+    if coords:
+        details["coords"] = coords
+
+    return details
+
+
+def pvp_kill_signature(guild_id, details):
+    distance = int(round(float(details.get("distance", 0) or 0)))
+    return (
+        str(guild_id),
+        normalize_discord_name(details.get("killer", "")),
+        normalize_discord_name(details.get("victim", "")),
+        normalize_discord_name(details.get("weapon", "")),
+        distance,
+    )
+
+
+def is_duplicate_pvp_kill(guild_id, details, ttl_seconds=45):
+    signature = pvp_kill_signature(guild_id, details)
+    now_ts = datetime.now(UTC).timestamp()
+    last_seen = recent_pvp_kill_signatures.get(signature, 0)
+    recent_pvp_kill_signatures[signature] = now_ts
+
+    for key, seen_ts in list(recent_pvp_kill_signatures.items()):
+        if now_ts - seen_ts > ttl_seconds:
+            recent_pvp_kill_signatures.pop(key, None)
+
+    return now_ts - last_seen < ttl_seconds
+
+
 async def send_special_adm_feed(guild_id, config, event_type, line):
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
@@ -413,10 +540,10 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
     feed_map = {
         "flag_raise": ("flag_feed", "flag-feed", True, "FLAG RAISED", 0x2ECC71),
         "flag_lower": ("flag_feed", "flag-feed", True, "FLAG LOWERED", 0xE67E22),
-        "cut": ("cuts_feed", "cuts-feed", True, "SURVIVOR DAMAGE", 0xE74C3C),
-        "bleedout": ("cuts_feed", "cuts-feed", True, "SURVIVOR BLED OUT", 0x992D22),
-        "suicide": ("cuts_feed", "cuts-feed", True, "SUICIDE EVENT", 0x992D22),
-        "respawn": ("cuts_feed", "cuts-feed", True, "RESPAWN CHOSEN", 0x3498DB),
+        "cut": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "SURVIVOR DAMAGE", 0xE74C3C),
+        "bleedout": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "SURVIVOR BLED OUT", 0x992D22),
+        "suicide": ("suicide_feed", "💀🧠・suicide-feed・🧠💀", True, "SUICIDE EVENT", 0x8E44AD),
+        "respawn": ("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", True, "RESPAWN CHOSEN", 0x3498DB),
         "packed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "ITEM PACKED", 0xF1C40F),
         "placed": ("placed_feed", "📦🧰・placed-feed・🧰📦", True, "PLACEMENT ACTIVITY", 0x00D1B2),
     }
@@ -453,6 +580,72 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
 
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Placement Intelligence")
+        await channel.send(embed=style_embed(embed))
+        return
+
+    if event_type == "suicide":
+        method = "Unknown"
+        lower = line.lower()
+        if "emotesuicide" in lower:
+            method = "Emote suicide"
+        elif "committed suicide" in lower:
+            method = "Committed suicide"
+
+        embed = discord.Embed(title="SUICIDE LOGGED", color=color)
+        embed.add_field(name="Survivor", value=player, inline=True)
+        embed.add_field(name="Method", value=method, inline=True)
+
+        if coords:
+            x, z, y = split_adm_coords(coords)
+            coord_lines = []
+            if x:
+                coord_lines.append(f"X: {x}")
+            if z:
+                coord_lines.append(f"Z: {z}")
+            if y:
+                coord_lines.append(f"Height: {y}")
+            embed.add_field(name="Location", value="\n".join(coord_lines), inline=False)
+
+        if map_link:
+            embed.add_field(name="Map", value=f"[Open Map](<{map_link}>)", inline=False)
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Private Suicide Feed")
+        await channel.send(embed=style_embed(embed))
+        return
+
+    if event_type in ["cut", "bleedout", "respawn"]:
+        attacker_match = re.search(r'hit by Player "([^"]+)"', line, re.IGNORECASE)
+        weapon_match = re.search(r" with ([^ ]+) from ", line, re.IGNORECASE)
+        damage_match = re.search(r" for ([0-9]+\.?[0-9]*) damage", line, re.IGNORECASE)
+        body_match = re.search(r" into ([^(]+)\(", line, re.IGNORECASE)
+
+        embed = discord.Embed(title=title, color=color)
+        embed.add_field(name="Survivor", value=player, inline=True)
+
+        if attacker_match:
+            embed.add_field(name="Attacker", value=attacker_match.group(1), inline=True)
+
+        if body_match:
+            embed.add_field(name="Body Part", value=body_match.group(1).strip(), inline=True)
+
+        if damage_match:
+            embed.add_field(name="Damage", value=damage_match.group(1), inline=True)
+
+        if weapon_match:
+            embed.add_field(name="Weapon", value=weapon_match.group(1), inline=True)
+
+        if coords:
+            x, z, _ = split_adm_coords(coords)
+            coord_text = "\n".join(part for part in [f"X: {x}" if x else "", f"Z: {z}" if z else ""] if part)
+            if coord_text:
+                embed.add_field(name="Location", value=coord_text, inline=False)
+
+        if map_link:
+            embed.add_field(name="Map", value=f"[Open Map](<{map_link}>)", inline=False)
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Survivor Damage Feed")
         await channel.send(embed=style_embed(embed))
         return
 
@@ -655,21 +848,10 @@ def update_player_stats_from_adm(guild_id, event_type, line):
     player_name = extract_player_name(line)
 
     if event_type == "kill":
-        direct = re.search(r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)', line)
-        reverse = re.search(r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)', line)
-
-        if direct:
-            killer = direct.group(1)
-            victim = direct.group(2)
-            add_player_stat(guild_id, killer, "kills")
-            add_player_stat(guild_id, victim, "deaths")
-            return
-
-        if reverse:
-            victim = reverse.group(1)
-            killer = reverse.group(2)
-            add_player_stat(guild_id, killer, "kills")
-            add_player_stat(guild_id, victim, "deaths")
+        kill_details = extract_pvp_kill_details(line)
+        if kill_details:
+            add_player_stat(guild_id, kill_details["killer"], "kills")
+            add_player_stat(guild_id, kill_details["victim"], "deaths")
             return
 
     if event_type == "disconnect":
@@ -938,11 +1120,12 @@ async def ensure_pve_channels(guild, config):
         "pve_crafting",
         "pve_expeditions",
         "pve_info",
+        "pve_help",
         "pve_heatmap"
     ]:
         created[key] = await ensure_channel(key)
 
-    config.setdefault("pve", {"enabled": True, "interval_hours": 72})
+    config.setdefault("pve", {"enabled": True, "interval_hours": 12})
     save_guild_configs()
     return created
 
@@ -1349,6 +1532,9 @@ def ensure_guild_runtime(guild_id):
     if guild_id not in online_players:
         online_players[guild_id] = set()
 
+    if guild_id not in player_last_coords:
+        player_last_coords[guild_id] = {}
+
     if guild_id not in player_online_times:
         player_online_times[guild_id] = {}
 
@@ -1372,12 +1558,26 @@ def increase_heat(guild_id, zone, mode="pvp", coords=None):
     if coords:
         points = territory_heat[guild_id].setdefault("__points__", {})
         mode_points = points.setdefault(mode, [])
-        plotted = map_coords_to_pixel(coords)
+        plotted = map_coords_to_pixel(coords, guild_id)
         if plotted:
             mode_points.append(plotted)
             points[mode] = mode_points[-300:]
 
     save_heatmap()
+
+
+def remember_player_location_from_adm(guild_id, line):
+    player_name = extract_player_name(line)
+    coords = extract_adm_coords(line)
+
+    if not coords or not player_name or player_name == "Unknown":
+        return
+
+    ensure_guild_runtime(guild_id)
+    player_last_coords[str(guild_id)][player_name] = {
+        "coords": coords,
+        "seen": str(datetime.now(UTC)),
+    }
 
 
 def classify_event(line):
@@ -1451,6 +1651,9 @@ def classify_event(line):
 
         if any(word in lower for word in ["hit", "attacked", "damage", "wound"]):
             return "zombie_hit"
+
+    if 'hit by player "' in lower and ("(dead)" in lower or "[hp: 0]" in lower):
+        return "kill"
 
     if "hit by" in lower:
         return "cut"
@@ -1570,14 +1773,22 @@ def ping_latest_adm_log(config):
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 15
-LEADERBOARD_UPDATE_MINUTES = 15
-HEATMAP_UPDATE_MINUTES = 15
+ONLINE_UPDATE_MINUTES = 30
+LEADERBOARD_UPDATE_MINUTES = 60
+HEATMAP_UPDATE_MINUTES = 60
 
 last_online_message_ids = {}
 last_leaderboard_message_ids = {}
 last_heatmap_message_ids = {}
 last_pve_heatmap_message_ids = {}
+
+CUSTOM_FEED_TYPES = [
+    "text",
+    "restart",
+    "basedamage",
+    "serverstatus",
+    "heatmap"
+]
 
 # =========================================================
 # CLICKABLE MAP LINKS
@@ -1598,14 +1809,100 @@ def build_izurvive_link(coords):
         return None
 
 
-ZONE_POINTS = {
-    "NWAF": (330, 120), "Tisy": (220, 70), "Zelenogorsk": (170, 220),
-    "Chernogorsk": (120, 290), "Elektrozavodsk": (360, 300), "Vybor": (210, 140),
-    "Berezino": (430, 150), "Severograd": (360, 95),
-    "South West": (95, 305), "South Central": (255, 305), "South East": (420, 305),
-    "Midlands West": (95, 195), "Midlands Central": (255, 195), "Midlands East": (420, 195),
-    "North West": (95, 85), "North Central": (255, 85), "North East": (420, 85)
+ZONE_POINTS_BY_MAP = {
+    "chernarus": {
+        "NWAF": (330, 120), "Tisy": (220, 70), "Zelenogorsk": (170, 220),
+        "Chernogorsk": (120, 290), "Elektrozavodsk": (360, 300), "Vybor": (210, 140),
+        "Berezino": (430, 150), "Severograd": (360, 95),
+        "South West": (95, 305), "South Central": (255, 305), "South East": (420, 305),
+        "Midlands West": (95, 195), "Midlands Central": (255, 195), "Midlands East": (420, 195),
+        "North West": (95, 85), "North Central": (255, 85), "North East": (420, 85)
+    },
+    "livonia": {
+        "South West": (95, 305), "South Central": (255, 305), "South East": (420, 305),
+        "Midlands West": (95, 195), "Midlands Central": (255, 195), "Midlands East": (420, 195),
+        "North West": (95, 85), "North Central": (255, 85), "North East": (420, 85)
+    },
+    "sakhal": {
+        "South West": (95, 305), "South Central": (255, 305), "South East": (420, 305),
+        "Midlands West": (95, 195), "Midlands Central": (255, 195), "Midlands East": (420, 195),
+        "North West": (95, 85), "North Central": (255, 85), "North East": (420, 85)
+    }
 }
+
+
+def configured_heatmap_image_source(guild_id, map_key):
+    config = guild_configs.get(str(guild_id), {})
+    images = config.get("heatmap_images", {})
+    return images.get(map_key) or images.get("default") or DEFAULT_MAP_IMAGE_SOURCES.get(map_key)
+
+
+def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=384):
+    source = configured_heatmap_image_source(guild_id, map_key)
+    if not source:
+        return None
+
+    try:
+        from PIL import Image, ImageDraw
+    except Exception:
+        return None
+
+    try:
+        if str(source).startswith(("http://", "https://")):
+            response = requests.get(source, timeout=20)
+            if response.status_code != 200:
+                return None
+            image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
+            image_file.write(response.content)
+            image_file.close()
+            source_path = image_file.name
+        else:
+            source_path = source
+
+        base = Image.open(source_path).convert("RGBA").resize((width, height))
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        def draw_heat(cx, cy, radius, color):
+            for current_radius in range(radius, 4, -6):
+                alpha = max(20, int(color[3] * (current_radius / radius)))
+                draw.ellipse(
+                    (cx - current_radius, cy - current_radius, cx + current_radius, cy + current_radius),
+                    fill=(color[0], color[1], color[2], alpha)
+                )
+
+        for px, py in heat_points_for_mode(guild_id, mode):
+            draw_heat(px, py, 34, (255, 55, 0, 80))
+            draw_heat(px, py, 14, (255, 215, 0, 160))
+            draw.line((px - 5, py, px + 5, py), fill=(255, 255, 255, 220), width=2)
+            draw.line((px, py - 5, px, py + 5), fill=(255, 255, 255, 220), width=2)
+
+        zone_counts = heat_counts_for_mode(guild_id, mode)
+        max_count = max(zone_counts.values()) if zone_counts else 1
+        zone_points = ZONE_POINTS_BY_MAP.get(map_key, ZONE_POINTS_BY_MAP["chernarus"])
+        for zone, count in zone_counts.items():
+            if zone not in zone_points:
+                continue
+            x, y = zone_points[zone]
+            intensity = max(0.2, min(1.0, count / max_count))
+            draw_heat(x, y, 54, (255, 65, 0, int(90 * intensity)))
+
+        final = Image.alpha_composite(base, overlay)
+        fd, path = tempfile.mkstemp(prefix=f"heat_{guild_id}_real_", suffix=".png")
+        os.close(fd)
+        final.save(path, "PNG")
+
+        if str(source).startswith(("http://", "https://")):
+            try:
+                os.remove(source_path)
+            except Exception:
+                pass
+
+        return path
+
+    except Exception as error:
+        print(f"REAL HEATMAP ERROR {guild_id}: {error}")
+        return None
 
 
 def generate_guild_heatmap_image(guild_id: str, mode=None):
@@ -1615,9 +1912,16 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
 
     width = 512
     height = 384
+    guild_id = str(guild_id)
     mode = mode or guild_heatmap_mode(guild_id)
+    map_key = server_map_key(guild_id)
+    map_title = {"livonia": "Livonia", "sakhal": "Sakhal"}.get(map_key, "Chernarus")
+    real_map_path = generate_real_map_heatmap_image(guild_id, mode, map_key, width, height)
+    if real_map_path:
+        return real_map_path
+
     pixels = [
-        [(46, 66, 55, 255) for _ in range(width)]
+        [(36, 58, 49, 255) for _ in range(width)]
         for _ in range(height)
     ]
 
@@ -1629,13 +1933,22 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
         dr, dg, db, da = pixels[py][px]
         alpha = sa / 255
         inv_alpha = 1 - alpha
-
         pixels[py][px] = (
             int(sr * alpha + dr * inv_alpha),
             int(sg * alpha + dg * inv_alpha),
             int(sb * alpha + db * inv_alpha),
             da,
         )
+
+    def draw_line(x1, y1, x2, y2, color, thickness=1):
+        steps = max(abs(x2 - x1), abs(y2 - y1), 1)
+        for step in range(steps + 1):
+            t = step / steps
+            x = int(x1 + (x2 - x1) * t)
+            y = int(y1 + (y2 - y1) * t)
+            for oy in range(-thickness, thickness + 1):
+                for ox in range(-thickness, thickness + 1):
+                    blend_pixel(x + ox, y + oy, color)
 
     def draw_heat_circle(cx, cy, radius, color):
         radius_sq = radius * radius
@@ -1659,19 +1972,63 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
             blend_pixel(cx + offset, cy, (255, 255, 255, 230))
             blend_pixel(cx, cy + offset, (255, 255, 255, 230))
 
-    def draw_grid():
+    def draw_label_bar():
+        for y in range(0, 28):
+            for x in range(width):
+                blend_pixel(x, y, (15, 22, 20, 180))
+
+    def draw_map_background():
+        # Map-aware terrain base. Coordinates scale to the configured DayZ world:
+        # Chernarus is 15360x15360, Livonia/Enoch is 12800x12800.
         for x in range(0, width, 64):
             for y in range(height):
-                blend_pixel(x, y, (95, 120, 105, 70))
+                blend_pixel(x, y, (96, 119, 103, 65))
 
         for y in range(0, height, 48):
             for x in range(width):
-                blend_pixel(x, y, (95, 120, 105, 70))
+                blend_pixel(x, y, (96, 119, 103, 65))
 
-        for x in range(40, width - 40):
-            coast_y = int(300 + math.sin(x / 24) * 18)
-            for y in range(coast_y, height):
-                blend_pixel(x, y, (36, 72, 95, 210))
+        if map_key == "livonia":
+            for x in range(width):
+                river_y = int(148 + math.sin(x / 35) * 16 + math.sin(x / 13) * 4)
+                for y in range(river_y - 5, river_y + 6):
+                    blend_pixel(x, y, (44, 85, 108, 210))
+
+            for x in range(45, width - 35):
+                south_y = int(302 + math.sin(x / 29) * 10)
+                for y in range(south_y, height):
+                    blend_pixel(x, y, (42, 70, 45, 120))
+
+            roads = [
+                ((44, 78), (170, 124), (296, 150), (464, 116)),
+                ((58, 246), (170, 206), (280, 215), (440, 270)),
+                ((262, 40), (252, 144), (270, 250), (250, 350)),
+            ]
+        else:
+            for x in range(32, width - 18):
+                coast_y = int(300 + math.sin(x / 24) * 18 + math.sin(x / 9) * 5)
+                for y in range(coast_y, height):
+                    blend_pixel(x, y, (36, 75, 100, 225))
+
+            for y in range(70, height - 55):
+                coast_x = int(452 + math.sin(y / 24) * 22)
+                for x in range(coast_x, width):
+                    blend_pixel(x, y, (36, 75, 100, 190))
+
+            roads = [
+                ((62, 290), (156, 244), (245, 196), (354, 151), (453, 110)),
+                ((110, 92), (200, 119), (300, 145), (420, 158)),
+                ((163, 318), (205, 236), (222, 152), (218, 65)),
+                ((348, 320), (340, 250), (363, 180), (400, 118)),
+            ]
+
+        for road in roads:
+            for idx in range(len(road) - 1):
+                x1, y1 = road[idx]
+                x2, y2 = road[idx + 1]
+                draw_line(x1, y1, x2, y2, (176, 153, 103, 150), 1)
+
+        draw_label_bar()
 
     def png_chunk(chunk_type, data):
         chunk = chunk_type + data
@@ -1681,7 +2038,7 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
             + struct.pack(">I", zlib.crc32(chunk) & 0xFFFFFFFF)
         )
 
-    draw_grid()
+    draw_map_background()
     zone_counts = heat_counts_for_mode(guild_id, mode)
     max_count = max(zone_counts.values()) if zone_counts else 1
 
@@ -1691,17 +2048,26 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
         draw_heat_circle(px, py, 18, (255, 210, 0, 190))
         draw_cross(px, py)
 
+    zone_points = ZONE_POINTS_BY_MAP.get(map_key, ZONE_POINTS_BY_MAP["chernarus"])
     for zone, count in zone_counts.items():
-        if zone not in ZONE_POINTS:
+        if zone not in zone_points:
             continue
 
-        x, y = ZONE_POINTS[zone]
+        x, y = zone_points[zone]
         intensity = max(0.2, min(1.0, count / max_count))
-
         draw_heat_circle(x, y, 70, (255, 45, 0, int(45 * intensity)))
         draw_heat_circle(x, y, 48, (255, 80, 0, int(90 * intensity)))
         draw_heat_circle(x, y, 25, (255, 180, 0, int(170 * intensity)))
         draw_cross(x, y)
+
+    # Tiny title ticks so saved images show which server map was used without needing fonts.
+    for idx, char in enumerate(f"{map_title} {mode}"[:28]):
+        marker = ord(char) % 12
+        x = 12 + idx * 10
+        for y in range(8, 20):
+            if (y + marker) % 5 == 0:
+                for ox in range(0, 6):
+                    blend_pixel(x + ox, y, (230, 235, 215, 180))
 
     raw = bytearray()
 
@@ -1724,6 +2090,112 @@ def generate_guild_heatmap_image(guild_id: str, mode=None):
         f.write(png_data)
 
     return path
+
+
+def generate_live_player_map_image(guild_id: str):
+    guild_id = str(guild_id)
+    map_key = server_map_key(guild_id)
+    source = configured_heatmap_image_source(guild_id, map_key)
+
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        return None, "Pillow is not installed, so map images cannot be rendered."
+
+    if not source:
+        return None, f"No map image configured for `{map_key}`."
+
+    if not str(source).startswith(("http://", "https://")) and not os.path.exists(source):
+        return None, f"Map image path does not exist: `{source}`"
+
+    downloaded_path = None
+
+    try:
+        if str(source).startswith(("http://", "https://")):
+            response = requests.get(source, timeout=20)
+            if response.status_code != 200:
+                return None, f"Map image download failed with status `{response.status_code}`."
+            image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
+            image_file.write(response.content)
+            image_file.close()
+            downloaded_path = image_file.name
+            source_path = downloaded_path
+        else:
+            source_path = source
+
+        width = 1200
+        height = 900
+        base = Image.open(source_path).convert("RGBA").resize((width, height))
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        try:
+            font = ImageFont.truetype("arial.ttf", 22)
+            small_font = ImageFont.truetype("arial.ttf", 16)
+        except Exception:
+            font = ImageFont.load_default()
+            small_font = ImageFont.load_default()
+
+        online = sorted(online_players.get(guild_id, set()))
+        locations = player_last_coords.get(guild_id, {})
+        plotted_players = []
+
+        for player in online:
+            coord_record = locations.get(player)
+            coords = coord_record.get("coords") if isinstance(coord_record, dict) else None
+            if not coords:
+                continue
+
+            point = map_coords_to_pixel(coords, guild_id, width, height)
+            if not point:
+                continue
+
+            plotted_players.append((player, coords, point))
+
+        draw.rectangle((0, 0, width, 68), fill=(10, 14, 16, 205))
+        map_title = {"livonia": "Livonia", "sakhal": "Sakhal"}.get(map_key, "Chernarus")
+        draw.text((24, 14), f"Live Survivor Map - {map_title}", fill=(245, 248, 238, 255), font=font)
+        draw.text(
+            (24, 42),
+            f"{len(plotted_players)} plotted / {len(online)} online - latest known ADM positions",
+            fill=(203, 216, 196, 255),
+            font=small_font
+        )
+
+        for idx, (player, coords, point) in enumerate(plotted_players, start=1):
+            px, py = point
+            label = f"{idx}. {player[:24]}"
+            label_width = max(120, len(label) * 10)
+
+            draw.ellipse((px - 14, py - 14, px + 14, py + 14), fill=(255, 45, 45, 235), outline=(255, 255, 255, 255), width=3)
+            draw.ellipse((px - 4, py - 4, px + 4, py + 4), fill=(255, 255, 255, 255))
+
+            label_x = min(max(8, px + 18), width - label_width - 12)
+            label_y = min(max(76, py - 18), height - 34)
+            draw.rounded_rectangle(
+                (label_x - 6, label_y - 4, label_x + label_width, label_y + 24),
+                radius=5,
+                fill=(12, 18, 18, 210),
+                outline=(255, 255, 255, 120)
+            )
+            draw.text((label_x, label_y), label, fill=(255, 255, 255, 255), font=small_font)
+
+        final = Image.alpha_composite(base, overlay)
+        fd, path = tempfile.mkstemp(prefix=f"live_map_{guild_id}_", suffix=".png")
+        os.close(fd)
+        final.save(path, "PNG")
+
+        return path, None
+
+    except Exception as error:
+        return None, str(error)
+
+    finally:
+        if downloaded_path:
+            try:
+                os.remove(downloaded_path)
+            except Exception:
+                pass
 # =========================================================
 # AUTO GUILD SETUP
 # =========================================================
@@ -1753,6 +2225,13 @@ async def on_guild_join(guild):
             category=cat or category
         )
 
+    staff_overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False)
+    }
+    for role in guild.roles:
+        if role.permissions.administrator or role.name in DEFAULT_ADMIN_ROLES:
+            staff_overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
     killfeed = await make_channel("🔥🔥・killfeed・🔥🔥", cat=live_category)
     raids = await make_channel("🚨🏴・raids・🏴🚨", cat=live_category)
     builds = await make_channel("🔨🧱・building・🧱🔨", cat=live_category)
@@ -1760,6 +2239,9 @@ async def on_guild_join(guild):
     disconnects = await make_channel("🔴⛔・disconnects・⛔🔴", cat=live_category)
     zombie_feed = await make_channel("🧟🧟・zombie-feed・🧟🧟", cat=live_category)
     unconscious_feed = await make_channel("🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
+    cuts_feed = await guild.create_text_channel("🩸🩹・cuts-feed・🩹🩸", category=live_category, overwrites=staff_overwrites)
+    suicide_feed = await guild.create_text_channel("💀🧠・suicide-feed・🧠💀", category=live_category, overwrites=staff_overwrites)
+    pvp_intel = await make_channel("⚔️📡・pvp-intel・📡⚔️", cat=live_category)
 
     online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
     leaderboards = await make_channel("🏆📊・leaderboards・📊🏆", cat=info_category)
@@ -1791,6 +2273,7 @@ async def on_guild_join(guild):
     pve_crafting = await make_channel("🪓🛠️・pve-crafting・🛠️🪓", cat=pve_category)
     pve_expeditions = await make_channel("🗺️⛺・pve-expeditions・⛺🗺️", cat=pve_category)
     pve_info = await make_channel("📘🌿・pve-info・🌿📘", cat=pve_category)
+    pve_help = await make_channel("❔🌿・pve-help・🌿❔", cat=pve_category)
     pve_heatmap = await make_channel("🦌🗺️・pve-heatmap・🗺️🦌", cat=pve_category)
     owner_overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -1847,6 +2330,10 @@ async def on_guild_join(guild):
             "faction_staff": faction_staff.id,
             "zombie_feed": zombie_feed.id,
             "unconscious_feed": unconscious_feed.id,
+            "cuts_feed": cuts_feed.id,
+            "suicide_feed": suicide_feed.id,
+            "pvp_intel": pvp_intel.id,
+            "pve_help": pve_help.id,
             "company_announcements": company_announcements.id
         }
     }
@@ -1967,13 +2454,17 @@ async def setup_command(
         "faction_staff": ["factionstaff"],
         "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
         "unconscious_feed": ["unconsciousfeed", "medicalfeed", "unconscious"],
+        "cuts_feed": ["cutsfeed", "cuts", "damagefeed", "survivordamage"],
+        "suicide_feed": ["suicidefeed", "suicides", "suicide"],
+        "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
         "pve_quests": ["pvequests", "quests", "missions", "pvemissions"],
         "pve_hunting": ["pvehunting", "hunting", "animalhunts"],
         "pve_collection": ["pvecollection", "collection", "scavenger", "gathering"],
         "pve_fishing": ["pvefishing", "fishing", "fish"],
         "pve_crafting": ["pvecrafting", "crafting", "bushcraft"],
         "pve_expeditions": ["pveexpeditions", "expeditions", "exploration", "survivalruns"],
-        "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
+    "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
+    "pve_help": ["pvehelp", "pveadvice", "questhelp"],
         "pve_heatmap": ["pveheatmap", "animalheatmap"]
     }
 
@@ -1988,16 +2479,27 @@ async def setup_command(
 
         return normalized in aliases or any(alias and alias in normalized for alias in aliases)
 
-    async def ensure_channel(key, name, *, cat=None):
+    async def ensure_channel(key, name, *, cat=None, private=False):
         target_category = cat or category
         channels = guild_configs[guild_id].setdefault("channels", {})
         existing_id = channels.get(key)
+        overwrites = None
+
+        if private:
+            overwrites = {
+                interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False)
+            }
+            for role in interaction.guild.roles:
+                if role.permissions.administrator or role.name in guild_configs[guild_id].get("admin_roles", DEFAULT_ADMIN_ROLES):
+                    overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
         if existing_id:
             existing_channel = interaction.guild.get_channel(existing_id)
             if existing_channel:
                 try:
                     await existing_channel.edit(name=name, category=target_category)
+                    if overwrites is not None:
+                        await existing_channel.edit(overwrites=overwrites)
                 except Exception:
                     pass
                 return existing_channel
@@ -2009,13 +2511,16 @@ async def setup_command(
                 channels[key] = existing_channel.id
                 try:
                     await existing_channel.edit(name=name, category=target_category)
+                    if overwrites is not None:
+                        await existing_channel.edit(overwrites=overwrites)
                 except Exception:
                     pass
                 return existing_channel
 
         channel = await interaction.guild.create_text_channel(
             name,
-            category=target_category
+            category=target_category,
+            overwrites=overwrites
         )
 
         channels[key] = channel.id
@@ -2028,6 +2533,9 @@ async def setup_command(
     await ensure_channel("disconnects", "🔴⛔・disconnects・⛔🔴", cat=live_category)
     await ensure_channel("zombie_feed", "🧟🧟・zombie-feed・🧟🧟", cat=live_category)
     await ensure_channel("unconscious_feed", "🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
+    await ensure_channel("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", cat=live_category, private=True)
+    await ensure_channel("suicide_feed", "💀🧠・suicide-feed・🧠💀", cat=live_category, private=True)
+    await ensure_channel("pvp_intel", "⚔️📡・pvp-intel・📡⚔️", cat=live_category)
 
     await ensure_channel("online", "✅🎮・online-survivors・🎮✅", cat=info_category)
     await ensure_channel("leaderboards", "🏆📊・leaderboards・📊🏆", cat=info_category)
@@ -2407,9 +2915,17 @@ async def parse_adm(guild_id, config):
         if not event_type:
             continue
 
+        if event_type == "kill":
+            kill_details = extract_pvp_kill_details(line)
+            if not kill_details:
+                continue
+            if is_duplicate_pvp_kill(guild_id, kill_details):
+                continue
+
         print(f"EVENT: {event_type} | {line}")
 
         ensure_guild_runtime(guild_id)
+        remember_player_location_from_adm(guild_id, line)
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
 
@@ -2420,6 +2936,7 @@ async def parse_adm(guild_id, config):
         if heat_mode:
             increase_heat(guild_id, zone, heat_mode, coords)
 
+        await check_radar_zones_for_adm(guild_id, config, event_type, line)
         await process_pve_progress_from_adm(guild_id, config, event_type, line)
         await send_special_adm_feed(guild_id, config, event_type, line)
 
@@ -2939,60 +3456,29 @@ async def parse_adm(guild_id, config):
 
         elif event_type == "kill" and killfeed_channel:
 
-            killer_match = re.search(
-                r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)',
-                line
-            )
-            reverse_killer_match = re.search(
-                r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)',
-                line
-            )
+            kill_details = extract_pvp_kill_details(line)
 
-            coords_match = re.search(
-                r'pos=<([^>]+)>',
-                line
-            )
+            if kill_details:
 
-            coords = (
-                coords_match.group(1)
-                if coords_match else None
-            )
-
-            if killer_match or reverse_killer_match:
-
-                if killer_match:
-                    killer = killer_match.group(1)
-                    victim = killer_match.group(2)
-                    weapon = killer_match.group(3)
-                else:
-                    victim = reverse_killer_match.group(1)
-                    killer = reverse_killer_match.group(2)
-                    weapon = reverse_killer_match.group(3)
-
-                distance_match = re.search(
-                    r'from ([0-9]+\.?[0-9]*)m',
-                    line,
-                    re.IGNORECASE
-                )
-
-                distance = (
-                    float(distance_match.group(1))
-                    if distance_match else 0
-                )
+                killer = kill_details["killer"]
+                victim = kill_details["victim"]
+                weapon = kill_details.get("weapon", "Unknown")
+                distance = float(kill_details.get("distance", 0) or 0)
+                coords = kill_details.get("coords")
 
                 embed = discord.Embed(
-                    title="☠️ PLAYER KILL",
+                    title="PLAYER KILL",
                     color=0x992D22
                 )
 
                 embed.add_field(
-                    name="🔫 Killer",
+                    name="Killer",
                     value=killer,
                     inline=True
                 )
 
                 embed.add_field(
-                    name="💀 Victim",
+                    name="Victim",
                     value=victim,
                     inline=True
                 )
@@ -3000,16 +3486,23 @@ async def parse_adm(guild_id, config):
                 if distance > 0:
 
                     embed.add_field(
-                        name="🎯 Distance",
+                        name="Distance",
                         value=f"{distance}m",
                         inline=True
                     )
 
                 embed.add_field(
-                    name="🪖 Weapon",
+                    name="Weapon",
                     value=weapon,
                     inline=False
                 )
+
+                if kill_details.get("ammo"):
+                    embed.add_field(
+                        name="Ammo",
+                        value=kill_details["ammo"],
+                        inline=True
+                    )
 
                 if coords:
 
@@ -3018,15 +3511,15 @@ async def parse_adm(guild_id, config):
                     if map_link:
 
                         embed.add_field(
-                            name="📍 Kill Location",
-                            value=f"[🔵 Open Map](<{map_link}>)",
+                            name="Kill Location",
+                            value=f"[Open Map](<{map_link}>)",
                             inline=False
                         )
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
                 embed.set_footer(
-                    text="Wandering Bot Alpha • PvP Intelligence"
+                    text="Wandering Bot Alpha - PvP Intelligence"
                 )
 
                 embed.timestamp = datetime.now(UTC)
@@ -3041,7 +3534,10 @@ async def parse_adm(guild_id, config):
                     "weapon": "Unknown"
                 })
 
-                if distance > guild_longshot.get("distance", 0):
+                is_new_record = distance > guild_longshot.get("distance", 0)
+                is_longshot = distance >= LONGSHOT_ANNOUNCE_METERS
+
+                if is_new_record:
 
                     longshot_records[guild_id] = {
                         "killer": killer,
@@ -3050,6 +3546,8 @@ async def parse_adm(guild_id, config):
                         "weapon": weapon
                     }
 
+                if is_longshot or is_new_record:
+
                     longshot_channel = bot.get_channel(
                         channels.get("longshots")
                     )
@@ -3057,27 +3555,27 @@ async def parse_adm(guild_id, config):
                     if longshot_channel:
 
                         longshot_embed = discord.Embed(
-                            title="🎯 NEW SERVER LONGSHOT RECORD",
+                            title="NEW SERVER LONGSHOT RECORD" if is_new_record else "LONGSHOT CONFIRMED",
                             description=(
-                                f"{killer} just set a new longshot record!"
+                                f"{killer} dropped {victim} from {distance}m."
                             ),
                             color=0xF1C40F
                         )
 
                         longshot_embed.add_field(
-                            name="🎯 Distance",
+                            name="Distance",
                             value=f"{distance}m",
                             inline=True
                         )
 
                         longshot_embed.add_field(
-                            name="🔫 Weapon",
+                            name="Weapon",
                             value=weapon,
                             inline=True
                         )
 
                         longshot_embed.add_field(
-                            name="💀 Victim",
+                            name="Victim",
                             value=victim,
                             inline=True
                         )
@@ -3089,15 +3587,15 @@ async def parse_adm(guild_id, config):
                             if map_link:
 
                                 longshot_embed.add_field(
-                                    name="📍 Kill Location",
-                                    value=f"[🔵 Open Map](<{map_link}>)",
+                                    name="Kill Location",
+                                    value=f"[Open Map](<{map_link}>)",
                                     inline=False
                                 )
 
                         longshot_embed.set_thumbnail(url=BOT_IMAGE)
 
                         longshot_embed.set_footer(
-                            text="Wandering Bot Alpha • Longshot Tracking"
+                            text=f"Wandering Bot Alpha - Longshot Tracking - Threshold {LONGSHOT_ANNOUNCE_METERS}m"
                         )
 
                         longshot_embed.timestamp = datetime.now(UTC)
@@ -4328,6 +4826,66 @@ async def purgebots(ctx, amount: int = 100):
 RADAR_PINGS = {}
 
 
+def parse_xy_coords(coords):
+    try:
+        x_text, y_text = str(coords).split(",")[:2]
+        return float(x_text.strip()), float(y_text.strip())
+    except Exception:
+        return None
+
+
+async def check_radar_zones_for_adm(guild_id, config, event_type, line):
+    zones = config.get("radar_zones", [])
+    if not zones:
+        return
+
+    coords = extract_adm_coords(line)
+    point = parse_xy_coords(coords)
+    if not point:
+        return
+
+    player_name = extract_player_name(line)
+    now_ts = datetime.now(UTC).timestamp()
+    channels = config.get("channels", {})
+    radar_channel = bot.get_channel(channels.get("radar"))
+    if not radar_channel:
+        return
+
+    px, py = point
+    for zone in zones:
+        if not zone.get("enabled", True):
+            continue
+
+        zx = float(zone.get("x", 0))
+        zy = float(zone.get("y", 0))
+        radius = float(zone.get("radius", 0))
+        distance = ((px - zx) ** 2 + (py - zy) ** 2) ** 0.5
+        if distance > radius:
+            continue
+
+        zone_id = str(zone.get("id"))
+        throttle_key = f"{guild_id}:{zone_id}:{player_name}"
+        if now_ts - RADAR_PINGS.get(throttle_key, 0) < int(zone.get("cooldown_seconds", 600)):
+            continue
+
+        RADAR_PINGS[throttle_key] = now_ts
+        map_link = f"https://dayz.ginfo.gg/#location={zx};{zy}"
+        player_link = build_izurvive_link(coords)
+        embed = discord.Embed(
+            title="RADAR ZONE TRIGGERED",
+            description=f"**{player_name}** entered **{zone.get('name', 'Radar Zone')}**.",
+            color=0xE74C3C
+        )
+        embed.add_field(name="Event", value=event_type or "activity", inline=True)
+        embed.add_field(name="Distance From Center", value=f"{distance:.0f}m / {radius:.0f}m", inline=True)
+        embed.add_field(name="Zone Center", value=f"[Open Zone](<{map_link}>)", inline=False)
+        if player_link:
+            embed.add_field(name="Player Location", value=f"[Open Player Location](<{player_link}>)", inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Radar Intelligence")
+        await radar_channel.send(embed=style_embed(embed))
+
+
 @bot.command()
 async def setradarchannel(ctx, channel: discord.TextChannel):
 
@@ -4617,6 +5175,11 @@ async def togglebasedamage(ctx, state: str):
         )
 
         return
+
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": ctx.guild.name, "channels": {}})
+    config["base_damage_state"] = state
+    save_guild_configs()
 
     embed = discord.Embed(
         title="🛡️ BASE DAMAGE SETTINGS",
@@ -4927,6 +5490,223 @@ async def send_ai_alert(guild_id, config, line):
 
 
 # =========================================================
+# CUSTOM SCHEDULED FEEDS
+# =========================================================
+
+def custom_feeds_for_config(config):
+    return config.setdefault("custom_feeds", [])
+
+
+def next_custom_feed_id(config):
+    existing = [int(feed.get("id", 0)) for feed in custom_feeds_for_config(config)]
+    return (max(existing) if existing else 0) + 1
+
+
+async def send_custom_feed_message(guild_id, config, feed):
+    channel = bot.get_channel(int(feed.get("channel_id", 0)))
+    if not channel:
+        return False, "Channel missing"
+
+    feed_type = str(feed.get("feed_type", "text")).lower()
+    message = str(feed.get("message", "")).strip()
+    color = 0x1ABC9C
+    title = "WANDERING FEED"
+    description = message or "Scheduled feed pulse."
+
+    if feed_type == "restart":
+        interval = config.get("restart_interval_hours", DEFAULT_RESTART_INTERVAL_HOURS)
+        start_hour = config.get("restart_start_hour", 0)
+        title = "SCHEDULED RESTART FEED"
+        description = message or f"Restart schedule is every {interval} hours starting at {start_hour:02d}:00 UTC."
+        color = 0xE67E22
+    elif feed_type == "basedamage":
+        state = str(config.get("base_damage_state", "unknown")).upper()
+        title = "BASE DAMAGE FEED"
+        description = message or f"Base damage is currently `{state}`."
+        color = 0x3498DB
+    elif feed_type == "serverstatus":
+        ensure_guild_runtime(guild_id)
+        title = "SERVER STATUS FEED"
+        description = message or f"Tracked survivors online: `{len(online_players.get(str(guild_id), set()))}`. ADM loop: `{'running' if adm_loop.is_running() else 'stopped'}`."
+        color = 0x2ECC71
+    elif feed_type == "heatmap":
+        heatmap_mode = guild_heatmap_mode(guild_id)
+        title = f"{server_map_key(guild_id).upper()} {heatmap_mode.upper()} HEATMAP FEED"
+        counts = heat_counts_for_mode(guild_id, heatmap_mode)
+        hottest = sorted(counts.items(), key=lambda row: row[1], reverse=True)[:5]
+        description = message or "\n".join(f"{zone}: {count}" for zone, count in hottest) or f"No {heatmap_mode} activity yet."
+        color = 0x9B59B6
+
+    embed = discord.Embed(title=title, description=description[:1800], color=color)
+    embed.add_field(name="Feed Type", value=feed_type, inline=True)
+    embed.add_field(name="Interval", value=f"{feed.get('interval_minutes')} minutes", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Custom Scheduled Feed")
+
+    if feed_type == "heatmap":
+        heatmap_path = generate_guild_heatmap_image(guild_id, guild_heatmap_mode(guild_id))
+        file = discord.File(heatmap_path, filename="custom_heatmap.png")
+        embed.set_image(url="attachment://custom_heatmap.png")
+        await channel.send(embed=style_embed(embed), file=file)
+        try:
+            os.remove(heatmap_path)
+        except Exception:
+            pass
+    else:
+        await channel.send(embed=style_embed(embed))
+
+    return True, "Sent"
+
+
+@tasks.loop(minutes=1)
+async def custom_feed_loop():
+    now_ts = datetime.now(UTC).timestamp()
+
+    for guild_id, config in active_guild_config_items():
+        for feed in custom_feeds_for_config(config):
+            try:
+                if not feed.get("enabled", True):
+                    continue
+                interval_minutes = int(feed.get("interval_minutes", 60))
+                interval_minutes = max(5, min(10080, interval_minutes))
+                last_post = float(feed.get("last_post_ts", 0))
+                if now_ts - last_post < interval_minutes * 60:
+                    continue
+                success, message = await send_custom_feed_message(guild_id, config, feed)
+                feed["last_post_ts"] = now_ts
+                feed["last_result"] = message
+                feed["last_success"] = success
+                save_guild_configs()
+            except Exception as error:
+                feed["last_result"] = str(error)
+                feed["last_success"] = False
+                save_guild_configs()
+                print(f"CUSTOM FEED ERROR {guild_id}: {error}")
+
+
+@tasks.loop(minutes=1)
+async def wage_loop():
+    now_ts = datetime.now(UTC).timestamp()
+
+    for guild_id, config in active_guild_config_items():
+        changed = False
+        for wage in config.get("recurring_wages", []):
+            try:
+                if not wage.get("enabled", True):
+                    continue
+
+                interval_seconds = max(3600, int(wage.get("interval_hours", 24)) * 3600)
+                last_paid = float(wage.get("last_paid_ts", 0))
+                if now_ts - last_paid < interval_seconds:
+                    continue
+
+                user_id = str(wage.get("user_id"))
+                wallet = wallets.setdefault(user_id, {
+                    "name": wage.get("name", user_id),
+                    "balance": 0,
+                    "daily_transactions": 0
+                })
+                amount = int(wage.get("amount", 0))
+                if amount <= 0:
+                    continue
+
+                wallet["balance"] = wallet.get("balance", 0) + amount
+                wage["last_paid_ts"] = now_ts
+                changed = True
+
+                channel = bot.get_channel(config.get("channels", {}).get("economy"))
+                if channel:
+                    embed = discord.Embed(
+                        title="RECURRING WAGE PAID",
+                        description=f"<@{user_id}> received `{amount}` pennies.",
+                        color=0x2ECC71
+                    )
+                    embed.add_field(name="Reason", value=wage.get("reason", "Server wage"), inline=False)
+                    embed.add_field(name="New Balance", value=f"{wallet['balance']} pennies", inline=True)
+                    embed.set_thumbnail(url=BOT_IMAGE)
+                    embed.set_footer(text="Wandering Bot Alpha - Economy Payroll")
+                    await channel.send(embed=style_embed(embed))
+
+            except Exception as error:
+                print(f"WAGE LOOP ERROR {guild_id}: {error}")
+
+        if changed:
+            save_wallets()
+            save_guild_configs()
+
+
+@bot.tree.command(name="addfeed", description="Admin: create a scheduled custom feed in a channel")
+@app_commands.describe(channel="Channel to post into", feed_type="text, restart, basedamage, serverstatus, or heatmap", interval_minutes="How often to post, 5 to 10080 minutes", message="Optional custom text for the feed")
+async def addfeed(interaction: discord.Interaction, channel: discord.TextChannel, feed_type: str, interval_minutes: int, message: str = ""):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    feed_type = feed_type.lower().strip()
+    if feed_type not in CUSTOM_FEED_TYPES:
+        await interaction.response.send_message(f"Feed type must be one of: {', '.join(CUSTOM_FEED_TYPES)}", ephemeral=True)
+        return
+    interval_minutes = max(5, min(10080, int(interval_minutes)))
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    feed = {"id": next_custom_feed_id(config), "channel_id": channel.id, "feed_type": feed_type, "interval_minutes": interval_minutes, "message": message[:1800], "enabled": True, "created_by": str(interaction.user.id), "last_post_ts": 0}
+    custom_feeds_for_config(config).append(feed)
+    save_guild_configs()
+    await interaction.response.send_message(f"Feed `{feed['id']}` created: `{feed_type}` into {channel.mention} every {interval_minutes} minutes.", ephemeral=True)
+
+
+@bot.tree.command(name="listfeeds", description="Admin: list scheduled custom feeds")
+async def listfeeds(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    config = guild_configs.get(str(interaction.guild.id), {})
+    feeds = custom_feeds_for_config(config)
+    if not feeds:
+        await interaction.response.send_message("No custom feeds configured.", ephemeral=True)
+        return
+    lines = []
+    for feed in feeds[:20]:
+        channel = interaction.guild.get_channel(int(feed.get("channel_id", 0)))
+        channel_name = channel.mention if channel else "missing-channel"
+        state = "on" if feed.get("enabled", True) else "off"
+        lines.append(f"`{feed.get('id')}` {state} `{feed.get('feed_type')}` -> {channel_name} every {feed.get('interval_minutes')}m")
+    embed = discord.Embed(title="CUSTOM FEEDS", description="\n".join(lines), color=0x1ABC9C)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="togglefeed", description="Admin: turn a custom feed on or off")
+@app_commands.describe(feed_id="Feed ID from /listfeeds", enabled="True to enable, false to disable")
+async def togglefeed(interaction: discord.Interaction, feed_id: int, enabled: bool):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    config = guild_configs.get(str(interaction.guild.id), {})
+    for feed in custom_feeds_for_config(config):
+        if int(feed.get("id", 0)) == int(feed_id):
+            feed["enabled"] = bool(enabled)
+            save_guild_configs()
+            await interaction.response.send_message(f"Feed `{feed_id}` is now {'on' if enabled else 'off'}.", ephemeral=True)
+            return
+    await interaction.response.send_message("Feed ID not found.", ephemeral=True)
+
+
+@bot.tree.command(name="removefeed", description="Admin: remove a custom scheduled feed")
+@app_commands.describe(feed_id="Feed ID from /listfeeds")
+async def removefeed(interaction: discord.Interaction, feed_id: int):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    config = guild_configs.get(str(interaction.guild.id), {})
+    feeds = custom_feeds_for_config(config)
+    kept = [feed for feed in feeds if int(feed.get("id", 0)) != int(feed_id)]
+    if len(kept) == len(feeds):
+        await interaction.response.send_message("Feed ID not found.", ephemeral=True)
+        return
+    config["custom_feeds"] = kept
+    save_guild_configs()
+    await interaction.response.send_message(f"Feed `{feed_id}` removed.", ephemeral=True)
+# =========================================================
 # PVE QUEST SYSTEM
 # =========================================================
 
@@ -5206,9 +5986,25 @@ PVE_INFO_TOPICS = {
     ),
 }
 
+PVE_DAILY_HELP_LINES = [
+    ("Quest Proof", "For collection, fishing, crafting, and exploration quests, screenshots or clips make staff approval painless. Show the item, place, or finished craft clearly."),
+    ("Tracking", "Hunting, infected, placement, and some building quests can be tracked from ADM logs. Link your gamertag with `/linkgamer` so rewards can pay automatically."),
+    ("PVE Loadout", "Carry a blade, bandages, food, water, rope, and a quiet weapon. PVE is calmer than PvP until it suddenly is not."),
+    ("Team Runs", "Split collection quests between players. One survivor handles medical, one handles food, one handles sheds and tools."),
+    ("Expeditions", "For long travel quests, plan water stops first. The quickest route is not always the route that gets everyone home.")
+]
+
+PVP_INTEL_LINES = [
+    "PvP reminder: distance, cover, and patience win more fights than panic spraying at a moving tree line.",
+    "Longshot hunters: good angles matter. If you can see the whole valley, the whole valley can sometimes see you back.",
+    "Raid-zone wisdom: record clips, timestamps, and coordinates before the argument starts.",
+    "If the shot sounds close, move first and investigate second. Curiosity has a terrible K/D ratio.",
+    "Check your exits before you start looting a body. The second survivor is often the expensive one."
+]
+
 
 def pve_config(config):
-    return config.setdefault("pve", {"enabled": True, "interval_hours": 72})
+    return config.setdefault("pve", {"enabled": True, "interval_hours": 12})
 
 
 def pve_reward_for_difficulty(difficulty):
@@ -5228,8 +6024,16 @@ def pve_target_count(template, count):
     return 0
 
 
-def generate_pve_challenge():
-    template = random.choice(PVE_CHALLENGE_BANK)
+def generate_pve_challenge(kind=None):
+    candidates = PVE_CHALLENGE_BANK
+    if kind:
+        wanted = str(kind).lower()
+        candidates = [
+            challenge for challenge in PVE_CHALLENGE_BANK
+            if str(challenge.get("kind", "")).lower() == wanted
+        ] or PVE_CHALLENGE_BANK
+
+    template = random.choice(candidates)
     difficulty = template.get("difficulty", random.choice(["Easy", "Easy", "Medium", "Medium", "Hard"]))
     count_choices = {
         "Easy": [2, 3, 4, 5],
@@ -5273,6 +6077,14 @@ def pve_themed_channel_key(challenge):
         "treasure hunt": "pve_expeditions",
         "quest line": "pve_expeditions",
     }.get(str(challenge.get("kind", "")).lower())
+
+
+def has_active_pve_kind(guild_id, kind):
+    wanted = str(kind).lower()
+    for challenge in pve_challenges.get(str(guild_id), []):
+        if challenge.get("status") == "active" and str(challenge.get("kind", "")).lower() == wanted:
+            return True
+    return False
 
 
 def linked_user_id_for_player(player_name):
@@ -5372,6 +6184,54 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     return True, challenge["title"]
 
 
+async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
+    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    if not guild:
+        return False, "Guild not found"
+
+    if not manual and has_active_pve_kind(guild_id, kind):
+        return False, f"Active {kind} quest already exists"
+
+    channels = config.setdefault("channels", {})
+    if not channels.get("pve_quests"):
+        await ensure_pve_channels(guild, config)
+
+    challenge = generate_pve_challenge(kind)
+    channel_key = pve_themed_channel_key(challenge) or "pve_quests"
+    channel = bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("pve_quests"))
+    if not channel:
+        return False, "PVE channel missing"
+
+    guild_challenges = pve_challenges.setdefault(str(guild_id), [])
+    guild_challenges.append(challenge)
+    pve_challenges[str(guild_id)] = guild_challenges[-50:]
+    save_pve_challenges()
+
+    embed = discord.Embed(
+        title=f"DAILY {challenge['kind'].upper()} QUEST: {challenge['title']}",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
+    embed.add_field(name="Reward", value=challenge["reward"], inline=True)
+    embed.add_field(name="Objective", value=challenge["goal"], inline=False)
+    embed.add_field(name="Completion", value="Tracked by ADM logs where possible. Otherwise post proof for staff approval.", inline=False)
+    embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Themed PVE Quest Feed")
+    await channel.send(embed=style_embed(embed))
+    return True, challenge["title"]
+
+
+async def post_pve_daily_pack(guild_id, config):
+    kinds = ["Hunting", "Collection", "Fishing", "Crafting", "Explorer"]
+    posted = []
+    for kind in kinds:
+        success, title = await post_pve_themed_challenge(guild_id, config, kind)
+        if success:
+            posted.append(title)
+    return posted
+
+
 async def send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status):
     channels = config.get("channels", {})
     quest_channel = bot.get_channel(channels.get("pve_quests"))
@@ -5447,20 +6307,69 @@ async def pve_challenge_loop():
             if not settings.get("enabled", True):
                 continue
 
-            interval_hours = int(settings.get("interval_hours", 72))
+            interval_hours = int(settings.get("interval_hours", 12))
             interval_hours = max(6, min(168, interval_hours))
             last_post = float(settings.get("last_post_ts", 0))
 
             if now_ts - last_post < interval_hours * 3600:
                 continue
 
-            success, _ = await post_pve_challenge(guild_id, config)
-            if success:
+            posted = await post_pve_daily_pack(guild_id, config)
+            if posted:
                 settings["last_post_ts"] = now_ts
                 save_guild_configs()
 
         except Exception as error:
             print(f"PVE CHALLENGE LOOP ERROR {guild_id}: {error}")
+
+
+@tasks.loop(minutes=60)
+async def pve_pvp_advice_loop():
+    now_ts = datetime.now(UTC).timestamp()
+
+    for guild_id, config in active_guild_config_items():
+        try:
+            channels = config.setdefault("channels", {})
+
+            pve_settings = pve_config(config)
+            last_pve_help = float(pve_settings.get("last_help_ts", 0))
+            if now_ts - last_pve_help >= 24 * 3600:
+                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                if guild and not channels.get("pve_help"):
+                    await ensure_pve_channels(guild, config)
+
+                pve_help_channel = bot.get_channel(channels.get("pve_help"))
+                if pve_help_channel:
+                    title, body = random.choice(PVE_DAILY_HELP_LINES)
+                    embed = discord.Embed(
+                        title=f"PVE HELP: {title}",
+                        description=body,
+                        color=0x1ABC9C
+                    )
+                    embed.set_thumbnail(url=BOT_IMAGE)
+                    embed.set_footer(text="Wandering Bot Alpha - Daily PVE Help")
+                    await pve_help_channel.send(embed=style_embed(embed))
+                    pve_settings["last_help_ts"] = now_ts
+                    save_guild_configs()
+
+            pvp_settings = config.setdefault("pvp_intel", {})
+            last_pvp_tip = float(pvp_settings.get("last_tip_ts", 0))
+            if now_ts - last_pvp_tip >= 24 * 3600:
+                pvp_channel = bot.get_channel(channels.get("pvp_intel"))
+                if pvp_channel:
+                    embed = discord.Embed(
+                        title="PVP FIELD NOTE",
+                        description=random.choice(PVP_INTEL_LINES),
+                        color=0x992D22
+                    )
+                    embed.set_thumbnail(url=BOT_IMAGE)
+                    embed.set_footer(text="Wandering Bot Alpha - PvP Intelligence")
+                    await pvp_channel.send(embed=style_embed(embed))
+                    pvp_settings["last_tip_ts"] = now_ts
+                    save_guild_configs()
+
+        except Exception as error:
+            print(f"PVE/PVP ADVICE LOOP ERROR {guild_id}: {error}")
 
 
 @bot.tree.command(name="pvesetup", description="Admin: create or repair the PVE category and channels")
@@ -5490,8 +6399,8 @@ async def pvesetup(interaction: discord.Interaction):
 
 
 @bot.tree.command(name="pveconfig", description="Admin: configure automatic PVE quest posting")
-@app_commands.describe(enabled="Turn auto PVE quests on or off", interval_hours="Hours between quests, 6 to 168")
-async def pveconfig_command(interaction: discord.Interaction, enabled: bool = True, interval_hours: int = 72):
+@app_commands.describe(enabled="Turn auto PVE quests on or off", interval_hours="Hours between themed quest packs, 6 to 168")
+async def pveconfig_command(interaction: discord.Interaction, enabled: bool = True, interval_hours: int = 12):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
@@ -5505,7 +6414,7 @@ async def pveconfig_command(interaction: discord.Interaction, enabled: bool = Tr
     save_guild_configs()
 
     await interaction.response.send_message(
-        f"PVE auto quests are {'on' if enabled else 'off'} every {interval_hours} hours.",
+        f"PVE themed quest packs are {'on' if enabled else 'off'} every {interval_hours} hours.",
         ephemeral=True
     )
 
@@ -5926,6 +6835,15 @@ async def start_background_tasks():
         if not pve_challenge_loop.is_running():
             pve_challenge_loop.start()
 
+        if not pve_pvp_advice_loop.is_running():
+            pve_pvp_advice_loop.start()
+
+        if not custom_feed_loop.is_running():
+            custom_feed_loop.start()
+
+        if not wage_loop.is_running():
+            wage_loop.start()
+
     except RuntimeError:
         pass
 
@@ -5973,7 +6891,7 @@ async def online_dashboard_loop():
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Auto Refresh Every 15 Minutes"
+                text="Wandering Bot Alpha - Auto Refresh Every 30 Minutes"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -6052,7 +6970,7 @@ async def heatmap_loop():
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Heatmap Refresh Every 15 Minutes"
+                text="Wandering Bot Alpha - Heatmap Refresh Every 1 Hour"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -6092,7 +7010,7 @@ async def heatmap_loop():
                 pve_file = discord.File(pve_heatmap_path, filename="pve_heatmap.png")
                 pve_embed.set_image(url="attachment://pve_heatmap.png")
                 pve_embed.set_thumbnail(url=BOT_IMAGE)
-                pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 15 Minutes")
+                pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour")
 
                 old_pve_message_id = last_pve_heatmap_message_ids.get(guild_id)
                 if old_pve_message_id:
@@ -6143,9 +7061,10 @@ async def leaderboard_loop():
                 if str(stats.get("guild_id", "")) == guild_id
             ]
 
-            def board_lines(stat_key, icon, limit=5, formatter=None):
+            def board_lines(stat_key, label, limit=5, formatter=None, source_rows=None):
+                rows = source_rows if source_rows is not None else guild_only
                 sorted_rows = sorted(
-                    guild_only,
+                    rows,
                     key=lambda row: row[1].get(stat_key, 0),
                     reverse=True
                 )
@@ -6154,53 +7073,80 @@ async def leaderboard_loop():
                     value = stats.get(stat_key, 0)
                     if formatter:
                         value = formatter(value)
-                    lines.append(f"{idx}. {player} - {icon} {value}")
-                return "\n".join(lines) if lines else "Waiting for ADM data."
+                    lines.append(f"{idx:<2} {player[:18]:<18} {value}")
+                if not lines:
+                    return "Waiting for ADM data."
+                return f"```{'#  Survivor           ' + label}\n" + "\n".join(lines) + "```"
+
+            global_rows = list(player_stats.items())
+            global_longshots = sorted(
+                longshot_records.items(),
+                key=lambda row: row[1].get("distance", 0),
+                reverse=True
+            )[:5]
+            global_longshot_lines = []
+            for idx, (record_guild_id, record) in enumerate(global_longshots, start=1):
+                global_longshot_lines.append(
+                    f"{idx:<2} {str(record.get('killer', 'Unknown'))[:16]:<16} {record.get('distance', 0)}m"
+                )
 
             embed = discord.Embed(
                 title="DAYZ SERVER LEADERBOARDS",
                 color=0xF1C40F
             )
             embed.add_field(
-                name="Top Kills",
-                value=board_lines("kills", "kills"),
+                name="Server Top Kills",
+                value=board_lines("kills", "Kills"),
                 inline=True
             )
             embed.add_field(
-                name="Most Deaths",
-                value=board_lines("deaths", "deaths"),
+                name="Server Deaths",
+                value=board_lines("deaths", "Deaths"),
                 inline=True
             )
             embed.add_field(
-                name="Time Played",
-                value=board_lines("time_online_seconds", "online", formatter=format_duration),
+                name="Server Time Played",
+                value=board_lines("time_online_seconds", "Time", formatter=format_duration),
                 inline=True
             )
             embed.add_field(
-                name="Builders",
-                value=board_lines("builds", "builds"),
+                name="Server Builders",
+                value=board_lines("builds", "Builds"),
                 inline=True
             )
             embed.add_field(
-                name="Placements",
-                value=board_lines("placements", "placed"),
+                name="Server Placements",
+                value=board_lines("placements", "Placed"),
                 inline=True
             )
             embed.add_field(
-                name="PVE Hunting",
-                value=board_lines("animals_hunted", "hunts"),
+                name="Server PVE Hunting",
+                value=board_lines("animals_hunted", "Hunts"),
                 inline=True
             )
             embed.add_field(
-                name="Trouble Board",
-                value=board_lines("cuts", "damage"),
+                name="Global Top Kills",
+                value=board_lines("kills", "Kills", source_rows=global_rows),
+                inline=True
+            )
+            embed.add_field(
+                name="Global Time Played",
+                value=board_lines("time_online_seconds", "Time", formatter=format_duration, source_rows=global_rows),
+                inline=True
+            )
+            embed.add_field(
+                name="Global Longshots",
+                value=(
+                    f"```#  Survivor         Distance\n" + "\n".join(global_longshot_lines) + "```"
+                    if global_longshot_lines else "Waiting for longshot data."
+                ),
                 inline=True
             )
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Leaderboards Refresh Every 15 Minutes"
+                text="Wandering Bot Alpha - Leaderboards Refresh Every 1 Hour"
             )
 
             embed.timestamp = datetime.now(UTC)
@@ -7397,6 +8343,78 @@ async def addpunishment(interaction: discord.Interaction, keyword: str, amount: 
     await interaction.response.send_message(f"Punishment rule added: `{keyword}` removes {amount} pennies.", ephemeral=True)
 
 
+@bot.tree.command(name="addwage", description="Admin: pay a member recurring pennies")
+@app_commands.describe(member="Member to pay", amount="Pennies per payment", interval_hours="Every how many hours", reason="Reason shown in payroll")
+async def addwage(interaction: discord.Interaction, member: discord.Member, amount: int, interval_hours: int, reason: str = "Server wage"):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be above 0.", ephemeral=True)
+        return
+
+    interval_hours = max(1, min(720, int(interval_hours)))
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    wages = config.setdefault("recurring_wages", [])
+    next_id = max([int(wage.get("id", 0)) for wage in wages] or [0]) + 1
+    wages.append({
+        "id": next_id,
+        "user_id": str(member.id),
+        "name": str(member),
+        "amount": int(amount),
+        "interval_hours": interval_hours,
+        "reason": reason[:200],
+        "enabled": True,
+        "last_paid_ts": 0
+    })
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"Wage `{next_id}` created for {member.mention}: `{amount}` pennies every `{interval_hours}` hours.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="listwages", description="Admin: list recurring wages")
+async def listwages(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    wages = guild_configs.get(str(interaction.guild.id), {}).get("recurring_wages", [])
+    if not wages:
+        await interaction.response.send_message("No recurring wages configured.", ephemeral=True)
+        return
+
+    lines = [
+        f"`{wage.get('id')}` {'on' if wage.get('enabled', True) else 'off'} <@{wage.get('user_id')}> - {wage.get('amount')} pennies every {wage.get('interval_hours')}h - {wage.get('reason', 'Server wage')}"
+        for wage in wages[:25]
+    ]
+    embed = discord.Embed(title="RECURRING WAGES", description="\n".join(lines), color=0x2ECC71)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="removewage", description="Admin: remove a recurring wage")
+@app_commands.describe(wage_id="Wage ID from /listwages")
+async def removewage(interaction: discord.Interaction, wage_id: int):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.get(str(interaction.guild.id), {})
+    wages = config.get("recurring_wages", [])
+    kept = [wage for wage in wages if int(wage.get("id", 0)) != int(wage_id)]
+    if len(kept) == len(wages):
+        await interaction.response.send_message("Wage ID not found.", ephemeral=True)
+        return
+
+    config["recurring_wages"] = kept
+    save_guild_configs()
+    await interaction.response.send_message(f"Wage `{wage_id}` removed.", ephemeral=True)
+
+
 @bot.tree.command(name="listrules", description="Admin: list reward and punishment rules")
 async def listrules(interaction: discord.Interaction):
 
@@ -7447,6 +8465,77 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
     )
 
 
+@bot.tree.command(name="addradarzone", description="Admin: alert when ADM activity enters a coordinate radius")
+@app_commands.describe(name="Zone name", x="iZurvive X coordinate", y="iZurvive Y coordinate", radius="Radius in meters")
+async def addradarzone(interaction: discord.Interaction, name: str, x: float, y: float, radius: int):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    if radius < 25 or radius > 5000:
+        await interaction.response.send_message("Radius must be between 25 and 5000 meters.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    zones = config.setdefault("radar_zones", [])
+    next_id = (max([int(zone.get("id", 0)) for zone in zones] or [0]) + 1)
+    zones.append({
+        "id": next_id,
+        "name": name[:80],
+        "x": float(x),
+        "y": float(y),
+        "radius": int(radius),
+        "enabled": True,
+        "cooldown_seconds": 600,
+        "created_by": str(interaction.user.id)
+    })
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="listradarzones", description="Admin: list configured radar zones")
+async def listradarzones(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    zones = guild_configs.get(str(interaction.guild.id), {}).get("radar_zones", [])
+    if not zones:
+        await interaction.response.send_message("No radar zones configured.", ephemeral=True)
+        return
+
+    lines = [
+        f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} **{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m"
+        for zone in zones[:25]
+    ]
+    embed = discord.Embed(title="RADAR ZONES", description="\n".join(lines), color=0xE74C3C)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="removeradarzone", description="Admin: remove a radar zone")
+@app_commands.describe(zone_id="Zone ID from /listradarzones")
+async def removeradarzone(interaction: discord.Interaction, zone_id: int):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.get(str(interaction.guild.id), {})
+    zones = config.get("radar_zones", [])
+    kept = [zone for zone in zones if int(zone.get("id", 0)) != int(zone_id)]
+    if len(kept) == len(zones):
+        await interaction.response.send_message("Radar zone not found.", ephemeral=True)
+        return
+
+    config["radar_zones"] = kept
+    save_guild_configs()
+    await interaction.response.send_message(f"Radar zone `{zone_id}` removed.", ephemeral=True)
+
+
 @bot.tree.command(name="setheatmapmode", description="Admin: choose what the heatmap tracks")
 @app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, pve, or all")
 async def setheatmapmode(interaction: discord.Interaction, mode: str):
@@ -7475,21 +8564,67 @@ async def setheatmapmode(interaction: discord.Interaction, mode: str):
     )
 
 
-@bot.tree.command(name="setservermap", description="Admin: set the server map label used by heatmap feeds")
-@app_commands.describe(map_name="Example: chernarus, livonia, deerisle, namalsk")
+@bot.tree.command(name="setservermap", description="Admin: set heatmap scaling to Chernarus, Livonia, or Sakhal")
+@app_commands.describe(map_name="chernarus, livonia, or sakhal")
 async def setservermap(interaction: discord.Interaction, map_name: str):
 
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
+    wanted = normalize_discord_name(map_name)
+    if wanted not in ["chernarus", "livonia", "enoch", "sakhal", "sakhalplus"]:
+        await interaction.response.send_message(
+            "Map must be `chernarus`, `livonia`, or `sakhal`.",
+            ephemeral=True
+        )
+        return
+
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
-    config["server_map"] = map_name.lower().strip()
+    if wanted in ["livonia", "enoch"]:
+        config["server_map"] = "livonia"
+    elif wanted in ["sakhal", "sakhalplus"]:
+        config["server_map"] = "sakhal"
+    else:
+        config["server_map"] = "chernarus"
     save_guild_configs()
 
     await interaction.response.send_message(
-        f"Server map set to `{config['server_map']}`.",
+        f"Server map set to `{config['server_map']}`. New heatmap points will use that map scale.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="setheatmapimage", description="Admin: set the real map image used behind heatmap dots")
+@app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image_source="Direct image URL or server file path")
+async def setheatmapimage(interaction: discord.Interaction, map_name: str, image_source: str):
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    wanted = normalize_discord_name(map_name)
+    if wanted not in ["chernarus", "livonia", "enoch", "sakhal", "sakhalplus", "default"]:
+        await interaction.response.send_message(
+            "Map must be `chernarus`, `livonia`, `sakhal`, or `default`.",
+            ephemeral=True
+        )
+        return
+
+    if wanted == "enoch":
+        wanted = "livonia"
+    elif wanted == "sakhalplus":
+        wanted = "sakhal"
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    images = config.setdefault("heatmap_images", {})
+    images[wanted] = image_source.strip()
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        f"Heatmap image for `{wanted}` set. The next heatmap refresh will draw heat over that image.",
         ephemeral=True
     )
 
