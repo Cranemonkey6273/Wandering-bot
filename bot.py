@@ -6611,6 +6611,112 @@ def download_text_file_from_nitrado(config, target_path):
         return False, str(error), None
 
 
+def list_remote_directory_from_nitrado_api(config, folder):
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "list")
+    if not headers or not url:
+        return []
+
+    entries = []
+    for api_folder in nitrado_api_file_path_candidates(config, folder):
+        try:
+            response = requests.get(
+                url,
+                headers=headers,
+                params={"dir": api_folder},
+                timeout=30
+            )
+            if response.status_code != 200:
+                continue
+
+            data = response.json()
+            for entry in data.get("data", {}).get("entries", []):
+                name = entry.get("name")
+                path = entry.get("path")
+                if name or path:
+                    entries.append({
+                        "name": str(name or os.path.basename(str(path))),
+                        "path": str(path or os.path.join(folder, str(name))).replace("\\", "/"),
+                        "type": str(entry.get("type") or entry.get("file_type") or ""),
+                    })
+        except Exception:
+            continue
+
+    return entries
+
+
+def list_remote_directory_from_ftp(config, folder):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+    if ftp_error:
+        return []
+
+    entries = []
+    try:
+        for item in ftp.nlst(folder):
+            item_text = str(item).replace("\\", "/").rstrip("/")
+            name = os.path.basename(item_text)
+            path = item_text if item_text.startswith("/") else f"{folder.rstrip('/')}/{item_text}"
+            entries.append({
+                "name": name,
+                "path": path,
+                "type": "",
+            })
+    except Exception:
+        pass
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+
+    return entries
+
+
+def remote_directory_entries(config, folder):
+    entries = []
+    for entry in list_remote_directory_from_nitrado_api(config, folder):
+        entries.append(entry)
+    for entry in list_remote_directory_from_ftp(config, folder):
+        entries.append(entry)
+
+    deduped = []
+    seen = set()
+    for entry in entries:
+        path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        entry["path"] = path
+        deduped.append(entry)
+    return deduped
+
+
+def discover_init_c_paths(config):
+    bases = [
+        "/dayzxb/mpmissions",
+        "/dayzxbserver/mpmissions",
+        "/mpmissions",
+    ]
+    discovered = []
+
+    for base in bases:
+        for entry in remote_directory_entries(config, base):
+            name = str(entry.get("name") or "").strip()
+            path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+            if not name or not path:
+                continue
+            if name.startswith(".") or name.lower() in {"__pycache__", "storage_1"}:
+                continue
+            if name.lower() == "init.c":
+                candidate = path
+            else:
+                candidate = f"{path}/init.c"
+            if candidate not in discovered:
+                discovered.append(candidate)
+
+    return discovered
+
+
 WANDERING_DELIVERY_BRIDGE_CODE = r'''
 string WanderingBotAttribute(string line, string attributeName)
 {
@@ -15754,7 +15860,10 @@ def download_init_c_with_fallback(config, guild_id, init_path=""):
     if init_path:
         candidates = [str(init_path).strip()]
     else:
-        candidates = init_path_candidates_for_guild(guild_id)
+        candidates = []
+        for candidate in init_path_candidates_for_guild(guild_id) + discover_init_c_paths(config):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
 
     last_message = ""
     for candidate in candidates:
