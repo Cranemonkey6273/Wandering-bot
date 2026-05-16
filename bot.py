@@ -311,6 +311,20 @@ BOT_UPDATE_NOTES = [
         "commands": "`/botupdates`",
         "audience": "Everyone",
     },
+    {
+        "id": "2026-05-16-channel-restore-options",
+        "title": "Owner Channel Restore Choices",
+        "summary": "If a server owner deletes bot-made channels, the bot now remembers that choice and will not recreate those channels on normal restart or update. Admins can review deleted channel keys and restore one channel, all channels, or a pack such as PVE, live feeds, staff, economy, factions, or community.",
+        "commands": "`/tools channelstatus`, `/tools channelpacks`, `/tools restorechannels`, `/tools restorechannelpack`, `/setup restore_deleted_channels:true`",
+        "audience": "Server owners and admins",
+    },
+    {
+        "id": "2026-05-16-full-command-guide",
+        "title": "Full Command Guide Pages",
+        "summary": "The help page now posts a live, paged command guide that lists every slash command, what it does, and how to type its required and optional options. New setup runs seed the full guide into the help desk, showcase setup posts it in the commands guide channel, and existing servers can run /helpme to refresh it.",
+        "commands": "`/helpme`, `/setup`, `/ownerbotshowcase`",
+        "audience": "Everyone",
+    },
 ]
 
 SWEAR_REWARD_MIN = 300
@@ -529,8 +543,14 @@ def heat_points_for_mode(guild_id, mode):
     return points.get(mode, [])[-300:]
 
 
-async def get_or_create_feed_channel(guild, config, key, name, private=False):
+async def get_or_create_feed_channel(guild, config, key, name, private=False, force=False):
     channels = config.setdefault("channels", {})
+    if is_channel_key_disabled(config, key) and not force:
+        return None
+
+    if force:
+        set_channel_key_disabled(config, key, False)
+
     existing_id = channels.get(key)
 
     if existing_id:
@@ -560,7 +580,7 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False):
 
     category = None
     category_key = "live"
-    if key in ["pve_help", "pve_info", "pve_heatmap"]:
+    if key.startswith("pve_"):
         category_key = "pve"
 
     for existing_category in guild.categories:
@@ -763,8 +783,14 @@ def enrich_kill_coords(guild_id, kill_details, line):
     return kill_details
 
 
-async def ensure_cheat_check_channel(guild, config):
+async def ensure_cheat_check_channel(guild, config, force=False):
     channels = config.setdefault("channels", {})
+    if is_channel_key_disabled(config, "cheat_checks") and not force:
+        return None
+
+    if force:
+        set_channel_key_disabled(config, "cheat_checks", False)
+
     channel = bot.get_channel(channels.get("cheat_checks"))
     if channel:
         return channel
@@ -1023,8 +1049,14 @@ def format_duration_seconds(seconds):
     return " ".join(parts)
 
 
-async def ensure_public_shame_channel(guild, config):
+async def ensure_public_shame_channel(guild, config, force=False):
     channels = config.setdefault("channels", {})
+    if is_channel_key_disabled(config, "public_shame") and not force:
+        return None
+
+    if force:
+        set_channel_key_disabled(config, "public_shame", False)
+
     channel = bot.get_channel(channels.get("public_shame"))
     if channel:
         return channel
@@ -1057,6 +1089,9 @@ async def ensure_public_shame_channel(guild, config):
 
 async def send_public_shame_notice(guild, config, title, member_text, moderator, reason, duration_text=None):
     channel = await ensure_public_shame_channel(guild, config)
+    if not channel:
+        return
+
     when = datetime.now(UTC)
     embed = discord.Embed(
         title=title,
@@ -1135,6 +1170,8 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
 
     key, channel_name, private, title, color = feed_map[event_type]
     channel = await get_or_create_feed_channel(guild, config, key, channel_name, private)
+    if not channel:
+        return
     player = extract_player_name(line)
     coords = extract_adm_coords(line)
     map_link = build_adm_map_link(line, guild_id)
@@ -1248,6 +1285,8 @@ async def send_swear_jar_feed(message, found_words, fine, pennies_total):
     guild_id = str(message.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
     channel = await get_or_create_feed_channel(message.guild, config, "swear_jar_feed", "swear-jar")
+    if not channel:
+        return
 
     lines = [
         "Language crime detected. The swear jar has been fed.",
@@ -3067,6 +3106,84 @@ def new_guild_config(guild):
     }
 
 
+PRIVATE_FEED_CHANNEL_KEYS = {
+    "admin_logs",
+    "cheat_checks",
+    "command_logs",
+    "cuts_feed",
+    "faction_staff",
+    "flag_feed",
+    "placed_feed",
+    "suicide_feed",
+}
+
+
+CHANNEL_RESTORE_PACKS = {
+    "live": [
+        "killfeed",
+        "raids",
+        "building",
+        "connections",
+        "disconnects",
+        "zombie_feed",
+        "unconscious_feed",
+        "cuts_feed",
+        "suicide_feed",
+        "flag_feed",
+        "placed_feed",
+        "pvp_intel",
+    ],
+    "info": [
+        "online",
+        "leaderboards",
+        "heatmap",
+        "longshots",
+        "restart_alerts",
+        "bot_updates",
+        "welcome",
+    ],
+    "community": [
+        "public_shame",
+        "linked_players",
+        "general_chat",
+        "ai_chat",
+        "clips_channel",
+        "help_channel",
+    ],
+    "staff": [
+        "admin_logs",
+        "cheat_checks",
+        "command_logs",
+        "faction_staff",
+        "company_announcements",
+    ],
+    "economy": [
+        "economy",
+        "purchase_logs",
+        "vehicle_rentals",
+        "rental_logs",
+    ],
+    "factions": [
+        "factions_chat",
+        "faction_list",
+        "faction_tickets",
+        "faction_staff",
+    ],
+    "pve": [
+        "pve_quests",
+        "pve_hunting",
+        "pve_collection",
+        "pve_fishing",
+        "pve_crafting",
+        "pve_expeditions",
+        "pve_info",
+        "pve_help",
+        "pve_heatmap",
+    ],
+}
+CHANNEL_RESTORE_PACKS["all"] = list(DEFAULT_CHANNEL_NAMES.keys())
+
+
 def channel_matches_saved_key(channel, key):
     normalized = normalize_discord_name(channel.name)
     aliases = set(CHANNEL_ALIASES.get(key, []))
@@ -3079,6 +3196,43 @@ def channel_matches_saved_key(channel, key):
         return False
 
     return normalized in aliases or any(alias and alias in normalized for alias in aliases)
+
+
+def disabled_channel_keys(config):
+    disabled = config.setdefault("disabled_channels", [])
+    if not isinstance(disabled, list):
+        disabled = []
+        config["disabled_channels"] = disabled
+    return disabled
+
+
+def is_channel_key_disabled(config, key):
+    return key in set(disabled_channel_keys(config))
+
+
+def set_channel_key_disabled(config, key, disabled=True):
+    disabled_keys = disabled_channel_keys(config)
+    if disabled and key not in disabled_keys:
+        disabled_keys.append(key)
+    elif not disabled and key in disabled_keys:
+        disabled_keys.remove(key)
+
+
+def mark_deleted_bot_channel(guild_id, channel_id):
+    config = guild_configs.get(str(guild_id))
+    if not config:
+        return None
+
+    channels = config.setdefault("channels", {})
+    for key, saved_id in list(channels.items()):
+        if int(saved_id or 0) != int(channel_id):
+            continue
+        channels.pop(key, None)
+        set_channel_key_disabled(config, key, True)
+        save_guild_configs()
+        return key
+
+    return None
 
 
 def discover_existing_guild_channels(guild, config):
@@ -3100,8 +3254,14 @@ def discover_existing_guild_channels(guild, config):
     return changed
 
 
-async def ensure_bot_updates_channel(guild, config):
+async def ensure_bot_updates_channel(guild, config, force=False):
     channels = config.setdefault("channels", {})
+    if is_channel_key_disabled(config, "bot_updates") and not force:
+        return None
+
+    if force:
+        set_channel_key_disabled(config, "bot_updates", False)
+
     channel = bot.get_channel(channels.get("bot_updates"))
     if channel:
         return channel
@@ -3133,7 +3293,10 @@ async def ensure_bot_updates_channel(guild, config):
 
 
 async def publish_bot_update_notes(guild, config, *, force=False):
-    channel = await ensure_bot_updates_channel(guild, config)
+    channel = await ensure_bot_updates_channel(guild, config, force=force)
+    if not channel:
+        return 0, None
+
     posted = set(config.setdefault("posted_bot_update_ids", []))
     sent = 0
 
@@ -3172,8 +3335,90 @@ async def publish_bot_updates_for_active_guilds():
             print(f"BOT UPDATE FEED ERROR {guild.id}: {error}")
 
 
-async def ensure_pve_channels(guild, config):
+def resolve_channel_key(text):
+    wanted = normalize_discord_name(text)
+    if not wanted:
+        return None
+
+    for key in DEFAULT_CHANNEL_NAMES:
+        if wanted == normalize_discord_name(key):
+            return key
+        if wanted == normalize_discord_name(DEFAULT_CHANNEL_NAMES.get(key, "")):
+            return key
+        for alias in CHANNEL_ALIASES.get(key, []):
+            if wanted == normalize_discord_name(alias):
+                return key
+
+    return None
+
+
+def format_channel_restore_packs():
+    lines = []
+    for pack, keys in CHANNEL_RESTORE_PACKS.items():
+        if pack == "all":
+            continue
+        lines.append(f"`{pack}` - {len(keys)} channel(s)")
+    lines.append("`all` - every bot channel")
+    return "\n".join(lines)
+
+
+async def restore_disabled_bot_channels(guild, config, channel_key=None, channel_keys=None):
+    disabled = list(disabled_channel_keys(config))
+    if channel_key:
+        resolved = resolve_channel_key(channel_key)
+        if not resolved:
+            return [], f"`{channel_key}` is not a bot channel key I recognise."
+        keys_to_restore = [resolved]
+    elif channel_keys is not None:
+        keys_to_restore = [key for key in channel_keys if key in DEFAULT_CHANNEL_NAMES]
+    else:
+        keys_to_restore = disabled
+
+    restored = []
+    for key in keys_to_restore:
+        name = DEFAULT_CHANNEL_NAMES.get(key)
+        if not name:
+            continue
+
+        if key == "bot_updates":
+            channel = await ensure_bot_updates_channel(guild, config, force=True)
+        elif key == "cheat_checks":
+            channel = await ensure_cheat_check_channel(guild, config, force=True)
+        elif key == "public_shame":
+            channel = await ensure_public_shame_channel(guild, config, force=True)
+        else:
+            channel = await get_or_create_feed_channel(
+                guild,
+                config,
+                key,
+                name,
+                private=key in PRIVATE_FEED_CHANNEL_KEYS,
+                force=True
+            )
+
+        if channel:
+            restored.append(f"`{key}` -> {channel.mention}")
+
+    save_guild_configs()
+    return restored, None
+
+
+async def ensure_pve_channels(guild, config, force=False):
     channels = config.setdefault("channels", {})
+    pve_channel_keys = [
+        "pve_quests",
+        "pve_hunting",
+        "pve_collection",
+        "pve_fishing",
+        "pve_crafting",
+        "pve_expeditions",
+        "pve_info",
+        "pve_help",
+        "pve_heatmap"
+    ]
+
+    if not force and all(is_channel_key_disabled(config, key) for key in pve_channel_keys):
+        return {}
 
     category_name = "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌"
     pve_category = None
@@ -3193,6 +3438,12 @@ async def ensure_pve_channels(guild, config):
 
     async def ensure_channel(key):
         name = DEFAULT_CHANNEL_NAMES[key]
+        if is_channel_key_disabled(config, key) and not force:
+            return None
+
+        if force:
+            set_channel_key_disabled(config, key, False)
+
         existing_id = channels.get(key)
         if existing_id:
             existing = guild.get_channel(existing_id)
@@ -3217,18 +3468,10 @@ async def ensure_pve_channels(guild, config):
         return channel
 
     created = {}
-    for key in [
-        "pve_quests",
-        "pve_hunting",
-        "pve_collection",
-        "pve_fishing",
-        "pve_crafting",
-        "pve_expeditions",
-        "pve_info",
-        "pve_help",
-        "pve_heatmap"
-    ]:
-        created[key] = await ensure_channel(key)
+    for key in pve_channel_keys:
+        channel = await ensure_channel(key)
+        if channel:
+            created[key] = channel
 
     config.setdefault("pve", {"enabled": True, "interval_hours": 12})
     save_guild_configs()
@@ -4569,6 +4812,17 @@ async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
 # =========================================================
 
 @bot.event
+async def on_guild_channel_delete(channel):
+    guild = getattr(channel, "guild", None)
+    if not guild or not isinstance(channel, discord.TextChannel):
+        return
+
+    key = mark_deleted_bot_channel(guild.id, channel.id)
+    if key:
+        print(f"CHANNEL DISABLED BY DELETE {guild.id}: {key}")
+
+
+@bot.event
 async def on_guild_join(guild):
 
     guild_id = str(guild.id)
@@ -4744,7 +4998,8 @@ async def on_guild_join(guild):
     service_id="Your Nitrado service ID",
     nitrado_user="Example: ni12248929_2",
     ftp_user="Your Nitrado FTP username",
-    ftp_password="Your Nitrado FTP password"
+    ftp_password="Your Nitrado FTP password",
+    restore_deleted_channels="Recreate bot channels that server owners deleted"
 )
 async def setup_command(
     interaction: discord.Interaction,
@@ -4752,7 +5007,8 @@ async def setup_command(
     service_id: str,
     nitrado_user: str,
     ftp_user: str,
-    ftp_password: str
+    ftp_password: str,
+    restore_deleted_channels: bool = False
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -4870,6 +5126,12 @@ async def setup_command(
     async def ensure_channel(key, name, *, cat=None, private=False):
         target_category = cat or category
         channels = guild_configs[guild_id].setdefault("channels", {})
+        if is_channel_key_disabled(guild_configs[guild_id], key) and not restore_deleted_channels:
+            return None
+
+        if restore_deleted_channels:
+            set_channel_key_disabled(guild_configs[guild_id], key, False)
+
         existing_id = channels.get(key)
         overwrites = None
 
@@ -4953,7 +5215,11 @@ async def setup_command(
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
     await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
     await ensure_channel("rental_logs", "🛻📒・rental-logs・📒🛻", cat=economy_category)
-    pve_channels = await ensure_pve_channels(interaction.guild, guild_configs[guild_id])
+    pve_channels = await ensure_pve_channels(
+        interaction.guild,
+        guild_configs[guild_id],
+        force=restore_deleted_channels
+    )
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
@@ -5047,7 +5313,11 @@ async def setup_command(
                 "`/cheatcheckconfig` - turn PC cheat-check detection on/off\n"
                 "`/purge amount` - clear recent messages\n"
                 "`/purgeuser member amount` - clear a member's messages\n"
-                "`/purgebots amount` - clear bot messages"
+                "`/tools purgebots amount` - clear bot messages\n"
+                "`/tools giverole` and `/tools removerole` - manage Discord roles\n"
+                "`/tools channelstatus` - see channels kept deleted\n"
+                "`/tools channelpacks` - see restore groups\n"
+                "`/tools restorechannels` or `/tools restorechannelpack` - bring deleted bot channels back"
             ),
             inline=False
         )
@@ -5077,7 +5347,7 @@ async def setup_command(
                 "`/shop` - view black market\n"
                 "`/buy item_name x y` - queue item delivery\n"
                 "`/rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
-                "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/shopcategories`, `/importtypesxml`\n"
+                "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`\n"
                 "Admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
             ),
             inline=False
@@ -5134,6 +5404,14 @@ async def setup_command(
         )
 
         await help_channel.send(embed=style_embed(setup_embed))
+        await send_command_guide_pages(
+            help_channel,
+            title="WANDERING BOT FULL COMMAND LIST",
+            intro=(
+                "This is the live command guide for the bot. It lists every registered slash command, "
+                "what it does, and the required or optional options to type."
+            )
+        )
 
     await interaction.followup.send(
         "✅ Wandering Bot fully connected and operational.",
@@ -6904,6 +7182,98 @@ async def on_command_error(ctx, error):
 # COMMANDS
 # =========================================================
 
+
+def command_parameter_usage(command):
+    parts = []
+
+    for parameter in getattr(command, "parameters", []):
+        name = getattr(parameter, "display_name", None) or getattr(parameter, "name", "option")
+        required = bool(getattr(parameter, "required", False))
+        wrapper = "<{}>" if required else "[{}]"
+        parts.append(wrapper.format(name))
+
+    return " ".join(parts)
+
+
+def iter_registered_slash_commands():
+    def walk(command, parents=None):
+        parents = parents or []
+        name = getattr(command, "name", "")
+        path = parents + [name]
+
+        if isinstance(command, app_commands.Group):
+            for child in getattr(command, "commands", []):
+                yield from walk(child, path)
+            return
+
+        if not name:
+            return
+
+        yield " ".join(path), command
+
+    for command in bot.tree.get_commands():
+        yield from walk(command)
+
+
+def command_guide_lines():
+    lines = []
+
+    for command_name, command in sorted(iter_registered_slash_commands(), key=lambda item: item[0]):
+        usage = command_parameter_usage(command)
+        description = getattr(command, "description", "") or "No description set."
+        command_text = f"/{command_name}"
+        if usage:
+            command_text = f"{command_text} {usage}"
+        lines.append(f"`{command_text}`\n{description}")
+
+    return lines
+
+
+async def send_command_guide_pages(destination, *, title="WANDERING BOT COMMAND GUIDE", intro=None, ephemeral=False):
+    lines = command_guide_lines()
+    commands_per_page = 12
+    total_pages = max(1, (len(lines) + commands_per_page - 1) // commands_per_page)
+
+    async def send_embed(embed):
+        if ephemeral:
+            try:
+                await destination.send(embed=embed, ephemeral=True)
+                return
+            except TypeError:
+                pass
+        await destination.send(embed=embed)
+
+    if intro:
+        embed = discord.Embed(
+            title=title,
+            description=intro,
+            color=0x3498DB
+        )
+        embed.add_field(
+            name="How To Read This",
+            value=(
+                "`<option>` means Discord requires it. `[option]` means it is optional.\n"
+                "Use Discord autocomplete for channels, members, roles, and choices."
+            ),
+            inline=False
+        )
+        embed.add_field(name="Commands Listed", value=str(len(lines)), inline=True)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Command Guide")
+        await send_embed(style_embed(embed))
+
+    for page_index in range(total_pages):
+        start = page_index * commands_per_page
+        chunk = lines[start:start + commands_per_page]
+        embed = discord.Embed(
+            title=f"{title} - Page {page_index + 1}/{total_pages}",
+            description="\n\n".join(chunk)[:4000] if chunk else "No slash commands registered.",
+            color=0x3498DB
+        )
+        embed.set_footer(text="Required options use <angle brackets>; optional options use [square brackets].")
+        await send_embed(style_embed(embed))
+
+
 @bot.command()
 async def helpme(ctx):
 
@@ -6955,7 +7325,10 @@ async def helpme(ctx):
             "`/cheatchecksetup`, `/cheatcheckconfig`, `/cheatcheckstatus`\n"
             "`/purge amount`\n"
             "`/purgeuser member amount`\n"
-            "`/purgebots amount`"
+            "`/tools purgebots amount`\n"
+            "`/tools giverole member role`, `/tools removerole member role`\n"
+            "`/tools channelstatus`, `/tools channelpacks`\n"
+            "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`"
         ),
         inline=False
     )
@@ -6999,11 +7372,11 @@ async def helpme(ctx):
             "`/addpunishment keyword amount`\n"
             "`/listrules`\n"
             "`/removerule rule_number`\n"
-            "`/importtypesxml source_path default_price`\n"
+            "`/tools importtypesxml source_path default_price`\n"
             "`/addshopitem item_name price category`\n"
             "`/editshopitem item_name price category`\n"
             "`/toggleshopitem item_name`, `/removeshopitem item_name`\n"
-            "`/givepennies member amount`, `/shopcategories`"
+            "`/givepennies member amount`, `/tools shopcategories`, `/tools swearjar`"
         ),
         inline=False
     )
@@ -7920,6 +8293,11 @@ async def admstatus(ctx):
 
     embed.set_thumbnail(url=BOT_IMAGE)
     await ctx.send(embed=style_embed(embed))
+    await send_command_guide_pages(
+        ctx,
+        title="ALL SLASH COMMANDS",
+        intro="Full command list with what each command does and how to type it."
+    )
 
 
 @bot.command()
@@ -9719,7 +10097,7 @@ async def pvesetup(interaction: discord.Interaction):
 
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
-    channels = await ensure_pve_channels(interaction.guild, config)
+    channels = await ensure_pve_channels(interaction.guild, config, force=True)
 
     info_channel = channels.get("pve_info")
     if info_channel:
@@ -12034,6 +12412,14 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     )
     embed.set_footer(text="Wandering Bot • Commands Guide")
     await ch.send(embed=style_embed(embed))
+    await send_command_guide_pages(
+        ch,
+        title="FULL SLASH COMMAND LIST",
+        intro=(
+            "This live list includes every slash command currently registered by the bot, "
+            "plus the options needed to use each one."
+        )
+    )
 
     # ── 🤖・ai-showcase ─────────────────────────────────────────────────────
     ch = made_channels["🤖・ai-showcase"]
@@ -12403,7 +12789,10 @@ async def botupdates(interaction: discord.Interaction, force_repost: bool = Fals
     if force_repost:
         config["posted_bot_update_ids"] = []
 
+    set_channel_key_disabled(config, "bot_updates", False)
     sent, channel = await publish_bot_update_notes(interaction.guild, config, force=force_repost)
+    if not channel:
+        channel = await ensure_bot_updates_channel(interaction.guild, config, force=True)
     await interaction.followup.send(
         f"Bot updates feed is ready in {channel.mention}. Posted `{sent}` update note(s).",
         ephemeral=True
@@ -12422,7 +12811,7 @@ async def cheatchecksetup(interaction: discord.Interaction):
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
     settings = cheat_check_config(config)
     settings["enabled"] = True
-    channel = await ensure_cheat_check_channel(interaction.guild, config)
+    channel = await ensure_cheat_check_channel(interaction.guild, config, force=True)
     await post_cheat_check_intro(channel, config)
     save_guild_configs()
 
@@ -12516,7 +12905,7 @@ async def shamesetup(interaction: discord.Interaction):
 
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
-    channel = await ensure_public_shame_channel(interaction.guild, config)
+    channel = await ensure_public_shame_channel(interaction.guild, config, force=True)
     await interaction.response.send_message(f"Public moderation feed is ready in {channel.mention}.", ephemeral=True)
 
 
@@ -13757,9 +14146,15 @@ async def factioninfo(interaction: discord.Interaction, name: str):
 
 
 # Slash command wrappers
+extra_tools_group = app_commands.Group(
+    name="tools",
+    description="Extra utility and admin tools"
+)
+
+
 @bot.tree.command(name="helpme", description="Show command/help information")
 async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
-@bot.tree.command(name="swearjar", description="Show swear jar leaderboard")
+@extra_tools_group.command(name="swearjar", description="Show swear jar leaderboard")
 async def slash_swearjar(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "swearjar")
 @bot.tree.command(name="heatmap", description="Show territory heatmap summary")
 async def slash_heatmap(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "heatmap")
@@ -13811,7 +14206,7 @@ async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Rol
         roles.append(role.name)
     save_guild_configs()
     await interaction.response.send_message(f"Staff role added: {role.mention}.", ephemeral=True)
-@bot.tree.command(name="giverole", description="Admin: give an existing role to a real Discord member")
+@extra_tools_group.command(name="giverole", description="Admin: give an existing role to a real Discord member")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Discord member", role="Existing Discord role")
 async def giverole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
@@ -13820,7 +14215,7 @@ async def giverole(interaction: discord.Interaction, member: discord.Member, rol
         return
     await member.add_roles(role, reason=f"Role given by {interaction.user}")
     await interaction.response.send_message(f"Added {role.mention} to {member.mention}.", ephemeral=True)
-@bot.tree.command(name="removerole", description="Admin: remove an existing role from a real Discord member")
+@extra_tools_group.command(name="removerole", description="Admin: remove an existing role from a real Discord member")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Discord member", role="Existing Discord role")
 async def removerole(interaction: discord.Interaction, member: discord.Member, role: discord.Role):
@@ -13844,7 +14239,7 @@ async def slash_purge(interaction: discord.Interaction, amount: int = 10): await
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(member="Member", amount="Amount")
 async def slash_purgeuser(interaction: discord.Interaction, member: discord.Member, amount: int = 50): await run_legacy_as_slash(interaction, "purgeuser", member=member, amount=amount)
-@bot.tree.command(name="purgebots", description="Purge bot messages")
+@extra_tools_group.command(name="purgebots", description="Admin: purge bot messages")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(amount="Amount")
 async def slash_purgebots(interaction: discord.Interaction, amount: int = 100): await run_legacy_as_slash(interaction, "purgebots", amount=amount)
@@ -13894,7 +14289,7 @@ async def slash_playerstats(interaction: discord.Interaction, player_name: str):
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
-@bot.tree.command(name="importtypesxml", description="Admin: preload shop from vanilla types.xml")
+@extra_tools_group.command(name="importtypesxml", description="Admin: preload shop from vanilla types.xml")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(source_path="Optional path to types.xml", default_price="Fallback price")
 async def slash_importtypesxml(interaction: discord.Interaction, source_path: str = None, default_price: int = 100):
@@ -13939,9 +14334,87 @@ async def slash_givepennies(interaction: discord.Interaction, member: discord.Me
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     await run_legacy_as_slash(interaction, "givepennies", member=member, amount=amount)
-@bot.tree.command(name="shopcategories", description="Show shop categories")
+@extra_tools_group.command(name="shopcategories", description="Show shop categories")
 async def slash_shopcategories(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "shopcategories")
+@extra_tools_group.command(name="channelstatus", description="Admin: show bot channels disabled by deletion")
+@app_commands.default_permissions(administrator=True)
+async def slash_channelstatus(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    disabled = sorted(disabled_channel_keys(config))
+    if disabled:
+        text = "\n".join(f"`{key}` - {DEFAULT_CHANNEL_NAMES.get(key, key)}" for key in disabled)
+    else:
+        text = "No bot channels are currently marked as owner-deleted."
+    await interaction.response.send_message(text[:1900], ephemeral=True)
+@extra_tools_group.command(name="channelpacks", description="Admin: show channel restore packs")
+@app_commands.default_permissions(administrator=True)
+async def slash_channelpacks(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.send_message(format_channel_restore_packs(), ephemeral=True)
+@extra_tools_group.command(name="restorechannels", description="Admin: restore owner-deleted bot channels")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel_key="Optional bot channel key to restore, or leave blank for all deleted bot channels")
+async def slash_restorechannels(interaction: discord.Interaction, channel_key: str = None):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_key)
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+    if not restored:
+        await interaction.followup.send("No deleted bot channels needed restoring.", ephemeral=True)
+        return
+    await interaction.followup.send("Restored:\n" + "\n".join(restored[:30]), ephemeral=True)
+@extra_tools_group.command(name="restorechannelpack", description="Admin: restore a pack of bot channels")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(pack="Channel pack to restore")
+@app_commands.choices(pack=[
+    app_commands.Choice(name="all", value="all"),
+    app_commands.Choice(name="pve", value="pve"),
+    app_commands.Choice(name="live", value="live"),
+    app_commands.Choice(name="staff", value="staff"),
+    app_commands.Choice(name="economy", value="economy"),
+    app_commands.Choice(name="factions", value="factions"),
+    app_commands.Choice(name="community", value="community"),
+    app_commands.Choice(name="info", value="info"),
+])
+async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_commands.Choice[str]):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    pack_key = pack.value
+    keys = CHANNEL_RESTORE_PACKS.get(pack_key)
+    if not keys:
+        await interaction.followup.send(f"Unknown channel pack `{pack_key}`.", ephemeral=True)
+        return
+
+    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=keys)
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+    if not restored:
+        await interaction.followup.send(f"No `{pack_key}` channels needed restoring.", ephemeral=True)
+        return
+    await interaction.followup.send(
+        f"Restored `{pack_key}` channel pack:\n" + "\n".join(restored[:30]),
+        ephemeral=True
+    )
+bot.tree.add_command(extra_tools_group)
 @bot.tree.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
