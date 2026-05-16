@@ -123,7 +123,8 @@ cheat_kill_chains = {}
 # AUTONOMOUS SHOWCASE GLOBALS
 # =========================================================
 
-SHOWCASE_GUILD_ID = os.getenv("SHOWCASE_GUILD_ID", "")
+DEFAULT_SHOWCASE_GUILD_ID = "1505197634951053404"
+SHOWCASE_GUILD_ID = os.getenv("SHOWCASE_GUILD_ID", DEFAULT_SHOWCASE_GUILD_ID)
 SHOWCASE_CHANNEL_ID = os.getenv("SHOWCASE_CHANNEL_ID", "1505197634951053404")
 DEFAULT_BOT_INVITE_URL = os.getenv(
     "BOT_INVITE_URL",
@@ -3849,6 +3850,14 @@ def bootstrap_runtime_from_connected_guilds():
         guild_configs[guild_id].setdefault("admin_roles", DEFAULT_ADMIN_ROLES.copy())
         guild_configs[guild_id].setdefault("channels", {})
 
+        if is_showcase_guild(guild_id):
+            guild_configs[guild_id]["is_showcase_guild"] = True
+            guild_configs[guild_id]["showcase_mode"] = True
+            guild_configs[guild_id]["disabled_channels"] = [
+                key for key in DEFAULT_CHANNEL_NAMES
+                if key not in {"general_chat", "ai_chat", "help_channel", "company_announcements"}
+            ]
+
         if discover_existing_guild_channels(guild, guild_configs[guild_id]):
             changed = True
 
@@ -4849,6 +4858,14 @@ async def on_guild_join(guild):
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
+        return
+
+    if is_showcase_guild(guild_id):
+        guild_configs[guild_id] = new_guild_config(guild)
+        guild_configs[guild_id]["is_showcase_guild"] = True
+        guild_configs[guild_id]["showcase_mode"] = True
+        guild_configs[guild_id]["disabled_channels"] = list(DEFAULT_CHANNEL_NAMES.keys())
+        save_guild_configs()
         return
 
     category = await guild.create_category("🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
@@ -6526,6 +6543,9 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
 
     ensure_guild_runtime(guild_id)
 
+    if is_showcase_guild(guild_id):
+        return False, "Showcase guild skipped; no ADM setup needed"
+
     if force:
         processed_lines[guild_id] = set()
         save_processed_adm_lines()
@@ -7015,7 +7035,12 @@ def owner_secret_valid(interaction, secret_code):
         print(f"[OWNER AUTH] REJECTED — user ID {user_id} does not match BOT_OWNER_ID {live_owner_id.strip()}")
         return False
 
-    allowed_by_showcase_guild = bool(live_showcase_guild_id and guild_id == str(live_showcase_guild_id).strip())
+    showcase_guild_ids = {
+        str(value).strip()
+        for value in [live_showcase_guild_id, live_showcase_channel_id]
+        if str(value or "").strip()
+    }
+    allowed_by_showcase_guild = bool(guild_id and guild_id in showcase_guild_ids)
     allowed_by_channel = bool(channel_id and channel_id in set(live_channel_ids))
 
     # If one or more owner guild IDs are configured, the command must come from one of them
