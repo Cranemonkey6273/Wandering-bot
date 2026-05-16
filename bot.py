@@ -1524,6 +1524,11 @@ async def maybe_send_wandering_personality(message, now_ts):
         return
 
     guild_id = str(message.guild.id)
+
+    # Showcase guilds use their own proactive messaging — skip DayZ personality here
+    if guild_configs.get(guild_id, {}).get("is_showcase_guild"):
+        return
+
     last_seen = last_emoji_showcase_time.get(guild_id, 0)
 
     if now_ts - last_seen < 1800:
@@ -1542,6 +1547,131 @@ async def maybe_send_wandering_personality(message, now_ts):
         await message.channel.send(
             wb_text("radio", random.choice(WANDERING_SWEAR_LINES))
         )
+
+
+# =========================================================
+# SHOWCASE GUILD BEHAVIOUR
+# =========================================================
+
+SHOWCASE_COMMAND_HINTS = [
+    "💡 Have you tried `/linkgamer`? Link your Discord to your in-game name and unlock leaderboards, economy rewards, and quest tracking.",
+    "💡 Did you know `/topkills` shows a live leaderboard of PvP kills across the server? Give it a go.",
+    "💡 The `/wallet` command shows your penny balance. Earn pennies by chatting, completing quests, and avoiding the swear jar.",
+    "💡 Try `/pveinfo` to see active PVE quests — hunting, fishing, crafting, and expedition challenges with real rewards.",
+    "💡 `/shop` opens the server shop. Spend your pennies on items, perks, and more.",
+    "💡 Ask me anything by mentioning me directly — I can help with bot commands, setup questions, and DayZ advice.",
+    "💡 `/admstatus` shows whether the live feed reader is running and when it last processed your server logs.",
+    "💡 The `/heatmap` command renders a visual map of PvP hotspots, raid locations, and more on your actual server map.",
+    "💡 `/radarstatus` shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
+    "💡 Want AI-generated DayZ art in your server? Ask an admin to enable it with `/aiimageconfig`.",
+]
+
+SHOWCASE_FEATURE_PROMOS = [
+    "🤖 Wandering Bot reads your DayZ server's ADM logs in real time — killfeed, raids, base building, connections, and more, all posted to Discord automatically.",
+    "🗺️ Heatmaps, iZurvive map links, and coordinate tracking are all built in. Every kill and raid event includes a clickable map link.",
+    "🏴 The faction system lets your community create, manage, and battle factions entirely inside Discord — no external tools needed.",
+    "💰 The economy system rewards active players with pennies they can spend in the server shop. Fully configurable by admins.",
+    "🧭 PVE quests rotate automatically on a schedule. Hunting, fishing, crafting, collection, and expedition chains — all tracked via ADM logs.",
+    "📡 Radar zones alert your team the moment a player enters a high-value area like NWAF, Tisy, or any custom coordinate zone you define.",
+    "🌍 Automatic translation means international players can chat in their own language and everyone still understands each other.",
+    "🎨 AI-generated DayZ art drops into your server periodically — cinematic, funny, or survival horror styles, all created on demand.",
+]
+
+SHOWCASE_QUESTION_RESPONSES = {
+    "how do i": [
+        "Great question! Check out **#📖・commands-guide** for a full breakdown of every command with examples.",
+        "Head to **#🚀・getting-started** for a step-by-step walkthrough, or ask me directly and I'll do my best to help.",
+    ],
+    "what can": [
+        "Wandering Bot does a lot — live feeds, economy, factions, PVE quests, heatmaps, radar zones, AI chat, and more. Check **#🎯・features** for the full list.",
+        "The short answer: everything your DayZ server needs in one bot. The long answer is in **#🎯・features**.",
+    ],
+    "invite": [
+        "The bot invite link is in **#🔗・invite-bot**. Add it to your server and run `/setup` to get started.",
+    ],
+    "setup": [
+        "Setup takes about ten minutes. Invite the bot, run `/setup` with your Nitrado and FTP details, and you're live. Full guide in **#🚀・getting-started**.",
+    ],
+    "command": [
+        "Every command is documented in **#📖・commands-guide** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pveinfo`.",
+    ],
+    "review": [
+        "We'd love to hear your thoughts! Drop a message in **#⭐・reviews** — all feedback goes directly to the developer.",
+    ],
+    "question": [
+        "Post it in **#❓・questions-answers** and either the bot or a community member will respond. No question is too basic.",
+    ],
+    "ai": [
+        "The AI layer is always on — mention me in any channel and I'll respond with context-aware advice. Admins can also enable AI-generated DayZ art with `/aiimageconfig`.",
+        "I can answer questions about commands, DayZ gameplay, bot setup, and more. Just mention me or ask in the AI chat channel.",
+    ],
+    "killfeed": [
+        "The killfeed reads your DayZ server's ADM logs in real time and posts every PvP kill to Discord with player names, weapons, distances, and a map link. Set it up with `/setup`.",
+    ],
+    "economy": [
+        "The economy system gives players pennies for chatting, completing quests, and good behaviour. They spend them in `/shop`. Admins configure rewards with `/addreward`.",
+    ],
+    "faction": [
+        "The faction system lets players create and manage factions entirely in Discord. Leaders can add members, set flags, and track activity. Start with `/createfaction`.",
+    ],
+    "heatmap": [
+        "Heatmaps render a visual overlay of PvP kills, raids, building activity, and more on your actual server map. Run `/heatmap` to generate one.",
+    ],
+    "radar": [
+        "Radar zones alert your team when a player enters a defined coordinate area. Set one up with `/addradarzone` and choose a channel with `/setradarchannel`.",
+    ],
+    "pve": [
+        "The PVE quest system posts rotating challenges — hunting, fishing, crafting, collection, and expeditions — and tracks completions via ADM logs. See `/pveinfo` for active quests.",
+    ],
+    "translate": [
+        "Automatic translation is built in. Configure it with `/translationconfig` — choose `same` to post translations beside the original, or `channel` to forward them elsewhere.",
+    ],
+}
+
+# Per-guild cooldown for showcase proactive messages (seconds)
+last_showcase_response_time = {}
+
+
+async def maybe_showcase_guild_response(message, lower):
+    """
+    In showcase/advertising guilds, be proactive: suggest commands, promote
+    features, and answer questions about the bot. Replaces the normal DayZ
+    survival-focused personality with an enthusiastic, helpful showcase mode.
+    """
+    if not message.guild:
+        return
+
+    guild_id = str(message.guild.id)
+    config = guild_configs.get(guild_id, {})
+
+    if not config.get("is_showcase_guild"):
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    key = f"{guild_id}:{message.author.id}"
+
+    # Per-user cooldown: don't spam the same person
+    if now_ts - last_showcase_response_time.get(key, 0) < 60:
+        return
+
+    # Check for specific question keywords first (highest priority)
+    for trigger, responses in SHOWCASE_QUESTION_RESPONSES.items():
+        if trigger in lower:
+            last_showcase_response_time[key] = now_ts
+            await message.channel.send(random.choice(responses))
+            return
+
+    # Proactively drop a command hint or feature promo at low frequency
+    roll = random.random()
+
+    if roll < 0.25:
+        # Command hint
+        last_showcase_response_time[key] = now_ts
+        await message.channel.send(random.choice(SHOWCASE_COMMAND_HINTS))
+    elif roll < 0.40:
+        # Feature promo
+        last_showcase_response_time[key] = now_ts
+        await message.channel.send(random.choice(SHOWCASE_FEATURE_PROMOS))
 
 
 def ai_image_config(config):
@@ -4932,13 +5062,20 @@ async def on_message(message):
             pennies_total
         )
 
-    for keyword, response in AI_RESPONSES.items():
+    # Detect showcase guild early so DayZ-specific responses are suppressed
+    _is_showcase = (
+        message.guild is not None
+        and guild_configs.get(str(message.guild.id), {}).get("is_showcase_guild", False)
+    )
 
-        if keyword in lower:
+    if not _is_showcase:
+        for keyword, response in AI_RESPONSES.items():
 
-            await message.channel.send(wb_text("ai", response))
+            if keyword in lower:
 
-            break
+                await message.channel.send(wb_text("ai", response))
+
+                break
 
     user_id = str(message.author.id)
     now_ts = datetime.now(UTC).timestamp()
@@ -4953,7 +5090,8 @@ async def on_message(message):
         }
 
     # low-frequency fun chatter with anti-repeat + anti-spam guards
-    if now_ts - last_funny_message_time.get(user_id, 0) > 900:
+    # Suppressed in showcase guilds — showcase behaviour handles proactive messaging
+    if not _is_showcase and now_ts - last_funny_message_time.get(user_id, 0) > 900:
         import random
         if random.random() < 0.04:
             idx = random.randrange(len(FUNNY_ROTATION))
@@ -4963,6 +5101,7 @@ async def on_message(message):
             last_funny_message_time[user_id] = now_ts
             await message.channel.send(wb_text("spark", FUNNY_ROTATION[idx]))
 
+    await maybe_showcase_guild_response(message, lower)
     await maybe_reply_to_bot_mention(message, lower)
     await maybe_owner_mention_remark(message)
     await maybe_send_wandering_personality(message, now_ts)
@@ -10134,24 +10273,37 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
 
     await interaction.response.defer(ephemeral=True)
 
+    guild_id = str(interaction.guild.id)
+    if guild_id not in guild_configs:
+        guild_configs[guild_id] = {
+            "guild_name": interaction.guild.name,
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+            "channels": {}
+        }
+
+    # Mark this guild as a showcase/advertising guild so bot behaviour adapts
+    guild_configs[guild_id]["is_showcase_guild"] = True
+    save_guild_configs()
+
     category_name = "🤖🌲┃WANDERING BOT SHOWCASE┃🌲🤖"
     category = discord.utils.get(interaction.guild.categories, name=category_name)
     if not category:
         category = await interaction.guild.create_category(category_name)
 
-    channel_specs = [
-        ("start-here", "START HERE", "What Wandering Bot is, who it is for, and how to invite it."),
-        ("features", "FEATURES", "Live ADM feeds, economy, factions, PVE, radar, maps, leaderboards, translation, support, and owner tools."),
-        ("setup-guide", "SETUP GUIDE", "Step-by-step setup notes for Discord, Nitrado, map images, deliveries, vehicles, and server messages."),
-        ("commands", "COMMANDS", "A readable index of important slash commands."),
-        ("updates-coming-soon", "COMING SOON", "Planned features and development notes."),
-        ("reviews", "REVIEWS", "A place for server owners to leave feedback."),
-        ("questions", "QUESTIONS", "A public place to ask setup and install questions."),
-        ("live-stats", "LIVE STATS", "Bot network snapshot and connected server count."),
+    # Showcase-specific channels: advertising/informational only — no DayZ game channels
+    showcase_channels = [
+        "📖・commands-guide",
+        "🤖・ai-showcase",
+        "⭐・reviews",
+        "❓・questions-answers",
+        "🎯・features",
+        "🚀・getting-started",
+        "🔗・invite-bot",
+        "📢・announcements",
     ]
 
     made_channels = {}
-    for channel_name, _, _ in channel_specs:
+    for channel_name in showcase_channels:
         existing = discord.utils.get(interaction.guild.text_channels, name=channel_name)
         if not existing:
             existing = await interaction.guild.create_text_channel(channel_name, category=category)
@@ -10162,36 +10314,427 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
                 pass
         made_channels[channel_name] = existing
 
-    for channel_name, title, body in channel_specs:
-        channel = made_channels[channel_name]
-        try:
-            await channel.purge(limit=10)
-        except Exception:
-            pass
+    # ── 📖・commands-guide ──────────────────────────────────────────────────
+    ch = made_channels["📖・commands-guide"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="📖 COMMANDS GUIDE",
+        description=(
+            "Every slash command Wandering Bot supports, with a plain-English explanation "
+            "of what it does and when to use it."
+        ),
+        color=0x3498DB
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="🛠️ Server Setup",
+        value=(
+            "`/setup` — Connect your Nitrado server, FTP credentials, and Discord channels in one go.\n"
+            "`/admstatus` — Check whether the ADM log reader is running and when it last processed events.\n"
+            "`/restartadm` — Restart the ADM reader. Use `force` after initial setup.\n"
+            "`/mapimagestatus` — See which map images are loaded and upload custom art.\n"
+            "`/setdayzmessages` — Push custom in-game server messages to your DayZ server."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📡 Live Feeds & Radar",
+        value=(
+            "`/radarstatus` — View active radar zones and their trigger settings.\n"
+            "`/setradarchannel` — Choose which channel receives radar alerts.\n"
+            "`/addradarzone` — Create a named coordinate zone that alerts when players enter.\n"
+            "`/removeradarzone` — Delete a radar zone by ID."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="👥 Player & Community",
+        value=(
+            "`/linkgamer` — Link your Discord account to your in-game gamertag.\n"
+            "`/mylink` — Check which gamertag your Discord is linked to.\n"
+            "`/forcelinkgamer` — Admin: manually link any member to a gamertag.\n"
+            "`/topkills` — Leaderboard of top PvP killers on the server.\n"
+            "`/toplongshots` — Leaderboard of the longest confirmed kills."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="💰 Economy",
+        value=(
+            "`/wallet` — Check your penny balance.\n"
+            "`/shop` — Browse and purchase items from the server shop.\n"
+            "`/addreward` — Admin: reward pennies when a keyword appears in chat.\n"
+            "`/addpunishment` — Admin: deduct pennies for a keyword."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🧭 PVE & Quests",
+        value=(
+            "`/pveinfo` — See active PVE quests and how to complete them.\n"
+            "`/pvecomplete` — Admin: mark a quest as completed for a player.\n"
+            "`/pveconfig` — Admin: enable/disable PVE and set quest intervals."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Commands Guide")
+    await ch.send(embed=style_embed(embed))
 
-        embed = discord.Embed(
-            title=f"WANDERING BOT - {title}",
-            description=body,
-            color=0x2ECC71 if channel_name == "start-here" else 0x3498DB
-        )
-        embed.set_thumbnail(url=BOT_IMAGE)
+    # ── 🤖・ai-showcase ─────────────────────────────────────────────────────
+    ch = made_channels["🤖・ai-showcase"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="🤖 AI CAPABILITIES SHOWCASE",
+        description=(
+            "Wandering Bot is powered by an always-on AI layer that reads your server's "
+            "activity and responds intelligently — no commands required."
+        ),
+        color=0x9B59B6
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="🧠 Contextual Chat Responses",
+        value=(
+            "Mention the bot or ask a question in the AI chat channel and it replies with "
+            "context-aware advice — loot routes, base building tips, medical guidance, vehicle "
+            "troubleshooting, and more. It reads what you actually asked, not just keywords."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🎨 AI-Generated DayZ Art",
+        value=(
+            "Enable the AI image feature with `/aiimageconfig` and the bot will periodically "
+            "generate original DayZ-inspired artwork and post it to your chosen channel. "
+            "Styles include cinematic, funny, survival horror, and more."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📻 Personality & Atmosphere",
+        value=(
+            "The bot has a distinct voice — dry, sardonic, and deeply invested in your "
+            "server's survival drama. It drops in-character remarks, reacts to swearing, "
+            "and keeps the atmosphere alive between events."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🌍 Automatic Translation",
+        value=(
+            "Configure `/translationconfig` to automatically translate messages in any channel. "
+            "Supports dozens of languages via LibreTranslate. Ideal for international communities."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📊 Intelligent Feed Summaries",
+        value=(
+            "Kill feeds, raid alerts, and connection events are formatted with player names, "
+            "coordinates, iZurvive map links, and distance calculations — all extracted "
+            "automatically from raw ADM log data."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • AI Showcase")
+    await ch.send(embed=style_embed(embed))
 
-        if channel_name == "start-here":
-            embed.add_field(name="Invite", value=invite_url or "Add your bot invite URL here.", inline=False)
-            embed.add_field(name="Use Case", value="Discord automation for DayZ community servers: ADM intelligence, feeds, maps, economy, factions, support, and owner tooling.", inline=False)
-        elif channel_name == "setup-guide":
-            embed.add_field(name="Core Setup", value="1. Invite the bot.\n2. Run `/setup` with Nitrado/API/FTP details.\n3. Run `/mapimagestatus` and upload real map art if needed.\n4. Run `/restartadm force` once after setup.", inline=False)
-            embed.add_field(name="DayZ Files", value="Deliveries need the server-side `SpawnWanderingDeliveries();` hook in `init.c`. Server messages can be uploaded with `/setdayzmessages` by the server owner.", inline=False)
-        elif channel_name == "commands":
-            embed.add_field(name="Admin", value="`/setup`, `/admstatus`, `/restartadm`, `/radarstatus`, `/forcelinkgamer`, `/refreshadmplayers`, `/setdayzmessages`", inline=False)
-            embed.add_field(name="Community", value="`/linkgamer`, `/mylink`, `/wallet`, `/shop`, `/topkills`, `/toplongshots`, `/pveinfo`", inline=False)
-        elif channel_name == "live-stats":
-            embed.add_field(name="Connected Servers", value=str(len(bot.guilds)), inline=True)
-            embed.add_field(name="Tracked Online Players", value=str(sum(len(players) for players in online_players.values())), inline=True)
+    # ── ⭐・reviews ──────────────────────────────────────────────────────────
+    ch = made_channels["⭐・reviews"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="⭐ REVIEWS & TESTIMONIALS",
+        description=(
+            "Server owners and community managers share their experience with Wandering Bot. "
+            "Have feedback? Drop it here — good, bad, or brutally honest."
+        ),
+        color=0xF1C40F
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="How to Leave a Review",
+        value=(
+            "Simply post a message in this channel describing your experience. "
+            "Include what you use the bot for, what works well, and anything you'd like improved. "
+            "All feedback is read by the developer."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="What We're Looking For",
+        value=(
+            "• Which features do you use most?\n"
+            "• How long have you been running the bot?\n"
+            "• What has it replaced or improved in your server?\n"
+            "• Anything that surprised you — positively or negatively?"
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Reviews")
+    await ch.send(embed=style_embed(embed))
 
-        await channel.send(embed=style_embed(embed))
+    # ── ❓・questions-answers ────────────────────────────────────────────────
+    ch = made_channels["❓・questions-answers"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="❓ QUESTIONS & ANSWERS",
+        description=(
+            "Ask anything about Wandering Bot here. Setup questions, feature questions, "
+            "troubleshooting — all welcome. The bot itself will try to help where it can."
+        ),
+        color=0x1ABC9C
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="Frequently Asked Questions",
+        value=(
+            "**Q: Does it work without Nitrado?**\n"
+            "A: Core features require Nitrado API + FTP access to read ADM logs. "
+            "Economy, factions, and community features work without it.\n\n"
+            "**Q: How do I set up the killfeed?**\n"
+            "A: Run `/setup` with your Nitrado token, service ID, and FTP credentials. "
+            "The bot will create channels and start reading logs automatically.\n\n"
+            "**Q: Can I use it on multiple servers?**\n"
+            "A: Yes. Each Discord server gets its own isolated config, channels, and data."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Still Stuck?",
+        value=(
+            "Post your question below and either the bot or a community member will respond. "
+            "For urgent issues, use the support ticket system in your own server."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Q&A")
+    await ch.send(embed=style_embed(embed))
 
-    await interaction.followup.send("Wandering Bot showcase Discord channels created/updated.", ephemeral=True)
+    # ── 🎯・features ─────────────────────────────────────────────────────────
+    ch = made_channels["🎯・features"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="🎯 FEATURE HIGHLIGHTS",
+        description=(
+            "What makes Wandering Bot different from every other DayZ Discord bot."
+        ),
+        color=0xE74C3C
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="🔥 Live ADM Intelligence",
+        value=(
+            "Real-time killfeed, raid detection, base building alerts, connection tracking, "
+            "zombie kills, unconscious events, and more — all parsed directly from your "
+            "server's ADM logs with zero manual input."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🗺️ Interactive Heatmaps",
+        value=(
+            "Visual heatmaps of PvP hotspots, raid locations, building activity, and animal "
+            "kills rendered on your actual server map. Supports Chernarus, Livonia, and Sakhal."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🏴 Faction System",
+        value=(
+            "Full in-Discord faction management: create factions, assign leaders, manage "
+            "members, set flags, and track faction activity — all without leaving Discord."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="💰 Server Economy",
+        value=(
+            "A complete penny-based economy with wallets, a shop, keyword rewards, "
+            "punishment rules, recurring wages, and a swear jar. Fully configurable per server."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🧭 PVE Quest System",
+        value=(
+            "Automated PVE challenges: hunting, fishing, crafting, collection, and expedition "
+            "quests that rotate on a schedule and reward players tracked via ADM logs."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📡 Radar Zones",
+        value=(
+            "Define named coordinate zones on your map. When a player enters, the bot fires "
+            "an alert to your radar channel — perfect for high-value areas like NWAF or Tisy."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Features")
+    await ch.send(embed=style_embed(embed))
+
+    # ── 🚀・getting-started ──────────────────────────────────────────────────
+    ch = made_channels["🚀・getting-started"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="🚀 GETTING STARTED",
+        description=(
+            "From invite to live killfeed in under ten minutes. Here is exactly what to do."
+        ),
+        color=0x2ECC71
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="Step 1 — Invite the Bot",
+        value=(
+            f"Use the invite link in **#🔗・invite-bot** to add Wandering Bot to your server. "
+            "Grant it Administrator permissions so it can create channels and manage roles."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Step 2 — Run /setup",
+        value=(
+            "In your server, run `/setup` and provide:\n"
+            "• Your **Nitrado API token** (from the Nitrado dashboard)\n"
+            "• Your **Service ID** (the number in your Nitrado server URL)\n"
+            "• Your **FTP credentials** (host, username, password)\n"
+            "The bot will create all channels automatically."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Step 3 — Upload Your Map Image",
+        value=(
+            "Run `/mapimagestatus` to check the current map. "
+            "Upload a high-quality map image for accurate heatmap rendering."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Step 4 — Force a First Sync",
+        value=(
+            "Run `/restartadm force` to kick off the first ADM log read. "
+            "Within minutes your killfeed, connections, and other feeds will be live."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Optional — Link Your Gamertag",
+        value=(
+            "Players can run `/linkgamer` to connect their Discord to their in-game name. "
+            "This enables leaderboards, economy rewards, and personalised quest tracking."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Getting Started")
+    await ch.send(embed=style_embed(embed))
+
+    # ── 🔗・invite-bot ───────────────────────────────────────────────────────
+    ch = made_channels["🔗・invite-bot"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="🔗 INVITE WANDERING BOT",
+        description=(
+            "Add Wandering Bot to your DayZ community server and go from zero to live "
+            "killfeed, economy, factions, and AI chat in minutes."
+        ),
+        color=0x2ECC71
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="🚀 Bot Invite Link",
+        value=invite_url if invite_url else "*(Invite link will be added here by the server owner.)*",
+        inline=False
+    )
+    embed.add_field(
+        name="What You Get",
+        value=(
+            "✅ Live killfeed, raids, building, and connection alerts\n"
+            "✅ Interactive heatmaps on your actual server map\n"
+            "✅ Full economy system with shop and rewards\n"
+            "✅ Faction management and PVE quest system\n"
+            "✅ Radar zones, leaderboards, and longshot tracking\n"
+            "✅ AI chat, automatic translation, and AI-generated art\n"
+            "✅ Support ticket system and owner monitoring tools"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Requirements",
+        value=(
+            "• A DayZ server hosted on **Nitrado** (for live feeds)\n"
+            "• FTP access to your server files\n"
+            "• A Discord server where you have Administrator permissions"
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Invite")
+    await ch.send(embed=style_embed(embed))
+
+    # ── 📢・announcements ────────────────────────────────────────────────────
+    ch = made_channels["📢・announcements"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="📢 BOT ANNOUNCEMENTS",
+        description=(
+            "Updates, new features, and important notices about Wandering Bot will be posted here. "
+            "Follow this channel to stay up to date."
+        ),
+        color=0xE67E22
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="Currently Active",
+        value=(
+            f"Wandering Bot is live across **{len(bot.guilds)}** Discord servers. "
+            "New features ship regularly — watch this channel for release notes."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Recent Highlights",
+        value=(
+            "• AI-generated DayZ art via `/aiimageconfig`\n"
+            "• Radar zone system with coordinate-based alerts\n"
+            "• PVE quest system with hunting, fishing, crafting, and expedition chains\n"
+            "• Custom scheduled feeds via `/addfeed`\n"
+            "• Multi-language automatic translation"
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot • Announcements")
+    await ch.send(embed=style_embed(embed))
+
+    await interaction.followup.send(
+        "✅ Wandering Bot showcase server configured. Guild marked as `is_showcase_guild`. "
+        "All showcase channels created/updated with full content.",
+        ephemeral=True
+    )
 
 @bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
 @app_commands.describe(
