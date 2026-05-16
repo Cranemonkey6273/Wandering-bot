@@ -6390,6 +6390,25 @@ def nitrado_api_service_url(config, endpoint):
     return f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/{endpoint}"
 
 
+def is_noftp_dayz_path(path):
+    clean = canonical_remote_path(path)
+    prefixes = (
+        "/dayz/",
+        "/dayz_missions",
+        "/dayz_missions/",
+        "/dayzps/",
+        "/dayzps_missions",
+        "/dayzps_missions/",
+        "/dayzxb/",
+        "/dayzxb_missions",
+        "/dayzxb_missions/",
+        "/dayzserver/",
+        "/dayzxbserver/",
+        "/mpmissions/",
+    )
+    return any(clean == prefix.rstrip("/") or clean.startswith(prefix) for prefix in prefixes)
+
+
 def nitrado_api_file_path(config, target_path):
     clean = str(target_path or "").replace("\\", "/").strip()
     if not clean:
@@ -6402,11 +6421,7 @@ def nitrado_api_file_path(config, target_path):
         return clean
 
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    if nitrado_user and (
-        clean.startswith("/dayzxb/")
-        or clean == "/dayzxb_missions"
-        or clean.startswith("/dayzxb_missions/")
-    ):
+    if nitrado_user and is_noftp_dayz_path(clean):
         return f"/games/{nitrado_user}/noftp{clean}"
 
     if nitrado_user and clean.startswith("/noftp/"):
@@ -6427,11 +6442,7 @@ def nitrado_api_file_path_candidates(config, target_path):
     nitrado_user = str(config.get("nitrado_user") or "").strip()
 
     if nitrado_user:
-        if (
-            clean.startswith("/dayzxb/")
-            or clean == "/dayzxb_missions"
-            or clean.startswith("/dayzxb_missions/")
-        ):
+        if is_noftp_dayz_path(clean):
             candidates.extend([
                 f"/games/{nitrado_user}/noftp{clean}",
                 f"/games/{nitrado_user}{clean}",
@@ -6746,11 +6757,7 @@ def nitrado_ftp_path_candidates(config, target_path):
     ]
 
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    if nitrado_user and (
-        clean.startswith("/dayzxb/")
-        or clean == "/dayzxb_missions"
-        or clean.startswith("/dayzxb_missions/")
-    ):
+    if nitrado_user and is_noftp_dayz_path(clean):
         candidates.extend([
             f"/games/{nitrado_user}/noftp{clean}",
             f"games/{nitrado_user}/noftp{clean}",
@@ -6813,12 +6820,7 @@ def list_remote_directory_from_ftp(config, folder):
     entries = []
     try:
         for remote_folder in nitrado_ftp_path_candidates(config, folder):
-            try:
-                listing = ftp.nlst(remote_folder)
-            except Exception:
-                continue
-
-            for item in listing:
+            for item, entry_type in ftp_list_directory_entries(ftp, remote_folder):
                 item_text = str(item).replace("\\", "/").rstrip("/")
                 name = os.path.basename(item_text)
                 if not name:
@@ -6835,13 +6837,75 @@ def list_remote_directory_from_ftp(config, folder):
                 entries.append({
                     "name": name,
                     "path": path,
-                    "type": "",
+                    "type": entry_type,
                 })
     except Exception:
         pass
     finally:
         try:
             ftp.quit()
+        except Exception:
+            pass
+
+    return entries
+
+
+def ftp_list_directory_entries(ftp, remote_folder):
+    remote_folder = canonical_remote_path(remote_folder)
+    entries = []
+    seen = set()
+
+    def add_entry(name, entry_type=""):
+        name = str(name or "").replace("\\", "/").rstrip("/")
+        if not name or name in {".", ".."}:
+            return
+        key = (name, entry_type)
+        if key in seen:
+            return
+        seen.add(key)
+        entries.append((name, entry_type))
+
+    for candidate in [remote_folder, remote_folder.lstrip("/")]:
+        if not candidate:
+            continue
+        try:
+            for item in ftp.nlst(candidate):
+                add_entry(item)
+        except Exception:
+            pass
+
+    original_folder = None
+    try:
+        original_folder = ftp.pwd()
+    except Exception:
+        pass
+
+    for candidate in [remote_folder, remote_folder.lstrip("/")]:
+        if not candidate:
+            continue
+        try:
+            ftp.cwd(candidate)
+        except Exception:
+            continue
+
+        try:
+            for name, facts in ftp.mlsd():
+                add_entry(name, str((facts or {}).get("type") or ""))
+        except Exception:
+            pass
+
+        try:
+            for item in ftp.nlst():
+                add_entry(item)
+        except Exception:
+            pass
+
+        if entries:
+            break
+
+    if original_folder:
+        try:
+            ftp.cwd(original_folder)
         except Exception:
             pass
 
@@ -6869,27 +6933,31 @@ def remote_directory_entries(config, folder):
 
 def init_search_roots(config):
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    roots = [
+    base_roots = [
         "/",
+        "/dayz",
+        "/dayz/mpmissions",
+        "/dayz_missions",
+        "/dayz_missions/mpmissions",
+        "/dayzps",
+        "/dayzps/mpmissions",
+        "/dayzps_missions",
+        "/dayzps_missions/mpmissions",
         "/dayzxb",
         "/dayzxb/mpmissions",
         "/dayzxb_missions",
         "/dayzxb_missions/mpmissions",
+        "/dayzserver",
+        "/dayzserver/mpmissions",
         "/dayzxbserver",
         "/dayzxbserver/mpmissions",
         "/mpmissions",
     ]
+    roots = list(base_roots)
 
     if nitrado_user:
-        roots.extend([
-            f"/games/{nitrado_user}/noftp",
-            f"/games/{nitrado_user}/noftp/dayzxb",
-            f"/games/{nitrado_user}/noftp/dayzxb/mpmissions",
-            f"/games/{nitrado_user}/noftp/dayzxb_missions",
-            f"/games/{nitrado_user}/noftp/dayzxb_missions/mpmissions",
-            f"/games/{nitrado_user}/noftp/dayzxbserver",
-            f"/games/{nitrado_user}/noftp/dayzxbserver/mpmissions",
-        ])
+        roots.extend(f"/games/{nitrado_user}/noftp{root}" for root in base_roots if root != "/")
+        roots.append(f"/games/{nitrado_user}/noftp")
 
     deduped = []
     for root in roots:
@@ -7030,12 +7098,11 @@ def search_remote_init_paths_from_ftp(config, max_depth=8, max_dirs=200):
             seen_dirs.add(current)
 
             depth = current.strip("/").count("/")
-            try:
-                listing = ftp.nlst(current)
-            except Exception:
+            listing = ftp_list_directory_entries(ftp, current)
+            if not listing:
                 continue
 
-            for item in listing:
+            for item, entry_type in listing:
                 child = ftp_child_path(current, item)
                 if not child:
                     continue
@@ -7046,6 +7113,9 @@ def search_remote_init_paths_from_ftp(config, max_depth=8, max_dirs=200):
                     continue
 
                 if depth >= max_depth:
+                    continue
+
+                if entry_type and entry_type not in {"dir", "directory", "folder"}:
                     continue
 
                 if not looks_like_remote_directory(child):
@@ -7074,9 +7144,16 @@ def discover_init_c_paths(config):
         remember_remote_path(discovered, candidate)
 
     bases = [
+        "/dayz/mpmissions",
+        "/dayz_missions",
+        "/dayz_missions/mpmissions",
+        "/dayzps/mpmissions",
+        "/dayzps_missions",
+        "/dayzps_missions/mpmissions",
         "/dayzxb/mpmissions",
         "/dayzxb_missions",
         "/dayzxb_missions/mpmissions",
+        "/dayzserver/mpmissions",
         "/dayzxbserver/mpmissions",
         "/mpmissions",
     ]
@@ -7119,7 +7196,30 @@ def bridge_init_c_diagnostic(config):
             "sample": names,
         })
 
-    return found, visible_roots
+    notes = []
+    if not visible_roots:
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            notes.append(ftp_error)
+        else:
+            notes.append(f"FTPS login succeeded on `{ftp_host}`, but the searched folders returned no listable entries.")
+            try:
+                ftp.quit()
+            except Exception:
+                pass
+
+        headers = nitrado_api_headers(config)
+        url = nitrado_api_service_url(config, "list")
+        if not headers or not url:
+            notes.append("Nitrado API token or service ID is missing.")
+        else:
+            try:
+                response = requests.get(url, headers=headers, params={"dir": "/"}, timeout=15)
+                notes.append(f"Nitrado API root list returned HTTP `{response.status_code}`.")
+            except Exception as error:
+                notes.append(f"Nitrado API root list failed: `{error}`.")
+
+    return found, visible_roots, notes
 
 
 WANDERING_DELIVERY_BRIDGE_CODE = r'''
@@ -16269,6 +16369,15 @@ def sort_init_paths_for_guild(guild_id, paths):
     map_key = server_map_key(guild_id)
     missions = map_mission_folder_names(map_key)
     mission_rank = {normalize_discord_name(mission): index for index, mission in enumerate(missions)}
+    preferred_roots = [
+        "/dayzxb_missions/",
+        "/dayzxb/mpmissions/",
+        "/dayzps_missions/",
+        "/dayzps/mpmissions/",
+        "/dayz_missions/",
+        "/dayz/mpmissions/",
+        "/mpmissions/",
+    ]
 
     def path_rank(path):
         clean = canonical_remote_path(path)
@@ -16277,7 +16386,10 @@ def sort_init_paths_for_guild(guild_id, paths):
             (rank for mission, rank in mission_rank.items() if mission in normalized),
             default=len(mission_rank)
         )
-        root_rank = 0 if clean.startswith("/dayzxb_missions/") else 1 if clean.startswith("/dayzxb/mpmissions/") else 2
+        root_rank = min(
+            (index for index, root in enumerate(preferred_roots) if clean.startswith(root)),
+            default=len(preferred_roots)
+        )
         return rank, root_rank, clean
 
     deduped = []
@@ -16293,12 +16405,22 @@ def init_path_candidates_for_guild(guild_id):
     preferred = default_init_path_for_guild(guild_id)
     saved = guild_configs.get(str(guild_id), {}).get("dayz_delivery_bridge", {}).get("init_path")
     candidates = [saved, preferred]
+    mission_bases = [
+        "/dayzxb_missions",
+        "/dayzxb/mpmissions",
+        "/dayzxb_missions/mpmissions",
+        "/dayzps_missions",
+        "/dayzps/mpmissions",
+        "/dayzps_missions/mpmissions",
+        "/dayz_missions",
+        "/dayz/mpmissions",
+        "/dayz_missions/mpmissions",
+        "/dayzserver/mpmissions",
+        "/dayzxbserver/mpmissions",
+        "/mpmissions",
+    ]
     for mission in map_mission_folder_names(server_map_key(guild_id)):
-        candidates.extend([
-            f"/dayzxb_missions/{mission}/init.c",
-            f"/dayzxb/mpmissions/{mission}/init.c",
-            f"/dayzxb_missions/mpmissions/{mission}/init.c",
-        ])
+        candidates.extend(f"{base}/{mission}/init.c" for base in mission_bases)
 
     deduped = []
     for candidate in candidates:
@@ -16389,7 +16511,7 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
         config.pop("_discovered_ftp_hosts", None)
         save_guild_configs()
 
-    found_paths, visible_roots = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+    found_paths, visible_roots, diagnostic_notes = await asyncio.to_thread(bridge_init_c_diagnostic, config)
     found_paths = sort_init_paths_for_guild(guild_id, found_paths)
 
     embed = discord.Embed(
@@ -16438,6 +16560,13 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
         embed.add_field(
             name="Visible Roots",
             value="No searched root returned a directory listing. Check FTP/API permissions, host, service ID, and server platform.",
+            inline=False
+        )
+
+    if diagnostic_notes:
+        embed.add_field(
+            name="Connection Notes",
+            value="\n".join(str(note) for note in diagnostic_notes[:4])[:1000],
             inline=False
         )
 
@@ -16580,7 +16709,7 @@ async def installdayzbridge(
             or "Could not connect to Nitrado FTP" in str(message)
         )
         try:
-            found_paths, visible_roots = await run_bridge_blocking_io(
+            found_paths, visible_roots, diagnostic_notes = await run_bridge_blocking_io(
                 "Running init.c diagnostic",
                 bridge_init_c_diagnostic,
                 config,
@@ -16588,7 +16717,7 @@ async def installdayzbridge(
             )
             found_paths = sort_init_paths_for_guild(guild_id, found_paths)
         except TimeoutError:
-            found_paths, visible_roots = [], []
+            found_paths, visible_roots, diagnostic_notes = [], [], ["The deeper init.c diagnostic timed out."]
 
         embed = discord.Embed(title="INIT.C NOT FOUND", color=0xE67E22)
         if network_error:
@@ -16639,6 +16768,13 @@ async def installdayzbridge(
             embed.add_field(
                 name="Visible Roots",
                 value="No searched root returned a useful directory listing.",
+                inline=False
+            )
+
+        if diagnostic_notes:
+            embed.add_field(
+                name="Connection Notes",
+                value="\n".join(str(note) for note in diagnostic_notes[:4])[:1000],
                 inline=False
             )
 
