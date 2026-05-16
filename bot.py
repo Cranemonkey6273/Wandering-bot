@@ -18460,8 +18460,11 @@ async def on_ready():
     for guild in bot.guilds:
         try:
             bot.tree.clear_commands(guild=guild)
+            bot.tree.copy_global_to(guild=guild)
             guild_synced = await bot.tree.sync(guild=guild)
-            print(f"GUILD SLASH COMMAND COPIES CLEARED {guild.name}: {len(guild_synced)}")
+            guild_command_names = ", ".join(command.name for command in guild_synced)
+            print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
+            print(f"GUILD SLASH COMMAND NAMES {guild.name}: {guild_command_names}")
         except Exception as sync_error:
             print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
 
