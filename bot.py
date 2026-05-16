@@ -1084,6 +1084,77 @@ def build_longshots_grid_embed():
     return style_embed(embed)
 
 
+def build_showcase_topkills_embed(guild):
+    guild_id = str(guild.id)
+    guild_players = [
+        (player, stats)
+        for player, stats in player_stats.items()
+        if str(stats.get("guild_id", "")) == guild_id
+    ]
+    rows = guild_players or list(player_stats.items())
+    sorted_players = sorted(rows, key=lambda row: row[1].get("kills", 0), reverse=True)
+    total_kills = sum(stat_int(stats, "kills") for _, stats in rows)
+    total_deaths = sum(stat_int(stats, "deaths") for _, stats in rows)
+
+    embed = discord.Embed(
+        title="☠️ SERVER TOP KILLS",
+        description="Combat board with podium highlights plus a clean stat grid.\n" + build_kill_leaderboard_rows(sorted_players, 10),
+        color=0x992D22
+    )
+    embed.add_field(name="☠️ Total Kills", value=str(total_kills), inline=True)
+    embed.add_field(name="💀 Total Deaths", value=str(total_deaths), inline=True)
+    embed.add_field(name="👥 Survivors Ranked", value=str(len(rows)), inline=True)
+
+    for index, (player, stats) in enumerate(sorted_players[:3], start=1):
+        icon = leaderboard_rank_icon(index)
+        kills = stat_int(stats, "kills")
+        deaths = stat_int(stats, "deaths")
+        kd = kills if deaths == 0 else round(kills / max(1, deaths), 2)
+        embed.add_field(
+            name=f"{icon} {player}",
+            value=f"☠️ `{kills}` kills\n💀 `{deaths}` deaths\n⚖️ `{kd}` K/D",
+            inline=True
+        )
+
+    embed.add_field(
+        name="📍 Scope",
+        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    return style_embed(embed)
+
+
+def build_showcase_longshots_embed():
+    sorted_records = sorted(
+        longshot_records.items(),
+        key=lambda row: row[1].get("distance", 0),
+        reverse=True
+    )
+    lines = ["#  Shooter               Dist   Server"]
+    for index, (guild_id, data) in enumerate(sorted_records[:10], start=1):
+        guild_name = guild_configs.get(guild_id, {}).get("guild_name", "Unknown Server")
+        lines.append(
+            f"{index:<2} {trim_table_text(data.get('killer'), 21)} {str(data.get('distance', 0)) + 'm':>6}  {trim_table_text(guild_name, 18).strip()}"
+        )
+
+    embed = discord.Embed(
+        title="🎯 GLOBAL LONGSHOT LEADERBOARD",
+        description="Longest confirmed shots across all connected servers.\n```text\n" + "\n".join(lines) + "\n```",
+        color=0xF1C40F
+    )
+    for index, (guild_id, data) in enumerate(sorted_records[:3], start=1):
+        guild_name = guild_configs.get(guild_id, {}).get("guild_name", "Unknown Server")
+        embed.add_field(
+            name=f"{leaderboard_rank_icon(index)} {data.get('killer', 'Unknown')}",
+            value=f"🎯 `{data.get('distance', 0)}m`\n🌍 `{guild_name}`",
+            inline=True
+        )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Longshot Intelligence")
+    return style_embed(embed)
+
+
 def parse_saved_datetime(value):
     if not value:
         return None
@@ -2835,21 +2906,37 @@ def generate_live_player_map_image(guild_id: str):
     downloaded_path = None
 
     try:
+        source_status_note = None
         if str(source).startswith(("http://", "https://")):
             response = requests.get(source, timeout=20)
             if response.status_code != 200:
-                return None, f"Map image download failed with status `{response.status_code}`."
-            image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
-            image_file.write(response.content)
-            image_file.close()
-            downloaded_path = image_file.name
-            source_path = downloaded_path
+                source_status_note = f"Real map image download failed with status {response.status_code}; using fallback map."
+                source_path = None
+            else:
+                image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
+                image_file.write(response.content)
+                image_file.close()
+                downloaded_path = image_file.name
+                source_path = downloaded_path
         else:
             source_path = source
 
         width = 1200
         height = 900
-        base = Image.open(source_path).convert("RGBA").resize((width, height))
+        if source_path:
+            base = Image.open(source_path).convert("RGBA").resize((width, height))
+        else:
+            base = Image.new("RGBA", (width, height), (39, 61, 49, 255))
+            fallback_draw = ImageDraw.Draw(base)
+            for x in range(0, width, 120):
+                fallback_draw.line((x, 0, x, height), fill=(90, 118, 96, 95), width=2)
+            for y in range(0, height, 90):
+                fallback_draw.line((0, y, width, y), fill=(90, 118, 96, 95), width=2)
+            if map_key == "livonia":
+                fallback_draw.line((0, 350, 220, 310, 480, 365, 760, 330, 1200, 380), fill=(44, 86, 112, 210), width=18)
+            else:
+                fallback_draw.polygon([(0, 710), (240, 675), (500, 725), (740, 690), (1200, 735), (1200, 900), (0, 900)], fill=(36, 76, 104, 230))
+                fallback_draw.polygon([(1080, 120), (1200, 70), (1200, 720), (1115, 680), (1060, 430)], fill=(36, 76, 104, 190))
         overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
@@ -2885,6 +2972,8 @@ def generate_live_player_map_image(guild_id: str):
             fill=(203, 216, 196, 255),
             font=small_font
         )
+        if source_status_note:
+            draw.text((760, 42), source_status_note[:52], fill=(255, 210, 120, 255), font=small_font)
 
         for idx, (player, coords, point) in enumerate(plotted_players, start=1):
             px, py = point
@@ -3480,7 +3569,9 @@ async def setup_command(
                 "`/listrestarts` - show restart schedule\n"
                 "`/togglebasedamage state` - log base damage state\n"
                 "`/setradarchannel channel` - choose radar channel\n"
-                "`/radarping x y reason` - send a manual map ping"
+                "`/radarping x y reason` - send a manual map ping\n"
+                "`/addradarzone` - alert staff when non-ignored gamertags enter an area\n"
+                "`/forcelinkgamer` - admin override when ADM linking cannot find a player"
             ),
             inline=False
         )
@@ -3526,7 +3617,19 @@ async def setup_command(
             name="FINAL DAYZ SERVER STEP",
             value=(
                 "Add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup. "
-                "That enables restart delivery spawning from the XML this bot uploads."
+                "That enables restart delivery spawning from the XML this bot uploads.\n\n"
+                "Item spawning: add shop items with `/addshopitem`, players use `/buy item_name x y`, then the bot uploads `deliveries.xml` for next restart.\n"
+                "Vehicle resets/rentals: players use `/rentvehicle vehicle_name rental_hours x y`; the vehicle entry is written into the same restart delivery XML.\n"
+                "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
+            ),
+            inline=False
+        )
+        setup_embed.add_field(
+            name="AUTOMATIC DELIVERY BRIDGE INSTALL",
+            value=(
+                "Use `/installdayzbridge` after setup if you want the bot to install the restart delivery hook for you. "
+                "It downloads `init.c`, uploads a timestamped backup, inserts `SpawnWanderingDeliveries();` only if missing, "
+                "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot."
             ),
             inline=False
         )
@@ -3586,6 +3689,159 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 
         print(error)
         return False
+
+
+def upload_text_file_to_nitrado(config, target_path, text_content):
+    try:
+        ftp_user = config.get("ftp_user")
+        ftp_pass = config.get("ftp_password")
+
+        if not ftp_user or not ftp_pass:
+            return False, "FTP details are not configured."
+
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".xml") as temp_file:
+            temp_file.write(text_content)
+            temp_path = temp_file.name
+
+        ftp = FTP_TLS("ftp.nitrado.net")
+        ftp.login(ftp_user, ftp_pass)
+        ftp.prot_p()
+
+        remote_folder = os.path.dirname(str(target_path).replace("\\", "/"))
+        if remote_folder and remote_folder != "/":
+            try:
+                ftp.mkd(remote_folder)
+            except Exception:
+                pass
+
+        with open(temp_path, "rb") as file_obj:
+            ftp.storbinary(f"STOR {target_path}", file_obj)
+
+        ftp.quit()
+
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+
+        return True, "Uploaded successfully."
+
+    except Exception as error:
+        return False, str(error)
+
+
+def download_text_file_from_nitrado(config, target_path):
+    try:
+        ftp_user = config.get("ftp_user")
+        ftp_pass = config.get("ftp_password")
+
+        if not ftp_user or not ftp_pass:
+            return False, "FTP details are not configured.", None
+
+        buffer = io.BytesIO()
+        ftp = FTP_TLS("ftp.nitrado.net")
+        ftp.login(ftp_user, ftp_pass)
+        ftp.prot_p()
+        ftp.retrbinary(f"RETR {target_path}", buffer.write)
+        ftp.quit()
+
+        content = buffer.getvalue().decode("utf-8", errors="ignore")
+        return True, "Downloaded successfully.", content
+
+    except Exception as error:
+        return False, str(error), None
+
+
+WANDERING_DELIVERY_BRIDGE_CODE = r'''
+void SpawnWanderingDeliveries()
+{
+    string path = "$profile:custom/deliveries.xml";
+    FileHandle file = OpenFile(path, FileMode.READ);
+
+    if (!file)
+    {
+        Print("[WANDERING BOT] deliveries.xml not found");
+        return;
+    }
+
+    string line;
+    while (FGets(file, line) > 0)
+    {
+        if (line.Contains("<object"))
+        {
+            string itemName;
+            string position;
+
+            int nameStart = line.IndexOf("name=\"") + 6;
+            int nameEnd = line.IndexOf("\"", nameStart);
+            itemName = line.Substring(nameStart, nameEnd - nameStart);
+
+            int posStart = line.IndexOf("pos=\"") + 5;
+            int posEnd = line.IndexOf("\"", posStart);
+            position = line.Substring(posStart, posEnd - posStart);
+
+            TStringArray posSplit = new TStringArray;
+            position.Split(" ", posSplit);
+
+            if (posSplit.Count() >= 3)
+            {
+                vector spawnPos = Vector(
+                    posSplit.Get(0).ToFloat(),
+                    posSplit.Get(1).ToFloat(),
+                    posSplit.Get(2).ToFloat()
+                );
+
+                EntityAI spawned = EntityAI.Cast(GetGame().CreateObject(itemName, spawnPos));
+                if (spawned)
+                {
+                    Print("[WANDERING BOT] Spawned: " + itemName);
+                }
+            }
+        }
+    }
+
+    CloseFile(file);
+}
+'''
+
+
+def install_wandering_delivery_bridge(init_text):
+    changed = False
+    updated = init_text
+
+    if "void SpawnWanderingDeliveries()" not in updated:
+        main_match = re.search(r"\bvoid\s+main\s*\(", updated)
+        if main_match:
+            updated = updated[:main_match.start()] + WANDERING_DELIVERY_BRIDGE_CODE.strip() + "\n\n" + updated[main_match.start():]
+        else:
+            updated = updated.rstrip() + "\n\n" + WANDERING_DELIVERY_BRIDGE_CODE.strip() + "\n"
+        changed = True
+
+    if "SpawnWanderingDeliveries();" not in updated:
+        weather_match = re.search(r"^.*MissionWeather\s*\([^;\n]*\)\s*;\s*$", updated, re.MULTILINE)
+        if weather_match:
+            insert_at = weather_match.end()
+            updated = updated[:insert_at] + "\n    SpawnWanderingDeliveries();" + updated[insert_at:]
+        else:
+            main_open = re.search(r"\bvoid\s+main\s*\([^)]*\)\s*\{", updated)
+            if main_open:
+                insert_at = main_open.end()
+                updated = updated[:insert_at] + "\n    SpawnWanderingDeliveries();" + updated[insert_at:]
+            else:
+                return updated, changed, "Could not find `main()` in init.c to insert the startup call."
+        changed = True
+
+    return updated, changed, None
+
+
+def build_dayz_messages_xml(messages, interval_minutes):
+    root = ET.Element("messages")
+    for message in messages:
+        item = ET.SubElement(root, "message")
+        item.set("interval", str(max(1, int(interval_minutes))))
+        item.text = str(message).strip()
+
+    return ET.tostring(root, encoding="unicode")
 
 # =========================================================
 # DOWNLOAD ADM
@@ -5123,7 +5379,19 @@ async def helpme(ctx):
             "`/listrestarts`\n"
             "`/togglebasedamage state`\n"
             "`/setradarchannel channel`\n"
-            "`/radarping x y reason`"
+            "`/radarping x y reason`\n"
+            "`/addradarzone`, `/radarstatus`, `/forcelinkgamer`\n"
+            "`/setdayzmessages` - owner-only in-game message XML upload"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="DayZ Restart Deliveries",
+        value=(
+            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x y`; the bot writes delivery XML for restart.\n"
+            "Vehicles: players use `/rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
+            "Server file step: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup, or use owner-only `/installdayzbridge` to have the bot back up and patch it."
         ),
         inline=False
     )
@@ -8088,6 +8356,92 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
+async def force_link_gamertag_for_member(guild, admin_member, target_member, gamertag):
+    guild_id = str(guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+    verified_name = str(gamertag).strip()
+    if not verified_name:
+        return False, "Gamertag cannot be empty."
+
+    wanted = normalize_discord_name(verified_name)
+    for linked_user_id, data in list(linked_players.items()):
+        if str(linked_user_id) != str(target_member.id) and normalize_discord_name(data.get("gamertag", "")) == wanted:
+            linked_players.pop(linked_user_id, None)
+
+    linked_players[str(target_member.id)] = {
+        "discord_name": str(target_member),
+        "discord_id": str(target_member.id),
+        "guild_id": guild_id,
+        "gamertag": verified_name,
+        "verified_by": f"FORCED_BY_ADMIN:{admin_member.id}",
+        "linked_at": str(datetime.now(UTC))
+    }
+    save_linked_players()
+
+    stats = ensure_player_stats_record(guild_id, verified_name)
+    if stats:
+        stats["last_adm_seen"] = stats.get("last_adm_seen") or str(datetime.now(UTC))
+        save_player_stats()
+
+    await announce_verified_gamer_link(guild, config, target_member, verified_name)
+    return True, verified_name
+
+
+@bot.tree.command(name="forcelinkgamer", description="Admin: force link a Discord member to an Xbox gamertag")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(member="Discord member to link", gamertag="Xbox gamertag to link")
+async def forcelinkgamer(interaction: discord.Interaction, member: discord.Member, gamertag: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    success, result = await force_link_gamertag_for_member(
+        interaction.guild,
+        interaction.user,
+        member,
+        gamertag
+    )
+    if not success:
+        await interaction.response.send_message(result, ephemeral=True)
+        return
+
+    embed = build_linkgamer_confirmation_embed(member, result)
+    embed.title = "ADMIN VERIFIED GAMERTAG LINKED"
+    embed.add_field(name="Linked By", value=interaction.user.mention, inline=False)
+    await interaction.response.send_message("Forced link saved. Public confirmation posted below.", ephemeral=True)
+    await interaction.channel.send(embed=style_embed(embed))
+
+
+@bot.tree.command(name="refreshadmplayers", description="Admin: rescan recent ADM logs for linkable player names")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(hours="How far back to scan, max 336", max_logs="Maximum ADM files to scan, max 80")
+async def refreshadmplayers(interaction: discord.Interaction, hours: int = 168, max_logs: int = 40):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    hours = max(1, min(336, int(hours or 168)))
+    max_logs = max(1, min(80, int(max_logs or 40)))
+    learned, scanned = await asyncio.to_thread(
+        learn_recent_adm_players_for_linking,
+        guild_id,
+        config,
+        hours,
+        max_logs
+    )
+    await interaction.followup.send(
+        f"ADM player refresh complete. Scanned `{scanned}` log(s), learned `{learned}` player name entry/entries. Now try `/admplayers search:yourname` or `/linkgamer` again.",
+        ephemeral=True
+    )
+
+
 @bot.tree.command(name="admplayers", description="Admin: show ADM player names the bot has learned")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(search="Optional text to filter gamertags")
@@ -8622,16 +8976,19 @@ async def leaderboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_message_id = last_leaderboard_message_ids.get(guild_id)
-            if old_message_id:
-                try:
-                    old_message = await leaderboard_channel.fetch_message(old_message_id)
-                    await old_message.delete()
-                except Exception:
-                    pass
+            old_message_ids = last_leaderboard_message_ids.get(guild_id)
+            if old_message_ids:
+                if not isinstance(old_message_ids, list):
+                    old_message_ids = [old_message_ids]
+                for old_message_id in old_message_ids[:2]:
+                    try:
+                        old_message = await leaderboard_channel.fetch_message(old_message_id)
+                        await old_message.delete()
+                    except Exception:
+                        pass
 
             sent_message = await leaderboard_channel.send(embed=embed)
-            last_leaderboard_message_ids[guild_id] = sent_message.id
+            last_leaderboard_message_ids[guild_id] = [sent_message.id]
 
         except Exception as error:
             print(error)
@@ -9744,6 +10101,76 @@ async def ownerremovebot(interaction: discord.Interaction, secret_code: str, gui
             ephemeral=True
         )
 
+
+@bot.tree.command(name="ownerbotshowcase", description="Owner only: build Wandering Bot advertising/info channels")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(secret_code="Owner secret code", invite_url="Bot invite URL to display")
+async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, invite_url: str = ""):
+    if not owner_secret_valid(interaction, secret_code):
+        await reject_owner_command(interaction)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    category_name = "🤖🌲┃WANDERING BOT SHOWCASE┃🌲🤖"
+    category = discord.utils.get(interaction.guild.categories, name=category_name)
+    if not category:
+        category = await interaction.guild.create_category(category_name)
+
+    channel_specs = [
+        ("start-here", "START HERE", "What Wandering Bot is, who it is for, and how to invite it."),
+        ("features", "FEATURES", "Live ADM feeds, economy, factions, PVE, radar, maps, leaderboards, translation, support, and owner tools."),
+        ("setup-guide", "SETUP GUIDE", "Step-by-step setup notes for Discord, Nitrado, map images, deliveries, vehicles, and server messages."),
+        ("commands", "COMMANDS", "A readable index of important slash commands."),
+        ("updates-coming-soon", "COMING SOON", "Planned features and development notes."),
+        ("reviews", "REVIEWS", "A place for server owners to leave feedback."),
+        ("questions", "QUESTIONS", "A public place to ask setup and install questions."),
+        ("live-stats", "LIVE STATS", "Bot network snapshot and connected server count."),
+    ]
+
+    made_channels = {}
+    for channel_name, _, _ in channel_specs:
+        existing = discord.utils.get(interaction.guild.text_channels, name=channel_name)
+        if not existing:
+            existing = await interaction.guild.create_text_channel(channel_name, category=category)
+        elif existing.category != category:
+            try:
+                await existing.edit(category=category)
+            except Exception:
+                pass
+        made_channels[channel_name] = existing
+
+    for channel_name, title, body in channel_specs:
+        channel = made_channels[channel_name]
+        try:
+            await channel.purge(limit=10)
+        except Exception:
+            pass
+
+        embed = discord.Embed(
+            title=f"WANDERING BOT - {title}",
+            description=body,
+            color=0x2ECC71 if channel_name == "start-here" else 0x3498DB
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+
+        if channel_name == "start-here":
+            embed.add_field(name="Invite", value=invite_url or "Add your bot invite URL here.", inline=False)
+            embed.add_field(name="Use Case", value="Discord automation for DayZ community servers: ADM intelligence, feeds, maps, economy, factions, support, and owner tooling.", inline=False)
+        elif channel_name == "setup-guide":
+            embed.add_field(name="Core Setup", value="1. Invite the bot.\n2. Run `/setup` with Nitrado/API/FTP details.\n3. Run `/mapimagestatus` and upload real map art if needed.\n4. Run `/restartadm force` once after setup.", inline=False)
+            embed.add_field(name="DayZ Files", value="Deliveries need the server-side `SpawnWanderingDeliveries();` hook in `init.c`. Server messages can be uploaded with `/setdayzmessages` by the server owner.", inline=False)
+        elif channel_name == "commands":
+            embed.add_field(name="Admin", value="`/setup`, `/admstatus`, `/restartadm`, `/radarstatus`, `/forcelinkgamer`, `/refreshadmplayers`, `/setdayzmessages`", inline=False)
+            embed.add_field(name="Community", value="`/linkgamer`, `/mylink`, `/wallet`, `/shop`, `/topkills`, `/toplongshots`, `/pveinfo`", inline=False)
+        elif channel_name == "live-stats":
+            embed.add_field(name="Connected Servers", value=str(len(bot.guilds)), inline=True)
+            embed.add_field(name="Tracked Online Players", value=str(sum(len(players) for players in online_players.values())), inline=True)
+
+        await channel.send(embed=style_embed(embed))
+
+    await interaction.followup.send("Wandering Bot showcase Discord channels created/updated.", ephemeral=True)
+
 @bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
 @app_commands.describe(
     mode="same posts translations in the same chat, channel forwards them, off disables translation",
@@ -10489,6 +10916,168 @@ async def slash_livemap_alias(interaction: discord.Interaction):
     await send_live_map_response(interaction)
 
 
+@bot.tree.command(name="setdayzmessages", description="Owner: upload simple in-game rotating server messages")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    messages="Separate messages with |",
+    interval_minutes="Minutes between messages",
+    ftp_path="Advanced: messages.xml path on FTP"
+)
+async def setdayzmessages(
+    interaction: discord.Interaction,
+    messages: str,
+    interval_minutes: int = 30,
+    ftp_path: str = "/dayzxb/config/messages.xml"
+):
+    if interaction.user.id != interaction.guild.owner_id:
+        await interaction.response.send_message("Server owner only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    message_list = [item.strip() for item in str(messages).split("|") if item.strip()]
+    if not message_list:
+        await interaction.followup.send("Add at least one message. Separate multiple messages with `|`.", ephemeral=True)
+        return
+
+    if len(message_list) > 20:
+        await interaction.followup.send("Please keep it to 20 messages or fewer.", ephemeral=True)
+        return
+
+    interval_minutes = max(1, min(240, int(interval_minutes or 30)))
+    xml_text = build_dayz_messages_xml(message_list, interval_minutes)
+    config["dayz_messages"] = {
+        "messages": message_list,
+        "interval_minutes": interval_minutes,
+        "ftp_path": ftp_path,
+        "updated_at": str(datetime.now(UTC)),
+        "updated_by": str(interaction.user.id)
+    }
+    save_guild_configs()
+
+    success, result = await asyncio.to_thread(
+        upload_text_file_to_nitrado,
+        config,
+        ftp_path,
+        xml_text
+    )
+
+    if not success:
+        await interaction.followup.send(
+            f"Saved the message config, but upload failed: `{result}`\nCheck the FTP path before trying again.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="DAYZ SERVER MESSAGES UPDATED",
+        description="Messages were uploaded safely as XML. They normally appear after a server restart.",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Interval", value=f"{interval_minutes} minutes", inline=True)
+    embed.add_field(name="FTP Path", value=f"`{ftp_path}`", inline=False)
+    embed.add_field(name="Messages", value="\n".join(f"• {item}" for item in message_list[:10])[:1000], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+def default_init_path_for_guild(guild_id):
+    map_key = server_map_key(guild_id)
+    mission = {
+        "livonia": "dayzOffline.enoch",
+        "sakhal": "dayzOffline.sakhal",
+    }.get(map_key, "dayzOffline.chernarusplus")
+    return f"/dayzxb/mpmissions/{mission}/init.c"
+
+
+@bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    init_path="Advanced: FTP path to init.c. Leave blank for map-based default.",
+    delivery_path="Advanced: FTP path for deliveries.xml"
+)
+async def installdayzbridge(
+    interaction: discord.Interaction,
+    init_path: str = "",
+    delivery_path: str = "/dayzxb/custom/deliveries.xml"
+):
+    if interaction.user.id != interaction.guild.owner_id:
+        await interaction.response.send_message("Server owner only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    init_path = (init_path or default_init_path_for_guild(guild_id)).strip()
+    ok, message, init_text = await asyncio.to_thread(download_text_file_from_nitrado, config, init_path)
+    if not ok:
+        await interaction.followup.send(
+            f"Could not download `init.c` from `{init_path}`: `{message}`\n"
+            "Check your mission folder path. Common paths are `dayzOffline.chernarusplus/init.c` and `dayzOffline.enoch/init.c`.",
+            ephemeral=True
+        )
+        return
+
+    updated_text, changed, install_error = install_wandering_delivery_bridge(init_text)
+    if install_error:
+        await interaction.followup.send(install_error, ephemeral=True)
+        return
+
+    backup_path = f"{init_path}.wandering-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+    backup_ok, backup_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, backup_path, init_text)
+    if not backup_ok:
+        await interaction.followup.send(f"Backup failed, so I did not touch init.c: `{backup_message}`", ephemeral=True)
+        return
+
+    if changed:
+        upload_ok, upload_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, init_path, updated_text)
+        if not upload_ok:
+            await interaction.followup.send(
+                f"Backup was created at `{backup_path}`, but init.c upload failed: `{upload_message}`",
+                ephemeral=True
+            )
+            return
+
+    starter_xml = "<objects>\n</objects>\n"
+    delivery_ok, delivery_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, delivery_path, starter_xml)
+
+    config["dayz_delivery_bridge"] = {
+        "init_path": init_path,
+        "delivery_path": delivery_path,
+        "backup_path": backup_path,
+        "installed_at": str(datetime.now(UTC)),
+        "installed_by": str(interaction.user.id),
+        "changed_init": changed,
+        "starter_delivery_uploaded": delivery_ok,
+    }
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="DAYZ DELIVERY BRIDGE INSTALLED",
+        description=(
+            "The bot backed up `init.c`, installed the restart delivery hook if needed, "
+            "and uploaded a starter `deliveries.xml`. Restart the server before expecting deliveries to spawn."
+        ),
+        color=0x2ECC71
+    )
+    embed.add_field(name="init.c", value=f"`{init_path}`", inline=False)
+    embed.add_field(name="Backup", value=f"`{backup_path}`", inline=False)
+    embed.add_field(name="Delivery XML", value=f"`{delivery_path}`", inline=False)
+    embed.add_field(name="Changed init.c", value="Yes" if changed else "Already installed", inline=True)
+    embed.add_field(name="Starter XML", value="Uploaded" if delivery_ok else f"Failed: {delivery_message}", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
 @bot.tree.command(name="createfaction", description="Admin: create an official faction")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
@@ -10683,13 +11272,13 @@ async def slash_toplongshots(interaction: discord.Interaction):
     if not longshot_records:
         await interaction.response.send_message("No longshot records yet.", ephemeral=True)
         return
-    await interaction.response.send_message(embed=build_longshots_grid_embed(), ephemeral=True)
+    await interaction.response.send_message(embed=build_showcase_longshots_embed(), ephemeral=True)
 @bot.tree.command(name="topkills", description="Show top kill leaderboard")
 async def slash_topkills(interaction: discord.Interaction):
     if not player_stats:
         await interaction.response.send_message("No stats available.", ephemeral=True)
         return
-    await interaction.response.send_message(embed=build_topkills_grid_embed(interaction.guild), ephemeral=True)
+    await interaction.response.send_message(embed=build_showcase_topkills_embed(interaction.guild), ephemeral=True)
 @bot.tree.command(name="staffroles", description="List staff roles")
 @app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
