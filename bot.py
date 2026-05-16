@@ -5128,7 +5128,11 @@ def owner_secret_valid(interaction, secret_code):
     # Re-read env vars at call time so runtime changes are picked up
     live_secret = os.getenv("BOT_OWNER_SECRET_CODE")
     live_owner_id = os.getenv("BOT_OWNER_ID")
-    live_guild_id = os.getenv("BOT_OWNER_GUILD_ID")
+
+    # Support multiple guild IDs via BOT_OWNER_GUILD_IDS (comma-separated).
+    # Fall back to the legacy singular BOT_OWNER_GUILD_ID for backward compatibility.
+    raw_guild_ids = os.getenv("BOT_OWNER_GUILD_IDS") or os.getenv("BOT_OWNER_GUILD_ID")
+    live_guild_ids = [g.strip() for g in raw_guild_ids.split(",") if g.strip()] if raw_guild_ids else []
 
     user_id = str(interaction.user.id)
     guild_id = str(interaction.guild_id) if interaction.guild_id else ""
@@ -5147,9 +5151,9 @@ def owner_secret_valid(interaction, secret_code):
         print(f"[OWNER AUTH] REJECTED — user ID {user_id} does not match BOT_OWNER_ID {live_owner_id.strip()}")
         return False
 
-    # If BOT_OWNER_GUILD_ID is configured, the command must come from that guild
-    if live_guild_id and guild_id != live_guild_id.strip():
-        print(f"[OWNER AUTH] REJECTED — guild ID {guild_id} does not match BOT_OWNER_GUILD_ID {live_guild_id.strip()}")
+    # If one or more owner guild IDs are configured, the command must come from one of them
+    if live_guild_ids and guild_id not in live_guild_ids:
+        print(f"[OWNER AUTH] REJECTED — guild ID {guild_id} is not in BOT_OWNER_GUILD_IDS {live_guild_ids}")
         return False
 
     print(f"[OWNER AUTH] APPROVED — user={user_id}, guild={guild_id}")
