@@ -118,6 +118,17 @@ last_ai_image_time = {}
 recent_pvp_kill_signatures = {}
 last_heatmap_render_status = {}
 
+# =========================================================
+# AUTONOMOUS SHOWCASE GLOBALS
+# =========================================================
+
+SHOWCASE_GUILD_ID = os.getenv("SHOWCASE_GUILD_ID", "")
+user_style_profiles = {}          # user_id -> style data
+last_showcase_proactive_time = {} # guild_id -> timestamp
+last_showcase_greeting_image = {} # guild_id -> timestamp
+last_showcase_discussion_time = {} # guild_id -> timestamp
+last_showcase_reaction_time = {}  # channel_id -> timestamp
+
 HEATMAP_MODES = [
     "pvp",
     "zombie",
@@ -1416,6 +1427,717 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
     save_linked_players()
     await announce_verified_gamer_link(guild, config, member, verified_name)
     return True, verified_name
+
+# =========================================================
+# AUTONOMOUS SHOWCASE ENGINE
+# =========================================================
+
+SHOWCASE_GREETING_TRIGGERS = {"hi", "hello", "hey", "sup", "yo", "hiya", "howdy", "greetings", "ello", "heya"}
+
+SHOWCASE_IMAGE_REQUEST_TRIGGERS = [
+    "generate", "make me", "create", "draw", "show me", "give me", "post",
+    "art", "image", "picture", "pic", "photo", "visual", "artwork", "illustration"
+]
+
+SHOWCASE_STYLE_TRIGGERS = {
+    "cinematic": "gritty",
+    "gritty": "gritty",
+    "dark": "gritty",
+    "horror": "gritty",
+    "moody": "gritty",
+    "atmospheric": "gritty",
+    "funny": "funny",
+    "humor": "funny",
+    "comedy": "funny",
+    "meme": "funny",
+    "silly": "funny",
+    "survival": "funny",
+    "pinup": "pinup",
+    "glamour": "pinup",
+    "stylish": "pinup",
+}
+
+SHOWCASE_DISCUSSION_STARTERS = [
+    ("🔥 DAILY QUESTION", "What's the most embarrassing way you've died in DayZ? I'll start: someone once died to a chicken. The chicken won."),
+    ("🧠 SURVIVAL DEBATE", "Hottest take: the coast is actually the most dangerous zone on the map. Change my mind."),
+    ("🎯 TACTICS CORNER", "What's your go-to first 10 minutes strategy when you spawn? Inland rush? Coastal loot? Straight to military?"),
+    ("🏕️ BASE BUILDING POLL", "Small hidden stash vs. big fortified compound — which actually survives longer on your server?"),
+    ("⚔️ PVP PHILOSOPHY", "Do you KOS on sight or try to talk first? What's your personal code of conduct in the apocalypse?"),
+    ("🗺️ MAP KNOWLEDGE", "Which location on Chernarus do you think is criminally underrated for loot? Drop your secret spots."),
+    ("🤝 FACTION TALK", "Would you rather run solo or roll with a faction? What's the ideal squad size for DayZ?"),
+    ("🧟 ZOMBIE THREAT LEVEL", "Real talk: how much of a threat are infected to you at this point? Nuisance or genuine danger?"),
+    ("🚗 VEHICLE CHAOS", "Best DayZ vehicle story. Go. Bonus points if it ended in a fireball."),
+    ("🌧️ WEATHER SURVIVAL", "Rain, fog, night — which weather condition do you find most dangerous and why?"),
+    ("🎒 LOADOUT FLEX", "Describe your ideal DayZ loadout in three items. No cheating with 'everything'."),
+    ("📻 RADIO CHATTER", "If you could add one feature to DayZ that doesn't exist yet, what would it be?"),
+]
+
+SHOWCASE_TIPS = [
+    ("💡 SURVIVAL TIP", "Disinfect every wound, even small cuts. Infection kills slower than bullets but just as dead."),
+    ("💡 LOOT ROUTE TIP", "Police stations respawn faster than military. Hit them early, hit them often."),
+    ("💡 BASE TIP", "The best base is one nobody knows exists. Small, ugly, and hidden beats big and obvious every time."),
+    ("💡 PVP TIP", "Sound is your best intel. Footsteps, doors, and gunshots tell you everything before you see anything."),
+    ("💡 MEDICAL TIP", "Carry charcoal tablets. Cholera from dirty water is one of the most common silent killers."),
+    ("💡 NAVIGATION TIP", "Learn to navigate by landmarks, not the compass. The compass tells you direction; the map tells you where you are."),
+    ("💡 VEHICLE TIP", "Always check the spark plug, battery, and radiator before assuming a car is broken. It's usually one of those three."),
+    ("💡 FOOD TIP", "Hunting is more reliable than looting for food mid-game. Animals respawn; canned goods don't."),
+    ("💡 STEALTH TIP", "Walk, don't sprint, through towns. Sprinting is loud and you miss loot. Patience is a survival skill."),
+    ("💡 FACTION TIP", "Establish a radio frequency with your squad before you split up. Communication wins fights."),
+]
+
+SHOWCASE_FEATURE_SPOTLIGHTS = [
+    ("🔥 FEATURE: LIVE KILLFEED", "Wandering Bot tracks every PvP kill in real time from your server's ADM logs and posts them to a dedicated killfeed channel — killer, victim, weapon, distance, and map coordinates."),
+    ("🗺️ FEATURE: HEATMAPS", "The bot generates live heatmap images showing where PvP, zombie kills, base building, and raids are happening most on your map. Updated automatically."),
+    ("🏆 FEATURE: LEADERBOARDS", "Automatic kill leaderboards, longshot records, and player stat tracking — all pulled from ADM logs with zero manual input required."),
+    ("💰 FEATURE: ECONOMY SYSTEM", "A full in-game economy: pennies, a shop, item deliveries, vehicle rentals, recurring wages, and a swear jar. All Discord-native."),
+    ("🏴 FEATURE: FACTION SYSTEM", "Players can create, join, and manage factions directly in Discord. Faction roles, member lists, and dedicated channels — all bot-managed."),
+    ("🧭 FEATURE: PVE QUEST BOARD", "Automated PVE quest channels with hunting, fishing, crafting, collection, and expedition missions. Quests rotate automatically when completed."),
+    ("🌍 FEATURE: AUTO TRANSLATION", "The bot can automatically translate messages in any channel to a target language, making international communities seamless."),
+    ("🎫 FEATURE: SUPPORT TICKETS", "Built-in support ticket system. Players open tickets, staff respond, everything is logged. No third-party bots needed."),
+    ("🔗 FEATURE: GAMERTAG LINKING", "Players link their Xbox/PC gamertag to their Discord account via ADM verification. The bot confirms identity from server logs automatically."),
+    ("🤖 FEATURE: AI CHAT", "A dedicated AI channel where survivors can ask the bot for loot tips, base advice, medical help, and DayZ strategy — all with personality."),
+]
+
+SHOWCASE_WELCOME_MESSAGES_EXTENDED = [
+    "Welcome to the showcase, survivor. I run this place. The owner's around somewhere but honestly I've got it handled.",
+    "Fresh arrival detected. I'm Wandering Bot — I manage this server, generate content, track stats, and occasionally roast bad decisions. Welcome.",
+    "Hey! You made it. This server is proof that a bot can run a community. Pull up a chair and see what I can do.",
+    "Welcome in. I'm the host, the moderator, the entertainer, and the AI. The owner just watches and nods approvingly.",
+    "New survivor spotted. I'm Wandering Bot — autonomous community manager, DayZ intelligence system, and reluctant philosopher. Ask me anything.",
+    "Welcome to the showcase. I'm demonstrating that a Discord server can be fully managed by a bot. You're part of the experiment now.",
+    "Ah, a new face. I'm Wandering Bot. I handle the channels, the content, the conversations, and the chaos. The owner handles the coffee.",
+    "Welcome! This server runs itself — well, I run it. Same thing. Grab a channel and see what autonomous bot management looks like.",
+]
+
+SHOWCASE_REACTION_MAP = {
+    "kill": ["💀", "🎯", "🔥"],
+    "die": ["💀", "😬", "🩸"],
+    "base": ["🏕️", "🔨", "🛡️"],
+    "loot": ["🎒", "✨", "🥫"],
+    "raid": ["🚨", "💥", "🏴"],
+    "beans": ["🥫", "😂", "🙏"],
+    "wolf": ["🐺", "😱", "💀"],
+    "car": ["🚗", "💥", "😬"],
+    "snipe": ["🎯", "😤", "🔥"],
+    "help": ["🤝", "📻", "🧠"],
+    "nice": ["✨", "🔥", "👏"],
+    "good": ["✨", "👍", "🔥"],
+    "wow": ["😮", "🔥", "✨"],
+    "haha": ["😂", "💀", "🔥"],
+    "lol": ["😂", "💀", "🔥"],
+}
+
+SHOWCASE_FOLLOW_UP_QUESTIONS = [
+    "What's your usual playstyle — PvP, PvE, or somewhere in between?",
+    "Have you tried the faction system yet? It changes the whole dynamic.",
+    "What server are you playing on right now?",
+    "What feature would you want to see in a bot like this?",
+    "How long have you been playing DayZ?",
+    "Solo player or squad runner?",
+    "What's your most memorable DayZ moment?",
+    "What do you think makes a good DayZ community server?",
+]
+
+SHOWCASE_CHANNEL_SUGGESTIONS = {
+    "loot": "ai_chat",
+    "help": "ai_chat",
+    "quest": "pve_quests",
+    "mission": "pve_quests",
+    "hunt": "pve_hunting",
+    "fish": "pve_fishing",
+    "craft": "pve_crafting",
+    "expedition": "pve_expeditions",
+    "kill": "killfeed",
+    "pvp": "pvp_intel",
+    "base": "general_chat",
+    "faction": "factions_chat",
+    "economy": "economy",
+    "shop": "economy",
+    "buy": "economy",
+}
+
+# Extended AI image prompts for showcase styles
+AI_IMAGE_PROMPTS_SHOWCASE = {
+    "cinematic": [
+        "A dramatic cinematic wide-angle photo of a lone adult DayZ survivor silhouetted against a burning horizon in a ruined Eastern European city, golden hour light, smoke rising, survival atmosphere, no logos, no text, no game UI",
+        "A cinematic aerial-style photo of an adult survivor crossing a misty valley between two ruined villages in Chernarus, backpack visible, rifle slung, moody overcast sky, no logos, no text",
+        "A cinematic close-up portrait of a weathered adult survivor in tactical gear looking into the distance from a rooftop, ruined city below, dramatic lighting, no logos, no text",
+    ],
+    "horror": [
+        "A dark atmospheric photo of an adult DayZ survivor cautiously moving through a fog-filled abandoned hospital corridor, flashlight beam cutting through darkness, tense survival horror mood, no logos, no text, non-graphic",
+        "A moody night-time photo of an adult survivor crouching behind a ruined wall while infected shamble past in the background, moonlight, tension, survival horror atmosphere, no logos, no text, non-graphic",
+        "A haunting photo of an abandoned Chernarus village at dusk, empty streets, broken windows, a lone adult survivor visible in the distance, eerie silence, no logos, no text",
+    ],
+    "survival": [
+        "A realistic documentary-style photo of an adult DayZ survivor setting up a woodland camp at dusk, small fire, improvised shelter, backpack and gear laid out, peaceful survival moment, no logos, no text",
+        "A realistic photo of an adult survivor carefully tending to a wound beside a stream in a Chernarus forest, first aid kit open, calm focus, survival realism, no logos, no text, non-graphic",
+        "A realistic photo of two adult survivors sharing a meal of canned food beside a campfire in a ruined barn, camaraderie, post-apocalyptic warmth, no logos, no text",
+    ],
+}
+
+
+def is_showcase_guild(guild_id):
+    """Return True if this guild is the designated showcase server."""
+    if not SHOWCASE_GUILD_ID:
+        return False
+    return str(guild_id) == str(SHOWCASE_GUILD_ID)
+
+
+def update_user_style_profile(user_id, message_content):
+    """Track communication style signals for a user."""
+    profile = user_style_profiles.setdefault(str(user_id), {
+        "message_count": 0,
+        "casual_signals": 0,
+        "technical_signals": 0,
+        "meme_signals": 0,
+        "formal_signals": 0,
+        "question_count": 0,
+        "last_seen": 0,
+    })
+
+    lower = message_content.lower()
+    profile["message_count"] += 1
+    profile["last_seen"] = datetime.now(UTC).timestamp()
+
+    # Casual signals
+    if any(w in lower for w in ["lol", "lmao", "haha", "bruh", "ngl", "tbh", "imo", "omg", "wtf", "rip"]):
+        profile["casual_signals"] += 1
+    # Meme signals
+    if any(w in lower for w in ["kek", "based", "cope", "seethe", "ratio", "w ", "l ", "no cap", "fr fr", "bussin"]):
+        profile["meme_signals"] += 1
+    # Technical signals
+    if any(w in lower for w in ["config", "setup", "api", "token", "nitrado", "ftp", "adm", "log", "command", "slash"]):
+        profile["technical_signals"] += 1
+    # Formal signals
+    if len(message_content) > 80 and message_content[0].isupper() and message_content.endswith("."):
+        profile["formal_signals"] += 1
+    # Questions
+    if "?" in message_content:
+        profile["question_count"] += 1
+
+
+def get_user_style(user_id):
+    """Return the dominant communication style for a user."""
+    profile = user_style_profiles.get(str(user_id), {})
+    if not profile or profile.get("message_count", 0) < 3:
+        return "neutral"
+
+    scores = {
+        "casual": profile.get("casual_signals", 0),
+        "meme": profile.get("meme_signals", 0),
+        "technical": profile.get("technical_signals", 0),
+        "formal": profile.get("formal_signals", 0),
+    }
+    dominant = max(scores, key=scores.get)
+    if scores[dominant] == 0:
+        return "neutral"
+    return dominant
+
+
+def adapt_response_to_style(base_response, user_style):
+    """Lightly adapt a response to match the user's communication style."""
+    if user_style == "casual":
+        return base_response.rstrip(".") + " lol"
+    if user_style == "meme":
+        return base_response.rstrip(".") + " (based survival tip ngl)"
+    if user_style == "technical":
+        return base_response  # Keep it clean and precise
+    if user_style == "formal":
+        return base_response  # Already formal enough
+    return base_response
+
+
+async def showcase_generate_and_post_image(channel, style, caption_prefix=""):
+    """Generate an AI image and post it to the given channel."""
+    if not OPENAI_API_KEY:
+        return False
+
+    resolved_style = SHOWCASE_STYLE_TRIGGERS.get(style, style)
+    if resolved_style not in AI_IMAGE_PROMPTS_SHOWCASE and resolved_style not in AI_IMAGE_PROMPTS:
+        resolved_style = "gritty"
+
+    # Use showcase prompts if available, else fall back to main prompts
+    prompts = AI_IMAGE_PROMPTS_SHOWCASE.get(resolved_style) or AI_IMAGE_PROMPTS.get(resolved_style, AI_IMAGE_PROMPTS["funny"])
+    prompt = random.choice(prompts)
+
+    image_bytes, error = await asyncio.to_thread(generate_ai_image_bytes, resolved_style)
+    if error or not image_bytes:
+        print(f"[SHOWCASE IMAGE ERROR] {error}")
+        return False
+
+    captions = [
+        f"{caption_prefix}Field sketch from the Wandering Bot imagination department.",
+        f"{caption_prefix}Little apocalypse postcard, freshly generated.",
+        f"{caption_prefix}I made art. Whether it's good art is a separate question.",
+        f"{caption_prefix}Visual morale support, delivered with questionable confidence.",
+        f"{caption_prefix}Freshly hallucinated survivor content. You're welcome.",
+    ]
+
+    file = discord.File(io.BytesIO(image_bytes), filename="wandering_showcase.png")
+    embed = discord.Embed(
+        title="🎨 WANDERING BOT — AI GENERATED ART",
+        description=random.choice(captions),
+        color=0x9B59B6
+    )
+    embed.set_image(url="attachment://wandering_showcase.png")
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=f"Wandering Bot • Autonomous Showcase • Style: {resolved_style}")
+    embed.timestamp = datetime.now(UTC)
+    await channel.send(embed=style_embed(embed), file=file)
+    return True
+
+
+async def showcase_handle_greeting(message, guild_id):
+    """Respond to greetings with personality and optionally generate an image."""
+    now_ts = datetime.now(UTC).timestamp()
+    cooldown_key = guild_id
+
+    # Greeting response
+    user_style = get_user_style(str(message.author.id))
+    greeting_lines = [
+        f"Hey {message.author.mention}! Welcome to the showcase. I'm Wandering Bot — I run this place. Ask me anything, or just hang out.",
+        f"Oi, {message.author.mention}! Good to see you. This server is proof a bot can manage a community. Feel free to poke around.",
+        f"Hey {message.author.mention}! I'm the host here. The owner's watching from the sidelines — I've got the actual running of things covered.",
+        f"Welcome {message.author.mention}! Pull up a channel. I'm Wandering Bot: autonomous community manager, DayZ intelligence system, and occasional artist.",
+        f"Hey {message.author.mention}! You've arrived at the showcase server. I manage everything here — channels, content, conversations. Ask me what I can do.",
+    ]
+    response = adapt_response_to_style(random.choice(greeting_lines), user_style)
+    await message.channel.send(response)
+
+    # Generate a greeting image if cooldown allows
+    last_img = last_showcase_greeting_image.get(cooldown_key, 0)
+    greeting_image_cooldown = int(os.getenv("SHOWCASE_GREETING_IMAGE_COOLDOWN", "1800"))
+    if now_ts - last_img >= greeting_image_cooldown:
+        last_showcase_greeting_image[cooldown_key] = now_ts
+        await asyncio.sleep(1.5)
+        await showcase_generate_and_post_image(
+            message.channel,
+            "gritty",
+            caption_prefix="Welcome postcard — "
+        )
+
+
+async def showcase_handle_image_request(message, lower, guild_id):
+    """Handle explicit image/art generation requests."""
+    # Detect style from message
+    detected_style = "gritty"
+    for trigger, style in SHOWCASE_STYLE_TRIGGERS.items():
+        if trigger in lower:
+            detected_style = style
+            break
+
+    await message.channel.send(
+        f"📸 On it, {message.author.mention}. Generating a `{detected_style}` DayZ image now — give me a moment..."
+    )
+
+    now_ts = datetime.now(UTC).timestamp()
+    last_showcase_greeting_image[guild_id] = now_ts
+
+    success = await showcase_generate_and_post_image(message.channel, detected_style)
+    if not success:
+        await message.channel.send(
+            "📻 Image generation is offline right now — `OPENAI_API_KEY` may not be configured. Ask the owner to check the env vars."
+        )
+
+
+async def showcase_handle_smart_response(message, lower, guild_id):
+    """Provide context-aware, smart responses in the showcase server."""
+    user_style = get_user_style(str(message.author.id))
+    channels = guild_configs.get(guild_id, {}).get("channels", {})
+
+    response = None
+    channel_suggestion = None
+
+    # Feature questions
+    if any(w in lower for w in ["what can you do", "what do you do", "features", "capabilities", "show me what"]):
+        spotlight = random.choice(SHOWCASE_FEATURE_SPOTLIGHTS)
+        embed = discord.Embed(title=spotlight[0], description=spotlight[1], color=0x3498DB)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot • Autonomous Showcase — ask me about any feature")
+        await message.channel.send(embed=style_embed(embed))
+        # Follow up with a question
+        await asyncio.sleep(2)
+        await message.channel.send(
+            wb_text("ai", adapt_response_to_style(random.choice(SHOWCASE_FOLLOW_UP_QUESTIONS), user_style))
+        )
+        return
+
+    # Setup/technical questions
+    if any(w in lower for w in ["how do i set up", "how to setup", "how to install", "how to configure", "nitrado", "ftp", "api key"]):
+        response = (
+            "Setup is straightforward: invite the bot, run `/setup` with your Nitrado token, service ID, and FTP credentials, "
+            "then run `/restartadm force` once to kick off the ADM feed. "
+            "The bot auto-creates all channels and starts tracking immediately. "
+            "Want me to walk through any specific part?"
+        )
+
+    # Economy questions
+    elif any(w in lower for w in ["economy", "pennies", "shop", "buy", "wallet", "money"]):
+        response = "The economy system runs on pennies — earned through activity, spent in the shop on in-game item deliveries. Try `/wallet` to check your balance or `/shop` to browse items."
+        channel_suggestion = channels.get("economy")
+
+    # Faction questions
+    elif any(w in lower for w in ["faction", "group", "clan", "team"]):
+        response = "Factions are Discord-native groups with roles, member lists, and dedicated channels. Create one with `/createfaction` or join an existing one. Full faction management, all in Discord."
+        channel_suggestion = channels.get("factions_chat")
+
+    # PVE questions
+    elif any(w in lower for w in ["pve", "quest", "mission", "hunting", "fishing", "crafting"]):
+        response = "The PVE quest board runs automatically — hunting, fishing, crafting, collection, and expedition missions rotate through dedicated channels. Check the PVE section for active quests."
+        channel_suggestion = channels.get("pve_quests")
+
+    # Leaderboard questions
+    elif any(w in lower for w in ["leaderboard", "top kills", "stats", "ranking", "best player"]):
+        response = "Kill leaderboards, longshot records, and player stats are all tracked automatically from ADM logs. Try `/topkills` or `/toplongshots` to see the boards."
+
+    # Heatmap questions
+    elif any(w in lower for w in ["heatmap", "hot zone", "where is pvp", "where do people fight"]):
+        response = "The heatmap shows real-time conflict zones — PvP, zombie kills, raids, base building — all plotted on the map image. It updates automatically from ADM data."
+
+    # General DayZ advice
+    elif any(w in lower for w in ["tip", "advice", "help", "how do i", "where do i", "what should i"]):
+        tip = random.choice(SHOWCASE_TIPS)
+        embed = discord.Embed(title=tip[0], description=tip[1], color=0x1ABC9C)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot • Autonomous Showcase")
+        await message.channel.send(embed=style_embed(embed))
+        return
+
+    if response:
+        adapted = adapt_response_to_style(response, user_style)
+        msg = wb_text("ai", adapted)
+        if channel_suggestion:
+            channel_obj = message.guild.get_channel(channel_suggestion)
+            if channel_obj:
+                msg += f"\n\n📍 Head to {channel_obj.mention} for that."
+        await message.channel.send(msg)
+
+        # Occasionally ask a follow-up
+        if random.random() < 0.4:
+            await asyncio.sleep(2)
+            await message.channel.send(
+                wb_text("spark", adapt_response_to_style(random.choice(SHOWCASE_FOLLOW_UP_QUESTIONS), user_style))
+            )
+
+
+async def showcase_maybe_react(message, lower):
+    """Add relevant emoji reactions to messages in the showcase server."""
+    now_ts = datetime.now(UTC).timestamp()
+    channel_key = str(message.channel.id)
+
+    if now_ts - last_showcase_reaction_time.get(channel_key, 0) < 30:
+        return
+
+    for keyword, emojis in SHOWCASE_REACTION_MAP.items():
+        if keyword in lower:
+            try:
+                await message.add_reaction(random.choice(emojis))
+                last_showcase_reaction_time[channel_key] = now_ts
+            except Exception:
+                pass
+            break
+
+
+async def showcase_handle_message(message, lower, guild_id, now_ts):
+    """
+    Main entry point for autonomous showcase message handling.
+    Called from on_message when the guild is the showcase server.
+    """
+    # Always update style profile
+    update_user_style_profile(str(message.author.id), message.content)
+
+    # React to messages
+    await showcase_maybe_react(message, lower)
+
+    # Check for greeting triggers (hi/hello/hey etc.)
+    words = set(lower.split())
+    if words & SHOWCASE_GREETING_TRIGGERS:
+        await showcase_handle_greeting(message, guild_id)
+        return
+
+    # Check for explicit image/art requests
+    is_image_request = any(trigger in lower for trigger in SHOWCASE_IMAGE_REQUEST_TRIGGERS)
+    is_dayz_context = any(w in lower for w in ["dayz", "survivor", "chernarus", "image", "art", "picture", "pic", "photo"])
+    if is_image_request and (is_dayz_context or any(style in lower for style in SHOWCASE_STYLE_TRIGGERS)):
+        # Respect a per-guild image cooldown for on-demand requests (shorter than random)
+        last_img = last_showcase_greeting_image.get(guild_id, 0)
+        on_demand_cooldown = int(os.getenv("SHOWCASE_ON_DEMAND_IMAGE_COOLDOWN", "300"))
+        if now_ts - last_img >= on_demand_cooldown:
+            await showcase_handle_image_request(message, lower, guild_id)
+            return
+
+    # Smart context-aware responses (only if bot is mentioned OR in ai_chat channel)
+    channels = guild_configs.get(guild_id, {}).get("channels", {})
+    ai_channel_id = channels.get("ai_chat")
+    in_ai_channel = bool(ai_channel_id and message.channel.id == ai_channel_id)
+    bot_mentioned = bot.user in message.mentions
+
+    if bot_mentioned or in_ai_channel:
+        await showcase_handle_smart_response(message, lower, guild_id)
+
+
+@tasks.loop(minutes=20)
+async def showcase_autonomous_loop():
+    """
+    Proactive autonomous loop for the showcase server.
+    Initiates conversations, posts tips, spotlights features,
+    and keeps the server active without waiting for user messages.
+    """
+    if not SHOWCASE_GUILD_ID:
+        return
+
+    guild = bot.get_guild(int(SHOWCASE_GUILD_ID)) if SHOWCASE_GUILD_ID.isdigit() else None
+    if not guild:
+        return
+
+    guild_id = str(guild.id)
+    config = guild_configs.get(guild_id, {})
+    channels_cfg = config.get("channels", {})
+    now_ts = datetime.now(UTC).timestamp()
+
+    # Find the best channel to post in (general_chat or ai_chat)
+    target_channel = None
+    for key in ("general_chat", "ai_chat"):
+        ch_id = channels_cfg.get(key)
+        if ch_id:
+            target_channel = guild.get_channel(ch_id)
+            if target_channel:
+                break
+
+    if not target_channel:
+        # Fall back to first available text channel
+        for ch in guild.text_channels:
+            if not ch.permissions_for(guild.me).send_messages:
+                continue
+            target_channel = ch
+            break
+
+    if not target_channel:
+        return
+
+    # Proactive discussion starter (every ~60 min)
+    last_discussion = last_showcase_discussion_time.get(guild_id, 0)
+    discussion_interval = int(os.getenv("SHOWCASE_DISCUSSION_INTERVAL", "3600"))
+    if now_ts - last_discussion >= discussion_interval:
+        roll = random.random()
+
+        if roll < 0.45:
+            # Post a discussion starter
+            title, body = random.choice(SHOWCASE_DISCUSSION_STARTERS)
+            embed = discord.Embed(title=title, description=body, color=0xE67E22)
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot • Autonomous Host • Drop your answer below 👇")
+            embed.timestamp = datetime.now(UTC)
+            await target_channel.send(embed=style_embed(embed))
+            last_showcase_discussion_time[guild_id] = now_ts
+
+        elif roll < 0.70:
+            # Post a survival tip
+            tip = random.choice(SHOWCASE_TIPS)
+            embed = discord.Embed(title=tip[0], description=tip[1], color=0x1ABC9C)
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot • Autonomous Host")
+            embed.timestamp = datetime.now(UTC)
+            await target_channel.send(embed=style_embed(embed))
+            last_showcase_discussion_time[guild_id] = now_ts
+
+        elif roll < 0.88:
+            # Spotlight a feature
+            spotlight = random.choice(SHOWCASE_FEATURE_SPOTLIGHTS)
+            embed = discord.Embed(title=spotlight[0], description=spotlight[1], color=0x3498DB)
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot • Autonomous Host • Ask me anything about this feature")
+            embed.timestamp = datetime.now(UTC)
+            await target_channel.send(embed=style_embed(embed))
+            last_showcase_discussion_time[guild_id] = now_ts
+
+        else:
+            # Post a proactive AI image
+            last_img = last_showcase_greeting_image.get(guild_id, 0)
+            proactive_img_cooldown = int(os.getenv("SHOWCASE_PROACTIVE_IMAGE_COOLDOWN", "7200"))
+            if now_ts - last_img >= proactive_img_cooldown:
+                style = random.choice(["gritty", "funny", "cinematic", "survival"])
+                await target_channel.send(
+                    wb_text("spark", f"Quiet in here. Let me fix that with some AI art — generating a `{style}` DayZ scene...")
+                )
+                success = await showcase_generate_and_post_image(target_channel, style)
+                if success:
+                    last_showcase_greeting_image[guild_id] = now_ts
+                last_showcase_discussion_time[guild_id] = now_ts
+
+
+@bot.tree.command(name="showcasesetup", description="Owner: initialise the autonomous showcase server")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(secret_code="Owner secret code", invite_url="Bot invite URL to display in start-here")
+async def showcasesetup(interaction: discord.Interaction, secret_code: str, invite_url: str = ""):
+    """
+    Sets up the showcase server with all required channels and posts
+    an introduction embed explaining the autonomous bot concept.
+    """
+    if not owner_secret_valid(interaction, secret_code):
+        await reject_owner_command(interaction)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    guild_id = str(guild.id)
+
+    # Mark this guild as the showcase guild in config
+    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+    config["showcase_mode"] = True
+    save_guild_configs()
+
+    # Create or find the showcase category
+    category_name = "🤖🌲┃WANDERING BOT SHOWCASE┃🌲🤖"
+    category = discord.utils.get(guild.categories, name=category_name)
+    if not category:
+        category = await guild.create_category(category_name)
+
+    # Channel specs: (slug, display_name, description)
+    channel_specs = [
+        ("showcase-start-here", "🚀 START HERE", (
+            "**This server is run by Wandering Bot.**\n\n"
+            "The owner is here as backup only. The bot manages channels, generates content, "
+            "welcomes members, starts discussions, creates AI art, and adapts to how you communicate.\n\n"
+            f"**Invite the bot to your server:** {invite_url or '*(add invite URL)*'}\n\n"
+            "Say `hi` in any channel to see the bot respond. Ask it to generate an image. "
+            "Ask it about features. Watch it run the server."
+        )),
+        ("showcase-general", "💬 GENERAL CHAT", (
+            "The main chat channel. The bot actively participates here — starting discussions, "
+            "dropping tips, reacting to messages, and generating AI art. Say hello."
+        )),
+        ("showcase-ai-art", "🎨 AI ART GALLERY", (
+            "AI-generated DayZ art, posted by the bot automatically and on request. "
+            "Ask for a `cinematic`, `horror`, `survival`, `funny`, or `gritty` image."
+        )),
+        ("showcase-features", "⚙️ FEATURES", (
+            "**What Wandering Bot can do:**\n"
+            "• Live ADM killfeed, raids, building, and connection feeds\n"
+            "• PvP heatmaps and leaderboards\n"
+            "• Economy system (pennies, shop, deliveries, vehicle rentals)\n"
+            "• Faction system with Discord roles\n"
+            "• PVE quest board (hunting, fishing, crafting, expeditions)\n"
+            "• Auto translation for international communities\n"
+            "• Support ticket system\n"
+            "• Gamertag linking via ADM verification\n"
+            "• AI chat with DayZ personality\n"
+            "• Autonomous showcase mode (what you're seeing right now)"
+        )),
+        ("showcase-questions", "❓ QUESTIONS", (
+            "Ask anything about the bot, setup, features, or DayZ. "
+            "The bot monitors this channel and will answer."
+        )),
+        ("showcase-reviews", "⭐ REVIEWS", (
+            "Server owners: leave your feedback here. "
+            "What features do you use most? What would you add?"
+        )),
+    ]
+
+    made_channels = {}
+    for slug, _, _ in channel_specs:
+        existing = discord.utils.get(guild.text_channels, name=slug)
+        if not existing:
+            existing = await guild.create_text_channel(slug, category=category)
+        elif existing.category != category:
+            try:
+                await existing.edit(category=category)
+            except Exception:
+                pass
+        made_channels[slug] = existing
+
+    # Register general and ai_chat channels in config
+    channels_cfg = config.setdefault("channels", {})
+    if "showcase-general" in made_channels:
+        channels_cfg["general_chat"] = made_channels["showcase-general"].id
+    if "showcase-ai-art" in made_channels:
+        channels_cfg["ai_chat"] = made_channels["showcase-ai-art"].id
+    if "showcase-questions" in made_channels:
+        channels_cfg["help_channel"] = made_channels["showcase-questions"].id
+
+    # Enable AI images for the showcase
+    ai_settings = ai_image_config(config)
+    ai_settings["enabled"] = True
+    ai_settings["style"] = "gritty"
+    ai_settings["cooldown_seconds"] = 3600
+    if "showcase-ai-art" in made_channels:
+        ai_settings["channel_id"] = made_channels["showcase-ai-art"].id
+
+    save_guild_configs()
+
+    # Post content to each channel
+    for slug, title, body in channel_specs:
+        channel = made_channels.get(slug)
+        if not channel:
+            continue
+        try:
+            await channel.purge(limit=5)
+        except Exception:
+            pass
+
+        color = 0x2ECC71 if "start-here" in slug else 0x3498DB
+        embed = discord.Embed(title=f"WANDERING BOT — {title}", description=body, color=color)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot • Autonomous Showcase Server")
+        embed.timestamp = datetime.now(UTC)
+        await channel.send(embed=style_embed(embed))
+
+    # Post an initial AI image to the art gallery
+    art_channel = made_channels.get("showcase-ai-art")
+    if art_channel and OPENAI_API_KEY:
+        await art_channel.send(wb_text("spark", "Showcase initialised. Here's the first AI postcard:"))
+        await showcase_generate_and_post_image(art_channel, "gritty")
+
+    await interaction.followup.send(
+        f"Showcase server initialised with {len(made_channels)} channels. "
+        f"Set `SHOWCASE_GUILD_ID={guild_id}` in your environment to enable the autonomous loop.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="showcasestatus", description="Show autonomous showcase server status")
+@app_commands.default_permissions(administrator=True)
+async def showcasestatus(interaction: discord.Interaction):
+    """Show the current state of the autonomous showcase engine."""
+    guild_id = str(interaction.guild.id)
+    is_showcase = is_showcase_guild(guild_id)
+    config = guild_configs.get(guild_id, {})
+    ai_settings = ai_image_config(config)
+
+    now_ts = datetime.now(UTC).timestamp()
+    last_discussion = last_showcase_discussion_time.get(guild_id, 0)
+    last_img = last_showcase_greeting_image.get(guild_id, 0)
+    tracked_users = len(user_style_profiles)
+
+    embed = discord.Embed(
+        title="🤖 AUTONOMOUS SHOWCASE STATUS",
+        color=0x9B59B6 if is_showcase else 0x95A5A6
+    )
+    embed.add_field(name="Showcase Mode", value="✅ Active" if is_showcase else "❌ Not the showcase guild", inline=True)
+    embed.add_field(name="Loop Running", value="✅ Yes" if showcase_autonomous_loop.is_running() else "❌ No", inline=True)
+    embed.add_field(name="AI Images", value="✅ Enabled" if ai_settings.get("enabled") else "❌ Disabled", inline=True)
+    embed.add_field(name="OpenAI Key", value="✅ Set" if OPENAI_API_KEY else "❌ Missing", inline=True)
+    embed.add_field(name="Style Profiles Tracked", value=str(tracked_users), inline=True)
+    embed.add_field(
+        name="Last Discussion Post",
+        value=f"{int((now_ts - last_discussion) / 60)}m ago" if last_discussion else "Never",
+        inline=True
+    )
+    embed.add_field(
+        name="Last Image Post",
+        value=f"{int((now_ts - last_img) / 60)}m ago" if last_img else "Never",
+        inline=True
+    )
+    embed.add_field(
+        name="SHOWCASE_GUILD_ID",
+        value=f"`{SHOWCASE_GUILD_ID}`" if SHOWCASE_GUILD_ID else "❌ Not set",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot • Autonomous Showcase Engine")
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
 
 # =========================================================
 # WANDERING BOT EMOJI PERSONALITY
@@ -4984,14 +5706,54 @@ async def on_member_join(member):
 
     channels = config.get("channels", {})
 
+    # ── Autonomous showcase welcome ──────────────────────
+    if is_showcase_guild(guild_id):
+        showcase_welcome_channel = None
+        for key in ("general_chat", "welcome"):
+            ch_id = channels.get(key)
+            if ch_id:
+                showcase_welcome_channel = bot.get_channel(ch_id)
+                if showcase_welcome_channel:
+                    break
+
+        if not showcase_welcome_channel:
+            for ch in member.guild.text_channels:
+                if ch.permissions_for(member.guild.me).send_messages:
+                    showcase_welcome_channel = ch
+                    break
+
+        if showcase_welcome_channel:
+            welcome_text = random.choice(SHOWCASE_WELCOME_MESSAGES_EXTENDED)
+            embed = discord.Embed(
+                title="🤖 NEW ARRIVAL DETECTED",
+                description=(
+                    f"{member.mention}\n\n{welcome_text}\n\n"
+                    "💬 Say `hi` to get started. Ask me to generate an image, explain a feature, or just chat.\n"
+                    "📻 This server is run by the bot. The owner is here as backup only."
+                ),
+                color=0x9B59B6
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot • Autonomous Showcase • Fully bot-managed server")
+            await showcase_welcome_channel.send(embed=style_embed(embed))
+
+            # Generate a welcome image if OpenAI is available
+            if OPENAI_API_KEY:
+                await asyncio.sleep(2)
+                await showcase_generate_and_post_image(
+                    showcase_welcome_channel,
+                    "gritty",
+                    caption_prefix="Welcome postcard for the new arrival — "
+                )
+        return
+    # ── Standard welcome ─────────────────────────────────
+
     welcome_channel = bot.get_channel(
         channels.get("welcome")
     )
 
     if not welcome_channel:
         return
-
-    import random
 
     welcome_text = random.choice(WELCOME_MESSAGES)
 
@@ -5101,7 +5863,12 @@ async def on_message(message):
             last_funny_message_time[user_id] = now_ts
             await message.channel.send(wb_text("spark", FUNNY_ROTATION[idx]))
 
-    await maybe_showcase_guild_response(message, lower)
+    # ── Autonomous showcase handling ─────────────────────
+    if message.guild and is_showcase_guild(str(message.guild.id)):
+        await showcase_handle_message(message, lower, str(message.guild.id), now_ts)
+    else:
+        await maybe_showcase_guild_response(message, lower)
+
     await maybe_reply_to_bot_mention(message, lower)
     await maybe_owner_mention_remark(message)
     await maybe_send_wandering_personality(message, now_ts)
@@ -8812,6 +9579,9 @@ async def start_background_tasks():
 
         if not wage_loop.is_running():
             wage_loop.start()
+
+        if not showcase_autonomous_loop.is_running():
+            showcase_autonomous_loop.start()
 
     except RuntimeError:
         pass
