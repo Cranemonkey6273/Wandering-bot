@@ -16320,6 +16320,79 @@ async def installdayzbridge(
             "Could not resolve any Nitrado FTP host" in str(message)
             or "Could not connect to Nitrado FTP" in str(message)
         )
+        found_paths, visible_roots = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+
+        embed = discord.Embed(title="INIT.C NOT FOUND", color=0xE67E22)
+        if network_error:
+            embed.description = (
+                "The bot could not connect to Nitrado FTPS from this host. "
+                "Pass the exact FTP host/IP shown in Nitrado with `ftp_host:` or save it with `/bridge setftphost`."
+            )
+        elif found_paths:
+            embed.description = "The first download failed, but the deeper search found possible `init.c` path(s)."
+            embed.add_field(
+                name="Found Path(s)",
+                value="\n".join(f"`{path}`" for path in found_paths[:8])[:1000],
+                inline=False
+            )
+            embed.add_field(
+                name="Next Step",
+                value=f"Run `/installdayzbridge install:true init_path:{found_paths[0]}`.",
+                inline=False
+            )
+        else:
+            embed.description = (
+                "I checked the normal mission paths and then ran the deeper FTP/API search. "
+                "`init.c` is not visible to this bot account."
+            )
+            embed.add_field(
+                name="What This Means",
+                value=(
+                    "Auto-install cannot patch the bridge unless Nitrado exposes your mission `init.c`. "
+                    "Some server packages do not expose mission script files through FTP/API."
+                ),
+                inline=False
+            )
+
+        ftp_host_text = (
+            f"`{config.get('ftp_host')}`"
+            if config.get("ftp_host")
+            else "No saved host. Use `/bridge setftphost ftp_host:<host>` or pass `ftp_host:` to `/installdayzbridge`."
+        )
+        embed.add_field(name="FTP Host", value=ftp_host_text, inline=False)
+
+        if visible_roots:
+            root_lines = []
+            for item in visible_roots[:6]:
+                sample = ", ".join(item.get("sample", [])[:4]) or "no names returned"
+                root_lines.append(f"`{item['root']}` - {item['count']} item(s): {sample}")
+            embed.add_field(name="Visible Roots", value="\n".join(root_lines)[:1000], inline=False)
+        else:
+            embed.add_field(
+                name="Visible Roots",
+                value="No searched root returned a useful directory listing.",
+                inline=False
+            )
+
+        path_lines = []
+        for item in attempted_paths[:8]:
+            path_text, _, _ = str(item).partition(": ")
+            if path_text:
+                path_lines.append(f"`{path_text}`")
+        embed.add_field(
+            name="Fallback Paths Tried",
+            value=("\n".join(path_lines) or "No fallback paths were attempted.")[:1000],
+            inline=False
+        )
+        embed.add_field(
+            name="Manual Option",
+            value="Run `/events bridgecode` to export the bridge snippet if you can edit `init.c` manually in Nitrado's file browser.",
+            inline=False
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - DayZ Bridge Diagnostic")
+        await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+        return
         hint = (
             "\n\nThis is a DNS/network problem in the bot host. Pass the exact Nitrado FTP host/IP with "
             "`ftp_host:` or save it with `/bridge setftphost`, then try again. If that still fails, check that "
