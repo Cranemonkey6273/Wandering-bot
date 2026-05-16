@@ -6106,7 +6106,8 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
         ftp.prot_p()
 
         target_path = (
-            "/dayzxb/custom/deliveries.xml"
+            config.get("dayz_delivery_bridge", {}).get("delivery_path")
+            or "/dayzxb/custom/deliveries.xml"
         )
 
         with open(xml_path, "rb") as xml_file:
@@ -6190,8 +6191,90 @@ def download_text_file_from_nitrado(config, target_path):
 
 
 WANDERING_DELIVERY_BRIDGE_CODE = r'''
+string WanderingBotAttribute(string line, string attributeName)
+{
+    string marker = attributeName + "=\"";
+    int startIndex = line.IndexOf(marker);
+    if (startIndex < 0)
+    {
+        return "";
+    }
+
+    startIndex = startIndex + marker.Length();
+    int endIndex = line.IndexOf("\"", startIndex);
+    if (endIndex < 0)
+    {
+        return "";
+    }
+
+    return line.Substring(startIndex, endIndex - startIndex);
+}
+
+bool WanderingBotExcludedType(string itemName, string excludedTypes)
+{
+    if (excludedTypes == "")
+    {
+        return false;
+    }
+
+    TStringArray excluded = new TStringArray;
+    excludedTypes.Split("|", excluded);
+
+    foreach (string excludedType: excluded)
+    {
+        if (excludedType == itemName)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void WanderingBotDeleteNearby(string itemName, vector spawnPos, float radius)
+{
+    array<Object> objects = new array<Object>;
+    array<CargoBase> proxyCargos = new array<CargoBase>;
+    GetGame().GetObjectsAtPosition(spawnPos, radius, objects, proxyCargos);
+
+    foreach (Object obj: objects)
+    {
+        if (obj && obj.GetType() == itemName)
+        {
+            GetGame().ObjectDelete(obj);
+            Print("[WANDERING BOT] Removed old vehicle before reset: " + itemName);
+        }
+    }
+}
+
+void WanderingBotDeleteAllVehicles(vector centerPos, float radius, string excludedTypes)
+{
+    array<Object> objects = new array<Object>;
+    array<CargoBase> proxyCargos = new array<CargoBase>;
+    GetGame().GetObjectsAtPosition(centerPos, radius, objects, proxyCargos);
+
+    foreach (Object obj: objects)
+    {
+        if (!obj || !obj.IsInherited(CarScript))
+        {
+            continue;
+        }
+
+        string itemName = obj.GetType();
+        if (WanderingBotExcludedType(itemName, excludedTypes))
+        {
+            Print("[WANDERING BOT] Vehicle reset skipped excluded type: " + itemName);
+            continue;
+        }
+
+        GetGame().ObjectDelete(obj);
+        Print("[WANDERING BOT] Removed vehicle during all-vehicle reset: " + itemName);
+    }
+}
+
 void SpawnWanderingDeliveries()
 {
+    // WANDERING BOT BRIDGE v3 - supports item delivery, vehicle rental, targeted reset, and all-vehicle reset.
     string path = "$profile:custom/deliveries.xml";
     FileHandle file = OpenFile(path, FileMode.READ);
 
@@ -6206,27 +6289,42 @@ void SpawnWanderingDeliveries()
     {
         if (line.Contains("<object"))
         {
-            string itemName;
-            string position;
-
-            int nameStart = line.IndexOf("name=\"") + 6;
-            int nameEnd = line.IndexOf("\"", nameStart);
-            itemName = line.Substring(nameStart, nameEnd - nameStart);
-
-            int posStart = line.IndexOf("pos=\"") + 5;
-            int posEnd = line.IndexOf("\"", posStart);
-            position = line.Substring(posStart, posEnd - posStart);
+            string itemName = WanderingBotAttribute(line, "name");
+            string position = WanderingBotAttribute(line, "pos");
+            string action = WanderingBotAttribute(line, "action");
+            string radiusText = WanderingBotAttribute(line, "radius");
+            string excludedTypes = WanderingBotAttribute(line, "exclude");
 
             TStringArray posSplit = new TStringArray;
             position.Split(" ", posSplit);
 
-            if (posSplit.Count() >= 3)
+            if (itemName != "" && posSplit.Count() >= 3)
             {
                 vector spawnPos = Vector(
                     posSplit.Get(0).ToFloat(),
                     posSplit.Get(1).ToFloat(),
                     posSplit.Get(2).ToFloat()
                 );
+
+                if (action == "reset_vehicle")
+                {
+                    float radius = radiusText.ToFloat();
+                    if (radius <= 0)
+                    {
+                        radius = 35;
+                    }
+                    WanderingBotDeleteNearby(itemName, spawnPos, radius);
+                }
+                else if (action == "reset_all_vehicles")
+                {
+                    float allRadius = radiusText.ToFloat();
+                    if (allRadius <= 0)
+                    {
+                        allRadius = 22000;
+                    }
+                    WanderingBotDeleteAllVehicles(spawnPos, allRadius, excludedTypes);
+                    continue;
+                }
 
                 EntityAI spawned = EntityAI.Cast(GetGame().CreateObject(itemName, spawnPos));
                 if (spawned)
@@ -6242,16 +6340,53 @@ void SpawnWanderingDeliveries()
 '''
 
 
+def find_enforce_function_block(text, function_name):
+    match = re.search(rf"\bvoid\s+{re.escape(function_name)}\s*\([^)]*\)\s*\{{", text)
+    if not match:
+        return None
+
+    depth = 0
+    for index in range(match.end() - 1, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return match.start(), index + 1
+
+    return None
+
+
 def install_wandering_delivery_bridge(init_text):
     changed = False
     updated = init_text
+    bridge_code = WANDERING_DELIVERY_BRIDGE_CODE.strip()
 
-    if "void SpawnWanderingDeliveries()" not in updated:
+    if "WANDERING BOT BRIDGE v3" not in updated:
+        block = find_enforce_function_block(updated, "SpawnWanderingDeliveries")
+        if block:
+            start, end = block
+            helper_start = updated.rfind("string WanderingBotAttribute", 0, start)
+            if helper_start >= 0:
+                start = helper_start
+            updated = updated[:start] + bridge_code + "\n\n" + updated[end:]
+        elif "void SpawnWanderingDeliveries()" in updated:
+            updated = updated.replace("void SpawnWanderingDeliveries()", bridge_code + "\n\nvoid SpawnWanderingDeliveries()", 1)
+        else:
+            main_match = re.search(r"\bvoid\s+main\s*\(", updated)
+            if main_match:
+                updated = updated[:main_match.start()] + bridge_code + "\n\n" + updated[main_match.start():]
+            else:
+                updated = updated.rstrip() + "\n\n" + bridge_code + "\n"
+        changed = True
+
+    elif "void SpawnWanderingDeliveries()" not in updated:
         main_match = re.search(r"\bvoid\s+main\s*\(", updated)
         if main_match:
-            updated = updated[:main_match.start()] + WANDERING_DELIVERY_BRIDGE_CODE.strip() + "\n\n" + updated[main_match.start():]
+            updated = updated[:main_match.start()] + bridge_code + "\n\n" + updated[main_match.start():]
         else:
-            updated = updated.rstrip() + "\n\n" + WANDERING_DELIVERY_BRIDGE_CODE.strip() + "\n"
+            updated = updated.rstrip() + "\n\n" + bridge_code + "\n"
         changed = True
 
     if "SpawnWanderingDeliveries();" not in updated:
@@ -9596,6 +9731,14 @@ async def scheduled_restart_loop():
                 if token and service_id:
 
                     try:
+                        if delivery_queue or vehicle_rentals_queue:
+                            upload_success, _ = await asyncio.to_thread(
+                                write_and_upload_delivery_xml,
+                                guild_id,
+                                config,
+                                now
+                            )
+                            print(f"PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
 
                         url = (
                             f"https://api.nitrado.net/services/"
@@ -11952,22 +12095,116 @@ def save_wallets():
 
 
 def load_delivery_queue():
-    global delivery_queue
+    global delivery_queue, vehicle_rentals_queue
 
     if os.path.exists(DELIVERY_QUEUE_FILE):
 
-        with open(DELIVERY_QUEUE_FILE, "r") as f:
-            delivery_queue = json.load(f)
+        with open(DELIVERY_QUEUE_FILE, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+
+        if isinstance(loaded, dict):
+            delivery_queue = loaded.get("items", [])
+            vehicle_rentals_queue = loaded.get("vehicles", [])
+        elif isinstance(loaded, list):
+            delivery_queue = loaded
+            vehicle_rentals_queue = []
 
 
 def save_delivery_queue():
 
-    with open(DELIVERY_QUEUE_FILE, "w") as f:
-        json.dump(delivery_queue, f, indent=4)
+    save_json(
+        DELIVERY_QUEUE_FILE,
+        {
+            "items": delivery_queue,
+            "vehicles": vehicle_rentals_queue
+        }
+    )
 
 
 DEFAULT_DAILY_TRANSACTION_LIMIT = 5
 VEHICLE_RENTAL_FILE = "vehicle_rentals.json"
+DEFAULT_VEHICLE_RESET_CLASSES = [
+    "OffroadHatchback",
+    "OffroadHatchback_Blue",
+    "OffroadHatchback_White",
+    "CivilianSedan",
+    "CivilianSedan_Black",
+    "CivilianSedan_Wine",
+    "CivilianSedan_White",
+    "Hatchback_02",
+    "Hatchback_02_Black",
+    "Hatchback_02_Blue",
+    "Sedan_02",
+    "Sedan_02_Grey",
+    "Sedan_02_Red",
+    "Truck_01_Covered",
+    "Truck_01_Covered_Blue",
+    "Truck_01_Covered_Orange",
+    "Truck_01_Covered_Camo",
+    "Truck_01_Covered_Yellow",
+    "Truck_01_Open",
+    "Truck_01_Open_Blue",
+    "Truck_01_Open_Orange",
+    "Truck_01_Open_Camo",
+    "Truck_01_Open_Yellow",
+    "M1025",
+    "M1025_Black",
+]
+
+
+def vehicle_reset_exclusions(config):
+    excluded = config.setdefault("vehicle_reset_exclusions", [])
+    if not isinstance(excluded, list):
+        excluded = []
+        config["vehicle_reset_exclusions"] = excluded
+    return [str(item) for item in excluded if str(item).strip()]
+
+
+def known_vehicle_classes(limit=25):
+    classes = []
+
+    for item_name, data in shop_items.items():
+        if str(data.get("category", "")).lower() == "vehicles":
+            classes.append(str(item_name))
+
+    if not classes:
+        classes = DEFAULT_VEHICLE_RESET_CLASSES.copy()
+
+    deduped = []
+    seen = set()
+    for item_name in sorted(classes):
+        key = normalize_discord_name(item_name)
+        if not key or key in seen:
+            continue
+        deduped.append(item_name)
+        seen.add(key)
+
+    return deduped[:limit]
+
+
+def queue_all_vehicle_reset(guild_id, config, requested_by):
+    map_width, map_height = server_map_size(guild_id)
+    center_x = map_width / 2
+    center_y = map_height / 2
+    radius = int(max(map_width, map_height) * 1.5)
+    excluded = vehicle_reset_exclusions(config)
+
+    reset_entry = {
+        "action": "reset_all_vehicles",
+        "player": str(requested_by),
+        "discord_id": str(getattr(requested_by, "id", "")),
+        "vehicle": "ALL_VEHICLES",
+        "x": str(center_x),
+        "y": str(center_y),
+        "radius": radius,
+        "exclude": excluded,
+        "status": "queued",
+        "created": str(datetime.now(UTC))
+    }
+
+    vehicle_rentals_queue.append(reset_entry)
+    save_delivery_queue()
+    return reset_entry
 
 
 # =========================================================
@@ -12188,6 +12425,102 @@ async def buy(ctx, item_name: str, x: str, y: str):
 # VEHICLE RENTAL SYSTEM
 # =========================================================
 
+
+def safe_xml_attr(value):
+    return (
+        str(value or "")
+        .replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def parse_dayz_map_number(value):
+    try:
+        return float(str(value).strip().replace(",", ""))
+    except Exception:
+        return None
+
+
+def build_delivery_xml(items, vehicles):
+    xml_lines = ["<objects>"]
+
+    for delivery in items:
+        item_name = delivery.get("item")
+        x = parse_dayz_map_number(delivery.get("x"))
+        y = parse_dayz_map_number(delivery.get("y"))
+        if not item_name or x is None or y is None:
+            continue
+
+        xml_lines.append(
+            f'<object action="spawn_item" name="{safe_xml_attr(item_name)}" pos="{x} 0 {y}" />'
+        )
+
+    for vehicle in vehicles:
+        vehicle_name = vehicle.get("vehicle")
+        x = parse_dayz_map_number(vehicle.get("x"))
+        y = parse_dayz_map_number(vehicle.get("y"))
+        if not vehicle_name or x is None or y is None:
+            continue
+
+        action = vehicle.get("action") or "spawn_vehicle"
+        radius = max(5, min(250, int(vehicle.get("radius", 35) or 35)))
+        if action == "reset_all_vehicles":
+            radius = max(1000, min(30000, int(vehicle.get("radius", 22000) or 22000)))
+            excluded = vehicle.get("exclude") or []
+            if isinstance(excluded, str):
+                excluded = [item.strip() for item in excluded.split(",") if item.strip()]
+            exclude_attr = "|".join(str(item).strip() for item in excluded if str(item).strip())
+            xml_lines.append(
+                f'<object action="reset_all_vehicles" name="ALL_VEHICLES" pos="{x} 0 {y}" radius="{radius}" exclude="{safe_xml_attr(exclude_attr)}" />'
+            )
+            continue
+
+        radius_attr = f' radius="{radius}"' if action == "reset_vehicle" else ""
+        xml_lines.append(
+            f'<object action="{safe_xml_attr(action)}" name="{safe_xml_attr(vehicle_name)}" pos="{x} 0 {y}"{radius_attr} />'
+        )
+
+    xml_lines.append("</objects>")
+    return "\n".join(xml_lines)
+
+
+def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
+    generated_at = generated_at or datetime.now(UTC)
+    delivery_file = os.path.join(
+        GUILD_DATA_FOLDER,
+        f"{guild_id}_deliveries.json"
+    )
+    output = {
+        "items": delivery_queue,
+        "vehicles": vehicle_rentals_queue,
+        "generated": str(generated_at)
+    }
+
+    save_json(delivery_file, output)
+    print(f"DELIVERY FILE GENERATED FOR {guild_id}")
+
+    xml_output_path = os.path.join(
+        GUILD_DATA_FOLDER,
+        f"{guild_id}_deliveries.xml"
+    )
+
+    with open(xml_output_path, "w", encoding="utf-8") as xml_file:
+        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue))
+
+    print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
+    upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
+
+    if upload_success:
+        print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
+        delivery_queue.clear()
+        vehicle_rentals_queue.clear()
+        save_delivery_queue()
+
+    return upload_success, xml_output_path
+
+
 @bot.command()
 async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str):
 
@@ -12223,6 +12556,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     wallets[user_id]["balance"] -= rental_price
 
     rental_entry = {
+        "action": "spawn_vehicle",
         "player": str(ctx.author),
         "discord_id": user_id,
         "vehicle": vehicle_name,
@@ -12336,6 +12670,123 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
         )
 
 
+@bot.command()
+@commands.check(lambda ctx: has_staff_permissions(ctx))
+async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35):
+    x_value = parse_dayz_map_number(x)
+    y_value = parse_dayz_map_number(y)
+
+    if x_value is None or y_value is None:
+        await ctx.send("❌ Use numeric map coordinates, for example `/resetvehicle OffroadHatchback 7500 8400 35`.")
+        return
+
+    radius = max(5, min(250, int(radius or 35)))
+    reset_entry = {
+        "action": "reset_vehicle",
+        "player": str(ctx.author),
+        "discord_id": str(ctx.author.id),
+        "vehicle": vehicle_name,
+        "x": str(x_value),
+        "y": str(y_value),
+        "radius": radius,
+        "status": "queued",
+        "created": str(datetime.now(UTC))
+    }
+
+    vehicle_rentals_queue.append(reset_entry)
+    save_delivery_queue()
+
+    map_link = f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
+    embed = discord.Embed(
+        title="🔄 VEHICLE RESET QUEUED",
+        description=(
+            "At the next configured restart delivery run, the DayZ bridge will delete matching old vehicles "
+            "near this spawn point and create a fresh one there."
+        ),
+        color=0xF1C40F
+    )
+    embed.add_field(name="Vehicle", value=vehicle_name, inline=True)
+    embed.add_field(name="Reset Radius", value=f"{radius}m", inline=True)
+    embed.add_field(name="Spawn Position", value=f"[Open Map](<{map_link}>)", inline=False)
+    embed.add_field(
+        name="Important",
+        value="This requires `/installdayzbridge install:true` and a server restart before the in-game action happens.",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await ctx.send(embed=style_embed(embed))
+
+
+class VehicleResetExcludeSelect(discord.ui.Select):
+    def __init__(self, guild_id, config):
+        self.guild_id = str(guild_id)
+        self.config = config
+        vehicle_classes = known_vehicle_classes()
+        excluded = set(vehicle_reset_exclusions(config))
+        options = [
+            discord.SelectOption(
+                label=item_name[:100],
+                value=item_name[:100],
+                default=item_name in excluded
+            )
+            for item_name in vehicle_classes[:25]
+        ]
+
+        super().__init__(
+            placeholder="Choose vehicle classes to exclude from the all-vehicle reset",
+            min_values=0,
+            max_values=max(1, len(options)),
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        self.config["vehicle_reset_exclusions"] = list(self.values)
+        save_guild_configs()
+        excluded = vehicle_reset_exclusions(self.config)
+        text = ", ".join(f"`{item}`" for item in excluded) or "None"
+        await interaction.response.send_message(
+            f"Vehicle reset exclusions updated: {text}",
+            ephemeral=True
+        )
+
+
+class QueueAllVehicleResetButton(discord.ui.Button):
+    def __init__(self, guild_id, config):
+        super().__init__(
+            label="Queue All-Vehicle Reset",
+            style=discord.ButtonStyle.danger
+        )
+        self.guild_id = str(guild_id)
+        self.config = config
+
+    async def callback(self, interaction: discord.Interaction):
+        if not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        entry = queue_all_vehicle_reset(self.guild_id, self.config, interaction.user)
+        excluded = entry.get("exclude", [])
+        excluded_text = ", ".join(f"`{item}`" for item in excluded) or "None"
+        await interaction.response.send_message(
+            "All-vehicle reset queued for the next restart delivery run.\n"
+            f"Excluded classes: {excluded_text}\n\n"
+            "This requires `/installdayzbridge install:true` with the v3 bridge and a server restart before the in-game cleanup happens.",
+            ephemeral=True
+        )
+
+
+class VehicleResetExcludeView(discord.ui.View):
+    def __init__(self, guild_id, config):
+        super().__init__(timeout=900)
+        if known_vehicle_classes():
+            self.add_item(VehicleResetExcludeSelect(guild_id, config))
+        self.add_item(QueueAllVehicleResetButton(guild_id, config))
+
+
 # =========================================================
 # RESTART DELIVERY PROCESSOR
 # =========================================================
@@ -12366,81 +12817,12 @@ async def restart_delivery_processor():
                 now.hour >= restart_offset
                 and ((now.hour - restart_offset) % restart_interval == 0)
             ):
-
-                delivery_file = os.path.join(
-                    GUILD_DATA_FOLDER,
-                    f"{guild_id}_deliveries.json"
-                )
-
-                output = {
-                    "items": delivery_queue,
-                    "vehicles": vehicle_rentals_queue,
-                    "generated": str(now)
-                }
-
-                with open(delivery_file, "w") as f:
-                    json.dump(output, f, indent=4)
-
-                print(f"DELIVERY FILE GENERATED FOR {guild_id}")
-
-                # =========================================
-                # XML DELIVERY GENERATION
-                # =========================================
-
-                xml_lines = []
-
-                xml_lines.append('<objects>')
-
-                # ================= ITEMS =================
-
-                for delivery in delivery_queue:
-
-                    item_name = delivery.get("item")
-                    x = delivery.get("x")
-                    y = delivery.get("y")
-
-                    xml_lines.append(
-                        f'<object name="{item_name}" pos="{x} 0 {y}" />'
-                    )
-
-                # ================= VEHICLES =================
-
-                for rental in vehicle_rentals_queue:
-
-                    vehicle_name = rental.get("vehicle")
-                    x = rental.get("x")
-                    y = rental.get("y")
-
-                    xml_lines.append(
-                        f'<object name="{vehicle_name}" pos="{x} 0 {y}" />'
-                    )
-
-                xml_lines.append('</objects>')
-
-                xml_output_path = os.path.join(
-                    GUILD_DATA_FOLDER,
-                    f"{guild_id}_deliveries.xml"
-                )
-
-                with open(xml_output_path, "w") as xml_file:
-
-                    xml_file.write("\n".join(xml_lines))
-
-                print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
-
-                upload_success = upload_delivery_xml_to_nitrado(
+                await asyncio.to_thread(
+                    write_and_upload_delivery_xml,
+                    guild_id,
                     config,
-                    xml_output_path
+                    now
                 )
-
-                if upload_success:
-
-                    print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
-
-                    delivery_queue.clear()
-                    vehicle_rentals_queue.clear()
-
-                    save_delivery_queue()
 
         except Exception as error:
             print(error)
@@ -14580,6 +14962,46 @@ def default_init_path_for_guild(guild_id):
     return f"/dayzxb/mpmissions/{mission}/init.c"
 
 
+def init_path_candidates_for_guild(guild_id):
+    preferred = default_init_path_for_guild(guild_id)
+    candidates = [
+        preferred,
+        "/dayzxb/mpmissions/dayzOffline.chernarusplus/init.c",
+        "/dayzxb/mpmissions/dayzOffline.enoch/init.c",
+        "/dayzxb/mpmissions/dayzOffline.sakhal/init.c",
+        "/dayzxb/mpmissions/dayzOffline.sakhalplus/init.c",
+        "/dayzxb/mpmissions/dayzOffline.namalsk/init.c",
+    ]
+
+    deduped = []
+    for candidate in candidates:
+        if candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+def download_init_c_with_fallback(config, guild_id, init_path=""):
+    attempted = []
+
+    if init_path:
+        candidates = [str(init_path).strip()]
+    else:
+        candidates = init_path_candidates_for_guild(guild_id)
+
+    last_message = ""
+    for candidate in candidates:
+        if not candidate:
+            continue
+
+        ok, message, init_text = download_text_file_from_nitrado(config, candidate)
+        attempted.append(f"{candidate}: {message}")
+        if ok:
+            return True, message, init_text, candidate, attempted
+        last_message = message
+
+    return False, last_message or "No init.c path could be downloaded.", None, candidates[0] if candidates else "", attempted
+
+
 @bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
@@ -14604,12 +15026,19 @@ async def installdayzbridge(
         await interaction.followup.send("This server is not setup yet.", ephemeral=True)
         return
 
-    init_path = (init_path or default_init_path_for_guild(guild_id)).strip()
-    ok, message, init_text = await asyncio.to_thread(download_text_file_from_nitrado, config, init_path)
+    requested_init_path = (init_path or "").strip()
+    ok, message, init_text, init_path, attempted_paths = await asyncio.to_thread(
+        download_init_c_with_fallback,
+        config,
+        guild_id,
+        requested_init_path
+    )
     if not ok:
         await interaction.followup.send(
-            f"Could not download `init.c` from `{init_path}`: `{message}`\n"
-            "Check your mission folder path. Common paths are `dayzOffline.chernarusplus/init.c` and `dayzOffline.enoch/init.c`.",
+            f"Could not download `init.c`. Last error: `{message}`\n\n"
+            "Tried:\n"
+            + "\n".join(f"• `{item}`" for item in attempted_paths[:8])
+            + "\n\nIf your mission folder has a custom name, rerun with `init_path:/dayzxb/mpmissions/YOURMISSION/init.c`.",
             ephemeral=True
         )
         return
@@ -14629,6 +15058,12 @@ async def installdayzbridge(
             color=0x3498DB
         )
         embed.add_field(name="Detected init.c Path", value=f"`{init_path}`", inline=False)
+        if not requested_init_path:
+            embed.add_field(
+                name="Path Search",
+                value=f"Auto-detected after trying `{len(attempted_paths)}` path(s).",
+                inline=True
+            )
         embed.add_field(name="Delivery XML Path", value=f"`{delivery_path}`", inline=False)
         embed.add_field(
             name="Status",
@@ -15154,6 +15589,45 @@ bot.tree.add_command(extra_tools_group)
 @bot.tree.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
+@extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(vehicle_name="DayZ vehicle class name", x="Map X", y="Map Y", radius="Delete matching old vehicles within this many meters")
+async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35):
+    await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius)
+@extra_tools_group.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
+@app_commands.default_permissions(administrator=True)
+async def slash_resetvehicles(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    vehicle_classes = known_vehicle_classes()
+    excluded = vehicle_reset_exclusions(config)
+    excluded_text = ", ".join(f"`{item}`" for item in excluded) or "None"
+
+    embed = discord.Embed(
+        title="ALL-VEHICLE RESET",
+        description=(
+            "This queues a map-wide vehicle cleanup for the next restart delivery run. "
+            "You do not need to enter coordinates. Use the dropdown only for vehicle classes you want to leave alone."
+        ),
+        color=0xE67E22
+    )
+    embed.add_field(name="Detected Vehicle Options", value=str(len(vehicle_classes)), inline=True)
+    embed.add_field(name="Current Exclusions", value=excluded_text[:1000], inline=False)
+    embed.add_field(
+        name="Before Using",
+        value="Run `/installdayzbridge install:true` after this update so your server has the v3 bridge.",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(
+        embed=style_embed(embed),
+        view=VehicleResetExcludeView(guild_id, config),
+        ephemeral=True
+    )
 
 # =========================================================
 # DAYZ INIT.C DELIVERY LOADER (NITRADO SIDE)
