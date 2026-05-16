@@ -6143,19 +6143,161 @@ def connect_nitrado_ftp(config):
 
     return None, None, format_ftp_connection_error(host_errors)
 
+
+def nitrado_api_headers(config):
+    token = config.get("nitrado_token")
+    if not token:
+        return None
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+
+def nitrado_api_service_url(config, endpoint):
+    service_id = config.get("service_id")
+    if not service_id:
+        return None
+    endpoint = str(endpoint or "").lstrip("/")
+    return f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/{endpoint}"
+
+
+def split_remote_file_path(target_path):
+    clean = str(target_path or "").replace("\\", "/").strip()
+    folder = os.path.dirname(clean) or "/"
+    name = os.path.basename(clean)
+    return folder, name
+
+
+def nitrado_api_token_payload(data):
+    token_data = data.get("token") or data.get("data", {}).get("token") or {}
+    token_url = token_data.get("url") or data.get("url")
+    token_value = token_data.get("token") or data.get("token")
+    if isinstance(token_value, dict):
+        token_value = token_value.get("token")
+    return token_url, token_value
+
+
+def download_text_file_from_nitrado_api(config, target_path):
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "download")
+    if not headers or not url:
+        return False, "Nitrado API token or service ID is missing.", None
+
+    try:
+        response = requests.get(
+            url,
+            headers=headers,
+            params={"file": target_path},
+            timeout=30
+        )
+        if response.status_code != 200:
+            return False, f"Nitrado API download token failed with status {response.status_code}: {response.text[:300]}", None
+
+        token_url, token_value = nitrado_api_token_payload(response.json().get("data", response.json()))
+        if not token_url:
+            return False, "Nitrado API did not return a download URL.", None
+
+        file_response = requests.get(
+            token_url,
+            params={"token": token_value} if token_value else None,
+            timeout=30
+        )
+        if file_response.status_code != 200:
+            return False, f"Nitrado API file download failed with status {file_response.status_code}: {file_response.text[:300]}", None
+
+        return True, "Downloaded successfully via Nitrado API.", file_response.content.decode("utf-8", errors="ignore")
+
+    except Exception as error:
+        return False, f"Nitrado API download failed: {error}", None
+
+
+def ensure_nitrado_api_folder(config, folder):
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "mkdir")
+    if not headers or not url:
+        return
+
+    parent = os.path.dirname(folder.rstrip("/")) or "/"
+    name = os.path.basename(folder.rstrip("/"))
+    if not name:
+        return
+
+    try:
+        requests.post(
+            url,
+            headers=headers,
+            data={"path": parent, "name": name},
+            timeout=20
+        )
+    except Exception:
+        pass
+
+
+def upload_text_file_to_nitrado_api(config, target_path, text_content):
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "upload")
+    if not headers or not url:
+        return False, "Nitrado API token or service ID is missing."
+
+    folder, name = split_remote_file_path(target_path)
+    if not name:
+        return False, "Remote file name is missing."
+
+    try:
+        ensure_nitrado_api_folder(config, folder)
+        token_response = requests.post(
+            url,
+            headers=headers,
+            data={"path": folder, "file": name},
+            timeout=30
+        )
+        if token_response.status_code not in (200, 201):
+            return False, f"Nitrado API upload token failed with status {token_response.status_code}: {token_response.text[:300]}"
+
+        token_url, token_value = nitrado_api_token_payload(token_response.json().get("data", token_response.json()))
+        if not token_url or not token_value:
+            return False, "Nitrado API did not return an upload URL/token."
+
+        upload_response = requests.post(
+            token_url,
+            headers={
+                "content-type": "application/binary",
+                "token": token_value,
+            },
+            data=str(text_content or "").encode("utf-8"),
+            timeout=45
+        )
+        if upload_response.status_code not in (200, 201, 204):
+            return False, f"Nitrado API file upload failed with status {upload_response.status_code}: {upload_response.text[:300]}"
+
+        return True, "Uploaded successfully via Nitrado API."
+
+    except Exception as error:
+        return False, f"Nitrado API upload failed: {error}"
+
+
 def upload_delivery_xml_to_nitrado(config, xml_path):
 
     try:
 
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-        if ftp_error:
-            print(ftp_error)
-            return False
+        with open(xml_path, "r", encoding="utf-8", errors="ignore") as xml_file:
+            xml_text = xml_file.read()
 
         target_path = (
             config.get("dayz_delivery_bridge", {}).get("delivery_path")
             or "/dayzxb/custom/deliveries.xml"
         )
+
+        api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, xml_text)
+        if api_success:
+            print(api_message)
+            return True
+
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            print(ftp_error)
+            return False
 
         with open(xml_path, "rb") as xml_file:
 
@@ -6179,9 +6321,13 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 def upload_text_file_to_nitrado(config, target_path, text_content):
     temp_path = None
     try:
+        api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
+        if api_success:
+            return True, api_message
+
         ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
         if ftp_error:
-            return False, ftp_error
+            return False, f"{api_message} FTP fallback also failed: {ftp_error}"
 
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".xml") as temp_file:
             temp_file.write(text_content)
@@ -6218,9 +6364,13 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
 
 def download_text_file_from_nitrado(config, target_path):
     try:
+        api_success, api_message, api_content = download_text_file_from_nitrado_api(config, target_path)
+        if api_success:
+            return True, api_message, api_content
+
         ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
         if ftp_error:
-            return False, ftp_error, None
+            return False, f"{api_message} FTP fallback also failed: {ftp_error}", None
 
         buffer = io.BytesIO()
         ftp.retrbinary(f"RETR {target_path}", buffer.write)
