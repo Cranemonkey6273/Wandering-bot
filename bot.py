@@ -117,6 +117,7 @@ last_owner_mention_time = {}
 last_ai_image_time = {}
 recent_pvp_kill_signatures = {}
 last_heatmap_render_status = {}
+cheat_kill_chains = {}
 
 # =========================================================
 # AUTONOMOUS SHOWCASE GLOBALS
@@ -171,7 +172,9 @@ DEFAULT_CHANNEL_NAMES = {
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
     "longshots": "🎯🏹・longshots・🏹🎯",
     "restart_alerts": "📢⏰・restart-alerts・⏰📢",
+    "bot_updates": "📢✨・bot-updates・✨📢",
     "welcome": "👋🟩・welcome・🟩👋",
+    "public_shame": "🚫📣・wandering-in-shame・📣🚫",
     "linked_players": "🔗🎮・linked-players・🎮🔗",
     "general_chat": "💬🌲・survivor-chat・🌲💬",
     "ai_chat": "🧠📻・survivor-ai・📻🧠",
@@ -183,6 +186,7 @@ DEFAULT_CHANNEL_NAMES = {
     "help_channel": "❓📘・help-desk・📘❓",
     "economy": "💰🛒・black-market・🛒💰",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
+    "cheat_checks": "🕵️🚫・pc-cheat-check・🚫🕵️",
     "command_logs": "📜🛡️・command-logs・🛡️📜",
     "purchase_logs": "💳📦・purchase-logs・📦💳",
     "vehicle_rentals": "🚗💰・vehicle-rentals・💰🚗",
@@ -207,6 +211,8 @@ PVE_THEMED_QUEST_KINDS = {
     "pve_expeditions": "Explorer",
 }
 
+PVE_SLOT_DIFFICULTIES = ["Easy", "Medium", "Hard"]
+
 CHANNEL_ALIASES = {
     "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
     "raids": ["raids", "raidfeed", "raiddetected", "raidalerts"],
@@ -218,7 +224,9 @@ CHANNEL_ALIASES = {
     "heatmap": ["heatmap", "conflictheatmap", "pvpheatmap"],
     "longshots": ["longshots", "longshot", "snipes"],
     "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+    "bot_updates": ["botupdates", "updates", "changelog", "newfeatures", "patchnotes"],
     "welcome": ["welcome", "newsurvivor"],
+    "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
     "linked_players": ["linkedplayers", "gamerlinks", "linkedgamers", "usernamelinks", "identitylinks"],
     "general_chat": ["survivorchat", "generalchat", "general", "chat"],
     "factions_chat": ["factionschat", "factions", "factionchat"],
@@ -228,6 +236,7 @@ CHANNEL_ALIASES = {
     "economy": ["blackmarket", "economy", "shop", "market"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
+    "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
     "command_logs": ["commandlogs", "commands"],
     "purchase_logs": ["purchaselogs", "purchases"],
     "vehicle_rentals": ["vehiclerentals", "rentvehicles", "rentals"],
@@ -251,6 +260,58 @@ CHANNEL_ALIASES = {
     "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
     "company_announcements": ["wanderingcompanyannouncements", "companyannouncements"]
 }
+
+BOT_UPDATE_NOTES = [
+    {
+        "id": "2026-05-16-showcase-mode",
+        "title": "Showcase Server Mode",
+        "summary": "Owner showcase setup now creates an advertising/demo Discord instead of normal DayZ server feeds. The bot can greet visitors, answer feature questions, suggest commands, and show off AI image/chat abilities.",
+        "commands": "`/ownerbotshowcase`, `/showcasestatus`",
+        "audience": "Bot owner and showcase visitors",
+    },
+    {
+        "id": "2026-05-16-pve-quest-ids",
+        "title": "PVE Quest IDs and Difficulty Slots",
+        "summary": "PVE quests now show a stable quest ID like `PVE-123456`. Each themed PVE feed keeps one Easy, one Medium, and one Hard quest active, and completing a quest replaces the same difficulty slot.",
+        "commands": "`/pvequests`, `/pvecomplete`, `/pvesetup`, `/pveconfig`",
+        "audience": "Admins and PVE players",
+    },
+    {
+        "id": "2026-05-16-restart-cancel",
+        "title": "Restart Schedule Controls",
+        "summary": "Admins can now disable recurring scheduled restarts and turn them back on by setting the restart interval or start hour again.",
+        "commands": "`/cancelrestarts`, `/setrestartinterval`, `/setrestartstart`, `/listrestarts`",
+        "audience": "Admins",
+    },
+    {
+        "id": "2026-05-16-command-log-repair",
+        "title": "Command Log Feed Repair",
+        "summary": "Command usage logging now creates or repairs the command-log feed more reliably, so staff can see command activity in the correct private channel.",
+        "commands": "`/command-logs` feed, slash command logging",
+        "audience": "Staff",
+    },
+    {
+        "id": "2026-05-16-cheat-check",
+        "title": "Private PC Cheat Check",
+        "summary": "A private staff feed can now flag suspicious PC kill events from ADM logs, including impossible weapon distances and rapid snap-kill chains, with evidence and map links where available.",
+        "commands": "`/cheatchecksetup`, `/cheatcheckconfig`, `/cheatcheckstatus`",
+        "audience": "Admins and staff",
+    },
+    {
+        "id": "2026-05-16-wandering-shame",
+        "title": "Wandering in Shame Moderation Feed",
+        "summary": "Admins can ban, temp-ban, and unban Discord members with public notices showing who, when, duration, moderator, and reason.",
+        "commands": "`/shamesetup`, `/adminban`, `/admintempban`, `/adminunban`",
+        "audience": "Admins and community members",
+    },
+    {
+        "id": "2026-05-16-bot-updates",
+        "title": "Public Bot Updates Feed",
+        "summary": "Servers now get a public bot-updates channel for safe changelog posts. It explains new commands and features without exposing tokens, setup secrets, private logs, or sensitive server data.",
+        "commands": "`/botupdates`",
+        "audience": "Everyone",
+    },
+]
 
 SWEAR_REWARD_MIN = 300
 SWEAR_REWARD_MAX = 800
@@ -612,6 +673,445 @@ def is_duplicate_pvp_kill(guild_id, details, ttl_seconds=45):
             recent_pvp_kill_signatures.pop(key, None)
 
     return now_ts - last_seen < ttl_seconds
+
+
+CHEAT_WEAPON_LIMITS = {
+    "Pistol": 400,
+    "SMG": 600,
+    "Shotgun": 600,
+    "Rifle": 1000,
+    "Sniper": 1300,
+}
+
+CHEAT_SNAP_RULES = [
+    {"kills": 2, "span": 1.5, "angle": 85, "distance": 350},
+    {"kills": 3, "span": 4.0, "angle": 60, "distance": 250},
+    {"kills": 4, "span": 7.0, "angle": 40, "distance": 175},
+]
+
+
+def cheat_check_config(config):
+    settings = config.setdefault("cheat_check", {})
+    settings.setdefault("enabled", True)
+    settings.setdefault("auto_ban", False)
+    settings.setdefault("clear_chain_on_teleport", True)
+    settings.setdefault("chain_window_seconds", 8)
+    return settings
+
+
+def classify_cheat_weapon(weapon):
+    weapon_key = normalize_discord_name(weapon)
+    if any(term in weapon_key for term in ["mosin", "svd", "vss", "vs89", "m70", "winchester", "cz550", "ssg", "lrs", "sniper"]):
+        return "Sniper"
+    if any(term in weapon_key for term in ["ij70", "makarov", "mkii", "fx45", "colt", "deagle", "p1", "pistol", "derringer"]):
+        return "Pistol"
+    if any(term in weapon_key for term in ["ump", "mp5", "sg5", "ak74u", "scorpion", "vikhr", "smg"]):
+        return "SMG"
+    if any(term in weapon_key for term in ["bk12", "bk133", "saiga", "vaiga", "shotgun"]):
+        return "Shotgun"
+    return "Rifle"
+
+
+def parse_coord_tuple(coords):
+    try:
+        x, z, y = split_adm_coords(coords)
+        return float(x), float(z), float(y or 0)
+    except Exception:
+        return None
+
+
+def coord_distance(a, b):
+    if not a or not b:
+        return 0
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+def angle_between_vectors(a, b):
+    import math
+    mag_a = (a[0] ** 2 + a[1] ** 2) ** 0.5
+    mag_b = (b[0] ** 2 + b[1] ** 2) ** 0.5
+    if mag_a <= 0 or mag_b <= 0:
+        return 0
+    dot = a[0] * b[0] + a[1] * b[1]
+    cosine = max(-1, min(1, dot / (mag_a * mag_b)))
+    return math.degrees(math.acos(cosine))
+
+
+def extract_all_adm_coords(line):
+    return re.findall(r"pos=<([^>]+)>", str(line))
+
+
+def enrich_kill_coords(guild_id, kill_details, line):
+    coords = extract_all_adm_coords(line)
+    if coords:
+        kill_details.setdefault("coords", coords[-1])
+        if len(coords) >= 2:
+            kill_details["killer_coords"] = coords[0]
+            kill_details["victim_coords"] = coords[-1]
+        else:
+            kill_details["victim_coords"] = coords[0]
+
+    killer = kill_details.get("killer")
+    if killer and not kill_details.get("killer_coords"):
+        last_seen = player_last_coords.get(str(guild_id), {}).get(killer, {})
+        if isinstance(last_seen, dict) and last_seen.get("coords"):
+            kill_details["killer_coords"] = last_seen["coords"]
+
+    if not kill_details.get("victim_coords") and kill_details.get("coords"):
+        kill_details["victim_coords"] = kill_details.get("coords")
+
+    return kill_details
+
+
+async def ensure_cheat_check_channel(guild, config):
+    channels = config.setdefault("channels", {})
+    channel = bot.get_channel(channels.get("cheat_checks"))
+    if channel:
+        return channel
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+    }
+    for role in guild.roles:
+        if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
+            overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+    category_name = "🕵️🚫┃PRIVATE CHEAT CHECK┃🚫🕵️"
+    category = discord.utils.get(guild.categories, name=category_name)
+    if not category:
+        category = await guild.create_category(category_name, overwrites=overwrites)
+
+    channel = await guild.create_text_channel(
+        DEFAULT_CHANNEL_NAMES["cheat_checks"],
+        overwrites=overwrites,
+        category=category
+    )
+    channels["cheat_checks"] = channel.id
+    save_guild_configs()
+    return channel
+
+
+async def post_cheat_check_intro(channel, config):
+    settings = cheat_check_config(config)
+    embed = discord.Embed(
+        title="PC CHEAT CHECK",
+        description=(
+            "This private feed watches ADM kill events for impossible shot distances and rapid snap-kill chains. "
+            "It is designed as staff evidence first, with optional auto-action only if you enable it."
+        ),
+        color=0xE74C3C
+    )
+    embed.add_field(
+        name="Impossible Shot Distance",
+        value="\n".join(f"`{weapon}` hard limit: `{limit}m`" for weapon, limit in CHEAT_WEAPON_LIMITS.items()),
+        inline=False
+    )
+    embed.add_field(
+        name="Rapid & Snap Kills",
+        value=(
+            "`2 kills`: 1.5s or less, 85 degrees+, 350m+ between victims\n"
+            "`3 kills`: 4s or less, 60 degrees+, 250m+ between victims\n"
+            "`4+ kills`: 7s or less, 40 degrees+, 175m+ between victims"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Admin Commands",
+        value=(
+            "`/cheatchecksetup` creates/repairs this private category.\n"
+            "`/cheatcheckconfig enabled:true auto_ban:false` changes detection settings.\n"
+            "`/cheatcheckstatus` shows the current mode."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Current Mode",
+        value=f"Detection: `{'on' if settings.get('enabled') else 'off'}` | Auto-ban: `{'on' if settings.get('auto_ban') else 'off'}`",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Private PC Cheat Check")
+    await channel.send(embed=style_embed(embed))
+
+
+async def send_cheat_check_alert(guild_id, config, kill_details, reason, evidence, action_text):
+    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    if not guild:
+        return
+
+    channel = await ensure_cheat_check_channel(guild, config)
+    if not channel:
+        return
+
+    embed = discord.Embed(
+        title="CHEAT CHECK FLAGGED",
+        description=reason,
+        color=0xE74C3C
+    )
+    embed.add_field(name="Player", value=kill_details.get("killer", "Unknown"), inline=True)
+    embed.add_field(name="Victim", value=kill_details.get("victim", "Unknown"), inline=True)
+    embed.add_field(name="Weapon", value=kill_details.get("weapon", "Unknown"), inline=True)
+    embed.add_field(name="Distance", value=f"{float(kill_details.get('distance', 0) or 0):.1f}m", inline=True)
+    embed.add_field(name="Action", value=action_text, inline=False)
+
+    if evidence:
+        embed.add_field(name="Evidence", value=evidence[:1000], inline=False)
+
+    for label, coords in [("Attacker Position", kill_details.get("killer_coords")), ("Victim/Kill Position", kill_details.get("victim_coords") or kill_details.get("coords"))]:
+        if coords:
+            map_link = build_izurvive_link(coords, guild_id)
+            value = f"[Open iZurvive](<{map_link}>)\n`{coords}`" if map_link else f"`{coords}`"
+            embed.add_field(name=label, value=value, inline=False)
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PC Cheat Check")
+    embed.timestamp = datetime.now(UTC)
+    await channel.send(embed=style_embed(embed))
+
+
+def build_snap_chain_evidence(guild_id, chain):
+    if len(chain) < 2:
+        return None
+
+    victim_points = [parse_coord_tuple(item.get("victim_coords") or item.get("coords")) for item in chain]
+    if any(point is None for point in victim_points):
+        return None
+
+    killer_points = [parse_coord_tuple(item.get("killer_coords")) for item in chain]
+    angles = []
+    victim_distances = []
+
+    for idx in range(1, len(chain)):
+        victim_distances.append(coord_distance(victim_points[idx - 1], victim_points[idx]))
+        origin = killer_points[idx] or killer_points[idx - 1]
+        if origin:
+            previous_vector = (victim_points[idx - 1][0] - origin[0], victim_points[idx - 1][1] - origin[1])
+            current_vector = (victim_points[idx][0] - origin[0], victim_points[idx][1] - origin[1])
+            angles.append(angle_between_vectors(previous_vector, current_vector))
+
+    if not angles or not victim_distances:
+        return None
+
+    avg_angle = sum(angles) / len(angles)
+    avg_distance = sum(victim_distances) / len(victim_distances)
+    span = float(chain[-1]["ts"] - chain[0]["ts"])
+    kill_count = len(chain)
+    rule = CHEAT_SNAP_RULES[-1] if kill_count >= 4 else CHEAT_SNAP_RULES[kill_count - 2]
+
+    if span <= rule["span"] and avg_angle >= rule["angle"] and avg_distance >= rule["distance"]:
+        map_lines = []
+        for idx, item in enumerate(chain, start=1):
+            coords = item.get("victim_coords") or item.get("coords")
+            map_link = build_izurvive_link(coords, guild_id) if coords else None
+            map_lines.append(f"{idx}. {item.get('victim')} at [map](<{map_link}>)" if map_link else f"{idx}. {item.get('victim')} at `{coords or 'unknown'}`")
+        return {
+            "span": span,
+            "avg_angle": avg_angle,
+            "avg_distance": avg_distance,
+            "rule": rule,
+            "map_lines": map_lines,
+        }
+
+    return None
+
+
+async def process_cheat_check_from_kill(guild_id, config, kill_details, line):
+    settings = cheat_check_config(config)
+    if not settings.get("enabled", True):
+        return
+
+    kill_details = enrich_kill_coords(guild_id, dict(kill_details), line)
+    killer = kill_details.get("killer")
+    if not killer:
+        return
+
+    action_text = "Alert only. Review the evidence before taking action."
+    if settings.get("auto_ban"):
+        action_text = "Auto-ban is enabled in config, but this build records evidence only unless you wire a trusted DayZ ban backend."
+
+    weapon_type = classify_cheat_weapon(kill_details.get("weapon", ""))
+    hard_limit = CHEAT_WEAPON_LIMITS.get(weapon_type, 1000)
+    distance = float(kill_details.get("distance", 0) or 0)
+
+    if distance > hard_limit:
+        evidence = f"`{weapon_type}` hard limit is `{hard_limit}m`; this kill was `{distance:.1f}m`."
+        await send_cheat_check_alert(
+            guild_id,
+            config,
+            kill_details,
+            "Impossible shot distance detected.",
+            evidence,
+            action_text
+        )
+
+    now_ts = datetime.now(UTC).timestamp()
+    chain_key = f"{guild_id}:{normalize_discord_name(killer)}"
+    chain = cheat_kill_chains.setdefault(chain_key, [])
+    chain.append({
+        "ts": now_ts,
+        "victim": kill_details.get("victim"),
+        "weapon": kill_details.get("weapon"),
+        "distance": distance,
+        "killer_coords": kill_details.get("killer_coords"),
+        "victim_coords": kill_details.get("victim_coords") or kill_details.get("coords"),
+    })
+    window = float(settings.get("chain_window_seconds", 8) or 8)
+    chain = [item for item in chain if now_ts - item["ts"] <= window]
+    cheat_kill_chains[chain_key] = chain[-6:]
+
+    for size in [4, 3, 2]:
+        if len(chain) < size:
+            continue
+        candidate = chain[-size:]
+        snap = build_snap_chain_evidence(guild_id, candidate)
+        if not snap:
+            continue
+        evidence = (
+            f"`{size}` kills in `{snap['span']:.2f}s`.\n"
+            f"Average angle: `{snap['avg_angle']:.1f}` degrees.\n"
+            f"Average victim spacing: `{snap['avg_distance']:.1f}m`.\n"
+            + "\n".join(snap["map_lines"])
+        )
+        await send_cheat_check_alert(
+            guild_id,
+            config,
+            kill_details,
+            "Rapid snap-kill chain detected.",
+            evidence,
+            action_text
+        )
+        cheat_kill_chains[chain_key] = []
+        break
+
+
+def parse_duration_to_seconds(duration):
+    text = str(duration or "").strip().lower()
+    if not text:
+        return None
+    total = 0
+    matches = re.findall(r"(\d+)\s*(d|day|days|h|hr|hour|hours|m|min|mins|minute|minutes)", text)
+    for amount_text, unit in matches:
+        amount = int(amount_text)
+        if unit.startswith("d"):
+            total += amount * 86400
+        elif unit.startswith("h"):
+            total += amount * 3600
+        else:
+            total += amount * 60
+    if total:
+        return total
+    if text.isdigit():
+        return int(text) * 3600
+    return None
+
+
+def format_duration_seconds(seconds):
+    seconds = int(seconds or 0)
+    if seconds <= 0:
+        return "permanent"
+    days, seconds = divmod(seconds, 86400)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, _ = divmod(seconds, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes or not parts:
+        parts.append(f"{minutes}m")
+    return " ".join(parts)
+
+
+async def ensure_public_shame_channel(guild, config):
+    channels = config.setdefault("channels", {})
+    channel = bot.get_channel(channels.get("public_shame"))
+    if channel:
+        return channel
+
+    category_name = "🚫📣┃WANDERING JUSTICE┃📣🚫"
+    category = discord.utils.get(guild.categories, name=category_name)
+    if not category:
+        category = await guild.create_category(category_name)
+
+    channel = await guild.create_text_channel(
+        DEFAULT_CHANNEL_NAMES["public_shame"],
+        category=category
+    )
+    channels["public_shame"] = channel.id
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="WANDERING IN SHAME",
+        description=(
+            "Public moderation notices appear here when staff ban, temp-ban, or unban someone through Wandering Bot. "
+            "Each notice shows who took the action, who it affected, the duration, and the reason."
+        ),
+        color=0xE74C3C
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Public Moderation Feed")
+    await channel.send(embed=style_embed(embed))
+    return channel
+
+
+async def send_public_shame_notice(guild, config, title, member_text, moderator, reason, duration_text=None):
+    channel = await ensure_public_shame_channel(guild, config)
+    when = datetime.now(UTC)
+    embed = discord.Embed(
+        title=title,
+        color=0xE74C3C
+    )
+    embed.add_field(name="Member", value=member_text, inline=False)
+    embed.add_field(name="Moderator", value=f"{moderator.mention}\n`{moderator}`", inline=True)
+    embed.add_field(name="When", value=when.strftime("%Y-%m-%d %H:%M UTC"), inline=True)
+    if duration_text:
+        embed.add_field(name="Duration", value=duration_text, inline=True)
+    embed.add_field(name="Reason", value=reason[:1000] or "No reason supplied.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Wandering in Shame")
+    embed.timestamp = when
+    await channel.send(embed=style_embed(embed))
+
+
+async def process_temp_ban_expiries():
+    now_ts = datetime.now(UTC).timestamp()
+    changed = False
+
+    for guild_id, config in active_guild_config_items():
+        temp_bans = config.get("temp_bans", [])
+        remaining = []
+        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+
+        for ban_record in temp_bans:
+            until_ts = float(ban_record.get("until_ts", 0) or 0)
+            if until_ts > now_ts:
+                remaining.append(ban_record)
+                continue
+
+            changed = True
+            if not guild:
+                continue
+
+            try:
+                user = await bot.fetch_user(int(ban_record["user_id"]))
+                await guild.unban(user, reason="Temporary ban expired")
+                await send_public_shame_notice(
+                    guild,
+                    config,
+                    "TEMP BAN EXPIRED",
+                    f"{user.mention if hasattr(user, 'mention') else user} (`{user}`)",
+                    guild.me,
+                    "Temporary ban duration expired.",
+                    "expired"
+                )
+            except Exception as error:
+                print(f"TEMP BAN EXPIRY ERROR {guild_id}: {error}")
+
+        config["temp_bans"] = remaining
+
+    if changed:
+        save_guild_configs()
 
 
 async def send_special_adm_feed(guild_id, config, event_type, line):
@@ -1578,9 +2078,11 @@ AI_IMAGE_PROMPTS_SHOWCASE = {
 
 def is_showcase_guild(guild_id):
     """Return True if this guild is the designated showcase server."""
-    if not SHOWCASE_GUILD_ID:
-        return False
-    return str(guild_id) == str(SHOWCASE_GUILD_ID)
+    guild_key = str(guild_id)
+    if SHOWCASE_GUILD_ID and guild_key == str(SHOWCASE_GUILD_ID):
+        return True
+    config = guild_configs.get(guild_key, {})
+    return bool(config.get("is_showcase_guild") or config.get("showcase_mode"))
 
 
 def update_user_style_profile(user_id, message_content):
@@ -1871,8 +2373,27 @@ async def showcase_handle_message(message, lower, guild_id, now_ts):
     ai_channel_id = channels.get("ai_chat")
     in_ai_channel = bool(ai_channel_id and message.channel.id == ai_channel_id)
     bot_mentioned = bot.user in message.mentions
+    looks_like_question = (
+        "?" in message.content
+        or any(
+            phrase in lower
+            for phrase in [
+                "how do i",
+                "how to",
+                "what is",
+                "what can",
+                "can you",
+                "does it",
+                "setup",
+                "command",
+                "feature",
+                "invite",
+                "help",
+            ]
+        )
+    )
 
-    if bot_mentioned or in_ai_channel:
+    if bot_mentioned or in_ai_channel or looks_like_question:
         await showcase_handle_smart_response(message, lower, guild_id)
 
 
@@ -1883,42 +2404,42 @@ async def showcase_autonomous_loop():
     Initiates conversations, posts tips, spotlights features,
     and keeps the server active without waiting for user messages.
     """
-    if not SHOWCASE_GUILD_ID:
-        return
-
-    guild = bot.get_guild(int(SHOWCASE_GUILD_ID)) if SHOWCASE_GUILD_ID.isdigit() else None
-    if not guild:
-        return
-
-    guild_id = str(guild.id)
-    config = guild_configs.get(guild_id, {})
-    channels_cfg = config.get("channels", {})
     now_ts = datetime.now(UTC).timestamp()
 
-    # Find the best channel to post in (general_chat or ai_chat)
-    target_channel = None
-    for key in ("general_chat", "ai_chat"):
-        ch_id = channels_cfg.get(key)
-        if ch_id:
-            target_channel = guild.get_channel(ch_id)
-            if target_channel:
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        if not is_showcase_guild(guild_id):
+            continue
+
+        config = guild_configs.get(guild_id, {})
+        channels_cfg = config.get("channels", {})
+
+        # Find the best channel to post in (general_chat, ai_chat, or help_channel)
+        target_channel = None
+        for key in ("general_chat", "ai_chat", "help_channel"):
+            ch_id = channels_cfg.get(key)
+            if ch_id:
+                target_channel = guild.get_channel(ch_id)
+                if target_channel:
+                    break
+
+        if not target_channel:
+            # Fall back to first available text channel
+            for ch in guild.text_channels:
+                if not ch.permissions_for(guild.me).send_messages:
+                    continue
+                target_channel = ch
                 break
 
-    if not target_channel:
-        # Fall back to first available text channel
-        for ch in guild.text_channels:
-            if not ch.permissions_for(guild.me).send_messages:
-                continue
-            target_channel = ch
-            break
+        if not target_channel:
+            continue
 
-    if not target_channel:
-        return
+        # Proactive discussion starter (every ~60 min)
+        last_discussion = last_showcase_discussion_time.get(guild_id, 0)
+        discussion_interval = int(os.getenv("SHOWCASE_DISCUSSION_INTERVAL", "3600"))
+        if now_ts - last_discussion < discussion_interval:
+            continue
 
-    # Proactive discussion starter (every ~60 min)
-    last_discussion = last_showcase_discussion_time.get(guild_id, 0)
-    discussion_interval = int(os.getenv("SHOWCASE_DISCUSSION_INTERVAL", "3600"))
-    if now_ts - last_discussion >= discussion_interval:
         roll = random.random()
 
         if roll < 0.45:
@@ -2577,6 +3098,78 @@ def discover_existing_guild_channels(guild, config):
                 break
 
     return changed
+
+
+async def ensure_bot_updates_channel(guild, config):
+    channels = config.setdefault("channels", {})
+    channel = bot.get_channel(channels.get("bot_updates"))
+    if channel:
+        return channel
+
+    for existing in guild.text_channels:
+        if channel_matches_saved_key(existing, "bot_updates"):
+            channels["bot_updates"] = existing.id
+            save_guild_configs()
+            return existing
+
+    category_name = "📢✨┃BOT NEWS & UPDATES┃✨📢"
+    category = None
+    for existing_category in guild.categories:
+        normalized = normalize_discord_name(existing_category.name)
+        if "botnews" in normalized or "botupdates" in normalized or "updates" in normalized:
+            category = existing_category
+            break
+
+    if not category:
+        category = await guild.create_category(category_name)
+
+    channel = await guild.create_text_channel(
+        DEFAULT_CHANNEL_NAMES["bot_updates"],
+        category=category
+    )
+    channels["bot_updates"] = channel.id
+    save_guild_configs()
+    return channel
+
+
+async def publish_bot_update_notes(guild, config, *, force=False):
+    channel = await ensure_bot_updates_channel(guild, config)
+    posted = set(config.setdefault("posted_bot_update_ids", []))
+    sent = 0
+
+    for note in BOT_UPDATE_NOTES:
+        note_id = note["id"]
+        if not force and note_id in posted:
+            continue
+
+        embed = discord.Embed(
+            title=f"BOT UPDATE: {note['title']}",
+            description=note["summary"],
+            color=0xF1C40F
+        )
+        embed.add_field(name="Commands", value=note.get("commands", "No commands changed."), inline=False)
+        embed.add_field(name="Who Uses It", value=note.get("audience", "Everyone"), inline=False)
+        embed.add_field(name="Privacy", value="No tokens, passwords, private logs, or sensitive setup details are posted here.", inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text=f"Wandering Bot Alpha - Update ID {note_id}")
+        embed.timestamp = datetime.now(UTC)
+        await channel.send(embed=style_embed(embed))
+        posted.add(note_id)
+        sent += 1
+
+    config["posted_bot_update_ids"] = sorted(posted)
+    save_guild_configs()
+    return sent, channel
+
+
+async def publish_bot_updates_for_active_guilds():
+    for guild in bot.guilds:
+        try:
+            guild_id = str(guild.id)
+            config = guild_configs.setdefault(guild_id, new_guild_config(guild))
+            await publish_bot_update_notes(guild, config)
+        except Exception as error:
+            print(f"BOT UPDATE FEED ERROR {guild.id}: {error}")
 
 
 async def ensure_pve_channels(guild, config):
@@ -4025,8 +4618,10 @@ async def on_guild_join(guild):
     heatmap_channel = await make_channel("🔥🗺️・heatmap・🗺️🔥", cat=info_category)
     longshot_channel = await make_channel("🎯🏹・longshots・🏹🎯", cat=info_category)
     restart_alerts = await make_channel("📢⏰・restart-alerts・⏰📢", cat=info_category)
+    bot_updates = await make_channel("📢✨・bot-updates・✨📢", cat=info_category)
 
     welcome_channel = await make_channel("👋🟩・welcome・🟩👋", cat=community_category)
+    public_shame = await make_channel("🚫📣・wandering-in-shame・📣🚫", cat=community_category)
     general_chat = await make_channel("💬🌲・survivor-chat・🌲💬", cat=community_category)
     ai_channel = await make_channel("🧠📻・survivor-ai・📻🧠", cat=community_category)
     clips_channel = await make_channel("🎬⭐・dayz-clips・⭐🎬", cat=community_category)
@@ -4039,6 +4634,7 @@ async def on_guild_join(guild):
     help_channel = await make_channel("❓📘・help-desk・📘❓", cat=support_category)
     economy_channel = await make_channel("💰🛒・black-market・🛒💰", cat=economy_category)
     admin_logs = await make_channel("🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    cheat_checks = await guild.create_text_channel("🕵️🚫・pc-cheat-check・🚫🕵️", category=staff_category, overwrites=staff_overwrites)
     command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
     vehicle_rentals = await make_channel("🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
@@ -4082,7 +4678,9 @@ async def on_guild_join(guild):
             "heatmap": heatmap_channel.id,
             "longshots": longshot_channel.id,
             "restart_alerts": restart_alerts.id,
+            "bot_updates": bot_updates.id,
             "welcome": welcome_channel.id,
+            "public_shame": public_shame.id,
             "general_chat": general_chat.id,
             "factions_chat": factions_chat.id,
             "faction_list": faction_list.id,
@@ -4091,6 +4689,7 @@ async def on_guild_join(guild):
             "economy": economy_channel.id,
             "ai_chat": ai_channel.id,
             "admin_logs": admin_logs.id,
+            "cheat_checks": cheat_checks.id,
             "command_logs": command_logs.id,
             "purchase_logs": purchase_logs.id,
             "vehicle_rentals": vehicle_rentals.id,
@@ -4126,6 +4725,11 @@ async def on_guild_join(guild):
         pass
 
     save_guild_configs()
+
+    try:
+        await publish_bot_update_notes(guild, guild_configs[guild_id])
+    except Exception as update_error:
+        print(f"BOT UPDATE JOIN ERROR {guild_id}: {update_error}")
 
 # =========================================================
 # /SETUP COMMAND
@@ -4216,7 +4820,9 @@ async def setup_command(
         "heatmap": ["heatmap", "conflictheatmap", "pvPheatmap".lower()],
         "longshots": ["longshots", "longshot", "snipes"],
         "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+        "bot_updates": ["botupdates", "updates", "changelog", "newfeatures", "patchnotes"],
         "welcome": ["welcome", "newsurvivor", "joins"],
+        "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
         "general_chat": ["survivorchat", "generalchat", "general", "chat"],
         "factions_chat": ["factionschat", "factions", "factionchat"],
         "faction_list": ["factionlist", "factionslist"],
@@ -4224,8 +4830,9 @@ async def setup_command(
         "clips_channel": ["dayzclips", "clips", "media"],
         "economy": ["blackmarket", "economy", "shop", "market"],
         "ai_chat": ["survivorai", "aichat", "ai"],
-        "admin_logs": ["adminlogs", "stafflogs"],
-        "command_logs": ["commandlogs", "commands"],
+    "admin_logs": ["adminlogs", "stafflogs"],
+    "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
+    "command_logs": ["commandlogs", "commands"],
         "purchase_logs": ["purchaselogs", "purchases"],
         "vehicle_rentals": ["vehiclerentals", "rentvehicles", "rentals"],
         "rental_logs": ["rentallogs"],
@@ -4325,8 +4932,10 @@ async def setup_command(
     await ensure_channel("heatmap", "🔥🗺️・heatmap・🗺️🔥", cat=info_category)
     await ensure_channel("longshots", "🎯🏹・longshots・🏹🎯", cat=info_category)
     await ensure_channel("restart_alerts", "📢⏰・restart-alerts・⏰📢", cat=info_category)
+    await ensure_channel("bot_updates", "📢✨・bot-updates・✨📢", cat=info_category)
 
     await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
+    await ensure_channel("public_shame", "🚫📣・wandering-in-shame・📣🚫", cat=community_category)
     await ensure_channel("general_chat", "💬🌲・survivor-chat・🌲💬", cat=community_category)
     await ensure_channel("ai_chat", "🧠📻・survivor-ai・📻🧠", cat=community_category)
     await ensure_channel("clips_channel", "🎬⭐・dayz-clips・⭐🎬", cat=community_category)
@@ -4339,6 +4948,7 @@ async def setup_command(
     await ensure_channel("help_channel", "❓📘・help-desk・📘❓", cat=support_category)
     await ensure_channel("economy", "💰🛒・black-market・🛒💰", cat=economy_category)
     await ensure_channel("admin_logs", "🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    await ensure_channel("cheat_checks", "🕵️🚫・pc-cheat-check・🚫🕵️", cat=staff_category, private=True)
     await ensure_channel("command_logs", "📜🛡️・command-logs・🛡️📜", cat=staff_category)
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
     await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
@@ -4352,6 +4962,31 @@ async def setup_command(
     guild_configs[guild_id]["ftp_password"] = ftp_password
 
     save_guild_configs()
+
+    try:
+        sent_updates, updates_channel = await publish_bot_update_notes(interaction.guild, guild_configs[guild_id])
+        if sent_updates:
+            print(f"BOT UPDATE BACKLOG SEEDED {interaction.guild.name}: {sent_updates}")
+    except Exception as update_error:
+        print(f"BOT UPDATE SETUP ERROR {guild_id}: {update_error}")
+
+    try:
+        shame_channel = bot.get_channel(guild_configs[guild_id]["channels"].get("public_shame"))
+        if shame_channel:
+            intro = discord.Embed(
+                title="WANDERING IN SHAME",
+                description="Public ban, temp-ban, and unban notices will appear here with staff reason and duration.",
+                color=0xE74C3C
+            )
+            intro.set_thumbnail(url=BOT_IMAGE)
+            intro.set_footer(text="Wandering Bot Alpha - Public Moderation Feed")
+            await shame_channel.send(embed=style_embed(intro))
+
+        cheat_channel = bot.get_channel(guild_configs[guild_id]["channels"].get("cheat_checks"))
+        if cheat_channel:
+            await post_cheat_check_intro(cheat_channel, guild_configs[guild_id])
+    except Exception as setup_feed_error:
+        print(f"SETUP SAFETY FEED INTRO ERROR: {setup_feed_error}")
 
     help_channel = bot.get_channel(
         guild_configs[guild_id]["channels"].get("help_channel")
@@ -4404,6 +5039,12 @@ async def setup_command(
                 "`/setadminrole role_name` - replace the primary bot admin role\n"
                 "`/addstaffrole role_name` - add another role allowed to use staff tools\n"
                 "`/staffroles` - list staff roles\n"
+                "`/shamesetup` - create the public Wandering in Shame feed\n"
+                "`/adminban member reason` - ban a Discord member and post the reason\n"
+                "`/admintempban member duration reason` - temp-ban with examples like `2h` or `3d`\n"
+                "`/adminunban user_id reason` - unban by Discord user ID\n"
+                "`/cheatchecksetup` - create the private PC cheat-check evidence feed\n"
+                "`/cheatcheckconfig` - turn PC cheat-check detection on/off\n"
                 "`/purge amount` - clear recent messages\n"
                 "`/purgeuser member amount` - clear a member's messages\n"
                 "`/purgebots amount` - clear bot messages"
@@ -4417,7 +5058,9 @@ async def setup_command(
                 "`/restartserver` - trigger a Nitrado restart\n"
                 "`/setrestartinterval hours` - set restart interval\n"
                 "`/setrestartstart hour` - set UTC restart start hour\n"
+                "`/cancelrestarts` - disable recurring restart schedule\n"
                 "`/listrestarts` - show restart schedule\n"
+                "`/botupdates` - create/repair the public bot updates feed and post missing notes\n"
                 "`/togglebasedamage state` - log base damage state\n"
                 "`/setradarchannel channel` - choose radar channel\n"
                 "`/radarping x y reason` - send a manual map ping\n"
@@ -4892,6 +5535,7 @@ async def parse_adm(guild_id, config):
                 continue
             if is_duplicate_pvp_kill(guild_id, kill_details):
                 continue
+            await process_cheat_check_from_kill(guild_id, config, kill_details, line)
 
         print(f"EVENT: {event_type} | {line}")
 
@@ -5693,6 +6337,14 @@ async def adm_loop():
 
             print(f"[ADM LOOP ERROR] {guild_id}: {error}")
 
+
+@tasks.loop(minutes=5)
+async def temp_ban_expiry_loop():
+    try:
+        await process_temp_ban_expiries()
+    except Exception as error:
+        print(f"TEMP BAN LOOP ERROR: {error}")
+
 # =========================================================
 # SWEAR JAR
 # =========================================================
@@ -6152,16 +6804,27 @@ async def log_all_slash_commands(interaction: discord.Interaction):
 async def log_command_usage(ctx):
 
     try:
+        if not ctx.guild:
+            return
 
         guild_id = str(ctx.guild.id)
 
-        config = guild_configs.get(guild_id, {})
+        config = guild_configs.setdefault(guild_id, {"guild_name": ctx.guild.name, "channels": {}})
 
-        channels = config.get("channels", {})
+        channels = config.setdefault("channels", {})
 
         command_log_channel = bot.get_channel(
             channels.get("command_logs")
         )
+
+        if not command_log_channel:
+            command_log_channel = await get_or_create_feed_channel(
+                ctx.guild,
+                config,
+                "command_logs",
+                DEFAULT_CHANNEL_NAMES["command_logs"],
+                private=True
+            )
 
         if command_log_channel:
 
@@ -6288,6 +6951,8 @@ async def helpme(ctx):
             "`/setadminrole role_name`\n"
             "`/addstaffrole role_name`\n"
             "`/staffroles`\n"
+            "`/shamesetup`, `/adminban`, `/admintempban`, `/adminunban`\n"
+            "`/cheatchecksetup`, `/cheatcheckconfig`, `/cheatcheckstatus`\n"
             "`/purge amount`\n"
             "`/purgeuser member amount`\n"
             "`/purgebots amount`"
@@ -6304,7 +6969,9 @@ async def helpme(ctx):
             "`/reloadguilds`\n"
             "`/setrestartinterval hours`\n"
             "`/setrestartstart hour`\n"
+            "`/cancelrestarts`\n"
             "`/listrestarts`\n"
+            "`/botupdates`\n"
             "`/togglebasedamage state`\n"
             "`/setradarchannel channel`\n"
             "`/radarping x y reason`\n"
@@ -7650,6 +8317,7 @@ async def setrestartinterval(ctx, hours: int):
         return
 
     guild_configs[guild_id]["restart_interval_hours"] = hours
+    guild_configs[guild_id]["restart_schedule_enabled"] = True
 
     save_guild_configs()
 
@@ -7684,6 +8352,7 @@ async def setrestartstart(ctx, hour: int):
         return
 
     guild_configs[guild_id]["restart_start_hour"] = hour
+    guild_configs[guild_id]["restart_schedule_enabled"] = True
 
     save_guild_configs()
 
@@ -7704,6 +8373,16 @@ async def listrestarts(ctx):
     guild_id = str(ctx.guild.id)
 
     config = guild_configs.get(guild_id, {})
+
+    if config.get("restart_schedule_enabled", True) is False:
+        embed = discord.Embed(
+            title="RESTART SCHEDULE OFF",
+            description="Automatic recurring restarts are disabled. Use `/setrestartinterval` and `/setrestartstart` to set them up again.",
+            color=0x95A5A6
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        await ctx.send(embed=style_embed(embed))
+        return
 
     interval = config.get(
         "restart_interval_hours",
@@ -7741,6 +8420,31 @@ async def listrestarts(ctx):
 
     await ctx.send(embed=style_embed(embed))
 
+
+@bot.command()
+async def cancelrestarts(ctx):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+
+    if guild_id not in guild_configs:
+        return
+
+    guild_configs[guild_id]["restart_schedule_enabled"] = False
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="RESTART SCHEDULE CANCELLED",
+        description="Automatic recurring server restarts are now disabled. Manual `/restartserver` still works.",
+        color=0xE74C3C
+    )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await ctx.send(embed=style_embed(embed))
+
 # =========================================================
 # SCHEDULED RESTART LOOP
 # =========================================================
@@ -7761,6 +8465,9 @@ async def scheduled_restart_loop():
     current_minute = now.minute
 
     for guild_id, config in active_guild_config_items():
+
+        if config.get("restart_schedule_enabled", True) is False:
+            continue
 
         restart_interval = config.get(
             "restart_interval_hours",
@@ -8546,7 +9253,52 @@ def pve_target_count(template, count):
     return 0
 
 
-def generate_pve_challenge(kind=None):
+def generate_pve_quest_code():
+    existing_codes = {
+        str(quest.get("quest_code", "")).upper()
+        for guild_quests in pve_challenges.values()
+        for quest in guild_quests
+    }
+
+    for _ in range(25):
+        code = f"PVE-{random.randint(100000, 999999)}"
+        if code not in existing_codes:
+            return code
+
+    return f"PVE-{int(datetime.now(UTC).timestamp())}"
+
+
+def pve_quest_code(challenge):
+    code = str(challenge.get("quest_code") or "").strip().upper()
+    if code:
+        return code
+
+    old_id = str(challenge.get("id") or "").strip()
+    if old_id:
+        suffix = re.sub(r"\D", "", old_id)[-6:]
+        code = f"PVE-{suffix or old_id[-6:].upper()}"
+    else:
+        code = generate_pve_quest_code()
+
+    challenge["quest_code"] = code
+    return code
+
+
+def find_active_pve_quest_by_code(guild_id, quest_code):
+    wanted = str(quest_code or "").strip().upper()
+    if wanted.isdigit():
+        wanted = f"PVE-{wanted}"
+
+    for challenge in pve_challenges.get(str(guild_id), []):
+        if challenge.get("status") != "active":
+            continue
+        if pve_quest_code(challenge) == wanted:
+            return challenge
+
+    return None
+
+
+def generate_pve_challenge(kind=None, difficulty=None):
     candidates = PVE_CHALLENGE_BANK
     if kind:
         wanted = str(kind).lower()
@@ -8555,8 +9307,17 @@ def generate_pve_challenge(kind=None):
             if str(challenge.get("kind", "")).lower() == wanted
         ] or PVE_CHALLENGE_BANK
 
+    if difficulty:
+        wanted_difficulty = str(difficulty).title()
+        difficulty_candidates = [
+            challenge for challenge in candidates
+            if str(challenge.get("difficulty", "")).title() == wanted_difficulty
+        ]
+        if difficulty_candidates:
+            candidates = difficulty_candidates
+
     template = random.choice(candidates)
-    difficulty = template.get("difficulty", random.choice(["Easy", "Easy", "Medium", "Medium", "Hard"]))
+    difficulty = str(difficulty or template.get("difficulty") or random.choice(["Easy", "Easy", "Medium", "Medium", "Hard"])).title()
     count_choices = {
         "Easy": [2, 3, 4, 5],
         "Medium": [5, 7, 8, 10],
@@ -8568,6 +9329,7 @@ def generate_pve_challenge(kind=None):
     target_count = pve_target_count(template, count)
     return {
         "id": f"pve-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}",
+        "quest_code": generate_pve_quest_code(),
         "kind": template["kind"],
         "title": template["title"],
         "goal": template["goal"].format(count=count),
@@ -8616,10 +9378,14 @@ def pve_channel_for_kind(kind):
     }.get(str(kind).lower())
 
 
-def pve_active_quest_for_channel(guild_id, channel_key):
+def pve_active_quest_for_channel(guild_id, channel_key, difficulty=None):
+    wanted_difficulty = str(difficulty).title() if difficulty else None
     for challenge in reversed(pve_challenges.get(str(guild_id), [])):
-        if challenge.get("status") == "active" and challenge.get("channel_key") == channel_key:
-            return challenge
+        if challenge.get("status") != "active" or challenge.get("channel_key") != channel_key:
+            continue
+        if wanted_difficulty and str(challenge.get("difficulty", "")).title() != wanted_difficulty:
+            continue
+        return challenge
     return None
 
 
@@ -8695,8 +9461,9 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
         color=0x2ECC71
     )
     embed.add_field(name="Type", value=challenge["kind"], inline=True)
+    embed.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
-    embed.add_field(name="Status", value="Manual Post" if manual else "Auto Generated", inline=True)
+    embed.add_field(name="Status", value="Manual Post" if manual else "Auto Generated", inline=False)
     embed.add_field(name="Objective", value=challenge["goal"], inline=False)
     embed.add_field(name="Reward", value=challenge["reward"], inline=False)
     if challenge.get("target_event"):
@@ -8708,7 +9475,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     else:
         embed.add_field(
             name="Completion",
-            value="Post proof for staff. Admins can approve with `/pvecomplete`.",
+            value=f"Post proof for staff. Admins approve with `/pvecomplete quest_id:{pve_quest_code(challenge)}`.",
             inline=False
         )
     if challenge.get("quest_line"):
@@ -8730,7 +9497,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     return True, challenge["title"]
 
 
-async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
+async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, difficulty=None):
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
         return False, "Guild not found"
@@ -8739,15 +9506,18 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
     if not channel_key:
         return False, f"No themed PVE channel for {kind}"
 
-    if not manual and pve_active_quest_for_channel(guild_id, channel_key):
-        return False, f"Active {kind} quest already exists"
+    difficulty = str(difficulty or random.choice(PVE_SLOT_DIFFICULTIES)).title()
+
+    if not manual and pve_active_quest_for_channel(guild_id, channel_key, difficulty):
+        return False, f"Active {difficulty} {kind} quest already exists"
 
     channels = config.setdefault("channels", {})
     if not channels.get(channel_key):
         await ensure_pve_channels(guild, config)
 
-    challenge = generate_pve_challenge(kind)
+    challenge = generate_pve_challenge(kind, difficulty)
     challenge["channel_key"] = channel_key
+    challenge["slot_difficulty"] = difficulty
     channel = bot.get_channel(channels.get(channel_key))
     if not channel:
         return False, "PVE channel missing"
@@ -8762,12 +9532,13 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
         color=0x2ECC71
     )
     embed.add_field(name="Quest Slot", value=channel.mention, inline=True)
+    embed.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
-    embed.add_field(name="Reward", value=challenge["reward"], inline=True)
+    embed.add_field(name="Reward", value=challenge["reward"], inline=False)
     embed.add_field(name="Objective", value=challenge["goal"], inline=False)
     embed.add_field(
         name="Completion",
-        value="This channel keeps one active quest. Staff approve it with `/pvecomplete`, then I post the next one automatically.",
+        value=f"This is the {difficulty} slot. Staff approve it with `/pvecomplete quest_id:{pve_quest_code(challenge)}`, then I post a new {difficulty} quest here.",
         inline=False
     )
     embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
@@ -8780,18 +9551,20 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False):
 async def post_pve_daily_pack(guild_id, config):
     posted = []
     for kind in PVE_THEMED_QUEST_KINDS.values():
-        success, title = await post_pve_themed_challenge(guild_id, config, kind)
-        if success:
-            posted.append(title)
+        for difficulty in PVE_SLOT_DIFFICULTIES:
+            success, title = await post_pve_themed_challenge(guild_id, config, kind, difficulty=difficulty)
+            if success:
+                posted.append(title)
     return posted
 
 
 async def ensure_pve_channel_quests(guild_id, config):
     posted = []
     for kind in PVE_THEMED_QUEST_KINDS.values():
-        success, title = await post_pve_themed_challenge(guild_id, config, kind)
-        if success:
-            posted.append(title)
+        for difficulty in PVE_SLOT_DIFFICULTIES:
+            success, title = await post_pve_themed_challenge(guild_id, config, kind, difficulty=difficulty)
+            if success:
+                posted.append(title)
     return posted
 
 
@@ -8805,6 +9578,7 @@ async def send_pve_completion_feed(guild_id, config, player_name, challenge, rew
         description=f"**{player_name}** completed **{challenge.get('title')}**.",
         color=0xF1C40F
     )
+    embed.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
     embed.add_field(name="Type", value=challenge.get("kind", "PVE"), inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
     embed.add_field(name="Reward", value=reward_status, inline=False)
@@ -8858,7 +9632,13 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
             channel_key = challenge.get("channel_key") or pve_themed_channel_key(challenge)
             next_kind = PVE_THEMED_QUEST_KINDS.get(channel_key)
             if next_kind:
-                await post_pve_themed_challenge(guild_id, config, next_kind, manual=True)
+                await post_pve_themed_challenge(
+                    guild_id,
+                    config,
+                    next_kind,
+                    manual=True,
+                    difficulty=challenge.get("slot_difficulty") or challenge.get("difficulty")
+                )
 
     if changed:
         save_pve_challenges()
@@ -8948,9 +9728,9 @@ async def pvesetup(interaction: discord.Interaction):
             description="PVE hunting, collection, fishing, crafting, and expedition quest channels are ready.",
             color=0x2ECC71
         )
-        embed.add_field(name="Quest Slots", value="Each themed channel keeps one active quest until staff completes it.", inline=False)
-        embed.add_field(name="Auto Replacement", value="When staff approves a quest with `/pvecomplete`, I post the next random quest in that same channel.", inline=False)
-        embed.add_field(name="Admin Controls", value="Use `/pvequests`, `/pvecomplete`, and `/pveconfig` to manage the board.", inline=False)
+        embed.add_field(name="Quest Slots", value="Each themed channel keeps one Easy, one Medium, and one Hard quest active.", inline=False)
+        embed.add_field(name="Auto Replacement", value="When staff approves a quest ID with `/pvecomplete`, I post the next random quest for that same difficulty.", inline=False)
+        embed.add_field(name="Admin Controls", value="Use `/pvequests`, `/pvecomplete quest_id:PVE-123456`, and `/pveconfig` to manage the board.", inline=False)
         embed.set_thumbnail(url=BOT_IMAGE)
         await info_channel.send(embed=style_embed(embed))
 
@@ -9016,11 +9796,11 @@ async def pvequests(interaction: discord.Interaction):
 
     lines = [
         (
-            f"{idx}. **{quest.get('title')}** - {quest.get('kind')} - "
+            f"`{pve_quest_code(quest)}` - **{quest.get('title')}** - {quest.get('kind')} - "
             f"{quest.get('status', 'active')} - {pve_progress_text(quest)} - "
             f"{quest.get('reward_pennies', 0)} pennies"
         )
-        for idx, quest in enumerate(display_quests[:15], start=1)
+        for quest in display_quests[:15]
     ]
     embed = discord.Embed(
         title="RECENT PVE QUESTS",
@@ -9033,25 +9813,33 @@ async def pvequests(interaction: discord.Interaction):
 
 @bot.tree.command(name="pvecomplete", description="Admin: approve a PVE quest and pay the linked member")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(quest_number="Number from /pvequests", member="Discord member who completed it")
-async def pvecomplete(interaction: discord.Interaction, quest_number: int, member: discord.Member):
+@app_commands.describe(quest_id="Quest ID shown on the quest embed, for example PVE-123456", member="Discord member who completed it")
+async def pvecomplete(interaction: discord.Interaction, quest_id: str, member: discord.Member):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
     guild_id = str(interaction.guild.id)
     guild_quests = pve_challenges.get(guild_id, [])
-    active = [quest for quest in guild_quests if quest.get("status") == "active"]
-    completed = [quest for quest in guild_quests if quest.get("status") != "active"]
-    recent = (active + list(reversed(completed[-10:])))[:15]
+    changed_codes = False
+    for quest in guild_quests:
+        if not quest.get("quest_code"):
+            pve_quest_code(quest)
+            changed_codes = True
+    if changed_codes:
+        save_pve_challenges()
 
-    if quest_number < 1 or quest_number > len(recent):
-        await interaction.response.send_message("Quest number not found. Use `/pvequests` first.", ephemeral=True)
+    challenge = find_active_pve_quest_by_code(guild_id, quest_id)
+
+    if not challenge:
+        await interaction.response.send_message(
+            "Active quest ID not found. Use `/pvequests` and copy the exact `PVE-123456` ID from the quest.",
+            ephemeral=True
+        )
         return
 
     await interaction.response.defer(ephemeral=True)
 
-    challenge = recent[quest_number - 1]
     user_id = str(member.id)
     linked = linked_players.get(user_id, {})
     player_name = linked.get("gamertag") or str(member)
@@ -9086,11 +9874,12 @@ async def pvecomplete(interaction: discord.Interaction, quest_number: int, membe
             guild_id,
             guild_configs.get(guild_id, {}),
             next_kind,
-            manual=True
+            manual=True,
+            difficulty=challenge.get("slot_difficulty") or challenge.get("difficulty")
         )
 
     await interaction.followup.send(
-        f"Approved `{challenge.get('title')}` for {member.mention} and paid {reward} pennies.",
+        f"Approved `{pve_quest_code(challenge)}` - `{challenge.get('title')}` for {member.mention} and paid {reward} pennies.",
         ephemeral=True
     )
 
@@ -9582,6 +10371,9 @@ async def start_background_tasks():
 
         if not showcase_autonomous_loop.is_running():
             showcase_autonomous_loop.start()
+
+        if not temp_ban_expiry_loop.is_running():
+            temp_ban_expiry_loop.start()
 
     except RuntimeError:
         pass
@@ -11053,6 +11845,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
 
     # Mark this guild as a showcase/advertising guild so bot behaviour adapts
     guild_configs[guild_id]["is_showcase_guild"] = True
+    guild_configs[guild_id]["showcase_mode"] = True
     save_guild_configs()
 
     category_name = "🤖🌲┃WANDERING BOT SHOWCASE┃🌲🤖"
@@ -11062,6 +11855,8 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
 
     # Showcase-specific channels: advertising/informational only — no DayZ game channels
     showcase_channels = [
+        "💬・talk-to-the-bot",
+        "🎨・ai-image-lab",
         "📖・commands-guide",
         "🤖・ai-showcase",
         "⭐・reviews",
@@ -11083,6 +11878,93 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
             except Exception:
                 pass
         made_channels[channel_name] = existing
+
+    channels_cfg = guild_configs[guild_id].setdefault("channels", {})
+    if "💬・talk-to-the-bot" in made_channels:
+        channels_cfg["general_chat"] = made_channels["💬・talk-to-the-bot"].id
+    if "🎨・ai-image-lab" in made_channels:
+        channels_cfg["ai_chat"] = made_channels["🎨・ai-image-lab"].id
+    if "❓・questions-answers" in made_channels:
+        channels_cfg["help_channel"] = made_channels["❓・questions-answers"].id
+    if "📢・announcements" in made_channels:
+        channels_cfg["company_announcements"] = made_channels["📢・announcements"].id
+
+    ai_settings = ai_image_config(guild_configs[guild_id])
+    ai_settings["enabled"] = True
+    ai_settings["style"] = "gritty"
+    ai_settings["cooldown_seconds"] = 3600
+    if "🎨・ai-image-lab" in made_channels:
+        ai_settings["channel_id"] = made_channels["🎨・ai-image-lab"].id
+    save_guild_configs()
+
+    # ── 💬・talk-to-the-bot ─────────────────────────────────────────────────
+    ch = made_channels["💬・talk-to-the-bot"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="💬 TALK TO WANDERING BOT",
+        description=(
+            "This is the live demo room. Say hello, ask what I can do, ask how setup works, "
+            "or ask which command does what. I answer here without needing a DayZ server connected."
+        ),
+        color=0xFF4FD8
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="Try Me",
+        value=(
+            "`hi`\n"
+            "`what can you do?`\n"
+            "`how do I set up the killfeed?`\n"
+            "`explain the economy system`\n"
+            "`can you generate an image?`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Showcase Mode",
+        value=(
+            "In this Discord I act like an autonomous host: I greet people, answer questions, "
+            "drop feature suggestions, react to chat, and adapt lightly to how people talk."
+        ),
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot - Live AI Demo")
+    await ch.send(embed=style_embed(embed))
+
+    # ── 🎨・ai-image-lab ────────────────────────────────────────────────────
+    ch = made_channels["🎨・ai-image-lab"]
+    try:
+        await ch.purge(limit=20)
+    except Exception:
+        pass
+    embed = discord.Embed(
+        title="🎨 AI IMAGE LAB",
+        description=(
+            "Ask for generated DayZ-style showcase images here. I can do cinematic, gritty, "
+            "funny, survival, horror, and atmospheric prompts when image generation is configured."
+        ),
+        color=0x9B59B6
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.add_field(
+        name="Try Asking",
+        value=(
+            "`make a cinematic survivor image`\n"
+            "`generate a funny DayZ picture`\n"
+            "`show me a gritty survival scene`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Note",
+        value="If image generation is offline, I will still explain what needs configuring instead of sitting there silently.",
+        inline=False
+    )
+    embed.set_footer(text="Wandering Bot - AI Art Showcase")
+    await ch.send(embed=style_embed(embed))
 
     # ── 📖・commands-guide ──────────────────────────────────────────────────
     ch = made_channels["📖・commands-guide"]
@@ -11505,6 +12387,249 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         "All showcase channels created/updated with full content.",
         ephemeral=True
     )
+
+@bot.tree.command(name="botupdates", description="Admin: create/repair the public bot updates feed")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(force_repost="Repost the full changelog backlog instead of only missing updates")
+async def botupdates(interaction: discord.Interaction, force_repost: bool = False):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+
+    if force_repost:
+        config["posted_bot_update_ids"] = []
+
+    sent, channel = await publish_bot_update_notes(interaction.guild, config, force=force_repost)
+    await interaction.followup.send(
+        f"Bot updates feed is ready in {channel.mention}. Posted `{sent}` update note(s).",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="cheatchecksetup", description="Admin: create private PC cheat-check category and guide")
+@app_commands.default_permissions(administrator=True)
+async def cheatchecksetup(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = cheat_check_config(config)
+    settings["enabled"] = True
+    channel = await ensure_cheat_check_channel(interaction.guild, config)
+    await post_cheat_check_intro(channel, config)
+    save_guild_configs()
+
+    await interaction.followup.send(
+        f"Private PC cheat-check feed is ready in {channel.mention}. Detection is enabled in alert-only mode.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="cheatcheckconfig", description="Admin: configure PC cheat-check detection")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    enabled="Turn cheat-check detection on or off",
+    auto_ban="Reserved safety switch. Alerts remain evidence-first unless a trusted DayZ ban backend is wired."
+)
+async def cheatcheckconfig(interaction: discord.Interaction, enabled: bool = True, auto_ban: bool = False):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = cheat_check_config(config)
+    settings["enabled"] = enabled
+    settings["auto_ban"] = auto_ban
+    save_guild_configs()
+
+    channel = bot.get_channel(config.get("channels", {}).get("cheat_checks"))
+    if channel:
+        embed = discord.Embed(
+            title="PC CHEAT CHECK CONFIG UPDATED",
+            color=0x2ECC71 if enabled else 0x95A5A6
+        )
+        embed.add_field(name="Detection", value="on" if enabled else "off", inline=True)
+        embed.add_field(name="Auto-ban", value="on" if auto_ban else "off", inline=True)
+        embed.add_field(name="Changed By", value=f"{interaction.user.mention}\n`{interaction.user}`", inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Private PC Cheat Check")
+        embed.timestamp = datetime.now(UTC)
+        await channel.send(embed=style_embed(embed))
+
+    await interaction.response.send_message(
+        f"PC cheat-check detection is `{'on' if enabled else 'off'}`. Auto-ban setting is `{'on' if auto_ban else 'off'}`.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="cheatcheckstatus", description="Admin: show PC cheat-check thresholds and mode")
+@app_commands.default_permissions(administrator=True)
+async def cheatcheckstatus(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = cheat_check_config(config)
+
+    embed = discord.Embed(
+        title="PC CHEAT CHECK STATUS",
+        color=0xE74C3C if settings.get("enabled", True) else 0x95A5A6
+    )
+    embed.add_field(name="Detection", value="on" if settings.get("enabled", True) else "off", inline=True)
+    embed.add_field(name="Auto-ban", value="on" if settings.get("auto_ban") else "off", inline=True)
+    embed.add_field(
+        name="Shot Limits",
+        value="\n".join(f"{weapon}: `{limit}m`" for weapon, limit in CHEAT_WEAPON_LIMITS.items()),
+        inline=False
+    )
+    embed.add_field(
+        name="Snap Chain Rules",
+        value=(
+            "2 kills: `<=1.5s`, `85 deg+`, `350m+`\n"
+            "3 kills: `<=4s`, `60 deg+`, `250m+`\n"
+            "4+ kills: `<=7s`, `40 deg+`, `175m+`"
+        ),
+        inline=False
+    )
+    channel = bot.get_channel(config.get("channels", {}).get("cheat_checks"))
+    embed.add_field(name="Private Feed", value=channel.mention if channel else "Not created. Run `/cheatchecksetup`.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.tree.command(name="shamesetup", description="Admin: create the public Wandering in Shame moderation feed")
+@app_commands.default_permissions(administrator=True)
+async def shamesetup(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    channel = await ensure_public_shame_channel(interaction.guild, config)
+    await interaction.response.send_message(f"Public moderation feed is ready in {channel.mention}.", ephemeral=True)
+
+
+@bot.tree.command(name="adminban", description="Admin: ban a Discord member and post a public reason")
+@app_commands.default_permissions(ban_members=True)
+@app_commands.describe(member="Member to ban", reason="Reason shown in Wandering in Shame", delete_message_days="Delete recent message history, 0-7 days")
+async def adminban(interaction: discord.Interaction, member: discord.Member, reason: str, delete_message_days: int = 0):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("You need Ban Members permission.", ephemeral=True)
+        return
+
+    if member.id == interaction.user.id or member.id == bot.user.id:
+        await interaction.response.send_message("That member cannot be banned by this command.", ephemeral=True)
+        return
+
+    delete_message_days = max(0, min(7, int(delete_message_days or 0)))
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+
+    await member.ban(reason=f"{reason} - banned by {interaction.user}", delete_message_days=delete_message_days)
+    await send_public_shame_notice(
+        interaction.guild,
+        config,
+        "MEMBER BANNED",
+        f"{member.mention}\n`{member}`",
+        interaction.user,
+        reason,
+        "permanent"
+    )
+
+    await interaction.response.send_message(f"Banned `{member}` and posted the reason in Wandering in Shame.", ephemeral=True)
+
+
+@bot.tree.command(name="admintempban", description="Admin: temporarily ban a Discord member and post a public reason")
+@app_commands.default_permissions(ban_members=True)
+@app_commands.describe(member="Member to temp-ban", duration="Example: 30m, 2h, 3d, or 1d 6h", reason="Reason shown in Wandering in Shame")
+async def admintempban(interaction: discord.Interaction, member: discord.Member, duration: str, reason: str):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("You need Ban Members permission.", ephemeral=True)
+        return
+
+    if member.id == interaction.user.id or member.id == bot.user.id:
+        await interaction.response.send_message("That member cannot be banned by this command.", ephemeral=True)
+        return
+
+    seconds = parse_duration_to_seconds(duration)
+    if not seconds or seconds < 60:
+        await interaction.response.send_message("Duration must be at least 1 minute. Use examples like `30m`, `2h`, `3d`, or `1d 6h`.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    until_ts = datetime.now(UTC).timestamp() + seconds
+    duration_text = format_duration_seconds(seconds)
+
+    config.setdefault("temp_bans", []).append({
+        "user_id": str(member.id),
+        "user_name": str(member),
+        "moderator_id": str(interaction.user.id),
+        "reason": reason,
+        "until_ts": until_ts,
+        "created": str(datetime.now(UTC)),
+    })
+    save_guild_configs()
+
+    await member.ban(reason=f"Temp ban {duration_text}: {reason} - banned by {interaction.user}", delete_message_days=0)
+    await send_public_shame_notice(
+        interaction.guild,
+        config,
+        "TEMP BAN ISSUED",
+        f"{member.mention}\n`{member}`",
+        interaction.user,
+        reason,
+        duration_text
+    )
+
+    await interaction.response.send_message(f"Temp-banned `{member}` for {duration_text} and posted the reason.", ephemeral=True)
+
+
+@bot.tree.command(name="adminunban", description="Admin: unban a Discord user ID and post a public reason")
+@app_commands.default_permissions(ban_members=True)
+@app_commands.describe(user_id="Discord user ID to unban", reason="Reason shown in Wandering in Shame")
+async def adminunban(interaction: discord.Interaction, user_id: str, reason: str = "Appeal accepted"):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("You need Ban Members permission.", ephemeral=True)
+        return
+
+    if not str(user_id).isdigit():
+        await interaction.response.send_message("User ID must be numeric.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    user = await bot.fetch_user(int(user_id))
+    await interaction.guild.unban(user, reason=f"{reason} - unbanned by {interaction.user}")
+    config["temp_bans"] = [
+        ban for ban in config.get("temp_bans", [])
+        if str(ban.get("user_id")) != str(user_id)
+    ]
+    save_guild_configs()
+
+    await send_public_shame_notice(
+        interaction.guild,
+        config,
+        "MEMBER UNBANNED",
+        f"`{user}` (`{user_id}`)",
+        interaction.user,
+        reason,
+        None
+    )
+
+    await interaction.response.send_message(f"Unbanned `{user}` and posted the reason.", ephemeral=True)
+
 
 @bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
 @app_commands.describe(
@@ -12333,11 +13458,13 @@ def default_init_path_for_guild(guild_id):
 @bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
+    install="False checks/explains only. True backs up and patches init.c.",
     init_path="Advanced: FTP path to init.c. Leave blank for map-based default.",
     delivery_path="Advanced: FTP path for deliveries.xml"
 )
 async def installdayzbridge(
     interaction: discord.Interaction,
+    install: bool = False,
     init_path: str = "",
     delivery_path: str = "/dayzxb/custom/deliveries.xml"
 ):
@@ -12365,6 +13492,40 @@ async def installdayzbridge(
     updated_text, changed, install_error = install_wandering_delivery_bridge(init_text)
     if install_error:
         await interaction.followup.send(install_error, ephemeral=True)
+        return
+
+    if not install:
+        embed = discord.Embed(
+            title="DAYZ DELIVERY BRIDGE CHECK",
+            description=(
+                "Shop deliveries and vehicle reset/rental spawns need a small restart hook in `init.c`.\n\n"
+                "I found your `init.c` and checked what would be needed. Nothing was changed."
+            ),
+            color=0x3498DB
+        )
+        embed.add_field(name="Detected init.c Path", value=f"`{init_path}`", inline=False)
+        embed.add_field(name="Delivery XML Path", value=f"`{delivery_path}`", inline=False)
+        embed.add_field(
+            name="Status",
+            value=(
+                "Bridge already appears installed." if not changed else
+                "Bridge is not installed yet. Run this command again with `install:true` if you want the bot to back up and patch `init.c`."
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="What install:true does",
+            value=(
+                "1. Downloads `init.c` from FTP.\n"
+                "2. Uploads a timestamped backup next to it.\n"
+                "3. Adds `SpawnWanderingDeliveries()` only if missing.\n"
+                "4. Adds `SpawnWanderingDeliveries();` only if missing.\n"
+                "5. Uploads a starter `deliveries.xml`."
+            ),
+            inline=False
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
         return
 
     backup_path = f"{init_path}.wandering-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
@@ -12721,6 +13882,9 @@ async def slash_setrestartinterval(interaction: discord.Interaction, hours: int)
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(hour="Hour 0-23")
 async def slash_setrestartstart(interaction: discord.Interaction, hour: int): await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
+@bot.tree.command(name="cancelrestarts", description="Admin: disable recurring server restart schedule")
+@app_commands.default_permissions(administrator=True)
+async def slash_cancelrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "cancelrestarts")
 @bot.tree.command(name="listrestarts", description="List restart schedule")
 @app_commands.default_permissions(administrator=True)
 async def slash_listrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "listrestarts")
@@ -12886,6 +14050,8 @@ async def on_ready():
     load_wallets()
     load_delivery_queue()
 
+    await publish_bot_updates_for_active_guilds()
+
     for guild_id, config in active_guild_config_items():
         try:
             if pve_config(config).get("enabled", True):
@@ -12917,9 +14083,9 @@ async def on_ready():
 
     for guild in bot.guilds:
         try:
-            bot.tree.copy_global_to(guild=guild)
+            bot.tree.clear_commands(guild=guild)
             guild_synced = await bot.tree.sync(guild=guild)
-            print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
+            print(f"GUILD SLASH COMMAND COPIES CLEARED {guild.name}: {len(guild_synced)}")
         except Exception as sync_error:
             print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
 
