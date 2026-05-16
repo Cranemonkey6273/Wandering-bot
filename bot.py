@@ -6223,6 +6223,27 @@ def nitrado_api_service_url(config, endpoint):
     return f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/{endpoint}"
 
 
+def nitrado_api_file_path(config, target_path):
+    clean = str(target_path or "").replace("\\", "/").strip()
+    if not clean:
+        return clean
+
+    if not clean.startswith("/"):
+        clean = "/" + clean
+
+    if clean.startswith("/games/"):
+        return clean
+
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if nitrado_user and clean.startswith("/dayzxb/"):
+        return f"/games/{nitrado_user}/noftp{clean}"
+
+    if nitrado_user and clean.startswith("/noftp/"):
+        return f"/games/{nitrado_user}{clean}"
+
+    return clean
+
+
 def split_remote_file_path(target_path):
     clean = str(target_path or "").replace("\\", "/").strip()
     folder = os.path.dirname(clean) or "/"
@@ -6249,7 +6270,7 @@ def download_text_file_from_nitrado_api(config, target_path):
         response = requests.get(
             url,
             headers=headers,
-            params={"file": target_path},
+            params={"file": nitrado_api_file_path(config, target_path)},
             timeout=30
         )
         if response.status_code != 200:
@@ -6279,6 +6300,7 @@ def ensure_nitrado_api_folder(config, folder):
     if not headers or not url:
         return
 
+    folder = nitrado_api_file_path(config, folder)
     parent = os.path.dirname(folder.rstrip("/")) or "/"
     name = os.path.basename(folder.rstrip("/"))
     if not name:
@@ -6301,7 +6323,8 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
     if not headers or not url:
         return False, "Nitrado API token or service ID is missing."
 
-    folder, name = split_remote_file_path(target_path)
+    api_target_path = nitrado_api_file_path(config, target_path)
+    folder, name = split_remote_file_path(api_target_path)
     if not name:
         return False, "Remote file name is missing."
 
