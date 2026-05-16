@@ -530,7 +530,17 @@ def heat_counts_for_mode(guild_id, mode):
 
 
 def server_map_key(guild_id):
-    configured = guild_configs.get(str(guild_id), {}).get("server_map", "chernarus")
+    config = guild_configs.get(str(guild_id), {})
+    configured = config.get("server_map")
+    if not configured:
+        guild_name_key = normalize_discord_name(config.get("guild_name", ""))
+        if any(term in guild_name_key for term in ["livonia", "livo", "enoch"]):
+            configured = "livonia"
+        elif any(term in guild_name_key for term in ["sakhal", "sakhalplus"]):
+            configured = "sakhal"
+        else:
+            configured = "chernarus"
+
     key = normalize_discord_name(configured)
 
     if key in ["livonia", "enoch"]:
@@ -4799,6 +4809,15 @@ def adm_log_datetime(entry):
     return parse_nitrado_datetime(entry.get("modified_at"))
 
 
+def adm_debug_enabled():
+    return str(os.getenv("WANDERING_ADM_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def adm_debug_log(message):
+    if adm_debug_enabled():
+        print(message)
+
+
 def list_adm_logs(config, lookback_hours=None):
 
     token = config.get("nitrado_token")
@@ -4836,7 +4855,7 @@ def list_adm_logs(config, lookback_hours=None):
                 timeout=20
             )
 
-            print("[PING STATUS]", response.status_code)
+            adm_debug_log(f"[PING STATUS] {response.status_code}")
 
             if response.status_code != 200:
                 continue
@@ -4849,13 +4868,13 @@ def list_adm_logs(config, lookback_hours=None):
                 .get("entries", [])
             )
 
-            print(f"[SEARCH PATH] {search_path}")
+            adm_debug_log(f"[SEARCH PATH] {search_path}")
 
             for entry in entries:
                 if not ADM_LOG_NAME_PATTERN.match(entry.get("name", "")):
                     continue
 
-                print(f"FOUND FILE: {entry.get('name')}")
+                adm_debug_log(f"FOUND FILE: {entry.get('name')}")
 
                 entry_time = adm_log_datetime(entry)
                 if cutoff and entry_time and entry_time < cutoff:
@@ -4878,11 +4897,11 @@ def ping_latest_adm_log(config):
     matching_logs = list_adm_logs(config)
 
     if not matching_logs:
-        print("NO MATCHING ADM FILES")
+        adm_debug_log("NO MATCHING ADM FILES")
         return None
 
     latest = matching_logs[0]
-    print("LATEST ADM FOUND:", latest.get("path"))
+    adm_debug_log(f"LATEST ADM FOUND: {latest.get('path')}")
     return latest
 
 # =========================================================
@@ -6342,6 +6361,10 @@ def connect_nitrado_ftp(config):
             ftp = FTP_TLS(ftp_host, timeout=30)
             ftp.login(ftp_user, ftp_pass)
             ftp.prot_p()
+            try:
+                ftp.sock.settimeout(30)
+            except Exception:
+                pass
             return ftp, ftp_host, None
         except Exception as error:
             host_errors.append((ftp_host, error))
@@ -6459,7 +6482,7 @@ def download_text_file_from_nitrado_api(config, target_path):
                     url,
                     headers=headers,
                     params={param_name: api_path},
-                    timeout=30
+                    timeout=15
                 )
                 if response.status_code != 200:
                     attempts.append(f"{param_name}={api_path}: {response.status_code} {response.text[:160]}")
@@ -6473,7 +6496,7 @@ def download_text_file_from_nitrado_api(config, target_path):
                 file_response = requests.get(
                     token_url,
                     params={"token": token_value} if token_value else None,
-                    timeout=30
+                    timeout=20
                 )
                 if file_response.status_code != 200:
                     attempts.append(f"{param_name}={api_path}: file {file_response.status_code} {file_response.text[:160]}")
@@ -6527,7 +6550,7 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
             url,
             headers=headers,
             data={"path": folder, "file": name},
-            timeout=30
+            timeout=20
         )
         if token_response.status_code not in (200, 201):
             return False, f"Nitrado API upload token failed with status {token_response.status_code}: {token_response.text[:300]}"
@@ -6543,7 +6566,7 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
                 "token": token_value,
             },
             data=str(text_content or "").encode("utf-8"),
-            timeout=45
+            timeout=30
         )
         if upload_response.status_code not in (200, 201, 204):
             return False, f"Nitrado API file upload failed with status {upload_response.status_code}: {upload_response.text[:300]}"
@@ -6659,6 +6682,20 @@ def download_text_file_from_nitrado(config, target_path):
                 return True, f"Downloaded successfully via {ftp_host} path `{ftp_path}`.", content
             except Exception as error:
                 ftp_errors.append(f"{ftp_path}: {error}")
+                folder = os.path.dirname(str(ftp_path).replace("\\", "/")) or "/"
+                filename = os.path.basename(str(ftp_path).replace("\\", "/"))
+                if not filename:
+                    continue
+                try:
+                    cwd_target = canonical_remote_path(folder)
+                    ftp.cwd(cwd_target)
+                    buffer = io.BytesIO()
+                    ftp.retrbinary(f"RETR {filename}", buffer.write)
+                    ftp.quit()
+                    content = buffer.getvalue().decode("utf-8", errors="ignore")
+                    return True, f"Downloaded successfully via {ftp_host} folder `{cwd_target}` file `{filename}`.", content
+                except Exception as cwd_error:
+                    ftp_errors.append(f"{folder}/{filename}: {cwd_error}")
 
         try:
             ftp.quit()
@@ -6671,13 +6708,24 @@ def download_text_file_from_nitrado(config, target_path):
         return False, str(error), None
 
 
-def nitrado_ftp_path_candidates(config, target_path):
-    clean = str(target_path or "").replace("\\", "/").strip()
+def canonical_remote_path(path):
+    clean = str(path or "").replace("\\", "/").strip().strip("`'\"<>")
     if not clean:
-        return []
+        return ""
 
+    clean = re.sub(r"/+", "/", clean)
     if not clean.startswith("/"):
         clean = "/" + clean
+
+    clean = re.sub(r"(/dayzxb_missions)(?:/dayzxb_missions)+/", r"\1/", clean)
+    clean = re.sub(r"(/dayzxb)(?:/dayzxb)+/", r"\1/", clean)
+    return clean.rstrip("/") or "/"
+
+
+def nitrado_ftp_path_candidates(config, target_path):
+    clean = canonical_remote_path(target_path)
+    if not clean:
+        return []
 
     candidates = [
         clean,
@@ -6701,9 +6749,14 @@ def nitrado_ftp_path_candidates(config, target_path):
 
     deduped = []
     for candidate in candidates:
-        candidate = str(candidate or "").replace("\\", "/").strip()
-        if candidate and candidate not in deduped:
-            deduped.append(candidate)
+        candidate = canonical_remote_path(candidate)
+        if candidate.startswith("/games/"):
+            candidate_variants = [candidate, candidate.lstrip("/")]
+        else:
+            candidate_variants = [candidate, candidate.lstrip("/")]
+        for candidate in candidate_variants:
+            if candidate and candidate not in deduped:
+                deduped.append(candidate)
     return deduped
 
 
@@ -6732,7 +6785,7 @@ def list_remote_directory_from_nitrado_api(config, folder):
                 if name or path:
                     entries.append({
                         "name": str(name or os.path.basename(str(path))),
-                        "path": str(path or os.path.join(folder, str(name))).replace("\\", "/"),
+                        "path": canonical_remote_path(path or os.path.join(folder, str(name))),
                         "type": str(entry.get("type") or entry.get("file_type") or ""),
                     })
         except Exception:
@@ -6759,7 +6812,15 @@ def list_remote_directory_from_ftp(config, folder):
                 name = os.path.basename(item_text)
                 if not name:
                     continue
-                path = item_text if item_text.startswith("/") else f"{remote_folder.rstrip('/')}/{item_text}"
+                remote_clean = canonical_remote_path(remote_folder)
+                item_clean = item_text.lstrip("/")
+                remote_key = remote_clean.lstrip("/")
+                if item_text.startswith("/"):
+                    path = canonical_remote_path(item_text)
+                elif remote_key and item_clean.startswith(remote_key + "/"):
+                    path = canonical_remote_path(item_clean)
+                else:
+                    path = canonical_remote_path(f"{remote_clean}/{item_clean}")
                 entries.append({
                     "name": name,
                     "path": path,
@@ -6786,7 +6847,7 @@ def remote_directory_entries(config, folder):
     deduped = []
     seen = set()
     for entry in entries:
-        path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+        path = canonical_remote_path(entry.get("path"))
         if not path or path in seen:
             continue
         seen.add(path)
@@ -6828,7 +6889,7 @@ def init_search_roots(config):
 
 
 def remember_remote_path(paths, candidate):
-    candidate = str(candidate or "").replace("\\", "/").rstrip("/")
+    candidate = canonical_remote_path(candidate)
     if candidate and candidate not in paths:
         paths.append(candidate)
 
@@ -6905,15 +6966,19 @@ def search_remote_init_paths_from_nitrado_api(config):
 
 
 def ftp_child_path(parent, item):
-    parent = str(parent or "").replace("\\", "/").rstrip("/") or "/"
+    parent = canonical_remote_path(parent)
     item = str(item or "").replace("\\", "/").rstrip("/")
     if not item:
         return ""
     if item.startswith("/"):
-        return item
+        return canonical_remote_path(item)
+    parent_key = parent.lstrip("/")
+    item_key = item.lstrip("/")
+    if parent_key and item_key.startswith(parent_key + "/"):
+        return canonical_remote_path(item_key)
     if parent == "/":
-        return "/" + item.lstrip("/")
-    return f"{parent}/{item.lstrip('/')}"
+        return canonical_remote_path(item.lstrip("/"))
+    return canonical_remote_path(f"{parent}/{item.lstrip('/')}")
 
 
 def looks_like_remote_directory(path):
@@ -14026,7 +14091,7 @@ async def restart_delivery_processor():
                 )
 
         except Exception as error:
-            print(error)
+            print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
 
 
 # =========================================================
@@ -16160,49 +16225,96 @@ def default_init_path_for_guild(guild_id):
         "livonia": "dayzOffline.enoch",
         "sakhal": "dayzOffline.sakhal",
     }.get(map_key, "dayzOffline.chernarusplus")
-    return f"/dayzxb/mpmissions/{mission}/init.c"
+    return f"/dayzxb_missions/{mission}/init.c"
+
+
+def map_mission_folder_names(map_key):
+    if map_key == "livonia":
+        return [
+            "dayzOffline.enoch",
+            "dayzOffline.chernarusplus",
+            "dayzOffline.sakhal",
+            "dayzOffline.sakhalplus",
+            "dayzOffline.namalsk",
+        ]
+    if map_key == "sakhal":
+        return [
+            "dayzOffline.sakhal",
+            "dayzOffline.sakhalplus",
+            "dayzOffline.enoch",
+            "dayzOffline.chernarusplus",
+            "dayzOffline.namalsk",
+        ]
+    return [
+        "dayzOffline.chernarusplus",
+        "dayzOffline.enoch",
+        "dayzOffline.sakhal",
+        "dayzOffline.sakhalplus",
+        "dayzOffline.namalsk",
+    ]
+
+
+def sort_init_paths_for_guild(guild_id, paths):
+    map_key = server_map_key(guild_id)
+    missions = map_mission_folder_names(map_key)
+    mission_rank = {normalize_discord_name(mission): index for index, mission in enumerate(missions)}
+
+    def path_rank(path):
+        clean = canonical_remote_path(path)
+        normalized = normalize_discord_name(clean)
+        rank = min(
+            (rank for mission, rank in mission_rank.items() if mission in normalized),
+            default=len(mission_rank)
+        )
+        root_rank = 0 if clean.startswith("/dayzxb_missions/") else 1 if clean.startswith("/dayzxb/mpmissions/") else 2
+        return rank, root_rank, clean
+
+    deduped = []
+    for path in paths:
+        clean = canonical_remote_path(path)
+        if clean and clean not in deduped:
+            deduped.append(clean)
+
+    return sorted(deduped, key=path_rank)
 
 
 def init_path_candidates_for_guild(guild_id):
     preferred = default_init_path_for_guild(guild_id)
     saved = guild_configs.get(str(guild_id), {}).get("dayz_delivery_bridge", {}).get("init_path")
-    candidates = [
-        saved,
-        preferred,
-        "/dayzxb/mpmissions/dayzOffline.chernarusplus/init.c",
-        "/dayzxb/mpmissions/dayzOffline.enoch/init.c",
-        "/dayzxb/mpmissions/dayzOffline.sakhal/init.c",
-        "/dayzxb/mpmissions/dayzOffline.sakhalplus/init.c",
-        "/dayzxb/mpmissions/dayzOffline.namalsk/init.c",
-        "/dayzxb_missions/dayzOffline.chernarusplus/init.c",
-        "/dayzxb_missions/dayzOffline.enoch/init.c",
-        "/dayzxb_missions/dayzOffline.sakhal/init.c",
-        "/dayzxb_missions/dayzOffline.sakhalplus/init.c",
-        "/dayzxb_missions/dayzOffline.namalsk/init.c",
-        "/dayzxb_missions/mpmissions/dayzOffline.chernarusplus/init.c",
-        "/dayzxb_missions/mpmissions/dayzOffline.enoch/init.c",
-        "/dayzxb_missions/mpmissions/dayzOffline.sakhal/init.c",
-        "/dayzxb_missions/mpmissions/dayzOffline.sakhalplus/init.c",
-        "/dayzxb_missions/mpmissions/dayzOffline.namalsk/init.c",
-    ]
+    candidates = [saved, preferred]
+    for mission in map_mission_folder_names(server_map_key(guild_id)):
+        candidates.extend([
+            f"/dayzxb_missions/{mission}/init.c",
+            f"/dayzxb/mpmissions/{mission}/init.c",
+            f"/dayzxb_missions/mpmissions/{mission}/init.c",
+        ])
 
     deduped = []
     for candidate in candidates:
-        if candidate not in deduped:
+        candidate = canonical_remote_path(candidate)
+        if candidate and candidate not in deduped:
             deduped.append(candidate)
-    return deduped
+    return sort_init_paths_for_guild(guild_id, deduped)
 
 
 def download_init_c_with_fallback(config, guild_id, init_path=""):
     attempted = []
+    candidates = []
 
     if init_path:
-        candidates = [str(init_path).strip()]
+        candidates.append(canonical_remote_path(init_path))
     else:
-        candidates = []
-        for candidate in init_path_candidates_for_guild(guild_id) + discover_init_c_paths(config):
+        for candidate in init_path_candidates_for_guild(guild_id):
+            candidate = canonical_remote_path(candidate)
             if candidate and candidate not in candidates:
                 candidates.append(candidate)
+
+    for candidate in discover_init_c_paths(config):
+        candidate = canonical_remote_path(candidate)
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    candidates = sort_init_paths_for_guild(guild_id, candidates)
 
     last_message = ""
     for candidate in candidates:
@@ -16216,6 +16328,16 @@ def download_init_c_with_fallback(config, guild_id, init_path=""):
         last_message = message
 
     return False, last_message or "No init.c path could be downloaded.", None, candidates[0] if candidates else "", attempted
+
+
+async def run_bridge_blocking_io(label, func, *args, timeout_seconds=90):
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(func, *args),
+            timeout=timeout_seconds
+        )
+    except asyncio.TimeoutError:
+        raise TimeoutError(f"{label} timed out after {timeout_seconds} seconds.")
 
 
 @bridge_group.command(name="findinitc", description="Admin: search Nitrado FTP/API for your DayZ init.c path")
@@ -16246,6 +16368,7 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
         save_guild_configs()
 
     found_paths, visible_roots = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+    found_paths = sort_init_paths_for_guild(guild_id, found_paths)
 
     embed = discord.Embed(
         title="INIT.C SEARCH DIAGNOSTIC",
@@ -16353,12 +16476,33 @@ async def installdayzbridge(
         save_guild_configs()
 
     requested_init_path = (init_path or "").strip()
-    ok, message, init_text, init_path, attempted_paths = await asyncio.to_thread(
-        download_init_c_with_fallback,
-        config,
-        guild_id,
-        requested_init_path
+    await interaction.followup.send(
+        (
+            f"Bridge install started. Downloading `init.c` from `{requested_init_path}`..."
+            if requested_init_path else
+            "Bridge install started. Searching for and downloading `init.c`..."
+        ),
+        ephemeral=True
     )
+    try:
+        ok, message, init_text, init_path, attempted_paths = await run_bridge_blocking_io(
+            "Downloading init.c",
+            download_init_c_with_fallback,
+            config,
+            guild_id,
+            requested_init_path,
+            timeout_seconds=90
+        )
+    except TimeoutError as error:
+        await interaction.followup.send(
+            discord_safe_content(
+                f"{error}\n\n"
+                "The bot stopped waiting instead of leaving Discord stuck on thinking. "
+                "Try the exact path from `/bridge findinitc`. If it still times out, Nitrado is hanging during the `init.c` download."
+            ),
+            ephemeral=True
+        )
+        return
     if not ok:
         permission_denied = (
             "Permission denied" in str(message)
@@ -16413,7 +16557,16 @@ async def installdayzbridge(
             "Could not resolve any Nitrado FTP host" in str(message)
             or "Could not connect to Nitrado FTP" in str(message)
         )
-        found_paths, visible_roots = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+        try:
+            found_paths, visible_roots = await run_bridge_blocking_io(
+                "Running init.c diagnostic",
+                bridge_init_c_diagnostic,
+                config,
+                timeout_seconds=45
+            )
+            found_paths = sort_init_paths_for_guild(guild_id, found_paths)
+        except TimeoutError:
+            found_paths, visible_roots = [], []
 
         embed = discord.Embed(title="INIT.C NOT FOUND", color=0xE67E22)
         if network_error:
@@ -16512,6 +16665,11 @@ async def installdayzbridge(
         )
         return
 
+    await interaction.followup.send(
+        f"Downloaded `init.c` from `{init_path}`. Checking whether the bridge hook is already installed...",
+        ephemeral=True
+    )
+
     updated_text, changed, install_error = install_wandering_delivery_bridge(init_text)
     if install_error:
         await interaction.followup.send(discord_safe_content(install_error), ephemeral=True)
@@ -16558,7 +16716,23 @@ async def installdayzbridge(
         return
 
     backup_path = f"{init_path}.wandering-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
-    backup_ok, backup_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, backup_path, init_text)
+    await interaction.followup.send(f"Creating backup at `{backup_path}`...", ephemeral=True)
+    try:
+        backup_ok, backup_message = await run_bridge_blocking_io(
+            "Creating init.c backup",
+            upload_text_file_to_nitrado,
+            config,
+            backup_path,
+            init_text,
+            timeout_seconds=90
+        )
+    except TimeoutError as error:
+        await interaction.followup.send(
+            discord_safe_content(f"{error}\n\nBackup did not finish, so I did not touch `init.c`."),
+            ephemeral=True
+        )
+        return
+
     if not backup_ok:
         await interaction.followup.send(
             discord_safe_content(f"Backup failed, so I did not touch init.c: `{backup_message}`"),
@@ -16567,16 +16741,46 @@ async def installdayzbridge(
         return
 
     if changed:
-        upload_ok, upload_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, init_path, updated_text)
+        await interaction.followup.send("Backup created. Uploading patched `init.c`...", ephemeral=True)
+        try:
+            upload_ok, upload_message = await run_bridge_blocking_io(
+                "Uploading patched init.c",
+                upload_text_file_to_nitrado,
+                config,
+                init_path,
+                updated_text,
+                timeout_seconds=90
+            )
+        except TimeoutError as error:
+            await interaction.followup.send(
+                discord_safe_content(f"{error}\n\nBackup was created at `{backup_path}`, but patched `init.c` did not finish uploading."),
+                ephemeral=True
+            )
+            return
+
         if not upload_ok:
             await interaction.followup.send(
                 discord_safe_content(f"Backup was created at `{backup_path}`, but init.c upload failed: `{upload_message}`"),
                 ephemeral=True
             )
             return
+        await interaction.followup.send("Patched `init.c` uploaded. Uploading starter `deliveries.xml`...", ephemeral=True)
+    else:
+        await interaction.followup.send("Bridge hook is already installed. Uploading starter `deliveries.xml`...", ephemeral=True)
 
     starter_xml = "<objects>\n</objects>\n"
-    delivery_ok, delivery_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, delivery_path, starter_xml)
+    try:
+        delivery_ok, delivery_message = await run_bridge_blocking_io(
+            "Uploading starter deliveries.xml",
+            upload_text_file_to_nitrado,
+            config,
+            delivery_path,
+            starter_xml,
+            timeout_seconds=90
+        )
+    except TimeoutError as error:
+        delivery_ok = False
+        delivery_message = str(error)
 
     config["dayz_delivery_bridge"] = {
         "init_path": init_path,
