@@ -15656,6 +15656,55 @@ async def installdayzbridge(
         requested_init_path
     )
     if not ok:
+        permission_denied = (
+            "Permission denied" in str(message)
+            or any("Permission denied" in str(item) for item in attempted_paths)
+        )
+        if permission_denied:
+            tried_lines = []
+            for item in attempted_paths[:8]:
+                path_text, _, error_text = str(item).partition(": ")
+                if error_text:
+                    tried_lines.append(f"`{path_text}`: {error_text[:180]}")
+                else:
+                    tried_lines.append(f"`{str(item)[:220]}`")
+
+            embed = discord.Embed(
+                title="DAYZ BRIDGE NEEDS MANUAL INSTALL",
+                description=(
+                    "Nitrado found a likely mission path, but refused the API download of `init.c` with "
+                    "`Permission denied`. Railway also cannot resolve Nitrado's FTP hosts from this bot "
+                    "environment, so I cannot patch `init.c` automatically from here."
+                ),
+                color=0xE67E22
+            )
+            embed.add_field(
+                name="Next Step",
+                value=(
+                    "Open your mission `init.c` in Nitrado, paste the attached bridge snippet before the "
+                    "closing brace of `main()`, then restart the DayZ server. You can also run "
+                    "`/events bridgecode` any time to export this snippet again."
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="Tried",
+                value=("\n".join(tried_lines) or "No paths were attempted.")[:1000],
+                inline=False
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot Alpha - Manual Bridge Fallback")
+            instructions = (
+                "Paste this bridge code into your mission init.c before the closing brace of main().\n"
+                "After it is installed, upload deliveries.xml to /dayzxb/custom/deliveries.xml and restart the server.\n\n"
+            )
+            file = discord.File(
+                io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
+                filename="wandering_bridge_v4_init_snippet.c"
+            )
+            await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+            return
+
         network_error = (
             "Could not resolve any Nitrado FTP host" in str(message)
             or "Could not connect to Nitrado FTP" in str(message)
