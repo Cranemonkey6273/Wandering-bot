@@ -6600,15 +6600,58 @@ def download_text_file_from_nitrado(config, target_path):
         if ftp_error:
             return False, f"{api_message} FTP fallback also failed: {ftp_error}", None
 
-        buffer = io.BytesIO()
-        ftp.retrbinary(f"RETR {target_path}", buffer.write)
-        ftp.quit()
+        ftp_errors = []
+        for ftp_path in nitrado_ftp_path_candidates(config, target_path):
+            buffer = io.BytesIO()
+            try:
+                ftp.retrbinary(f"RETR {ftp_path}", buffer.write)
+                ftp.quit()
+                content = buffer.getvalue().decode("utf-8", errors="ignore")
+                return True, f"Downloaded successfully via {ftp_host} path `{ftp_path}`.", content
+            except Exception as error:
+                ftp_errors.append(f"{ftp_path}: {error}")
 
-        content = buffer.getvalue().decode("utf-8", errors="ignore")
-        return True, f"Downloaded successfully via {ftp_host}.", content
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+
+        return False, "; ".join(ftp_errors[-6:]) or "FTP download failed.", None
 
     except Exception as error:
         return False, str(error), None
+
+
+def nitrado_ftp_path_candidates(config, target_path):
+    clean = str(target_path or "").replace("\\", "/").strip()
+    if not clean:
+        return []
+
+    if not clean.startswith("/"):
+        clean = "/" + clean
+
+    candidates = [
+        clean,
+        clean.lstrip("/"),
+        nitrado_api_file_path(config, clean),
+        nitrado_api_file_path(config, clean).lstrip("/"),
+    ]
+
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if nitrado_user and clean.startswith("/dayzxb/"):
+        candidates.extend([
+            f"/games/{nitrado_user}/noftp{clean}",
+            f"games/{nitrado_user}/noftp{clean}",
+            f"/noftp{clean}",
+            f"noftp{clean}",
+        ])
+
+    deduped = []
+    for candidate in candidates:
+        candidate = str(candidate or "").replace("\\", "/").strip()
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def list_remote_directory_from_nitrado_api(config, folder):
@@ -6652,15 +6695,23 @@ def list_remote_directory_from_ftp(config, folder):
 
     entries = []
     try:
-        for item in ftp.nlst(folder):
-            item_text = str(item).replace("\\", "/").rstrip("/")
-            name = os.path.basename(item_text)
-            path = item_text if item_text.startswith("/") else f"{folder.rstrip('/')}/{item_text}"
-            entries.append({
-                "name": name,
-                "path": path,
-                "type": "",
-            })
+        for remote_folder in nitrado_ftp_path_candidates(config, folder):
+            try:
+                listing = ftp.nlst(remote_folder)
+            except Exception:
+                continue
+
+            for item in listing:
+                item_text = str(item).replace("\\", "/").rstrip("/")
+                name = os.path.basename(item_text)
+                if not name:
+                    continue
+                path = item_text if item_text.startswith("/") else f"{remote_folder.rstrip('/')}/{item_text}"
+                entries.append({
+                    "name": name,
+                    "path": path,
+                    "type": "",
+                })
     except Exception:
         pass
     finally:
