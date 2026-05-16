@@ -3257,6 +3257,8 @@ async def maybe_handle_owner_natural_language(message, lower, now_ts):
     ]):
         config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
         repaired = await repair_guild_display_names(message.guild, config)
+        config["last_display_name_repair_ts"] = datetime.now(UTC).timestamp()
+        save_guild_configs()
         await message.channel.send(
             wb_text("bot", f"Owner recognised: repaired `{repaired}` Discord category/channel name(s) for this server.")
         )
@@ -3894,16 +3896,60 @@ async def repair_guild_display_names(guild, config):
     return repaired
 
 
-async def repair_display_names_for_active_guilds():
+def env_truthy(name, default=""):
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def startup_display_name_repair_enabled():
+    return env_truthy("WANDERING_REPAIR_NAMES_ON_STARTUP", "false")
+
+
+def startup_display_name_repair_cooldown_seconds():
+    try:
+        hours = float(os.getenv("WANDERING_REPAIR_NAMES_COOLDOWN_HOURS", "24"))
+    except Exception:
+        hours = 24
+    return max(1, int(hours * 3600))
+
+
+def should_run_startup_display_name_repair(config, now_ts):
+    if not startup_display_name_repair_enabled():
+        return False
+
+    try:
+        last_repair = float(config.get("last_display_name_repair_ts", 0) or 0)
+    except Exception:
+        last_repair = 0
+
+    return now_ts - last_repair >= startup_display_name_repair_cooldown_seconds()
+
+
+async def repair_display_names_for_active_guilds(force=False):
+    if not force and not startup_display_name_repair_enabled():
+        print("DISPLAY NAME REPAIR SKIPPED: startup repair disabled")
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    changed = False
+
     for guild in bot.guilds:
         try:
             guild_id = str(guild.id)
             config = guild_configs.setdefault(guild_id, new_guild_config(guild))
+
+            if not force and not should_run_startup_display_name_repair(config, now_ts):
+                continue
+
             repaired = await repair_guild_display_names(guild, config)
+            config["last_display_name_repair_ts"] = now_ts
+            changed = True
             if repaired:
                 print(f"DISPLAY NAME REPAIR {guild.id}: {repaired}")
         except Exception as error:
             print(f"DISPLAY NAME REPAIR ERROR {guild.id}: {error}")
+
+    if changed:
+        save_guild_configs()
 
 
 async def ensure_bot_updates_channel(guild, config, force=False):
@@ -4100,19 +4146,25 @@ async def ensure_pve_channels(guild, config, force=False):
         if existing_id:
             existing = guild.get_channel(existing_id)
             if existing:
-                try:
-                    await existing.edit(name=name, category=pve_category)
-                except Exception:
-                    pass
+                needs_name = existing.name != name
+                needs_category = pve_category and existing.category_id != pve_category.id
+                if needs_name or needs_category:
+                    try:
+                        await existing.edit(name=name, category=pve_category)
+                    except Exception:
+                        pass
                 return existing
 
         for channel in guild.text_channels:
             if channel_matches_saved_key(channel, key):
                 channels[key] = channel.id
-                try:
-                    await channel.edit(name=name, category=pve_category)
-                except Exception:
-                    pass
+                needs_name = channel.name != name
+                needs_category = pve_category and channel.category_id != pve_category.id
+                if needs_name or needs_category:
+                    try:
+                        await channel.edit(name=name, category=pve_category)
+                    except Exception:
+                        pass
                 return channel
 
         channel = await guild.create_text_channel(name, category=pve_category)
