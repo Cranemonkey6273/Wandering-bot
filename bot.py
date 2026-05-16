@@ -3598,6 +3598,7 @@ def new_guild_config(guild):
         "nitrado_user": "",
         "ftp_user": "",
         "ftp_password": "",
+        "ftp_host": "",
         "channels": {}
     }
 
@@ -5650,6 +5651,7 @@ async def on_guild_join(guild):
         "nitrado_user": "",
         "ftp_user": "",
         "ftp_password": "",
+        "ftp_host": "",
         "channels": {
             "killfeed": killfeed.id,
             "raids": raids.id,
@@ -5728,7 +5730,8 @@ async def on_guild_join(guild):
     nitrado_user="Example: ni12248929_2",
     ftp_user="Your Nitrado FTP username",
     ftp_password="Your Nitrado FTP password",
-    restore_deleted_channels="Recreate bot channels that server owners deleted"
+    restore_deleted_channels="Recreate bot channels that server owners deleted",
+    ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
 )
 async def setup_command(
     interaction: discord.Interaction,
@@ -5737,7 +5740,8 @@ async def setup_command(
     nitrado_user: str,
     ftp_user: str,
     ftp_password: str,
-    restore_deleted_channels: bool = False
+    restore_deleted_channels: bool = False,
+    ftp_host: str = ""
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -5955,6 +5959,10 @@ async def setup_command(
     guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
     guild_configs[guild_id]["ftp_user"] = ftp_user
     guild_configs[guild_id]["ftp_password"] = ftp_password
+    if str(ftp_host or "").strip():
+        guild_configs[guild_id]["ftp_host"] = str(ftp_host or "").strip()
+    else:
+        guild_configs[guild_id].setdefault("ftp_host", "")
 
     save_guild_configs()
 
@@ -6147,6 +6155,34 @@ async def setup_command(
         ephemeral=True
     )
 
+@bot.tree.command(name="setftphost", description="Admin: set the saved Nitrado FTP host/IP for this server")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(ftp_host="Nitrado FTP host/IP, for example the FTP server shown in Nitrado file browser")
+async def setftphost(interaction: discord.Interaction, ftp_host: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    host = str(ftp_host or "").strip()
+    if not looks_like_ftp_host(host):
+        await interaction.response.send_message(
+            "That does not look like an FTP host/IP. Use only the host, not a full path or URL.",
+            ephemeral=True
+        )
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, new_guild_config(interaction.guild))
+    config["ftp_host"] = host
+    config.pop("_discovered_ftp_hosts", None)
+    save_guild_configs()
+
+    await interaction.response.send_message(
+        "FTP host saved for this server. `/installdayzbridge install:true` will use the existing setup plus this host.",
+        ephemeral=True
+    )
+
+
 # =========================================================
 # NITRADO XML DELIVERY BRIDGE
 # =========================================================
@@ -6154,7 +6190,10 @@ async def setup_command(
 def nitrado_ftp_hosts(config):
     hosts = [
         config.get("ftp_host"),
+        config.get("ftp_hostname"),
+        config.get("nitrado_ftp_host"),
         os.getenv("NITRADO_FTP_HOST"),
+        *discover_nitrado_ftp_hosts_from_api(config),
         "ftps.nitrado.net",
         "ftp.nitrado.net",
     ]
@@ -6164,6 +6203,70 @@ def nitrado_ftp_hosts(config):
         if host and host not in deduped:
             deduped.append(host)
     return deduped
+
+
+def looks_like_ftp_host(value):
+    text = str(value or "").strip()
+    if not text or "/" in text or "@" in text or " " in text:
+        return False
+    if text.lower() in {"api.nitrado.net", "nitrado.net"}:
+        return False
+    if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", text):
+        return True
+    return "." in text and len(text) <= 120
+
+
+def collect_host_values(value, path="", results=None):
+    if results is None:
+        results = []
+
+    if isinstance(value, dict):
+        for key, nested in value.items():
+            key_text = str(key).lower()
+            nested_path = f"{path}.{key_text}" if path else key_text
+            if isinstance(nested, str):
+                host_related = (
+                    "ftp" in nested_path
+                    or key_text in {"host", "hostname", "ip", "address", "server"}
+                    or key_text.endswith("_host")
+                )
+                if host_related and looks_like_ftp_host(nested):
+                    results.append(nested.strip())
+            else:
+                collect_host_values(nested, nested_path, results)
+    elif isinstance(value, list):
+        for nested in value:
+            collect_host_values(nested, path, results)
+
+    return results
+
+
+def discover_nitrado_ftp_hosts_from_api(config):
+    cached = config.get("_discovered_ftp_hosts")
+    if isinstance(cached, list) and cached:
+        return cached
+
+    headers = nitrado_api_headers(config)
+    service_id = config.get("service_id")
+    if not headers or not service_id:
+        return []
+
+    url = f"https://api.nitrado.net/services/{service_id}/gameservers"
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+        if response.status_code != 200:
+            return []
+
+        discovered = []
+        for host in collect_host_values(response.json()):
+            if host not in discovered:
+                discovered.append(host)
+
+        if discovered:
+            config["_discovered_ftp_hosts"] = discovered[:5]
+        return discovered[:5]
+    except Exception:
+        return []
 
 
 def format_ftp_connection_error(host_errors):
@@ -6244,6 +6347,39 @@ def nitrado_api_file_path(config, target_path):
     return clean
 
 
+def nitrado_api_file_path_candidates(config, target_path):
+    clean = str(target_path or "").replace("\\", "/").strip()
+    if not clean:
+        return []
+
+    if not clean.startswith("/"):
+        clean = "/" + clean
+
+    candidates = [nitrado_api_file_path(config, clean), clean]
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+
+    if nitrado_user:
+        if clean.startswith("/dayzxb/"):
+            candidates.extend([
+                f"/games/{nitrado_user}/noftp{clean}",
+                f"/games/{nitrado_user}{clean}",
+            ])
+        elif clean.startswith("/noftp/"):
+            candidates.append(f"/games/{nitrado_user}{clean}")
+        elif clean.startswith("/mpmissions/"):
+            candidates.extend([
+                f"/games/{nitrado_user}/noftp/dayzxb{clean}",
+                f"/dayzxb{clean}",
+            ])
+
+    deduped = []
+    for candidate in candidates:
+        candidate = str(candidate or "").replace("\\", "/").strip()
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
 def split_remote_file_path(target_path):
     clean = str(target_path or "").replace("\\", "/").strip()
     folder = os.path.dirname(clean) or "/"
@@ -6267,28 +6403,36 @@ def download_text_file_from_nitrado_api(config, target_path):
         return False, "Nitrado API token or service ID is missing.", None
 
     try:
-        response = requests.get(
-            url,
-            headers=headers,
-            params={"file": nitrado_api_file_path(config, target_path)},
-            timeout=30
-        )
-        if response.status_code != 200:
-            return False, f"Nitrado API download token failed with status {response.status_code}: {response.text[:300]}", None
+        attempts = []
+        for api_path in nitrado_api_file_path_candidates(config, target_path):
+            for param_name in ("file", "path"):
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    params={param_name: api_path},
+                    timeout=30
+                )
+                if response.status_code != 200:
+                    attempts.append(f"{param_name}={api_path}: {response.status_code} {response.text[:160]}")
+                    continue
 
-        token_url, token_value = nitrado_api_token_payload(response.json().get("data", response.json()))
-        if not token_url:
-            return False, "Nitrado API did not return a download URL.", None
+                token_url, token_value = nitrado_api_token_payload(response.json().get("data", response.json()))
+                if not token_url:
+                    attempts.append(f"{param_name}={api_path}: no download URL")
+                    continue
 
-        file_response = requests.get(
-            token_url,
-            params={"token": token_value} if token_value else None,
-            timeout=30
-        )
-        if file_response.status_code != 200:
-            return False, f"Nitrado API file download failed with status {file_response.status_code}: {file_response.text[:300]}", None
+                file_response = requests.get(
+                    token_url,
+                    params={"token": token_value} if token_value else None,
+                    timeout=30
+                )
+                if file_response.status_code != 200:
+                    attempts.append(f"{param_name}={api_path}: file {file_response.status_code} {file_response.text[:160]}")
+                    continue
 
-        return True, "Downloaded successfully via Nitrado API.", file_response.content.decode("utf-8", errors="ignore")
+                return True, f"Downloaded successfully via Nitrado API using `{param_name}` path `{api_path}`.", file_response.content.decode("utf-8", errors="ignore")
+
+        return False, "Nitrado API download failed for all path variants: " + "; ".join(attempts[-8:]), None
 
     except Exception as error:
         return False, f"Nitrado API download failed: {error}", None
@@ -15586,7 +15730,9 @@ def default_init_path_for_guild(guild_id):
 
 def init_path_candidates_for_guild(guild_id):
     preferred = default_init_path_for_guild(guild_id)
+    saved = guild_configs.get(str(guild_id), {}).get("dayz_delivery_bridge", {}).get("init_path")
     candidates = [
+        saved,
         preferred,
         "/dayzxb/mpmissions/dayzOffline.chernarusplus/init.c",
         "/dayzxb/mpmissions/dayzOffline.enoch/init.c",
@@ -15661,42 +15807,42 @@ async def installdayzbridge(
             or any("Permission denied" in str(item) for item in attempted_paths)
         )
         if permission_denied:
-            tried_lines = []
+            tried_paths = []
             for item in attempted_paths[:8]:
                 path_text, _, error_text = str(item).partition(": ")
-                if error_text:
-                    tried_lines.append(f"`{path_text}`: {error_text[:180]}")
-                else:
-                    tried_lines.append(f"`{str(item)[:220]}`")
+                tried_paths.append(f"`{path_text or str(item)[:220]}`")
 
             embed = discord.Embed(
                 title="DAYZ BRIDGE NEEDS MANUAL INSTALL",
                 description=(
-                    "Nitrado found a likely mission path, but refused the API download of `init.c` with "
-                    "`Permission denied`. Railway also cannot resolve Nitrado's FTP hosts from this bot "
-                    "environment, so I cannot patch `init.c` automatically from here."
+                    "Nitrado refused the API download of `init.c` with `Permission denied`. Railway also "
+                    "cannot resolve Nitrado's FTP hosts from this bot environment, so I cannot patch "
+                    "`init.c` automatically from here."
                 ),
                 color=0xE67E22
             )
             embed.add_field(
-                name="Next Step",
+                name="Manual Install",
                 value=(
-                    "Open your mission `init.c` in Nitrado, paste the attached bridge snippet before the "
-                    "closing brace of `main()`, then restart the DayZ server. You can also run "
-                    "`/events bridgecode` any time to export this snippet again."
+                    "1. Paste the attached bridge functions above `void main()` in your mission `init.c`.\n"
+                    "2. Add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end.\n"
+                    "3. Restart the DayZ server. Run `/events bridgecode` any time to export this again."
                 ),
                 inline=False
             )
             embed.add_field(
-                name="Tried",
-                value=("\n".join(tried_lines) or "No paths were attempted.")[:1000],
+                name="Paths Checked",
+                value=("\n".join(tried_paths) or "No paths were attempted.")[:1000],
                 inline=False
             )
             embed.set_thumbnail(url=BOT_IMAGE)
             embed.set_footer(text="Wandering Bot Alpha - Manual Bridge Fallback")
             instructions = (
-                "Paste this bridge code into your mission init.c before the closing brace of main().\n"
-                "After it is installed, upload deliveries.xml to /dayzxb/custom/deliveries.xml and restart the server.\n\n"
+                "MANUAL INSTALL\n"
+                "1. Paste the bridge functions below above void main() in your mission init.c.\n"
+                "2. Add this single line inside main(), after weather setup or near the end:\n"
+                "   SpawnWanderingDeliveries();\n"
+                "3. Upload deliveries.xml to /dayzxb/custom/deliveries.xml and restart the server.\n\n"
             )
             file = discord.File(
                 io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
@@ -16147,7 +16293,8 @@ async def event_bridgecode(interaction: discord.Interaction):
         return
 
     instructions = (
-        "Paste the bridge code below into your mission `init.c` before the closing brace of `main()` "
+        "Paste the bridge functions below into your mission `init.c` above `void main()`. "
+        "Then add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end. "
         "or use `/installdayzbridge install:true` when FTP/DNS works again.\n\n"
         "After it is installed, upload `deliveries.xml` to `/dayzxb/custom/deliveries.xml` and restart the server.\n\n"
     )
