@@ -407,6 +407,15 @@ def style_embed(embed):
     return embed
 
 
+def discord_safe_content(text, limit=1900):
+    text = str(text or "")
+    if len(text) <= limit:
+        return text
+
+    suffix = "\n\n...trimmed to fit Discord's message limit."
+    return text[: max(0, limit - len(suffix))].rstrip() + suffix
+
+
 def resolve_guild_role(guild, role_name):
     wanted = str(role_name).strip().lower()
 
@@ -15634,18 +15643,27 @@ async def installdayzbridge(
             if network_error else
             "\n\nIf your mission folder has a custom name, rerun with `init_path:/dayzxb/mpmissions/YOURMISSION/init.c`."
         )
+        tried_lines = []
+        for item in attempted_paths[:8]:
+            path_text, _, error_text = str(item).partition(": ")
+            if error_text:
+                tried_lines.append(f"- `{path_text}`: {error_text[:220]}")
+            else:
+                tried_lines.append(f"- `{str(item)[:260]}`")
+        attempted_paths = tried_lines
+
         await interaction.followup.send(
-            f"Could not download `init.c`. Last error: `{message}`\n\n"
+            discord_safe_content(f"Could not download `init.c`. Last error: `{str(message)[:600]}`\n\n"
             "Tried:\n"
             + "\n".join(f"• `{item}`" for item in attempted_paths[:8])
-            + hint,
+            + hint),
             ephemeral=True
         )
         return
 
     updated_text, changed, install_error = install_wandering_delivery_bridge(init_text)
     if install_error:
-        await interaction.followup.send(install_error, ephemeral=True)
+        await interaction.followup.send(discord_safe_content(install_error), ephemeral=True)
         return
 
     if not install:
@@ -15691,14 +15709,17 @@ async def installdayzbridge(
     backup_path = f"{init_path}.wandering-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
     backup_ok, backup_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, backup_path, init_text)
     if not backup_ok:
-        await interaction.followup.send(f"Backup failed, so I did not touch init.c: `{backup_message}`", ephemeral=True)
+        await interaction.followup.send(
+            discord_safe_content(f"Backup failed, so I did not touch init.c: `{backup_message}`"),
+            ephemeral=True
+        )
         return
 
     if changed:
         upload_ok, upload_message = await asyncio.to_thread(upload_text_file_to_nitrado, config, init_path, updated_text)
         if not upload_ok:
             await interaction.followup.send(
-                f"Backup was created at `{backup_path}`, but init.c upload failed: `{upload_message}`",
+                discord_safe_content(f"Backup was created at `{backup_path}`, but init.c upload failed: `{upload_message}`"),
                 ephemeral=True
             )
             return
