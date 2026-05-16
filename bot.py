@@ -6136,7 +6136,7 @@ async def setup_command(
             name="AUTOMATIC DELIVERY BRIDGE INSTALL",
             value=(
                 "Use `/installdayzbridge` after setup if you want the bot to install the restart delivery hook for you. "
-                "If Nitrado shows a specific FTP host/IP, include it with `ftp_host:` or save it with `/setftphost`. "
+                "If Nitrado shows a specific FTP host/IP, include it with `ftp_host:` or save it with `/bridge setftphost`. "
                 "It downloads `init.c`, uploads a timestamped backup, inserts `SpawnWanderingDeliveries();` only if missing, "
                 "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot."
             ),
@@ -6163,7 +6163,13 @@ async def setup_command(
         ephemeral=True
     )
 
-@bot.tree.command(name="setftphost", description="Admin: set the saved Nitrado FTP host/IP for this server")
+bridge_group = app_commands.Group(
+    name="bridge",
+    description="DayZ bridge and Nitrado FTP helper commands"
+)
+
+
+@bridge_group.command(name="setftphost", description="Admin: set the saved Nitrado FTP host/IP for this server")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(ftp_host="Nitrado FTP host/IP, for example the FTP server shown in Nitrado file browser")
 async def setftphost(interaction: discord.Interaction, ftp_host: str):
@@ -16119,7 +16125,7 @@ def download_init_c_with_fallback(config, guild_id, init_path=""):
     return False, last_message or "No init.c path could be downloaded.", None, candidates[0] if candidates else "", attempted
 
 
-@bot.tree.command(name="findinitc", description="Admin: search Nitrado FTP/API for your DayZ init.c path")
+@bridge_group.command(name="findinitc", description="Admin: search Nitrado FTP/API for your DayZ init.c path")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(ftp_host="Optional: Nitrado FTP host/IP shown in your Nitrado file browser")
 async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
@@ -16199,7 +16205,7 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
 
     embed.add_field(
         name="FTP Host",
-        value=f"`{config.get('ftp_host')}`" if config.get("ftp_host") else "No saved host. You can pass `ftp_host:` here or run `/setftphost`.",
+        value=f"`{config.get('ftp_host')}`" if config.get("ftp_host") else "No saved host. You can pass `ftp_host:` here or run `/bridge setftphost`.",
         inline=False
     )
     embed.add_field(
@@ -16210,6 +16216,9 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - DayZ Bridge Diagnostic")
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+bot.tree.add_command(bridge_group)
 
 
 @bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
@@ -16313,10 +16322,10 @@ async def installdayzbridge(
         )
         hint = (
             "\n\nThis is a DNS/network problem in the bot host. Pass the exact Nitrado FTP host/IP with "
-            "`ftp_host:` or save it with `/setftphost`, then try again. If that still fails, check that "
+            "`ftp_host:` or save it with `/bridge setftphost`, then try again. If that still fails, check that "
             "the host running the bot can make outbound FTPS/DNS connections."
             if network_error else
-            "\n\nRun `/findinitc ftp_host:<your Nitrado FTP host>` to search every visible Nitrado FTP/API root for the real mission path. "
+            "\n\nRun `/bridge findinitc ftp_host:<your Nitrado FTP host>` to search every visible Nitrado FTP/API root for the real mission path. "
             "If it finds a path, rerun `/installdayzbridge install:true init_path:<that path>`."
         )
         tried_lines = []
