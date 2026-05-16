@@ -17937,17 +17937,46 @@ events_group = app_commands.Group(
     description="Owner tools for restart-based DayZ scenario events"
 )
 
+SCENARIO_LOOT_PRESET_OPTIONS = [
+    ("None - empty crate", "none"),
+    ("Military - balanced weapons/ammo/meds", "military"),
+    ("Military high tier - rare weapons/armor/NVG", "military_high"),
+    ("Medical - meds and healing supplies", "medical"),
+    ("Survival - food, knife, water, basics", "survival"),
+    ("Building - nails and base tools", "building"),
+    ("Food - canned food and drinks", "food"),
+]
+
+SCENARIO_CRATE_CLASS_OPTIONS = [
+    ("Wooden crate - default stash crate", "WoodenCrate"),
+    ("Sea chest - large storage chest", "SeaChest"),
+    ("Barrel green - persistent barrel", "Barrel_Green"),
+    ("Barrel blue - persistent barrel", "Barrel_Blue"),
+    ("Barrel red - persistent barrel", "Barrel_Red"),
+    ("Protector case - small waterproof case", "SmallProtectorCase"),
+    ("First aid kit - medical themed box", "FirstAidKit"),
+    ("Ammo box - military themed container", "AmmoBox"),
+]
+
 
 def autocomplete_matches(options, current):
-    current_key = normalize_discord_name(current)
-    matches = []
-    for label, value in options:
-        if current_key and current_key not in normalize_discord_name(label) and current_key not in normalize_discord_name(value):
-            continue
-        matches.append(app_commands.Choice(name=str(label)[:100], value=str(value)[:100]))
-        if len(matches) >= 25:
-            break
-    return matches
+    try:
+        current_key = normalize_discord_name(current)
+        matches = []
+        for label, value in options:
+            label = str(label or "").strip()
+            value = str(value or "").strip()
+            if not label or not value:
+                continue
+            if current_key and current_key not in normalize_discord_name(label) and current_key not in normalize_discord_name(value):
+                continue
+            matches.append(app_commands.Choice(name=label[:100], value=value[:100]))
+            if len(matches) >= 25:
+                break
+        return matches
+    except Exception as error:
+        print(f"EVENT AUTOCOMPLETE ERROR: {error}")
+        return []
 
 
 async def scenario_location_autocomplete(interaction: discord.Interaction, current: str):
@@ -17968,15 +17997,19 @@ async def scenario_spawn_autocomplete(interaction: discord.Interaction, current:
 
 
 async def scenario_loot_autocomplete(interaction: discord.Interaction, current: str):
-    options = [
-        ("None", "none"),
-        ("Military loot", "military"),
-        ("High-tier military loot", "military_high"),
-        ("Medical loot", "medical"),
-        ("Survival loot", "survival"),
-        ("Building loot", "building"),
-        ("Food loot", "food"),
-    ]
+    return autocomplete_matches(SCENARIO_LOOT_PRESET_OPTIONS, current)
+
+
+async def scenario_crate_autocomplete(interaction: discord.Interaction, current: str):
+    options = list(SCENARIO_CRATE_CLASS_OPTIONS)
+    try:
+        guild_id = str(interaction.guild.id) if interaction.guild else ""
+        map_key = server_map_key(guild_id) if guild_id else "chernarus"
+        reference = load_dayz_reference(map_key)
+        for class_name in reference.get("containers", [])[:40]:
+            options.append((class_name.replace("_", " "), class_name))
+    except Exception as error:
+        print(f"CRATE AUTOCOMPLETE REFERENCE ERROR: {error}")
     return autocomplete_matches(options, current)
 
 
@@ -18015,17 +18048,22 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
     z="Custom Z coordinate if location is custom",
     y="Optional height coordinate"
 )
-@app_commands.choices(event_type=[
-    app_commands.Choice(name="Zombie horde", value="zombie_horde"),
-    app_commands.Choice(name="Animal pack", value="animal_pack"),
-    app_commands.Choice(name="Loot crate", value="loot_crate"),
-    app_commands.Choice(name="Airdrop crate", value="airdrop"),
-    app_commands.Choice(name="Custom class spawn", value="custom_spawn"),
-])
+@app_commands.choices(
+    event_type=[
+        app_commands.Choice(name="Zombie horde", value="zombie_horde"),
+        app_commands.Choice(name="Animal pack", value="animal_pack"),
+        app_commands.Choice(name="Loot crate", value="loot_crate"),
+        app_commands.Choice(name="Airdrop crate", value="airdrop"),
+        app_commands.Choice(name="Custom class spawn", value="custom_spawn"),
+    ],
+    loot_preset=[
+        app_commands.Choice(name=label, value=value)
+        for label, value in SCENARIO_LOOT_PRESET_OPTIONS
+    ]
+)
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
     spawn_preset=scenario_spawn_autocomplete,
-    loot_preset=scenario_loot_autocomplete,
 )
 async def event_create(
     interaction: discord.Interaction,
@@ -18410,7 +18448,7 @@ async def event_vehicle(
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     location="Preset location or custom coordinates",
-    loot_preset="Loot preset to place inside the crate",
+    loot_preset="Pick what the crate should contain. This patches cfgspawnabletypes.xml on uploadce.",
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
     visual_marker="Spawn a crash/debris marker object beside the crate",
@@ -18418,16 +18456,20 @@ async def event_vehicle(
     guard_preset="Guard infected type",
     guard_count="How many guards to spawn",
     guard_radius="Guard spread around the airdrop in metres",
-    crate_class="Container classname to spawn",
+    crate_class="Container to spawn. WoodenCrate is safest unless you know another classname.",
     custom_guard_class="Required only if guard_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
     y="Optional height coordinate"
 )
+@app_commands.choices(loot_preset=[
+    app_commands.Choice(name=label, value=value)
+    for label, value in SCENARIO_LOOT_PRESET_OPTIONS
+])
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
-    loot_preset=scenario_loot_autocomplete,
     guard_preset=scenario_guard_autocomplete,
+    crate_class=scenario_crate_autocomplete,
 )
 async def event_airdrop(
     interaction: discord.Interaction,
