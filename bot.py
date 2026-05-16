@@ -7340,7 +7340,91 @@ void WanderingBotFillLoot(EntityAI container, string lootTypes)
     }
 }
 
-void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float radius, string lootTypes)
+void WanderingBotTryAttachment(EntityAI target, string attachmentType)
+{
+    if (!target || attachmentType == "")
+    {
+        return;
+    }
+
+    target.GetInventory().CreateAttachment(attachmentType);
+}
+
+void WanderingBotPrepareVehicle(EntityAI spawned, string condition)
+{
+    if (!spawned || !spawned.IsInherited(CarScript))
+    {
+        return;
+    }
+
+    if (condition == "no_parts")
+    {
+        return;
+    }
+
+    bool randomParts = condition == "random_parts";
+    TStringArray commonParts = new TStringArray;
+    commonParts.Insert("SparkPlug");
+    commonParts.Insert("CarBattery");
+    commonParts.Insert("CarRadiator");
+    commonParts.Insert("TruckBattery");
+    commonParts.Insert("HeadlightH7");
+    commonParts.Insert("HeadlightH7");
+    commonParts.Insert("HatchbackWheel");
+    commonParts.Insert("HatchbackWheel");
+    commonParts.Insert("HatchbackWheel");
+    commonParts.Insert("HatchbackWheel");
+    commonParts.Insert("CivSedanWheel");
+    commonParts.Insert("CivSedanWheel");
+    commonParts.Insert("CivSedanWheel");
+    commonParts.Insert("CivSedanWheel");
+    commonParts.Insert("Truck_01_Wheel");
+    commonParts.Insert("Truck_01_Wheel");
+    commonParts.Insert("Truck_01_WheelDouble");
+    commonParts.Insert("Truck_01_WheelDouble");
+
+    foreach (string partName: commonParts)
+    {
+        if (!randomParts || Math.RandomIntInclusive(0, 100) >= 45)
+        {
+            WanderingBotTryAttachment(spawned, partName);
+        }
+    }
+
+    if (!randomParts)
+    {
+        CarScript car = CarScript.Cast(spawned);
+        if (car)
+        {
+            car.Fill(CarFluid.FUEL, car.GetFluidCapacity(CarFluid.FUEL));
+            car.Fill(CarFluid.OIL, car.GetFluidCapacity(CarFluid.OIL));
+            car.Fill(CarFluid.BRAKE, car.GetFluidCapacity(CarFluid.BRAKE));
+            car.Fill(CarFluid.COOLANT, car.GetFluidCapacity(CarFluid.COOLANT));
+        }
+    }
+}
+
+void WanderingBotSpawnGuards(string guardClass, vector centerPos, int guardCount, float guardRadius)
+{
+    if (guardClass == "" || guardCount <= 0)
+    {
+        return;
+    }
+
+    if (guardCount > 80)
+    {
+        guardCount = 80;
+    }
+
+    for (int guardIndex = 0; guardIndex < guardCount; guardIndex++)
+    {
+        vector guardPos = WanderingBotRandomNearby(centerPos, guardRadius);
+        GetGame().CreateObject(guardClass, guardPos);
+        Print("[WANDERING BOT] Airdrop guard spawned: " + guardClass);
+    }
+}
+
+void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float radius, string lootTypes, string eventType, string vehicleCondition, string markerClass, string guardClass, int guardCount, float guardRadius)
 {
     if (count <= 0)
     {
@@ -7352,21 +7436,33 @@ void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float 
         count = 250;
     }
 
+    if (markerClass != "")
+    {
+        GetGame().CreateObject(markerClass, centerPos);
+        Print("[WANDERING BOT] Event marker spawned: " + markerClass);
+    }
+
     for (int index = 0; index < count; index++)
     {
         vector spawnPos = WanderingBotRandomNearby(centerPos, radius);
         EntityAI spawned = EntityAI.Cast(GetGame().CreateObject(itemName, spawnPos));
         if (spawned)
         {
+            if (eventType == "vehicle_spawn")
+            {
+                WanderingBotPrepareVehicle(spawned, vehicleCondition);
+            }
             WanderingBotFillLoot(spawned, lootTypes);
             Print("[WANDERING BOT] Scenario spawned: " + itemName);
         }
     }
+
+    WanderingBotSpawnGuards(guardClass, centerPos, guardCount, guardRadius);
 }
 
 void SpawnWanderingDeliveries()
 {
-    // WANDERING BOT BRIDGE v4 - supports deliveries, vehicle reset, and scenario events.
+    // WANDERING BOT BRIDGE v5 - supports deliveries, vehicle reset, and scenario events.
     string path = "$profile:custom/deliveries.xml";
     FileHandle file = OpenFile(path, FileMode.READ);
 
@@ -7388,6 +7484,12 @@ void SpawnWanderingDeliveries()
             string excludedTypes = WanderingBotAttribute(line, "exclude");
             string countText = WanderingBotAttribute(line, "count");
             string lootTypes = WanderingBotAttribute(line, "loot");
+            string eventType = WanderingBotAttribute(line, "event_type");
+            string vehicleCondition = WanderingBotAttribute(line, "vehicle_condition");
+            string markerClass = WanderingBotAttribute(line, "marker_class");
+            string guardClass = WanderingBotAttribute(line, "guard_class");
+            string guardCountText = WanderingBotAttribute(line, "guard_count");
+            string guardRadiusText = WanderingBotAttribute(line, "guard_radius");
 
             TStringArray posSplit = new TStringArray;
             position.Split(" ", posSplit);
@@ -7423,7 +7525,9 @@ void SpawnWanderingDeliveries()
                 {
                     int count = countText.ToInt();
                     float eventRadius = radiusText.ToFloat();
-                    WanderingBotSpawnEvent(itemName, spawnPos, count, eventRadius, lootTypes);
+                    int guardCount = guardCountText.ToInt();
+                    float guardRadius = guardRadiusText.ToFloat();
+                    WanderingBotSpawnEvent(itemName, spawnPos, count, eventRadius, lootTypes, eventType, vehicleCondition, markerClass, guardClass, guardCount, guardRadius);
                     continue;
                 }
 
@@ -7464,7 +7568,7 @@ def install_wandering_delivery_bridge(init_text):
     updated = init_text
     bridge_code = WANDERING_DELIVERY_BRIDGE_CODE.strip()
 
-    if "WANDERING BOT BRIDGE v4" not in updated:
+    if "WANDERING BOT BRIDGE v5" not in updated:
         block = find_enforce_function_block(updated, "SpawnWanderingDeliveries")
         if block:
             start, end = block
@@ -13303,11 +13407,33 @@ SCENARIO_SPAWN_PRESETS = {
 SCENARIO_LOOT_PRESETS = {
     "none": [],
     "military": ["M4A1", "Mag_STANAG_30Rnd", "Ammo_556x45", "BandageDressing", "Canteen"],
+    "military_high": [
+        "M4A1", "AKM", "SVD", "PlateCarrierVest", "BallisticHelmet_Green",
+        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
+        "Grenade_ChemGas", "NVGoggles", "BandageDressing"
+    ],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
     "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
     "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
 }
+
+SCENARIO_VEHICLE_PRESETS = {
+    "ada": {"label": "Ada 4x4", "class": "OffroadHatchback"},
+    "gunter": {"label": "Gunter 2", "class": "Hatchback_02"},
+    "sarka": {"label": "Sarka 120", "class": "CivilianSedan"},
+    "olga": {"label": "Olga 24", "class": "Sedan_02"},
+    "m3s": {"label": "M3S covered truck", "class": "Truck_01_Covered"},
+    "custom": {"label": "Custom vehicle classname", "class": ""},
+}
+
+SCENARIO_VEHICLE_CONDITIONS = {
+    "full": "Full fuel, fluids, and common parts",
+    "no_parts": "Body only, no parts added",
+    "random_parts": "Random chance of common parts",
+}
+
+SCENARIO_AIRDROP_MARKER_CLASS = "Land_Wreck_Caravan_MGreen"
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
     "chernarus": "dayzOffline.chernarusplus",
@@ -13411,6 +13537,23 @@ def scenario_spawn_preset_options(map_key, event_type=None):
     return options
 
 
+def scenario_vehicle_preset_options():
+    return [
+        (preset.get("label", key), key)
+        for key, preset in SCENARIO_VEHICLE_PRESETS.items()
+    ]
+
+
+def scenario_guard_preset_options():
+    options = [("No guards", "none")]
+    for key, preset in SCENARIO_SPAWN_PRESETS.items():
+        if key == "custom" or preset.get("event_type") != "zombie_horde":
+            continue
+        options.append((preset.get("label", key), key))
+    options.append(("Custom zombie classname", "custom"))
+    return options
+
+
 def resolve_scenario_spawn_preset(map_key, spawn_preset, custom_class=""):
     spawn_preset = str(spawn_preset or "").strip()
     if spawn_preset.startswith("class:"):
@@ -13442,6 +13585,35 @@ def resolve_scenario_spawn_preset(map_key, spawn_preset, custom_class=""):
         }
 
     return dict(SCENARIO_SPAWN_PRESETS["custom"])
+
+
+def resolve_scenario_vehicle_preset(vehicle_preset, custom_class=""):
+    vehicle_preset = str(vehicle_preset or "").strip()
+    preset = dict(SCENARIO_VEHICLE_PRESETS.get(vehicle_preset, {}))
+    if preset:
+        if vehicle_preset == "custom" and custom_class:
+            preset["class"] = str(custom_class or "").strip()
+            preset["label"] = preset["class"]
+        return preset
+
+    if custom_class:
+        class_name = str(custom_class or "").strip()
+        return {"label": class_name, "class": class_name}
+
+    return dict(SCENARIO_VEHICLE_PRESETS["custom"])
+
+
+def resolve_scenario_guard_class(guard_preset, custom_class=""):
+    guard_preset = str(guard_preset or "none").strip()
+    if guard_preset == "none":
+        return "", "No guards"
+
+    if guard_preset == "custom":
+        class_name = str(custom_class or "").strip()
+        return class_name, class_name or "Custom guard"
+
+    preset = SCENARIO_SPAWN_PRESETS.get(guard_preset, {})
+    return preset.get("class", ""), preset.get("label", guard_preset)
 
 
 def scenario_events_for_config(config):
@@ -13626,7 +13798,33 @@ def build_scenario_event_xml(event):
     y = parse_dayz_map_number(event.get("y", 0))
     z = parse_dayz_map_number(event.get("z"))
     class_name = str(event.get("class_name") or "").strip()
-    if not class_name or x is None or z is None:
+    event_type = str(event.get("event_type") or "").strip()
+    if x is None or z is None:
+        return None
+
+    if event_type == "vehicle_reset_all":
+        excluded = event.get("exclude") or []
+        if isinstance(excluded, str):
+            excluded = [item.strip() for item in excluded.split(",") if item.strip()]
+        exclude_attr = "|".join(str(item).strip() for item in excluded if str(item).strip())
+        radius = max(1000, min(30000, int(event.get("radius", 22000) or 22000)))
+        return (
+            f'<object action="reset_all_vehicles" name="ALL_VEHICLES" '
+            f'pos="{x} {y or 0} {z}" radius="{radius}" '
+            f'exclude="{safe_xml_attr(exclude_attr)}" event_id="{safe_xml_attr(event.get("id", ""))}" />'
+        )
+
+    if event_type == "vehicle_reset_point":
+        if not class_name:
+            return None
+        radius = max(5, min(250, int(event.get("radius", 35) or 35)))
+        return (
+            f'<object action="reset_vehicle" name="{safe_xml_attr(class_name)}" '
+            f'pos="{x} {y or 0} {z}" radius="{radius}" '
+            f'event_id="{safe_xml_attr(event.get("id", ""))}" />'
+        )
+
+    if not class_name:
         return None
 
     count = max(1, min(250, int(event.get("count", 1) or 1)))
@@ -13636,20 +13834,89 @@ def build_scenario_event_xml(event):
         loot = [item.strip() for item in loot.split(",") if item.strip()]
     loot_attr = "|".join(str(item).strip() for item in loot if str(item).strip())
 
+    extra_attrs = {
+        "event_type": event.get("event_type", ""),
+        "loot_preset": event.get("loot_preset", ""),
+        "vehicle_condition": event.get("vehicle_condition", ""),
+        "guard_class": event.get("guard_class", ""),
+        "guard_count": event.get("guard_count", ""),
+        "guard_radius": event.get("guard_radius", ""),
+        "marker_class": event.get("marker_class", ""),
+        "visual_marker": "1" if event.get("visual_marker") else "",
+    }
+    extra_text = " ".join(
+        f'{key}="{safe_xml_attr(value)}"'
+        for key, value in extra_attrs.items()
+        if str(value or "").strip()
+    )
+    if extra_text:
+        extra_text = " " + extra_text
+
     return (
         f'<object action="spawn_event" name="{safe_xml_attr(class_name)}" '
         f'pos="{x} {y or 0} {z}" count="{count}" radius="{radius}" '
-        f'loot="{safe_xml_attr(loot_attr)}" event_id="{safe_xml_attr(event.get("id", ""))}" />'
+        f'loot="{safe_xml_attr(loot_attr)}" event_id="{safe_xml_attr(event.get("id", ""))}"{extra_text} />'
     )
+
+
+def scenario_event_mode_text(event):
+    if event.get("permanent"):
+        return "forever"
+
+    remaining = event.get("remaining_restarts")
+    if remaining is None:
+        return "one-time"
+
+    try:
+        remaining = int(remaining)
+    except Exception:
+        return "one-time"
+
+    if remaining <= 0:
+        return "forever"
+
+    return f"{remaining} restart(s)"
+
+
+def restart_count_fields(restarts=1):
+    try:
+        restarts = int(restarts or 1)
+    except Exception:
+        restarts = 1
+
+    if restarts <= 0:
+        return {"permanent": True, "remaining_restarts": 0}
+
+    return {"permanent": False, "remaining_restarts": max(1, min(365, restarts))}
 
 
 def mark_one_time_scenario_events_uploaded(config):
     events = scenario_events_for_config(config)
-    config["scenario_events"] = [
-        event
-        for event in events
-        if event.get("permanent") or not event.get("enabled", True)
-    ]
+    kept = []
+
+    for event in events:
+        if not event.get("enabled", True):
+            kept.append(event)
+            continue
+
+        if event.get("permanent"):
+            kept.append(event)
+            continue
+
+        if "remaining_restarts" not in event:
+            continue
+
+        try:
+            remaining = int(event.get("remaining_restarts", 1) or 1)
+        except Exception:
+            remaining = 1
+
+        remaining -= 1
+        if remaining > 0:
+            event["remaining_restarts"] = remaining
+            kept.append(event)
+
+    config["scenario_events"] = kept
 
 
 def vehicle_reset_exclusions(config):
@@ -14282,7 +14549,7 @@ class QueueAllVehicleResetButton(discord.ui.Button):
         await interaction.response.send_message(
             "All-vehicle reset queued for the next restart delivery run.\n"
             f"Excluded classes: {excluded_text}\n\n"
-            "This requires `/installdayzbridge install:true` with the v3 bridge and a server restart before the in-game cleanup happens.",
+            "This requires `/installdayzbridge install:true` with the v5 bridge and a server restart before the in-game cleanup happens.",
             ephemeral=True
         )
 
@@ -16917,7 +17184,7 @@ async def installdayzbridge(
             )
             file = discord.File(
                 io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
-                filename="wandering_bridge_v4_init_snippet.c"
+                filename="wandering_bridge_v5_init_snippet.c"
             )
             await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
             return
@@ -17267,12 +17534,33 @@ async def scenario_loot_autocomplete(interaction: discord.Interaction, current: 
     options = [
         ("None", "none"),
         ("Military loot", "military"),
+        ("High-tier military loot", "military_high"),
         ("Medical loot", "medical"),
         ("Survival loot", "survival"),
         ("Building loot", "building"),
         ("Food loot", "food"),
     ]
     return autocomplete_matches(options, current)
+
+
+async def scenario_vehicle_autocomplete(interaction: discord.Interaction, current: str):
+    return autocomplete_matches(scenario_vehicle_preset_options(), current)
+
+
+async def scenario_guard_autocomplete(interaction: discord.Interaction, current: str):
+    return autocomplete_matches(scenario_guard_preset_options(), current)
+
+
+async def scenario_zombie_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    map_key = server_map_key(guild_id) if guild_id else "chernarus"
+    return autocomplete_matches(scenario_spawn_preset_options(map_key, "zombie_horde"), current)
+
+
+async def scenario_animal_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    map_key = server_map_key(guild_id) if guild_id else "chernarus"
+    return autocomplete_matches(scenario_spawn_preset_options(map_key, "animal_pack"), current)
 
 
 @events_group.command(name="create", description="Admin: create a restart scenario event")
@@ -17382,7 +17670,7 @@ async def event_create(
         "radius": radius,
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
-        "permanent": bool(permanent),
+        **restart_count_fields(0 if permanent else 1),
         "enabled": True,
         "created_by": str(interaction.user.id),
         "created_at": str(datetime.now(UTC)),
@@ -17396,7 +17684,7 @@ async def event_create(
         color=0xE67E22
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
-    embed.add_field(name="Mode", value="Permanent" if permanent else "One-time", inline=True)
+    embed.add_field(name="Mode", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Class", value=f"`{class_name}`", inline=False)
     embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
@@ -17406,6 +17694,510 @@ async def event_create(
         value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.",
         inline=False
     )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="horde", description="Admin: create a zombie horde event for one or more restarts")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    location="Preset location or custom coordinates",
+    zombie_preset="Zombie/infected class to spawn",
+    count="How many infected to spawn",
+    radius="Spread around the location in metres",
+    restarts="How many restarts to run. Use 0 for forever.",
+    custom_class="Required only if zombie_preset is custom",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.autocomplete(
+    location=scenario_location_autocomplete,
+    zombie_preset=scenario_zombie_autocomplete,
+)
+async def event_horde(
+    interaction: discord.Interaction,
+    location: str,
+    zombie_preset: str,
+    count: int,
+    radius: int = 45,
+    restarts: int = 1,
+    custom_class: str = "",
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+    if location_error:
+        await interaction.followup.send(location_error, ephemeral=True)
+        return
+
+    preset = resolve_scenario_spawn_preset(map_key, zombie_preset, custom_class)
+    class_name = (custom_class or "").strip() if zombie_preset == "custom" else preset.get("class", "")
+    if not class_name:
+        await interaction.followup.send("Choose a zombie preset or provide `custom_class`.", ephemeral=True)
+        return
+
+    if preset.get("event_type") != "zombie_horde" and zombie_preset != "custom":
+        await interaction.followup.send("That preset is not a zombie/infected class.", ephemeral=True)
+        return
+
+    count = max(1, min(250, int(count or 1)))
+    radius = max(0, min(2000, int(radius or 0)))
+    event_id = next_scenario_event_id(config)
+    event_record = {
+        "id": event_id,
+        "name": f"{preset.get('label', class_name)} horde at {location_data['name']}",
+        "event_type": "zombie_horde",
+        "location": location_data["name"],
+        "x": location_data["x"],
+        "y": location_data["y"],
+        "z": location_data["z"],
+        "class_name": class_name,
+        "preset": zombie_preset,
+        "map": map_key,
+        "count": count,
+        "radius": radius,
+        "loot_preset": "none",
+        "loot": [],
+        **restart_count_fields(restarts),
+        "enabled": True,
+        "created_by": str(interaction.user.id),
+        "created_at": str(datetime.now(UTC)),
+    }
+    scenario_events_for_config(config).append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(title="HORDE EVENT CREATED", color=0xE74C3C)
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
+    embed.add_field(name="Zombie Class", value=f"`{class_name}`", inline=False)
+    embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="animals", description="Admin: create an animal pack event for one or more restarts")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    location="Preset location or custom coordinates",
+    animal_preset="Animal class to spawn",
+    count="How many animals to spawn",
+    radius="Spread around the location in metres",
+    restarts="How many restarts to run. Use 0 for forever.",
+    custom_class="Required only if animal_preset is custom",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.autocomplete(
+    location=scenario_location_autocomplete,
+    animal_preset=scenario_animal_autocomplete,
+)
+async def event_animals(
+    interaction: discord.Interaction,
+    location: str,
+    animal_preset: str,
+    count: int,
+    radius: int = 75,
+    restarts: int = 1,
+    custom_class: str = "",
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+    if location_error:
+        await interaction.followup.send(location_error, ephemeral=True)
+        return
+
+    preset = resolve_scenario_spawn_preset(map_key, animal_preset, custom_class)
+    class_name = (custom_class or "").strip() if animal_preset == "custom" else preset.get("class", "")
+    if not class_name:
+        await interaction.followup.send("Choose an animal preset or provide `custom_class`.", ephemeral=True)
+        return
+
+    if preset.get("event_type") != "animal_pack" and animal_preset != "custom":
+        await interaction.followup.send("That preset is not an animal class.", ephemeral=True)
+        return
+
+    count = max(1, min(120, int(count or 1)))
+    radius = max(0, min(2000, int(radius or 0)))
+    event_id = next_scenario_event_id(config)
+    event_record = {
+        "id": event_id,
+        "name": f"{preset.get('label', class_name)} pack at {location_data['name']}",
+        "event_type": "animal_pack",
+        "location": location_data["name"],
+        "x": location_data["x"],
+        "y": location_data["y"],
+        "z": location_data["z"],
+        "class_name": class_name,
+        "preset": animal_preset,
+        "map": map_key,
+        "count": count,
+        "radius": radius,
+        "loot_preset": "none",
+        "loot": [],
+        **restart_count_fields(restarts),
+        "enabled": True,
+        "created_by": str(interaction.user.id),
+        "created_at": str(datetime.now(UTC)),
+    }
+    scenario_events_for_config(config).append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(title="ANIMAL PACK EVENT CREATED", color=0x2ECC71)
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
+    embed.add_field(name="Animal Class", value=f"`{class_name}`", inline=False)
+    embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="vehicle", description="Admin: create a one-time or recurring vehicle spawn event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    location="Preset location or custom coordinates",
+    vehicle_preset="Vehicle to spawn",
+    condition="Whether the vehicle spawns full or without parts",
+    restarts="How many restarts to run. Use 0 for forever.",
+    permanent="Legacy override: true means forever",
+    custom_class="Required only if vehicle_preset is custom",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.choices(condition=[
+    app_commands.Choice(name="Full vehicle", value="full"),
+    app_commands.Choice(name="Without parts", value="no_parts"),
+    app_commands.Choice(name="Random common parts", value="random_parts"),
+])
+@app_commands.autocomplete(
+    location=scenario_location_autocomplete,
+    vehicle_preset=scenario_vehicle_autocomplete,
+)
+async def event_vehicle(
+    interaction: discord.Interaction,
+    location: str,
+    vehicle_preset: str,
+    condition: str = "full",
+    restarts: int = 1,
+    permanent: bool = False,
+    custom_class: str = "",
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+    if location_error:
+        await interaction.followup.send(location_error, ephemeral=True)
+        return
+
+    preset = resolve_scenario_vehicle_preset(vehicle_preset, custom_class)
+    class_name = str(preset.get("class") or "").strip()
+    if not class_name:
+        await interaction.followup.send("Choose a vehicle preset or provide `custom_class`.", ephemeral=True)
+        return
+
+    condition = condition if condition in SCENARIO_VEHICLE_CONDITIONS else "full"
+    events = scenario_events_for_config(config)
+    event_id = next_scenario_event_id(config)
+    event_record = {
+        "id": event_id,
+        "name": f"{preset.get('label', class_name)} vehicle at {location_data['name']}",
+        "event_type": "vehicle_spawn",
+        "location": location_data["name"],
+        "x": location_data["x"],
+        "y": location_data["y"],
+        "z": location_data["z"],
+        "class_name": class_name,
+        "preset": vehicle_preset,
+        "map": map_key,
+        "count": 1,
+        "radius": 0,
+        "loot_preset": "none",
+        "loot": [],
+        "vehicle_condition": condition,
+        **restart_count_fields(0 if permanent else restarts),
+        "enabled": True,
+        "created_by": str(interaction.user.id),
+        "created_at": str(datetime.now(UTC)),
+    }
+    events.append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="VEHICLE EVENT CREATED",
+        description="This vehicle spawn will be written into `deliveries.xml` for the next restart.",
+        color=0x3498DB
+    )
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
+    embed.add_field(name="Vehicle", value=f"`{class_name}`", inline=False)
+    embed.add_field(name="Condition", value=SCENARIO_VEHICLE_CONDITIONS[condition], inline=False)
+    embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
+    embed.add_field(name="Controls", value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="airdrop", description="Admin: create a one-time or recurring airdrop crate event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    location="Preset location or custom coordinates",
+    loot_preset="Loot preset to place inside the crate",
+    restarts="How many restarts to run. Use 0 for forever.",
+    permanent="Legacy override: true means forever",
+    visual_marker="Spawn a crash/debris marker object beside the crate",
+    zombie_guards="Spawn infected guards around the airdrop",
+    guard_preset="Guard infected type",
+    guard_count="How many guards to spawn",
+    guard_radius="Guard spread around the airdrop in metres",
+    crate_class="Container classname to spawn",
+    custom_guard_class="Required only if guard_preset is custom",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.autocomplete(
+    location=scenario_location_autocomplete,
+    loot_preset=scenario_loot_autocomplete,
+    guard_preset=scenario_guard_autocomplete,
+)
+async def event_airdrop(
+    interaction: discord.Interaction,
+    location: str,
+    loot_preset: str = "military_high",
+    restarts: int = 1,
+    permanent: bool = False,
+    visual_marker: bool = True,
+    zombie_guards: bool = True,
+    guard_preset: str = "military_zombie",
+    guard_count: int = 8,
+    guard_radius: int = 35,
+    crate_class: str = "WoodenCrate",
+    custom_guard_class: str = "",
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+    if location_error:
+        await interaction.followup.send(location_error, ephemeral=True)
+        return
+
+    crate_class = str(crate_class or "WoodenCrate").strip()[:80]
+    if not crate_class:
+        await interaction.followup.send("Provide a crate/container classname.", ephemeral=True)
+        return
+
+    loot_key = loot_preset if loot_preset in SCENARIO_LOOT_PRESETS else "military_high"
+    guard_class = ""
+    guard_label = "No guards"
+    if zombie_guards:
+        guard_class, guard_label = resolve_scenario_guard_class(guard_preset, custom_guard_class)
+        if not guard_class:
+            await interaction.followup.send("Choose a guard preset or provide `custom_guard_class`.", ephemeral=True)
+            return
+
+    guard_count = max(0, min(80, int(guard_count or 0)))
+    guard_radius = max(5, min(500, int(guard_radius or 35)))
+    events = scenario_events_for_config(config)
+    event_id = next_scenario_event_id(config)
+    event_record = {
+        "id": event_id,
+        "name": f"Airdrop at {location_data['name']}",
+        "event_type": "airdrop",
+        "location": location_data["name"],
+        "x": location_data["x"],
+        "y": location_data["y"],
+        "z": location_data["z"],
+        "class_name": crate_class,
+        "preset": "airdrop",
+        "map": map_key,
+        "count": 1,
+        "radius": 0,
+        "loot_preset": loot_key,
+        "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
+        "visual_marker": bool(visual_marker),
+        "marker_class": SCENARIO_AIRDROP_MARKER_CLASS if visual_marker else "",
+        "guard_class": guard_class if zombie_guards else "",
+        "guard_count": guard_count if zombie_guards else 0,
+        "guard_radius": guard_radius if zombie_guards else 0,
+        **restart_count_fields(0 if permanent else restarts),
+        "enabled": True,
+        "created_by": str(interaction.user.id),
+        "created_at": str(datetime.now(UTC)),
+    }
+    events.append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="AIRDROP EVENT CREATED",
+        description="This airdrop will be written into `deliveries.xml` for the next restart.",
+        color=0x9B59B6
+    )
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
+    embed.add_field(name="Crate", value=f"`{crate_class}`", inline=True)
+    embed.add_field(name="Loot", value=f"`{loot_key}` ({len(event_record['loot'])} item types)", inline=True)
+    embed.add_field(name="Marker", value="On" if visual_marker else "Off", inline=True)
+    embed.add_field(name="Guards", value=f"`{guard_count}`x {guard_label}" if zombie_guards else "Off", inline=True)
+    embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
+    embed.add_field(name="Controls", value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="vehiclereset", description="Admin: create a one-time or recurring vehicle reset event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    scope="Reset all vehicles, or only one class near one spawn point",
+    restarts="How many restarts to run. Use 0 for forever.",
+    excluded_classes="Comma-separated vehicle classes to skip during all-vehicle reset",
+    vehicle_class="Vehicle class for a point reset",
+    location="Preset location or custom coordinates for point reset",
+    radius="Reset radius. All reset uses a map-wide radius.",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.choices(scope=[
+    app_commands.Choice(name="All vehicles, with exceptions", value="all"),
+    app_commands.Choice(name="One vehicle class near a point", value="point"),
+])
+@app_commands.autocomplete(location=scenario_location_autocomplete)
+async def event_vehiclereset(
+    interaction: discord.Interaction,
+    scope: str = "all",
+    restarts: int = 1,
+    excluded_classes: str = "",
+    vehicle_class: str = "",
+    location: str = "custom",
+    radius: int = 35,
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    event_id = next_scenario_event_id(config)
+
+    if scope == "all":
+        map_width, map_height = server_map_size(guild_id)
+        center_x = map_width / 2
+        center_z = map_height / 2
+        reset_radius = int(max(map_width, map_height) * 1.5)
+        excluded = [
+            item.strip()
+            for item in str(excluded_classes or "").split(",")
+            if item.strip()
+        ] or vehicle_reset_exclusions(config)
+        event_record = {
+            "id": event_id,
+            "name": "All-vehicle reset",
+            "event_type": "vehicle_reset_all",
+            "location": "Map center",
+            "x": center_x,
+            "y": 0,
+            "z": center_z,
+            "class_name": "ALL_VEHICLES",
+            "map": map_key,
+            "count": 1,
+            "radius": reset_radius,
+            "exclude": excluded,
+            **restart_count_fields(restarts),
+            "enabled": True,
+            "created_by": str(interaction.user.id),
+            "created_at": str(datetime.now(UTC)),
+        }
+    else:
+        vehicle_class = str(vehicle_class or "").strip()
+        if not vehicle_class:
+            await interaction.followup.send("For a point reset, provide `vehicle_class`.", ephemeral=True)
+            return
+
+        location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+        if location_error:
+            await interaction.followup.send(location_error, ephemeral=True)
+            return
+
+        reset_radius = max(5, min(250, int(radius or 35)))
+        event_record = {
+            "id": event_id,
+            "name": f"{vehicle_class} reset at {location_data['name']}",
+            "event_type": "vehicle_reset_point",
+            "location": location_data["name"],
+            "x": location_data["x"],
+            "y": location_data["y"],
+            "z": location_data["z"],
+            "class_name": vehicle_class,
+            "map": map_key,
+            "count": 1,
+            "radius": reset_radius,
+            **restart_count_fields(restarts),
+            "enabled": True,
+            "created_by": str(interaction.user.id),
+            "created_at": str(datetime.now(UTC)),
+        }
+
+    scenario_events_for_config(config).append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="VEHICLE RESET EVENT CREATED",
+        description="This reset will be written into `deliveries.xml` before matching restarts.",
+        color=0xF1C40F
+    )
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
+    embed.add_field(name="Scope", value="All vehicles" if scope == "all" else f"`{event_record['class_name']}` near point", inline=False)
+    embed.add_field(name="Radius", value=f"`{event_record.get('radius')}`m", inline=True)
+    if event_record.get("exclude"):
+        embed.add_field(name="Exceptions", value=", ".join(f"`{item}`" for item in event_record["exclude"])[:1000], inline=False)
+    embed.add_field(name="Location", value=f"{event_record['location']}\n`{event_record['x']} {event_record['y']} {event_record['z']}`", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
@@ -17426,10 +18218,21 @@ async def event_list(interaction: discord.Interaction):
     lines = []
     for event in events[:25]:
         state = "on" if event.get("enabled", True) else "off"
-        mode = "permanent" if event.get("permanent") else "one-time"
+        mode = scenario_event_mode_text(event)
+        extras = []
+        if event.get("vehicle_condition"):
+            extras.append(f"condition `{event.get('vehicle_condition')}`")
+        if event.get("guard_class"):
+            extras.append(f"guards `{event.get('guard_count', 0)}x`")
+        if event.get("visual_marker"):
+            extras.append("marker on")
+        if event.get("exclude"):
+            extras.append(f"exceptions `{len(event.get('exclude', []))}`")
+        extra_text = f" ({', '.join(extras)})" if extras else ""
         lines.append(
-            f"`{event.get('id')}` {state} {mode} - {event.get('name')} - "
+            f"`{event.get('id')}` {state} {mode} `{event.get('event_type', 'event')}` - {event.get('name')} - "
             f"`{event.get('count', 1)}x {event.get('class_name')}` at `{event.get('location')}`"
+            f"{extra_text}"
         )
     await interaction.response.send_message("\n".join(lines)[:1900], ephemeral=True)
 
@@ -17559,7 +18362,7 @@ async def event_bridgecode(interaction: discord.Interaction):
     )
     file = discord.File(
         io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
-        filename="wandering_bridge_v4_init_snippet.c"
+        filename="wandering_bridge_v5_init_snippet.c"
     )
     await interaction.response.send_message(
         "Manual bridge fallback exported. This is for PC/custom hosts with mission `init.c` access; console servers cannot use this bridge.",
@@ -18335,7 +19138,7 @@ async def slash_resetvehicles(interaction: discord.Interaction):
     embed.add_field(name="Current Exclusions", value=excluded_text[:1000], inline=False)
     embed.add_field(
         name="Before Using",
-        value="Run `/installdayzbridge install:true` after this update so your server has the v3 bridge.",
+        value="Run `/installdayzbridge install:true` after this update so your server has the v5 bridge.",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
