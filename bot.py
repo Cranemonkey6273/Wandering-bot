@@ -5747,7 +5747,7 @@ async def setup_command(
     await interaction.response.defer(ephemeral=True)
 
     guild_id = str(interaction.guild.id)
-    supplied_ftp_host = str(ftp_host or "").strip()
+    supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host and not looks_like_ftp_host(supplied_ftp_host):
         await interaction.followup.send(
             "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
@@ -6177,10 +6177,13 @@ async def setftphost(interaction: discord.Interaction, ftp_host: str):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    host = str(ftp_host or "").strip()
+    host = normalize_ftp_host(ftp_host)
     if not looks_like_ftp_host(host):
         await interaction.response.send_message(
-            "That does not look like an FTP host/IP. Use only the host, not a full path or URL.",
+            discord_safe_content(
+                "That does not look like an FTP host/IP. "
+                f"I read it as `{host or 'empty'}`. Paste the Nitrado FTP server value, for example `ukln138.gamedata.io`."
+            ),
             ephemeral=True
         )
         return
@@ -6213,21 +6216,45 @@ def nitrado_ftp_hosts(config):
     ]
     deduped = []
     for host in hosts:
-        host = str(host or "").strip()
+        host = normalize_ftp_host(host)
         if host and host not in deduped:
             deduped.append(host)
     return deduped
 
 
-def looks_like_ftp_host(value):
+def normalize_ftp_host(value):
     text = str(value or "").strip()
+    text = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff]", "", text)
+    text = text.strip("`'\"<>")
+    text = re.sub(r"^(?:ftps?|sftp)://", "", text, flags=re.IGNORECASE)
+    text = text.split("/", 1)[0].split("\\", 1)[0].strip()
+    if "@" in text:
+        text = text.rsplit("@", 1)[-1].strip()
+    if text.startswith("[") and "]" in text:
+        return text[1:text.index("]")].strip()
+    if " " in text:
+        host_match = re.search(
+            r"\b(?:\d{1,3}(?:\.\d{1,3}){3}|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)\b",
+            text,
+            re.IGNORECASE
+        )
+        text = host_match.group(0) if host_match else text
+    if ":" in text:
+        host_part, port_part = text.rsplit(":", 1)
+        if port_part.isdigit():
+            text = host_part.strip()
+    return text.strip().strip("`'\"<>")
+
+
+def looks_like_ftp_host(value):
+    text = normalize_ftp_host(value)
     if not text or "/" in text or "@" in text or " " in text:
         return False
     if text.lower() in {"api.nitrado.net", "nitrado.net"}:
         return False
     if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", text):
-        return True
-    return "." in text and len(text) <= 120
+        return all(0 <= int(part) <= 255 for part in text.split("."))
+    return bool(re.match(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", text, re.IGNORECASE)) and len(text) <= 253
 
 
 def collect_host_values(value, path="", results=None):
@@ -6245,7 +6272,7 @@ def collect_host_values(value, path="", results=None):
                     or key_text.endswith("_host")
                 )
                 if host_related and looks_like_ftp_host(nested):
-                    results.append(nested.strip())
+                    results.append(normalize_ftp_host(nested))
             else:
                 collect_host_values(nested, nested_path, results)
     elif isinstance(value, list):
@@ -16206,7 +16233,7 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
         await interaction.followup.send("This server is not setup yet.", ephemeral=True)
         return
 
-    supplied_ftp_host = str(ftp_host or "").strip()
+    supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host:
         if not looks_like_ftp_host(supplied_ftp_host):
             await interaction.followup.send(
@@ -16313,7 +16340,7 @@ async def installdayzbridge(
         await interaction.followup.send("This server is not setup yet.", ephemeral=True)
         return
 
-    supplied_ftp_host = str(ftp_host or "").strip()
+    supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host:
         if not looks_like_ftp_host(supplied_ftp_host):
             await interaction.followup.send(
