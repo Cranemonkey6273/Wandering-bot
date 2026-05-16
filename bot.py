@@ -5125,21 +5125,40 @@ async def get_or_create_support_channel(guild):
 
 def owner_secret_valid(interaction, secret_code):
 
-    if not BOT_OWNER_SECRET_CODE:
+    # Re-read env vars at call time so runtime changes are picked up
+    live_secret = os.getenv("BOT_OWNER_SECRET_CODE")
+    live_owner_id = os.getenv("BOT_OWNER_ID")
+    live_guild_id = os.getenv("BOT_OWNER_GUILD_ID")
+
+    user_id = str(interaction.user.id)
+    guild_id = str(interaction.guild_id) if interaction.guild_id else ""
+
+    if not live_secret:
+        print(f"[OWNER AUTH] REJECTED — BOT_OWNER_SECRET_CODE env var is not set")
         return False
 
-    if secret_code != BOT_OWNER_SECRET_CODE:
+    # Case-insensitive, whitespace-stripped comparison to avoid trivial mismatches
+    if secret_code.strip().lower() != live_secret.strip().lower():
+        print(f"[OWNER AUTH] REJECTED — secret code mismatch (user={user_id}, guild={guild_id})")
         return False
 
-    if BOT_OWNER_GUILD_ID and str(interaction.guild_id) != str(BOT_OWNER_GUILD_ID):
+    # If BOT_OWNER_ID is configured, the calling user must match it
+    if live_owner_id and user_id != live_owner_id.strip():
+        print(f"[OWNER AUTH] REJECTED — user ID {user_id} does not match BOT_OWNER_ID {live_owner_id.strip()}")
         return False
 
+    # If BOT_OWNER_GUILD_ID is configured, the command must come from that guild
+    if live_guild_id and guild_id != live_guild_id.strip():
+        print(f"[OWNER AUTH] REJECTED — guild ID {guild_id} does not match BOT_OWNER_GUILD_ID {live_guild_id.strip()}")
+        return False
+
+    print(f"[OWNER AUTH] APPROVED — user={user_id}, guild={guild_id}")
     return True
 
 
 async def reject_owner_command(interaction):
     await interaction.response.send_message(
-        "Owner command rejected.",
+        "Owner command rejected. Verify your secret code and that you are running this command as the bot owner. Check bot logs for details.",
         ephemeral=True
     )
 
