@@ -80,6 +80,8 @@ WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
 PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
+APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 
 # =========================================================
 # GLOBALS
@@ -6313,9 +6315,64 @@ void WanderingBotDeleteAllVehicles(vector centerPos, float radius, string exclud
     }
 }
 
+vector WanderingBotRandomNearby(vector centerPos, float radius)
+{
+    if (radius <= 0)
+    {
+        return centerPos;
+    }
+
+    float offsetX = Math.RandomFloatInclusive(-radius, radius);
+    float offsetZ = Math.RandomFloatInclusive(-radius, radius);
+    return Vector(centerPos[0] + offsetX, centerPos[1], centerPos[2] + offsetZ);
+}
+
+void WanderingBotFillLoot(EntityAI container, string lootTypes)
+{
+    if (!container || lootTypes == "")
+    {
+        return;
+    }
+
+    TStringArray loot = new TStringArray;
+    lootTypes.Split("|", loot);
+
+    foreach (string lootType: loot)
+    {
+        if (lootType != "")
+        {
+            container.GetInventory().CreateInInventory(lootType);
+        }
+    }
+}
+
+void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float radius, string lootTypes)
+{
+    if (count <= 0)
+    {
+        count = 1;
+    }
+
+    if (count > 250)
+    {
+        count = 250;
+    }
+
+    for (int index = 0; index < count; index++)
+    {
+        vector spawnPos = WanderingBotRandomNearby(centerPos, radius);
+        EntityAI spawned = EntityAI.Cast(GetGame().CreateObject(itemName, spawnPos));
+        if (spawned)
+        {
+            WanderingBotFillLoot(spawned, lootTypes);
+            Print("[WANDERING BOT] Scenario spawned: " + itemName);
+        }
+    }
+}
+
 void SpawnWanderingDeliveries()
 {
-    // WANDERING BOT BRIDGE v3 - supports item delivery, vehicle rental, targeted reset, and all-vehicle reset.
+    // WANDERING BOT BRIDGE v4 - supports deliveries, vehicle reset, and scenario events.
     string path = "$profile:custom/deliveries.xml";
     FileHandle file = OpenFile(path, FileMode.READ);
 
@@ -6335,6 +6392,8 @@ void SpawnWanderingDeliveries()
             string action = WanderingBotAttribute(line, "action");
             string radiusText = WanderingBotAttribute(line, "radius");
             string excludedTypes = WanderingBotAttribute(line, "exclude");
+            string countText = WanderingBotAttribute(line, "count");
+            string lootTypes = WanderingBotAttribute(line, "loot");
 
             TStringArray posSplit = new TStringArray;
             position.Split(" ", posSplit);
@@ -6364,6 +6423,13 @@ void SpawnWanderingDeliveries()
                         allRadius = 22000;
                     }
                     WanderingBotDeleteAllVehicles(spawnPos, allRadius, excludedTypes);
+                    continue;
+                }
+                else if (action == "spawn_event")
+                {
+                    int count = countText.ToInt();
+                    float eventRadius = radiusText.ToFloat();
+                    WanderingBotSpawnEvent(itemName, spawnPos, count, eventRadius, lootTypes);
                     continue;
                 }
 
@@ -6404,7 +6470,7 @@ def install_wandering_delivery_bridge(init_text):
     updated = init_text
     bridge_code = WANDERING_DELIVERY_BRIDGE_CODE.strip()
 
-    if "WANDERING BOT BRIDGE v3" not in updated:
+    if "WANDERING BOT BRIDGE v4" not in updated:
         block = find_enforce_function_block(updated, "SpawnWanderingDeliveries")
         if block:
             start, end = block
@@ -9772,7 +9838,7 @@ async def scheduled_restart_loop():
                 if token and service_id:
 
                     try:
-                        if delivery_queue or vehicle_rentals_queue:
+                        if delivery_queue or vehicle_rentals_queue or has_active_scenario_events(config):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
                                 guild_id,
@@ -12192,6 +12258,279 @@ DEFAULT_VEHICLE_RESET_CLASSES = [
     "M1025_Black",
 ]
 
+SCENARIO_LOCATION_PRESETS = {
+    "nwaf": {"name": "NWAF", "x": 4500, "y": 0, "z": 10300},
+    "tisy": {"name": "Tisy Military Base", "x": 1680, "y": 0, "z": 14100},
+    "vmc": {"name": "Vybor Military Base", "x": 4550, "y": 0, "z": 8300},
+    "balota": {"name": "Balota Airfield", "x": 4700, "y": 0, "z": 2500},
+    "prison": {"name": "Prison Island", "x": 2700, "y": 0, "z": 1300},
+    "kamensk": {"name": "Kamensk Military", "x": 7900, "y": 0, "z": 14600},
+    "zeleno": {"name": "Zelenogorsk", "x": 2750, "y": 0, "z": 5300},
+    "chernogorsk": {"name": "Chernogorsk", "x": 6600, "y": 0, "z": 2500},
+    "elektro": {"name": "Elektrozavodsk", "x": 10400, "y": 0, "z": 2300},
+    "berezino": {"name": "Berezino", "x": 12200, "y": 0, "z": 9500},
+    "severograd": {"name": "Severograd", "x": 8000, "y": 0, "z": 12600},
+    "custom": {"name": "Custom Coordinates", "x": None, "y": None, "z": None},
+}
+
+SCENARIO_LOCATION_PRESETS_BY_MAP = {
+    "chernarus": SCENARIO_LOCATION_PRESETS,
+    "livonia": {
+        "brena": {"name": "Brena", "x": 6660, "y": 0, "z": 11160},
+        "nadbor": {"name": "Nadbor", "x": 6050, "y": 0, "z": 3920},
+        "lembork": {"name": "Lembork", "x": 8500, "y": 0, "z": 8700},
+        "lukow": {"name": "Lukow", "x": 3560, "y": 0, "z": 11880},
+        "topolin": {"name": "Topolin", "x": 1150, "y": 0, "z": 7300},
+        "radunin": {"name": "Radunin", "x": 9130, "y": 0, "z": 3500},
+        "swarog": {"name": "Swarog", "x": 4800, "y": 0, "z": 2270},
+        "custom": {"name": "Custom Coordinates", "x": None, "y": None, "z": None},
+    },
+}
+
+SCENARIO_SPAWN_PRESETS = {
+    "civilian_zombie": {"label": "Civilian infected", "class": "ZmbM_CitizenASkinny_Brown", "event_type": "zombie_horde"},
+    "military_zombie": {"label": "Military infected", "class": "ZmbM_SoldierNormal", "event_type": "zombie_horde"},
+    "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde"},
+    "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde"},
+    "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde"},
+    "firefighter_zombie": {"label": "Firefighter infected", "class": "ZmbM_FirefighterNormal", "event_type": "zombie_horde"},
+    "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack"},
+    "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
+    "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
+    "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
+    "military_crate": {"label": "Military loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "medical_crate": {"label": "Medical loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "survival_crate": {"label": "Survival loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "building_crate": {"label": "Building loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
+}
+
+SCENARIO_LOOT_PRESETS = {
+    "none": [],
+    "military": ["M4A1", "Mag_STANAG_30Rnd", "Ammo_556x45", "BandageDressing", "Canteen"],
+    "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
+    "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
+    "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
+    "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
+}
+
+DAYZ_REFERENCE_MAP_FOLDERS = {
+    "chernarus": "dayzOffline.chernarusplus",
+    "livonia": "dayzOffline.enoch",
+}
+dayz_reference_cache = {}
+
+
+def dayz_reference_path(map_key, *parts):
+    folder = DAYZ_REFERENCE_MAP_FOLDERS.get(map_key)
+    if not folder:
+        return None
+    return os.path.join(DAYZ_REFERENCE_FOLDER, folder, *parts)
+
+
+def load_dayz_reference(map_key):
+    map_key = "livonia" if map_key == "livonia" else "chernarus"
+    if map_key in dayz_reference_cache:
+        return dayz_reference_cache[map_key]
+
+    reference = {
+        "map_key": map_key,
+        "available": False,
+        "types": set(),
+        "zombies": [],
+        "animals": [],
+        "containers": [],
+    }
+
+    types_path = dayz_reference_path(map_key, "db", "types.xml")
+    if not types_path or not os.path.exists(types_path):
+        dayz_reference_cache[map_key] = reference
+        return reference
+
+    try:
+        root = ET.parse(types_path).getroot()
+        for type_node in root.findall(".//type"):
+            class_name = str(type_node.get("name") or "").strip()
+            if not class_name:
+                continue
+
+            lower = class_name.lower()
+            reference["types"].add(class_name)
+            if class_name.startswith(("ZmbM_", "ZmbF_")):
+                reference["zombies"].append(class_name)
+            elif class_name.startswith("Animal_"):
+                reference["animals"].append(class_name)
+            elif any(term in lower for term in ["barrel", "chest", "crate", "firstaidkit"]):
+                reference["containers"].append(class_name)
+
+        reference["zombies"].sort()
+        reference["animals"].sort()
+        reference["containers"].sort()
+        reference["available"] = True
+    except Exception as error:
+        print(f"DAYZ REFERENCE LOAD ERROR {map_key}: {error}")
+
+    dayz_reference_cache[map_key] = reference
+    return reference
+
+
+def scenario_location_presets_for_map(map_key):
+    return SCENARIO_LOCATION_PRESETS_BY_MAP.get(map_key, SCENARIO_LOCATION_PRESETS)
+
+
+def infer_scenario_type_from_class(class_name):
+    lower = normalize_discord_name(class_name)
+    if lower.startswith("zmb") or "zmb" in lower:
+        return "zombie_horde"
+    if lower.startswith("animal") or any(term in lower for term in ["canislupus", "ursus", "cervus", "sus", "gallus", "bos", "capra"]):
+        return "animal_pack"
+    if any(term in lower for term in ["crate", "barrel", "chest", "firstaidkit"]):
+        return "loot_crate"
+    return "custom_spawn"
+
+
+def scenario_spawn_preset_options(map_key, event_type=None):
+    reference = load_dayz_reference(map_key)
+    options = []
+
+    for key, preset in SCENARIO_SPAWN_PRESETS.items():
+        if key == "custom":
+            continue
+        preset_type = preset.get("event_type")
+        if event_type and not (preset_type == event_type or (event_type == "airdrop" and preset_type == "loot_crate")):
+            continue
+        options.append((preset.get("label", key), key))
+
+    if reference.get("available"):
+        if event_type in (None, "zombie_horde", "custom_spawn"):
+            for class_name in reference["zombies"][:60]:
+                options.append((class_name.replace("_", " "), f"class:{class_name}"))
+        if event_type in (None, "animal_pack", "custom_spawn"):
+            for class_name in reference["animals"][:40]:
+                options.append((class_name.replace("_", " "), f"class:{class_name}"))
+        if event_type in (None, "loot_crate", "airdrop", "custom_spawn"):
+            for class_name in reference["containers"][:30]:
+                options.append((class_name.replace("_", " "), f"class:{class_name}"))
+
+    options.append(("Custom classname", "custom"))
+    return options
+
+
+def resolve_scenario_spawn_preset(map_key, spawn_preset, custom_class=""):
+    spawn_preset = str(spawn_preset or "").strip()
+    if spawn_preset.startswith("class:"):
+        class_name = spawn_preset.split(":", 1)[1].strip()
+        return {
+            "class": class_name,
+            "label": class_name,
+            "event_type": infer_scenario_type_from_class(class_name),
+        }
+
+    preset = dict(SCENARIO_SPAWN_PRESETS.get(spawn_preset, {}))
+    if preset:
+        return preset
+
+    reference = load_dayz_reference(map_key)
+    if spawn_preset in reference.get("types", set()):
+        return {
+            "class": spawn_preset,
+            "label": spawn_preset,
+            "event_type": infer_scenario_type_from_class(spawn_preset),
+        }
+
+    if custom_class:
+        class_name = str(custom_class or "").strip()
+        return {
+            "class": class_name,
+            "label": class_name,
+            "event_type": infer_scenario_type_from_class(class_name),
+        }
+
+    return dict(SCENARIO_SPAWN_PRESETS["custom"])
+
+
+def scenario_events_for_config(config):
+    events = config.setdefault("scenario_events", [])
+    if not isinstance(events, list):
+        events = []
+        config["scenario_events"] = events
+    return events
+
+
+def next_scenario_event_id(config):
+    existing_ids = []
+    for event in scenario_events_for_config(config):
+        try:
+            existing_ids.append(int(event.get("id", 0)))
+        except Exception:
+            pass
+    return (max(existing_ids) if existing_ids else 0) + 1
+
+
+def active_scenario_events(config):
+    return [
+        event
+        for event in scenario_events_for_config(config)
+        if event.get("enabled", True)
+    ]
+
+
+def has_active_scenario_events(config):
+    return bool(active_scenario_events(config))
+
+
+def scenario_location_from_choice(location_key, x=None, z=None, y=0, map_key="chernarus"):
+    presets = scenario_location_presets_for_map(map_key)
+    location = presets.get(str(location_key or "").lower())
+    if not location:
+        location = presets.get("custom", SCENARIO_LOCATION_PRESETS["custom"])
+
+    if location_key == "custom":
+        x_value = parse_dayz_map_number(x)
+        z_value = parse_dayz_map_number(z)
+        y_value = parse_dayz_map_number(y) if y is not None else 0
+        if x_value is None or z_value is None:
+            return None, "Custom location needs numeric `x` and `z` coordinates."
+        return {
+            "name": "Custom Coordinates",
+            "x": x_value,
+            "y": y_value or 0,
+            "z": z_value,
+        }, None
+
+    return dict(location), None
+
+
+def build_scenario_event_xml(event):
+    x = parse_dayz_map_number(event.get("x"))
+    y = parse_dayz_map_number(event.get("y", 0))
+    z = parse_dayz_map_number(event.get("z"))
+    class_name = str(event.get("class_name") or "").strip()
+    if not class_name or x is None or z is None:
+        return None
+
+    count = max(1, min(250, int(event.get("count", 1) or 1)))
+    radius = max(0, min(2000, int(event.get("radius", 0) or 0)))
+    loot = event.get("loot") or []
+    if isinstance(loot, str):
+        loot = [item.strip() for item in loot.split(",") if item.strip()]
+    loot_attr = "|".join(str(item).strip() for item in loot if str(item).strip())
+
+    return (
+        f'<object action="spawn_event" name="{safe_xml_attr(class_name)}" '
+        f'pos="{x} {y or 0} {z}" count="{count}" radius="{radius}" '
+        f'loot="{safe_xml_attr(loot_attr)}" event_id="{safe_xml_attr(event.get("id", ""))}" />'
+    )
+
+
+def mark_one_time_scenario_events_uploaded(config):
+    events = scenario_events_for_config(config)
+    config["scenario_events"] = [
+        event
+        for event in events
+        if event.get("permanent") or not event.get("enabled", True)
+    ]
+
 
 def vehicle_reset_exclusions(config):
     excluded = config.setdefault("vehicle_reset_exclusions", [])
@@ -12484,7 +12823,7 @@ def parse_dayz_map_number(value):
         return None
 
 
-def build_delivery_xml(items, vehicles):
+def build_delivery_xml(items, vehicles, scenario_events=None):
     xml_lines = ["<objects>"]
 
     for delivery in items:
@@ -12523,6 +12862,11 @@ def build_delivery_xml(items, vehicles):
             f'<object action="{safe_xml_attr(action)}" name="{safe_xml_attr(vehicle_name)}" pos="{x} 0 {y}"{radius_attr} />'
         )
 
+    for event in scenario_events or []:
+        event_line = build_scenario_event_xml(event)
+        if event_line:
+            xml_lines.append(event_line)
+
     xml_lines.append("</objects>")
     return "\n".join(xml_lines)
 
@@ -12536,6 +12880,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     output = {
         "items": delivery_queue,
         "vehicles": vehicle_rentals_queue,
+        "scenario_events": active_scenario_events(config),
         "generated": str(generated_at)
     }
 
@@ -12548,7 +12893,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     )
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
-        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue))
+        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue, active_scenario_events(config)))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
@@ -12557,6 +12902,8 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
         print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
         delivery_queue.clear()
         vehicle_rentals_queue.clear()
+        mark_one_time_scenario_events_uploaded(config)
+        save_guild_configs()
         save_delivery_queue()
 
     return upload_success, xml_output_path
@@ -15183,6 +15530,344 @@ async def installdayzbridge(
     embed.add_field(name="Starter XML", value="Uploaded" if delivery_ok else f"Failed: {delivery_message}", inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+events_group = app_commands.Group(
+    name="events",
+    description="Owner tools for restart-based DayZ scenario events"
+)
+
+
+def autocomplete_matches(options, current):
+    current_key = normalize_discord_name(current)
+    matches = []
+    for label, value in options:
+        if current_key and current_key not in normalize_discord_name(label) and current_key not in normalize_discord_name(value):
+            continue
+        matches.append(app_commands.Choice(name=str(label)[:100], value=str(value)[:100]))
+        if len(matches) >= 25:
+            break
+    return matches
+
+
+async def scenario_location_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    map_key = server_map_key(guild_id) if guild_id else "chernarus"
+    options = [
+        (location.get("name", key), key)
+        for key, location in scenario_location_presets_for_map(map_key).items()
+    ]
+    return autocomplete_matches(options, current)
+
+
+async def scenario_spawn_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    map_key = server_map_key(guild_id) if guild_id else "chernarus"
+    event_type = getattr(interaction.namespace, "event_type", None)
+    return autocomplete_matches(scenario_spawn_preset_options(map_key, event_type), current)
+
+
+async def scenario_loot_autocomplete(interaction: discord.Interaction, current: str):
+    options = [
+        ("None", "none"),
+        ("Military loot", "military"),
+        ("Medical loot", "medical"),
+        ("Survival loot", "survival"),
+        ("Building loot", "building"),
+        ("Food loot", "food"),
+    ]
+    return autocomplete_matches(options, current)
+
+
+@events_group.command(name="create", description="Admin: create a restart scenario event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    event_type="What kind of scenario to create",
+    location="Preset location or custom coordinates",
+    spawn_preset="Specific zombie, animal, crate, or custom classname",
+    count="How many to spawn. Crates usually use 1.",
+    radius="Spread spawns around the location in metres",
+    permanent="True keeps spawning every restart. False is one restart only.",
+    loot_preset="Loot to put inside crates/airdrops where possible",
+    custom_class="Required only if spawn_preset is custom",
+    x="Custom X coordinate if location is custom",
+    z="Custom Z coordinate if location is custom",
+    y="Optional height coordinate"
+)
+@app_commands.choices(event_type=[
+    app_commands.Choice(name="Zombie horde", value="zombie_horde"),
+    app_commands.Choice(name="Animal pack", value="animal_pack"),
+    app_commands.Choice(name="Loot crate", value="loot_crate"),
+    app_commands.Choice(name="Airdrop crate", value="airdrop"),
+    app_commands.Choice(name="Custom class spawn", value="custom_spawn"),
+])
+@app_commands.autocomplete(
+    location=scenario_location_autocomplete,
+    spawn_preset=scenario_spawn_autocomplete,
+    loot_preset=scenario_loot_autocomplete,
+)
+async def event_create(
+    interaction: discord.Interaction,
+    event_type: str,
+    location: str,
+    spawn_preset: str,
+    count: int,
+    radius: int = 25,
+    permanent: bool = False,
+    loot_preset: str = "none",
+    custom_class: str = "",
+    x: str = "",
+    z: str = "",
+    y: str = "0",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    map_key = server_map_key(guild_id)
+    location_data, location_error = scenario_location_from_choice(location, x, z, y, map_key)
+    if location_error:
+        await interaction.followup.send(location_error, ephemeral=True)
+        return
+
+    preset = resolve_scenario_spawn_preset(map_key, spawn_preset, custom_class)
+    class_name = (custom_class or "").strip() if spawn_preset == "custom" else preset.get("class", "")
+    if not class_name:
+        await interaction.followup.send("Choose a preset or provide `custom_class`.", ephemeral=True)
+        return
+
+    chosen_event_type = event_type
+    preset_type = preset.get("event_type")
+    if spawn_preset != "custom":
+        compatible = (
+            preset_type == chosen_event_type
+            or (chosen_event_type == "airdrop" and preset_type == "loot_crate")
+        )
+        if not compatible:
+            await interaction.followup.send(
+                f"`{preset.get('label', spawn_preset)}` does not match `{event_type}`. "
+                "Pick a matching preset or use `spawn_preset:Custom classname`.",
+                ephemeral=True
+            )
+            return
+
+    count = max(1, min(250, int(count or 1)))
+    radius = max(0, min(2000, int(radius or 0)))
+    if chosen_event_type in {"loot_crate", "airdrop"} and count > 20:
+        count = 20
+
+    loot_key = loot_preset or "none"
+    if spawn_preset in {"military_crate"} and loot_key == "none":
+        loot_key = "military"
+    elif spawn_preset in {"medical_crate"} and loot_key == "none":
+        loot_key = "medical"
+    elif spawn_preset in {"survival_crate"} and loot_key == "none":
+        loot_key = "survival"
+    elif spawn_preset in {"building_crate"} and loot_key == "none":
+        loot_key = "building"
+
+    events = scenario_events_for_config(config)
+    event_id = next_scenario_event_id(config)
+    event_record = {
+        "id": event_id,
+        "name": f"{preset.get('label', class_name)} at {location_data['name']}",
+        "event_type": chosen_event_type,
+        "location": location_data["name"],
+        "x": location_data["x"],
+        "y": location_data["y"],
+        "z": location_data["z"],
+        "class_name": class_name,
+        "preset": spawn_preset,
+        "map": map_key,
+        "count": count,
+        "radius": radius,
+        "loot_preset": loot_key,
+        "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
+        "permanent": bool(permanent),
+        "enabled": True,
+        "created_by": str(interaction.user.id),
+        "created_at": str(datetime.now(UTC)),
+    }
+    events.append(event_record)
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="SCENARIO EVENT CREATED",
+        description="This will be written into `deliveries.xml` for the next restart.",
+        color=0xE67E22
+    )
+    embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Mode", value="Permanent" if permanent else "One-time", inline=True)
+    embed.add_field(name="Class", value=f"`{class_name}`", inline=False)
+    embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
+    embed.add_field(name="Loot", value=f"`{loot_key}`" if event_record["loot"] else "None", inline=True)
+    embed.add_field(
+        name="Controls",
+        value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="list", description="Admin: list restart scenario events")
+@app_commands.default_permissions(administrator=True)
+async def event_list(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    events = scenario_events_for_config(config)
+    if not events:
+        await interaction.response.send_message("No scenario events configured.", ephemeral=True)
+        return
+
+    lines = []
+    for event in events[:25]:
+        state = "on" if event.get("enabled", True) else "off"
+        mode = "permanent" if event.get("permanent") else "one-time"
+        lines.append(
+            f"`{event.get('id')}` {state} {mode} - {event.get('name')} - "
+            f"`{event.get('count', 1)}x {event.get('class_name')}` at `{event.get('location')}`"
+        )
+    await interaction.response.send_message("\n".join(lines)[:1900], ephemeral=True)
+
+
+@events_group.command(name="reference", description="Admin: show loaded vanilla DayZ reference data")
+@app_commands.default_permissions(administrator=True)
+async def event_reference(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    map_key = server_map_key(guild_id)
+    reference = load_dayz_reference(map_key)
+    folder = DAYZ_REFERENCE_MAP_FOLDERS.get(map_key, "missing")
+    location_count = len(scenario_location_presets_for_map(map_key))
+    embed = discord.Embed(
+        title="DAYZ VANILLA REFERENCE",
+        description=f"Server map: `{map_key}`\nReference folder: `{folder}`",
+        color=0x3498DB if reference.get("available") else 0xE74C3C
+    )
+    embed.add_field(name="Loaded", value="Yes" if reference.get("available") else "No", inline=True)
+    embed.add_field(name="Locations", value=str(location_count), inline=True)
+    embed.add_field(name="Zombies", value=str(len(reference.get("zombies", []))), inline=True)
+    embed.add_field(name="Animals", value=str(len(reference.get("animals", []))), inline=True)
+    embed.add_field(name="Containers", value=str(len(reference.get("containers", []))), inline=True)
+    embed.add_field(
+        name="Source",
+        value="Uses bundled vanilla mission files. Modded classnames still need `spawn_preset: custom` plus `custom_class`.",
+        inline=False
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@events_group.command(name="disable", description="Admin: disable a scenario event without deleting it")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(event_id="Event ID from /events list")
+async def event_disable(interaction: discord.Interaction, event_id: int):
+    await set_scenario_event_enabled(interaction, event_id, False)
+
+
+@events_group.command(name="enable", description="Admin: enable a disabled scenario event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(event_id="Event ID from /events list")
+async def event_enable(interaction: discord.Interaction, event_id: int):
+    await set_scenario_event_enabled(interaction, event_id, True)
+
+
+async def set_scenario_event_enabled(interaction, event_id, enabled):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    for event in scenario_events_for_config(config):
+        if int(event.get("id", 0)) == int(event_id):
+            event["enabled"] = bool(enabled)
+            save_guild_configs()
+            await interaction.response.send_message(
+                f"Scenario event `{event_id}` {'enabled' if enabled else 'disabled'}.",
+                ephemeral=True
+            )
+            return
+    await interaction.response.send_message(f"Scenario event `{event_id}` not found.", ephemeral=True)
+
+
+@events_group.command(name="delete", description="Admin: delete/cancel a scenario event")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(event_id="Event ID from /events list")
+async def event_delete(interaction: discord.Interaction, event_id: int):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    events = scenario_events_for_config(config)
+    kept = [event for event in events if int(event.get("id", 0)) != int(event_id)]
+    if len(kept) == len(events):
+        await interaction.response.send_message(f"Scenario event `{event_id}` not found.", ephemeral=True)
+        return
+    config["scenario_events"] = kept
+    save_guild_configs()
+    await interaction.response.send_message(f"Scenario event `{event_id}` deleted.", ephemeral=True)
+
+
+@events_group.command(name="exportxml", description="Admin: export deliveries.xml for manual Nitrado upload")
+@app_commands.default_permissions(administrator=True)
+async def event_exportxml(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    xml_text = build_delivery_xml(
+        delivery_queue,
+        vehicle_rentals_queue,
+        active_scenario_events(config)
+    )
+    file = discord.File(
+        io.BytesIO(xml_text.encode("utf-8")),
+        filename="deliveries.xml"
+    )
+    await interaction.response.send_message(
+        "Manual fallback: upload this file to `/dayzxb/custom/deliveries.xml` on Nitrado, then restart the server. "
+        "Use this when the bot host cannot reach Nitrado FTP.",
+        file=file,
+        ephemeral=True
+    )
+
+
+@events_group.command(name="bridgecode", description="Admin: export the manual init.c bridge snippet")
+@app_commands.default_permissions(administrator=True)
+async def event_bridgecode(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    instructions = (
+        "Paste the bridge code below into your mission `init.c` before the closing brace of `main()` "
+        "or use `/installdayzbridge install:true` when FTP/DNS works again.\n\n"
+        "After it is installed, upload `deliveries.xml` to `/dayzxb/custom/deliveries.xml` and restart the server.\n\n"
+    )
+    file = discord.File(
+        io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
+        filename="wandering_bridge_v4_init_snippet.c"
+    )
+    await interaction.response.send_message(
+        "Manual bridge fallback exported. This is for hosts where the bot cannot download or patch `init.c` over FTP.",
+        file=file,
+        ephemeral=True
+    )
+
+
+bot.tree.add_command(events_group)
 
 
 @bot.tree.command(name="createfaction", description="Admin: create an official faction")
