@@ -6348,7 +6348,7 @@ def format_ftp_connection_error(host_errors):
     return "Could not connect to Nitrado FTP. Tried: " + "; ".join(lines)
 
 
-def connect_nitrado_ftp(config):
+def connect_nitrado_ftp(config, timeout_seconds=30):
     ftp_user = config.get("ftp_user")
     ftp_pass = config.get("ftp_password")
 
@@ -6358,11 +6358,11 @@ def connect_nitrado_ftp(config):
     host_errors = []
     for ftp_host in nitrado_ftp_hosts(config):
         try:
-            ftp = FTP_TLS(ftp_host, timeout=30)
+            ftp = FTP_TLS(ftp_host, timeout=timeout_seconds)
             ftp.login(ftp_user, ftp_pass)
             ftp.prot_p()
             try:
-                ftp.sock.settimeout(30)
+                ftp.sock.settimeout(timeout_seconds)
             except Exception:
                 pass
             return ftp, ftp_host, None
@@ -6778,7 +6778,7 @@ def nitrado_ftp_path_candidates(config, target_path):
     return deduped
 
 
-def list_remote_directory_from_nitrado_api(config, folder):
+def list_remote_directory_from_nitrado_api(config, folder, timeout_seconds=8):
     headers = nitrado_api_headers(config)
     url = nitrado_api_service_url(config, "list")
     if not headers or not url:
@@ -6791,7 +6791,7 @@ def list_remote_directory_from_nitrado_api(config, folder):
                 url,
                 headers=headers,
                 params={"dir": api_folder},
-                timeout=30
+                timeout=timeout_seconds
             )
             if response.status_code != 200:
                 continue
@@ -6812,8 +6812,8 @@ def list_remote_directory_from_nitrado_api(config, folder):
     return entries
 
 
-def list_remote_directory_from_ftp(config, folder):
-    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+def list_remote_directory_from_ftp(config, folder, timeout_seconds=8):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config, timeout_seconds=timeout_seconds)
     if ftp_error:
         return []
 
@@ -6912,11 +6912,11 @@ def ftp_list_directory_entries(ftp, remote_folder):
     return entries
 
 
-def remote_directory_entries(config, folder):
+def remote_directory_entries(config, folder, timeout_seconds=8):
     entries = []
-    for entry in list_remote_directory_from_nitrado_api(config, folder):
+    for entry in list_remote_directory_from_nitrado_api(config, folder, timeout_seconds=timeout_seconds):
         entries.append(entry)
-    for entry in list_remote_directory_from_ftp(config, folder):
+    for entry in list_remote_directory_from_ftp(config, folder, timeout_seconds=timeout_seconds):
         entries.append(entry)
 
     deduped = []
@@ -6973,7 +6973,7 @@ def remember_remote_path(paths, candidate):
         paths.append(candidate)
 
 
-def search_remote_init_paths_from_nitrado_api(config):
+def search_remote_init_paths_from_nitrado_api(config, max_dirs=60, timeout_seconds=8):
     headers = nitrado_api_headers(config)
     url = nitrado_api_service_url(config, "list")
     if not headers or not url:
@@ -6987,7 +6987,7 @@ def search_remote_init_paths_from_nitrado_api(config):
                     url,
                     headers=headers,
                     params={"dir": api_root, "search": "*init.c*"},
-                    timeout=30
+                    timeout=timeout_seconds
                 )
                 if response.status_code != 200:
                     continue
@@ -7011,7 +7011,7 @@ def search_remote_init_paths_from_nitrado_api(config):
             queued.append(root)
 
     index = 0
-    while index < len(queued) and len(seen_dirs) < 200:
+    while index < len(queued) and len(seen_dirs) < max_dirs:
         current = queued[index]
         index += 1
 
@@ -7020,7 +7020,7 @@ def search_remote_init_paths_from_nitrado_api(config):
         seen_dirs.add(current)
 
         depth = current.strip("/").count("/")
-        for entry in list_remote_directory_from_nitrado_api(config, current):
+        for entry in list_remote_directory_from_nitrado_api(config, current, timeout_seconds=timeout_seconds):
             name = str(entry.get("name") or "").strip()
             path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
             if not path:
@@ -7072,8 +7072,8 @@ def looks_like_remote_directory(path):
     return name not in skip
 
 
-def search_remote_init_paths_from_ftp(config, max_depth=8, max_dirs=200):
-    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+def search_remote_init_paths_from_ftp(config, max_depth=6, max_dirs=60, timeout_seconds=8):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config, timeout_seconds=timeout_seconds)
     if ftp_error:
         return []
 
@@ -7134,13 +7134,13 @@ def search_remote_init_paths_from_ftp(config, max_depth=8, max_dirs=200):
     return found
 
 
-def discover_init_c_paths(config):
+def discover_init_c_paths(config, max_dirs=60, timeout_seconds=8):
     discovered = []
 
-    for candidate in search_remote_init_paths_from_nitrado_api(config):
+    for candidate in search_remote_init_paths_from_nitrado_api(config, max_dirs=max_dirs, timeout_seconds=timeout_seconds):
         remember_remote_path(discovered, candidate)
 
-    for candidate in search_remote_init_paths_from_ftp(config):
+    for candidate in search_remote_init_paths_from_ftp(config, max_dirs=max_dirs, timeout_seconds=timeout_seconds):
         remember_remote_path(discovered, candidate)
 
     bases = [
@@ -7159,7 +7159,7 @@ def discover_init_c_paths(config):
     ]
 
     for base in bases:
-        for entry in remote_directory_entries(config, base):
+        for entry in remote_directory_entries(config, base, timeout_seconds=timeout_seconds):
             name = str(entry.get("name") or "").strip()
             path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
             if not name or not path:
@@ -7175,12 +7175,12 @@ def discover_init_c_paths(config):
     return discovered
 
 
-def bridge_init_c_diagnostic(config):
-    found = discover_init_c_paths(config)
+def bridge_init_c_diagnostic(config, max_dirs=60, max_roots=12, timeout_seconds=8):
+    found = discover_init_c_paths(config, max_dirs=max_dirs, timeout_seconds=timeout_seconds)
     visible_roots = []
 
-    for root in init_search_roots(config):
-        entries = remote_directory_entries(config, root)
+    for root in init_search_roots(config)[:max_roots]:
+        entries = remote_directory_entries(config, root, timeout_seconds=timeout_seconds)
         if not entries:
             continue
 
@@ -7198,7 +7198,7 @@ def bridge_init_c_diagnostic(config):
 
     notes = []
     if not visible_roots:
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config, timeout_seconds=timeout_seconds)
         if ftp_error:
             notes.append(ftp_error)
         else:
@@ -7214,7 +7214,7 @@ def bridge_init_c_diagnostic(config):
             notes.append("Nitrado API token or service ID is missing.")
         else:
             try:
-                response = requests.get(url, headers=headers, params={"dir": "/"}, timeout=15)
+                response = requests.get(url, headers=headers, params={"dir": "/"}, timeout=timeout_seconds)
                 notes.append(f"Nitrado API root list returned HTTP `{response.status_code}`.")
             except Exception as error:
                 notes.append(f"Nitrado API root list failed: `{error}`.")
@@ -16511,7 +16511,28 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
         config.pop("_discovered_ftp_hosts", None)
         save_guild_configs()
 
-    found_paths, visible_roots, diagnostic_notes = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+    try:
+        found_paths, visible_roots, diagnostic_notes = await run_bridge_blocking_io(
+            "Searching for init.c",
+            bridge_init_c_diagnostic,
+            config,
+            40,
+            10,
+            6,
+            timeout_seconds=25
+        )
+    except TimeoutError:
+        await interaction.followup.send(
+            (
+                "The init.c search timed out before Nitrado returned enough data. "
+                "That usually means the FTP/API listing is hanging or very slow. "
+                "Try `/installdayzbridge install:false init_path:/dayzxb_missions/dayzOffline.enoch/init.c ftp_host:"
+                f"{config.get('ftp_host') or '<your Nitrado FTP host>'}` if you know the exact mission path, "
+                "or use `/events bridgecode` for the manual install snippet."
+            ),
+            ephemeral=True
+        )
+        return
     found_paths = sort_init_paths_for_guild(guild_id, found_paths)
 
     embed = discord.Embed(
