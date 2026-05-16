@@ -5302,9 +5302,9 @@ async def setup_command(
         setup_embed.add_field(
             name="ADMIN SETUP & MODERATION",
             value=(
-                "`/setadminrole role_name` - replace the primary bot admin role\n"
-                "`/addstaffrole role_name` - add another role allowed to use staff tools\n"
-                "`/staffroles` - list staff roles\n"
+                "`/tools setadminrole role` - replace the primary bot admin role\n"
+                "`/tools addstaffrole role` - add another role allowed to use staff tools\n"
+                "`/tools staffroles` - list staff roles\n"
                 "`/shamesetup` - create the public Wandering in Shame feed\n"
                 "`/adminban member reason` - ban a Discord member and post the reason\n"
                 "`/admintempban member duration reason` - temp-ban with examples like `2h` or `3d`\n"
@@ -7318,9 +7318,9 @@ async def helpme(ctx):
     embed.add_field(
         name="Admin Tools",
         value=(
-            "`/setadminrole role_name`\n"
-            "`/addstaffrole role_name`\n"
-            "`/staffroles`\n"
+            "`/tools setadminrole role`\n"
+            "`/tools addstaffrole role`\n"
+            "`/tools staffroles`\n"
             "`/shamesetup`, `/adminban`, `/admintempban`, `/adminunban`\n"
             "`/cheatchecksetup`, `/cheatcheckconfig`, `/cheatcheckstatus`\n"
             "`/purge amount`\n"
@@ -7339,7 +7339,7 @@ async def helpme(ctx):
             "`/restartserver`\n"
             "`/admstatus`\n"
             "`/restartadm force`\n"
-            "`/reloadguilds`\n"
+            "`/tools reloadguilds`\n"
             "`/setrestartinterval hours`\n"
             "`/setrestartstart hour`\n"
             "`/cancelrestarts`\n"
@@ -14170,7 +14170,7 @@ async def slash_topkills(interaction: discord.Interaction):
         await interaction.response.send_message("No stats available.", ephemeral=True)
         return
     await interaction.response.send_message(embed=build_showcase_topkills_embed(interaction.guild), ephemeral=True)
-@bot.tree.command(name="staffroles", description="List staff roles")
+@extra_tools_group.command(name="staffroles", description="List staff roles")
 @app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
 @bot.tree.command(name="mylink", description="Show your linked gamertag")
@@ -14180,7 +14180,7 @@ async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_sl
 @bot.tree.command(name="shop", description="Show shop")
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
 
-@bot.tree.command(name="setadminrole", description="Set primary admin role")
+@extra_tools_group.command(name="setadminrole", description="Set primary admin role")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_setadminrole(interaction: discord.Interaction, role: discord.Role):
@@ -14192,7 +14192,7 @@ async def slash_setadminrole(interaction: discord.Interaction, role: discord.Rol
     config["admin_roles"] = [role.name]
     save_guild_configs()
     await interaction.response.send_message(f"Primary admin role set to {role.mention}.", ephemeral=True)
-@bot.tree.command(name="addstaffrole", description="Add a staff role")
+@extra_tools_group.command(name="addstaffrole", description="Add a staff role")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Role):
@@ -14254,7 +14254,7 @@ async def slash_radarping(interaction: discord.Interaction, x: str, y: str, reas
 @bot.tree.command(name="admstatus", description="Admin: show ADM feed status")
 @app_commands.default_permissions(administrator=True)
 async def slash_admstatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "admstatus")
-@bot.tree.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
+@extra_tools_group.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
 @app_commands.default_permissions(administrator=True)
 async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
 @bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
