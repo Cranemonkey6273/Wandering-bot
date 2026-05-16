@@ -6143,8 +6143,12 @@ async def setup_command(
         setup_embed.add_field(
             name="FINAL DAYZ SERVER STEP",
             value=(
-                "Add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup. "
-                "That enables restart delivery spawning from the XML this bot uploads.\n\n"
+                "PC/custom hosts: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup. "
+                "That enables restart delivery spawning from the XML this bot uploads.\n"
+                "Console hosts: `init.c` is not exposed. Use XML/JSON config files instead: `types.xml`, "
+                "`cfgspawnabletypes.xml`, `globals.xml`, `events.xml`, `cfgeventspawns.xml`, and `cfgplayerspawn.json`.\n\n"
+                "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
+                "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
                 "Item spawning: add shop items with `/addshopitem`, players use `/buy item_name x y`, then the bot uploads `deliveries.xml` for next restart.\n"
                 "Vehicle resets/rentals: players use `/rentvehicle vehicle_name rental_hours x y`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
@@ -6157,7 +6161,8 @@ async def setup_command(
                 "Use `/installdayzbridge` after setup if you want the bot to install the restart delivery hook for you. "
                 "If Nitrado shows a specific FTP host/IP, include it with `ftp_host:` or save it with `/bridge setftphost`. "
                 "It downloads `init.c`, uploads a timestamped backup, inserts `SpawnWanderingDeliveries();` only if missing, "
-                "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot."
+                "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot. "
+                "This is for PC/custom hosts only; console packages should use the XML/JSON config workflow."
             ),
             inline=False
         )
@@ -9281,7 +9286,8 @@ async def helpme(ctx):
         value=(
             "Items: add shop entries with `/addshopitem`; players use `/buy item_name x y`; the bot writes delivery XML for restart.\n"
             "Vehicles: players use `/rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
-            "Server file step: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup, or use owner-only `/installdayzbridge` to have the bot back up and patch it."
+            "PC/custom hosts: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup, or use owner-only `/installdayzbridge`.\n"
+            "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
         inline=False
     )
@@ -13468,6 +13474,131 @@ def has_active_scenario_events(config):
     return bool(active_scenario_events(config))
 
 
+CONSOLE_OBJECT_SPAWNER_REF = "./custom/WanderingBotObjects.json"
+CONSOLE_OBJECT_SPAWNER_PATH = "/dayzxb/custom/WanderingBotObjects.json"
+CONSOLE_CFGGAMEPLAY_CANDIDATES = [
+    "/dayzxb/cfggameplay.json",
+    "/dayzxb/config/cfggameplay.json",
+    "/dayzps/cfggameplay.json",
+    "/dayzps/config/cfggameplay.json",
+]
+
+
+def console_object_spawner_config(config):
+    settings = config.setdefault("console_object_spawner", {})
+    settings.setdefault("enabled", False)
+    settings.setdefault("object_path", CONSOLE_OBJECT_SPAWNER_PATH)
+    settings.setdefault("spawner_ref", CONSOLE_OBJECT_SPAWNER_REF)
+    settings.setdefault("cfggameplay_path", "")
+    settings.setdefault("objects", [])
+    if not isinstance(settings.get("objects"), list):
+        settings["objects"] = []
+    return settings
+
+
+def next_console_object_id(settings):
+    existing_ids = []
+    for item in settings.get("objects", []):
+        try:
+            existing_ids.append(int(item.get("id", 0)))
+        except Exception:
+            pass
+    return (max(existing_ids) if existing_ids else 0) + 1
+
+
+def dayz_object_record(class_name, x, z, y=0, yaw=0, pitch=0, roll=0, scale=1.0, persistent=False, object_id=None):
+    x_value = parse_dayz_map_number(x)
+    y_value = parse_dayz_map_number(y)
+    z_value = parse_dayz_map_number(z)
+    yaw_value = parse_dayz_map_number(yaw)
+    pitch_value = parse_dayz_map_number(pitch)
+    roll_value = parse_dayz_map_number(roll)
+    scale_value = parse_dayz_map_number(scale)
+
+    if not str(class_name or "").strip() or x_value is None or z_value is None:
+        return None
+
+    return {
+        "id": object_id,
+        "name": str(class_name).strip(),
+        "pos": [x_value, y_value or 0, z_value],
+        "ypr": [yaw_value or 0, pitch_value or 0, roll_value or 0],
+        "scale": scale_value or 1.0,
+        "enableCEPersistency": bool(persistent),
+    }
+
+
+def build_console_object_spawner_json(objects):
+    output = {"Objects": []}
+    for item in objects or []:
+        record = dayz_object_record(
+            item.get("name"),
+            (item.get("pos") or [None, None, None])[0] if isinstance(item.get("pos"), list) else item.get("x"),
+            (item.get("pos") or [None, None, None])[2] if isinstance(item.get("pos"), list) and len(item.get("pos")) >= 3 else item.get("z"),
+            (item.get("pos") or [None, 0, None])[1] if isinstance(item.get("pos"), list) and len(item.get("pos")) >= 2 else item.get("y", 0),
+            (item.get("ypr") or [0, 0, 0])[0] if isinstance(item.get("ypr"), list) else item.get("yaw", 0),
+            (item.get("ypr") or [0, 0, 0])[1] if isinstance(item.get("ypr"), list) and len(item.get("ypr")) >= 2 else item.get("pitch", 0),
+            (item.get("ypr") or [0, 0, 0])[2] if isinstance(item.get("ypr"), list) and len(item.get("ypr")) >= 3 else item.get("roll", 0),
+            item.get("scale", 1.0),
+            item.get("enableCEPersistency", item.get("persistent", False)),
+            item.get("id"),
+        )
+        if not record:
+            continue
+        record.pop("id", None)
+        output["Objects"].append(record)
+    return json.dumps(output, indent=4)
+
+
+def load_reference_cfggameplay_text(map_key):
+    map_key = "livonia" if map_key == "livonia" else "chernarus"
+    path = dayz_reference_path(map_key, "cfggameplay.json")
+    if path and os.path.exists(path):
+        with open(path, "r", encoding="utf-8", errors="ignore") as source:
+            return source.read()
+    return '{\n    "version": 123,\n    "WorldsData": {\n        "objectSpawnersArr": []\n    }\n}\n'
+
+
+def update_cfggameplay_object_spawner(cfggameplay_text, spawner_ref):
+    data = json.loads(cfggameplay_text or "{}")
+    worlds = data.setdefault("WorldsData", {})
+    spawners = worlds.setdefault("objectSpawnersArr", [])
+    if not isinstance(spawners, list):
+        spawners = []
+        worlds["objectSpawnersArr"] = spawners
+
+    wanted = str(spawner_ref or CONSOLE_OBJECT_SPAWNER_REF).strip()
+    normalized_existing = {str(item).replace("\\", "/").lower() for item in spawners}
+    changed = False
+    if wanted.replace("\\", "/").lower() not in normalized_existing:
+        spawners.append(wanted)
+        changed = True
+
+    return json.dumps(data, indent=4), changed
+
+
+def download_cfggameplay_with_fallback(config, guild_id, requested_path=""):
+    paths = []
+    if requested_path:
+        paths.append(requested_path)
+    settings = console_object_spawner_config(config)
+    if settings.get("cfggameplay_path"):
+        paths.append(settings["cfggameplay_path"])
+    paths.extend(CONSOLE_CFGGAMEPLAY_CANDIDATES)
+
+    tried = []
+    for path in paths:
+        if not path or path in tried:
+            continue
+        tried.append(path)
+        ok, message, content = download_text_file_from_nitrado(config, path)
+        if ok and content:
+            return True, message, content, path
+
+    map_key = server_map_key(guild_id)
+    return False, "Could not download cfggameplay.json; using bundled vanilla template.", load_reference_cfggameplay_text(map_key), (requested_path or settings.get("cfggameplay_path") or CONSOLE_CFGGAMEPLAY_CANDIDATES[0])
+
+
 def scenario_location_from_choice(location_key, x=None, z=None, y=0, map_key="chernarus"):
     presets = scenario_location_presets_for_map(map_key)
     location = presets.get(str(location_key or "").lower())
@@ -16484,6 +16615,68 @@ async def run_bridge_blocking_io(label, func, *args, timeout_seconds=90):
         raise TimeoutError(f"{label} timed out after {timeout_seconds} seconds.")
 
 
+def is_console_mission_path(path):
+    normalized = str(path or "").replace("\\", "/").lower()
+    return any(
+        marker in normalized
+        for marker in [
+            "/dayzxb",
+            "dayzxb_",
+            "/dayzps",
+            "dayzps_",
+        ]
+    )
+
+
+def console_bridge_unavailable_embed():
+    embed = discord.Embed(
+        title="CONSOLE SERVER: INIT.C BRIDGE NOT AVAILABLE",
+        description=(
+            "Console DayZ servers do not expose an official mission `init.c` script file. "
+            "That means the restart delivery bridge cannot be auto-installed or manually pasted on this server."
+        ),
+        color=0xE67E22
+    )
+    embed.add_field(
+        name="What Still Works",
+        value=(
+            "ADM log feeds, killfeed, stats, leaderboards, heatmaps, economy balances, factions, tickets, "
+            "and Discord-side rewards still work normally."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="What Needs A Different Design",
+        value=(
+            "In-game item delivery, vehicle rental spawning, and cleanup cannot use the `init.c` bridge on console. "
+            "Those need a console-safe workflow such as staff fulfilment, XML/event exports, or Discord-only tracking."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Console XML/JSON Alternatives",
+        value=(
+            "`cfgspawnabletypes.xml` - attachments/items that spawn on guns and clothing.\n"
+            "`types.xml` - core loot table: nominal/min/max, lifetime, restock, usage, value.\n"
+            "`globals.xml` - core economy/game rules such as timers, weather, day/night, infected limits.\n"
+            "`cfgeventspawns.xml` + `events.xml` - infected, vehicles, crashes, animal herds, and event positions.\n"
+            "`cfgplayerspawn.json` - fresh spawn clothing, inventory, and starting gear."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Next Step",
+        value=(
+            "Do not keep searching for `init.c` on this console package. Use `/events exportxml` only for XML data exports, "
+            "and treat bridge-only delivery features as unavailable until a console-safe fulfilment mode is added."
+        ),
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Console Bridge Check")
+    return style_embed(embed)
+
+
 @bridge_group.command(name="findinitc", description="Admin: search Nitrado FTP/API for your DayZ init.c path")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(ftp_host="Optional: Nitrado FTP host/IP shown in your Nitrado file browser")
@@ -16648,6 +16841,10 @@ async def installdayzbridge(
         save_guild_configs()
 
     requested_init_path = (init_path or "").strip()
+    if requested_init_path and is_console_mission_path(requested_init_path):
+        await interaction.followup.send(embed=console_bridge_unavailable_embed(), ephemeral=True)
+        return
+
     await interaction.followup.send(
         (
             f"Bridge install started. Downloading `init.c` from `{requested_init_path}`..."
@@ -16663,7 +16860,7 @@ async def installdayzbridge(
             config,
             guild_id,
             requested_init_path,
-            timeout_seconds=90
+            timeout_seconds=45 if requested_init_path else 90
         )
     except TimeoutError as error:
         await interaction.followup.send(
@@ -16723,6 +16920,48 @@ async def installdayzbridge(
                 filename="wandering_bridge_v4_init_snippet.c"
             )
             await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+            return
+
+        if requested_init_path:
+            tried_lines = []
+            seen_tried = set()
+            for item in attempted_paths[:8]:
+                path_text, _, error_text = str(item).partition(": ")
+                line_key = (path_text, error_text[:220])
+                if line_key in seen_tried:
+                    continue
+                seen_tried.add(line_key)
+                if error_text:
+                    tried_lines.append(f"`{path_text}`: {error_text[:260]}")
+                else:
+                    tried_lines.append(f"`{str(item)[:280]}`")
+
+            embed = discord.Embed(
+                title="EXACT INIT.C DOWNLOAD FAILED",
+                description=(
+                    "I tried the exact `init.c` path you supplied and could not download it through Nitrado API or FTPS. "
+                    "I am skipping the deeper search because Nitrado listing is timing out for this account."
+                ),
+                color=0xE67E22
+            )
+            embed.add_field(name="Requested Path", value=f"`{canonical_remote_path(requested_init_path)}`", inline=False)
+            embed.add_field(name="FTP Host", value=f"`{config.get('ftp_host')}`" if config.get("ftp_host") else "No saved host.", inline=False)
+            embed.add_field(
+                name="Download Attempts",
+                value=("\n".join(tried_lines) or f"`{canonical_remote_path(requested_init_path)}` failed.")[:1000],
+                inline=False
+            )
+            embed.add_field(
+                name="What This Means",
+                value=(
+                    "The bot cannot auto-patch the bridge unless the mission `init.c` is downloadable by this Nitrado account. "
+                    "Use `/events bridgecode` and paste the snippet manually in Nitrado's file browser if you can edit `init.c` there."
+                ),
+                inline=False
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot Alpha - Manual Bridge Fallback")
+            await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
             return
 
         network_error = (
@@ -17309,6 +17548,10 @@ async def event_bridgecode(interaction: discord.Interaction):
         return
 
     instructions = (
+        "CONSOLE NOTE: Xbox/PlayStation DayZ servers do not expose an official `init.c`, so this bridge snippet is for PC/custom hosts only. "
+        "On console, use the supported XML/JSON files instead: `cfgspawnabletypes.xml` for spawned attachments, `types.xml` for loot economy, "
+        "`globals.xml` for core timers/rules, `cfgeventspawns.xml` and `events.xml` for event/infected/vehicle/animal placement, and "
+        "`cfgplayerspawn.json` for fresh spawn loadouts.\n\n"
         "Paste the bridge functions below into your mission `init.c` above `void main()`. "
         "Then add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end. "
         "or use `/installdayzbridge install:true` when FTP/DNS works again.\n\n"
@@ -17319,13 +17562,268 @@ async def event_bridgecode(interaction: discord.Interaction):
         filename="wandering_bridge_v4_init_snippet.c"
     )
     await interaction.response.send_message(
-        "Manual bridge fallback exported. This is for hosts where the bot cannot download or patch `init.c` over FTP.",
+        "Manual bridge fallback exported. This is for PC/custom hosts with mission `init.c` access; console servers cannot use this bridge.",
         file=file,
         ephemeral=True
     )
 
 
 bot.tree.add_command(events_group)
+
+
+console_group = app_commands.Group(
+    name="console",
+    description="Console-safe DayZ object spawner tools"
+)
+
+
+@console_group.command(name="setupobjects", description="Admin: install console object spawner JSON and cfggameplay reference")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    object_path="Remote path for the object spawner JSON",
+    cfggameplay_path="Remote path to cfggameplay.json",
+    spawner_ref="Reference written into WorldsData.objectSpawnersArr",
+    upload="True uploads to Nitrado. False only previews status."
+)
+async def console_setupobjects(
+    interaction: discord.Interaction,
+    object_path: str = CONSOLE_OBJECT_SPAWNER_PATH,
+    cfggameplay_path: str = "",
+    spawner_ref: str = CONSOLE_OBJECT_SPAWNER_REF,
+    upload: bool = True,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    settings["object_path"] = object_path or CONSOLE_OBJECT_SPAWNER_PATH
+    settings["spawner_ref"] = spawner_ref or CONSOLE_OBJECT_SPAWNER_REF
+
+    cfg_ok, cfg_message, cfg_text, resolved_cfg_path = await asyncio.to_thread(
+        download_cfggameplay_with_fallback,
+        config,
+        guild_id,
+        cfggameplay_path
+    )
+    settings["cfggameplay_path"] = resolved_cfg_path
+
+    try:
+        updated_cfg, cfg_changed = update_cfggameplay_object_spawner(cfg_text, settings["spawner_ref"])
+    except Exception as error:
+        await interaction.followup.send(f"`cfggameplay.json` could not be parsed as JSON: `{error}`", ephemeral=True)
+        return
+
+    spawner_json = build_console_object_spawner_json(settings.get("objects", []))
+    object_upload = (False, "Upload skipped.")
+    cfg_upload = (False, "Upload skipped.")
+
+    if upload:
+        object_upload = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            settings["object_path"],
+            spawner_json
+        )
+        cfg_upload = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            resolved_cfg_path,
+            updated_cfg
+        )
+        settings["enabled"] = bool(object_upload[0] and cfg_upload[0])
+    else:
+        settings["enabled"] = False
+
+    save_guild_configs()
+
+    embed = discord.Embed(
+        title="CONSOLE OBJECT SPAWNER SETUP",
+        description=(
+            "This uses DayZ console's `cfggameplay.json` `WorldsData.objectSpawnersArr` flow. "
+            "No `init.c` is needed."
+        ),
+        color=0x2ECC71 if settings.get("enabled") else 0xE67E22
+    )
+    embed.add_field(name="Object Spawner", value=f"`{settings['object_path']}`", inline=False)
+    embed.add_field(name="cfggameplay.json", value=f"`{resolved_cfg_path}`", inline=False)
+    embed.add_field(name="Spawner Reference", value=f"`{settings['spawner_ref']}`", inline=False)
+    embed.add_field(name="Objects", value=str(len(settings.get("objects", []))), inline=True)
+    embed.add_field(name="cfggameplay Source", value=("Downloaded from server" if cfg_ok else cfg_message)[:900], inline=False)
+    embed.add_field(name="cfggameplay Changed", value="Yes" if cfg_changed else "Already referenced", inline=True)
+    embed.add_field(name="Object Upload", value=("OK" if object_upload[0] else object_upload[1])[:900], inline=False)
+    embed.add_field(name="cfggameplay Upload", value=("OK" if cfg_upload[0] else cfg_upload[1])[:900], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@console_group.command(name="addobject", description="Admin: add a static object to the console object spawner")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    class_name="DayZ classname to spawn",
+    x="Map X coordinate",
+    z="Map Z coordinate",
+    y="Height coordinate, usually 0",
+    yaw="Rotation/yaw",
+    scale="Object scale",
+    persistent="Whether to enable CE persistency for this object",
+    upload_now="Upload the updated spawner JSON immediately"
+)
+async def console_addobject(
+    interaction: discord.Interaction,
+    class_name: str,
+    x: str,
+    z: str,
+    y: str = "0",
+    yaw: str = "0",
+    scale: str = "1.0",
+    persistent: bool = False,
+    upload_now: bool = True,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    object_id = next_console_object_id(settings)
+    record = dayz_object_record(class_name, x, z, y, yaw, 0, 0, scale, persistent, object_id)
+    if not record:
+        await interaction.followup.send("That object needs a valid classname plus numeric `x` and `z` coordinates.", ephemeral=True)
+        return
+
+    settings["objects"].append(record)
+    save_guild_configs()
+
+    upload_message = "Upload skipped. Run `/console uploadobjects` when ready."
+    if upload_now:
+        spawner_json = build_console_object_spawner_json(settings.get("objects", []))
+        upload_ok, upload_message = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH,
+            spawner_json
+        )
+        if not upload_ok:
+            upload_message = f"Upload failed: {upload_message}"
+
+    embed = discord.Embed(
+        title="CONSOLE OBJECT ADDED",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Object ID", value=f"`{object_id}`", inline=True)
+    embed.add_field(name="Class", value=f"`{record['name']}`", inline=False)
+    embed.add_field(name="Position", value=f"`{record['pos'][0]} {record['pos'][1]} {record['pos'][2]}`", inline=False)
+    embed.add_field(name="Yaw / Scale", value=f"`{record['ypr'][0]}` / `{record['scale']}`", inline=True)
+    embed.add_field(name="Upload", value=discord_safe_content(upload_message, 900), inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@console_group.command(name="uploadobjects", description="Admin: upload the current console object spawner JSON")
+@app_commands.default_permissions(administrator=True)
+async def console_uploadobjects(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    spawner_json = build_console_object_spawner_json(settings.get("objects", []))
+    upload_ok, upload_message = await asyncio.to_thread(
+        upload_text_file_to_nitrado,
+        config,
+        settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH,
+        spawner_json
+    )
+    await interaction.followup.send(
+        discord_safe_content(
+            f"{'Uploaded' if upload_ok else 'Upload failed'} `{len(settings.get('objects', []))}` object(s) to `{settings.get('object_path')}`.\n{upload_message}"
+        ),
+        ephemeral=True
+    )
+
+
+@console_group.command(name="exportobjects", description="Admin: export console object spawner JSON for manual upload")
+@app_commands.default_permissions(administrator=True)
+async def console_exportobjects(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    spawner_json = build_console_object_spawner_json(settings.get("objects", []))
+    file = discord.File(
+        io.BytesIO(spawner_json.encode("utf-8")),
+        filename=os.path.basename(settings.get("object_path") or "WanderingBotObjects.json")
+    )
+    await interaction.response.send_message(
+        f"Manual fallback: upload this to `{settings.get('object_path')}` and make sure `cfggameplay.json` contains `{settings.get('spawner_ref')}` in `WorldsData.objectSpawnersArr`.",
+        file=file,
+        ephemeral=True
+    )
+
+
+@console_group.command(name="listobjects", description="Admin: list configured console object spawns")
+@app_commands.default_permissions(administrator=True)
+async def console_listobjects(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    objects = settings.get("objects", [])
+    if not objects:
+        await interaction.response.send_message("No console object spawns configured yet.", ephemeral=True)
+        return
+
+    lines = []
+    for item in objects[:25]:
+        pos = item.get("pos") or ["?", "?", "?"]
+        lines.append(f"`{item.get('id')}` `{item.get('name')}` at `{pos[0]} {pos[1]} {pos[2]}`")
+    await interaction.response.send_message("\n".join(lines)[:1900], ephemeral=True)
+
+
+@console_group.command(name="deleteobject", description="Admin: remove one configured console object spawn")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(object_id="Object ID from /console listobjects", upload_now="Upload the updated spawner JSON immediately")
+async def console_deleteobject(interaction: discord.Interaction, object_id: int, upload_now: bool = True):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    settings = console_object_spawner_config(config)
+    before = len(settings.get("objects", []))
+    settings["objects"] = [item for item in settings.get("objects", []) if int(item.get("id", 0) or 0) != int(object_id)]
+    if len(settings["objects"]) == before:
+        await interaction.followup.send(f"Object `{object_id}` not found.", ephemeral=True)
+        return
+
+    save_guild_configs()
+    message = "Deleted locally."
+    if upload_now:
+        upload_ok, upload_message = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH,
+            build_console_object_spawner_json(settings.get("objects", []))
+        )
+        message = "Deleted and uploaded." if upload_ok else f"Deleted locally, but upload failed: {upload_message}"
+
+    await interaction.followup.send(discord_safe_content(message), ephemeral=True)
+
+
+bot.tree.add_command(console_group)
 
 
 @bot.tree.command(name="createfaction", description="Admin: create an official faction")
