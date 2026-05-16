@@ -6352,7 +6352,11 @@ def nitrado_api_file_path(config, target_path):
         return clean
 
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    if nitrado_user and clean.startswith("/dayzxb/"):
+    if nitrado_user and (
+        clean.startswith("/dayzxb/")
+        or clean == "/dayzxb_missions"
+        or clean.startswith("/dayzxb_missions/")
+    ):
         return f"/games/{nitrado_user}/noftp{clean}"
 
     if nitrado_user and clean.startswith("/noftp/"):
@@ -6373,7 +6377,11 @@ def nitrado_api_file_path_candidates(config, target_path):
     nitrado_user = str(config.get("nitrado_user") or "").strip()
 
     if nitrado_user:
-        if clean.startswith("/dayzxb/"):
+        if (
+            clean.startswith("/dayzxb/")
+            or clean == "/dayzxb_missions"
+            or clean.startswith("/dayzxb_missions/")
+        ):
             candidates.extend([
                 f"/games/{nitrado_user}/noftp{clean}",
                 f"/games/{nitrado_user}{clean}",
@@ -6652,7 +6660,11 @@ def nitrado_ftp_path_candidates(config, target_path):
     ]
 
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    if nitrado_user and clean.startswith("/dayzxb/"):
+    if nitrado_user and (
+        clean.startswith("/dayzxb/")
+        or clean == "/dayzxb_missions"
+        or clean.startswith("/dayzxb_missions/")
+    ):
         candidates.extend([
             f"/games/{nitrado_user}/noftp{clean}",
             f"games/{nitrado_user}/noftp{clean}",
@@ -6762,6 +6774,8 @@ def init_search_roots(config):
         "/",
         "/dayzxb",
         "/dayzxb/mpmissions",
+        "/dayzxb_missions",
+        "/dayzxb_missions/mpmissions",
         "/dayzxbserver",
         "/dayzxbserver/mpmissions",
         "/mpmissions",
@@ -6772,6 +6786,8 @@ def init_search_roots(config):
             f"/games/{nitrado_user}/noftp",
             f"/games/{nitrado_user}/noftp/dayzxb",
             f"/games/{nitrado_user}/noftp/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/noftp/dayzxb_missions",
+            f"/games/{nitrado_user}/noftp/dayzxb_missions/mpmissions",
             f"/games/{nitrado_user}/noftp/dayzxbserver",
             f"/games/{nitrado_user}/noftp/dayzxbserver/mpmissions",
         ])
@@ -6819,6 +6835,44 @@ def search_remote_init_paths_from_nitrado_api(config):
                         remember_remote_path(found, path)
             except Exception:
                 continue
+
+    queued = []
+    seen_dirs = set()
+    for root in init_search_roots(config):
+        root = str(root or "").replace("\\", "/").rstrip("/") or "/"
+        if root not in queued:
+            queued.append(root)
+
+    index = 0
+    while index < len(queued) and len(seen_dirs) < 200:
+        current = queued[index]
+        index += 1
+
+        if current in seen_dirs:
+            continue
+        seen_dirs.add(current)
+
+        depth = current.strip("/").count("/")
+        for entry in list_remote_directory_from_nitrado_api(config, current):
+            name = str(entry.get("name") or "").strip()
+            path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+            if not path:
+                continue
+
+            if name.lower() == "init.c" or path.lower().endswith("/init.c"):
+                remember_remote_path(found, path)
+                continue
+
+            if depth >= 8:
+                continue
+
+            entry_type = str(entry.get("type") or "").lower()
+            is_directory = entry_type in {"dir", "directory", "folder"}
+            if not is_directory and not looks_like_remote_directory(path):
+                continue
+
+            if path not in seen_dirs and path not in queued:
+                queued.append(path)
 
     return found
 
@@ -6918,6 +6972,8 @@ def discover_init_c_paths(config):
 
     bases = [
         "/dayzxb/mpmissions",
+        "/dayzxb_missions",
+        "/dayzxb_missions/mpmissions",
         "/dayzxbserver/mpmissions",
         "/mpmissions",
     ]
@@ -16091,6 +16147,16 @@ def init_path_candidates_for_guild(guild_id):
         "/dayzxb/mpmissions/dayzOffline.sakhal/init.c",
         "/dayzxb/mpmissions/dayzOffline.sakhalplus/init.c",
         "/dayzxb/mpmissions/dayzOffline.namalsk/init.c",
+        "/dayzxb_missions/dayzOffline.chernarusplus/init.c",
+        "/dayzxb_missions/dayzOffline.enoch/init.c",
+        "/dayzxb_missions/dayzOffline.sakhal/init.c",
+        "/dayzxb_missions/dayzOffline.sakhalplus/init.c",
+        "/dayzxb_missions/dayzOffline.namalsk/init.c",
+        "/dayzxb_missions/mpmissions/dayzOffline.chernarusplus/init.c",
+        "/dayzxb_missions/mpmissions/dayzOffline.enoch/init.c",
+        "/dayzxb_missions/mpmissions/dayzOffline.sakhal/init.c",
+        "/dayzxb_missions/mpmissions/dayzOffline.sakhalplus/init.c",
+        "/dayzxb_missions/mpmissions/dayzOffline.namalsk/init.c",
     ]
 
     deduped = []
