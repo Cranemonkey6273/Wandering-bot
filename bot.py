@@ -124,6 +124,11 @@ cheat_kill_chains = {}
 # =========================================================
 
 SHOWCASE_GUILD_ID = os.getenv("SHOWCASE_GUILD_ID", "")
+SHOWCASE_CHANNEL_ID = os.getenv("SHOWCASE_CHANNEL_ID", "1505197634951053404")
+DEFAULT_BOT_INVITE_URL = os.getenv(
+    "BOT_INVITE_URL",
+    "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands"
+)
 user_style_profiles = {}          # user_id -> style data
 last_showcase_proactive_time = {} # guild_id -> timestamp
 last_showcase_greeting_image = {} # guild_id -> timestamp
@@ -147,6 +152,21 @@ LONGSHOT_ANNOUNCE_METERS = 300
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AI_IMAGE_MODEL = os.getenv("WANDERING_AI_IMAGE_MODEL", "gpt-image-1")
 AI_IMAGE_DEFAULT_COOLDOWN_SECONDS = int(os.getenv("WANDERING_AI_IMAGE_COOLDOWN_SECONDS", "21600"))
+
+
+def bot_invite_url(override=""):
+    override = str(override or "").strip()
+    if override:
+        return override
+
+    client_id = getattr(getattr(bot, "user", None), "id", None) or os.getenv("DISCORD_CLIENT_ID")
+    if client_id:
+        return (
+            "https://discord.com/oauth2/authorize?"
+            f"client_id={client_id}&permissions=8&integration_type=0&scope=bot+applications.commands"
+        )
+
+    return DEFAULT_BOT_INVITE_URL
 
 DEFAULT_ADMIN_ROLES = [
     "Admin",
@@ -2539,6 +2559,7 @@ async def showcasesetup(interaction: discord.Interaction, secret_code: str, invi
         return
 
     await interaction.response.defer(ephemeral=True)
+    invite_link = bot_invite_url(invite_url)
 
     guild = interaction.guild
     guild_id = str(guild.id)
@@ -2560,7 +2581,7 @@ async def showcasesetup(interaction: discord.Interaction, secret_code: str, invi
             "**This server is run by Wandering Bot.**\n\n"
             "The owner is here as backup only. The bot manages channels, generates content, "
             "welcomes members, starts discussions, creates AI art, and adapts to how you communicate.\n\n"
-            f"**Invite the bot to your server:** {invite_url or '*(add invite URL)*'}\n\n"
+            f"**Invite the bot to your server:** {invite_link}\n\n"
             "Say `hi` in any channel to see the bot respond. Ask it to generate an image. "
             "Ask it about features. Watch it run the server."
         )),
@@ -6964,14 +6985,21 @@ def owner_secret_valid(interaction, secret_code):
     # Re-read env vars at call time so runtime changes are picked up
     live_secret = os.getenv("BOT_OWNER_SECRET_CODE")
     live_owner_id = os.getenv("BOT_OWNER_ID")
+    live_showcase_guild_id = os.getenv("SHOWCASE_GUILD_ID") or SHOWCASE_GUILD_ID
+    live_showcase_channel_id = os.getenv("SHOWCASE_CHANNEL_ID") or SHOWCASE_CHANNEL_ID
 
     # Support multiple guild IDs via BOT_OWNER_GUILD_IDS (comma-separated).
     # Fall back to the legacy singular BOT_OWNER_GUILD_ID for backward compatibility.
     raw_guild_ids = os.getenv("BOT_OWNER_GUILD_IDS") or os.getenv("BOT_OWNER_GUILD_ID")
     live_guild_ids = [g.strip() for g in raw_guild_ids.split(",") if g.strip()] if raw_guild_ids else []
+    raw_channel_ids = os.getenv("BOT_OWNER_CHANNEL_IDS") or os.getenv("BOT_OWNER_CHANNEL_ID")
+    live_channel_ids = [c.strip() for c in raw_channel_ids.split(",") if c.strip()] if raw_channel_ids else []
+    if live_showcase_channel_id:
+        live_channel_ids.append(str(live_showcase_channel_id).strip())
 
     user_id = str(interaction.user.id)
     guild_id = str(interaction.guild_id) if interaction.guild_id else ""
+    channel_id = str(getattr(interaction, "channel_id", "") or "")
 
     if not live_secret:
         print(f"[OWNER AUTH] REJECTED — BOT_OWNER_SECRET_CODE env var is not set")
@@ -6987,8 +7015,12 @@ def owner_secret_valid(interaction, secret_code):
         print(f"[OWNER AUTH] REJECTED — user ID {user_id} does not match BOT_OWNER_ID {live_owner_id.strip()}")
         return False
 
+    allowed_by_showcase_guild = bool(live_showcase_guild_id and guild_id == str(live_showcase_guild_id).strip())
+    allowed_by_channel = bool(channel_id and channel_id in set(live_channel_ids))
+
     # If one or more owner guild IDs are configured, the command must come from one of them
-    if live_guild_ids and guild_id not in live_guild_ids:
+    # or from the configured owner/showcase channel.
+    if live_guild_ids and guild_id not in live_guild_ids and not allowed_by_showcase_guild and not allowed_by_channel:
         print(f"[OWNER AUTH] REJECTED — guild ID {guild_id} is not in BOT_OWNER_GUILD_IDS {live_guild_ids}")
         return False
 
@@ -12203,6 +12235,36 @@ async def ownerremovebot(interaction: discord.Interaction, secret_code: str, gui
         )
 
 
+async def remove_non_showcase_channels(guild, showcase_category, showcase_channel_ids):
+    keep_ids = {int(channel_id) for channel_id in showcase_channel_ids}
+    deleted_channels = 0
+    deleted_categories = 0
+
+    for channel in list(guild.text_channels):
+        if channel.id in keep_ids:
+            continue
+
+        try:
+            await channel.delete(reason="Wandering Bot showcase mode cleanup")
+            deleted_channels += 1
+        except Exception as error:
+            print(f"SHOWCASE CLEANUP CHANNEL ERROR {guild.id}:{channel.id}: {error}")
+
+    for category in list(guild.categories):
+        if showcase_category and category.id == showcase_category.id:
+            continue
+        if category.channels:
+            continue
+
+        try:
+            await category.delete(reason="Wandering Bot showcase mode cleanup")
+            deleted_categories += 1
+        except Exception as error:
+            print(f"SHOWCASE CLEANUP CATEGORY ERROR {guild.id}:{category.id}: {error}")
+
+    return deleted_channels, deleted_categories
+
+
 @bot.tree.command(name="ownerbotshowcase", description="Owner only: build Wandering Bot advertising/info channels")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(secret_code="Owner secret code", invite_url="Bot invite URL to display")
@@ -12212,6 +12274,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         return
 
     await interaction.response.defer(ephemeral=True)
+    invite_link = bot_invite_url(invite_url)
 
     guild_id = str(interaction.guild.id)
     if guild_id not in guild_configs:
@@ -12257,7 +12320,13 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
                 pass
         made_channels[channel_name] = existing
 
+    showcase_config_keys = {"general_chat", "ai_chat", "help_channel", "company_announcements"}
+    guild_configs[guild_id]["disabled_channels"] = [
+        key for key in DEFAULT_CHANNEL_NAMES
+        if key not in showcase_config_keys
+    ]
     channels_cfg = guild_configs[guild_id].setdefault("channels", {})
+    channels_cfg.clear()
     if "💬・talk-to-the-bot" in made_channels:
         channels_cfg["general_chat"] = made_channels["💬・talk-to-the-bot"].id
     if "🎨・ai-image-lab" in made_channels:
@@ -12703,7 +12772,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.add_field(
         name="🚀 Bot Invite Link",
-        value=invite_url if invite_url else "*(Invite link will be added here by the server owner.)*",
+        value=f"[Click here to add Wandering Bot to your Discord](<{invite_link}>)\n{invite_link}",
         inline=False
     )
     embed.add_field(
@@ -12768,9 +12837,17 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.set_footer(text="Wandering Bot • Announcements")
     await ch.send(embed=style_embed(embed))
 
+    deleted_channels, deleted_categories = await remove_non_showcase_channels(
+        interaction.guild,
+        category,
+        [channel.id for channel in made_channels.values()]
+    )
+    save_guild_configs()
+
     await interaction.followup.send(
         "✅ Wandering Bot showcase server configured. Guild marked as `is_showcase_guild`. "
-        "All showcase channels created/updated with full content.",
+        f"Removed `{deleted_channels}` non-showcase channel(s) and `{deleted_categories}` empty category/categories. "
+        "Only showcase channels are kept.",
         ephemeral=True
     )
 
