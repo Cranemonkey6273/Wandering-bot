@@ -13438,8 +13438,11 @@ SCENARIO_AIRDROP_MARKER_CLASS = "Land_Wreck_Caravan_MGreen"
 DAYZ_REFERENCE_MAP_FOLDERS = {
     "chernarus": "dayzOffline.chernarusplus",
     "livonia": "dayzOffline.enoch",
+    "sakhal": "dayzOffline.sakhal",
 }
 dayz_reference_cache = {}
+
+CONSOLE_CE_EVENT_PREFIX = "WanderingBot_"
 
 
 def dayz_reference_path(map_key, *parts):
@@ -13447,6 +13450,14 @@ def dayz_reference_path(map_key, *parts):
     if not folder:
         return None
     return os.path.join(DAYZ_REFERENCE_FOLDER, folder, *parts)
+
+
+def load_dayz_reference_text(map_key, *parts):
+    path = dayz_reference_path(map_key, *parts)
+    if path and os.path.exists(path):
+        with open(path, "r", encoding="utf-8", errors="ignore") as source:
+            return source.read()
+    return ""
 
 
 def load_dayz_reference(map_key):
@@ -13769,6 +13780,401 @@ def download_cfggameplay_with_fallback(config, guild_id, requested_path=""):
 
     map_key = server_map_key(guild_id)
     return False, "Could not download cfggameplay.json; using bundled vanilla template.", load_reference_cfggameplay_text(map_key), (requested_path or settings.get("cfggameplay_path") or CONSOLE_CFGGAMEPLAY_CANDIDATES[0])
+
+
+def console_mission_folder_for_map(map_key):
+    return DAYZ_REFERENCE_MAP_FOLDERS.get(map_key) or DAYZ_REFERENCE_MAP_FOLDERS["chernarus"]
+
+
+def console_ce_default_paths(guild_id):
+    mission_folder = console_mission_folder_for_map(server_map_key(guild_id))
+    return {
+        "events_path": f"/dayzxb/mpmissions/{mission_folder}/db/events.xml",
+        "spawns_path": f"/dayzxb/mpmissions/{mission_folder}/cfgeventspawns.xml",
+        "spawnabletypes_path": f"/dayzxb/mpmissions/{mission_folder}/cfgspawnabletypes.xml",
+    }
+
+
+def console_ce_event_config(config):
+    settings = config.setdefault("console_ce_events", {})
+    settings.setdefault("enabled", False)
+    settings.setdefault("events_path", "")
+    settings.setdefault("spawns_path", "")
+    settings.setdefault("spawnabletypes_path", "")
+    return settings
+
+
+def ce_event_name(event, suffix=""):
+    event_id = int(event.get("id", 0) or 0)
+    kind = normalize_discord_name(event.get("event_type", "event")) or "event"
+    tail = f"_{normalize_discord_name(suffix)}" if suffix else ""
+    return f"{CONSOLE_CE_EVENT_PREFIX}{event_id}_{kind}{tail}"[:64]
+
+
+def ce_event_nominal_count(event, override_count=None):
+    try:
+        count = int(override_count if override_count is not None else event.get("count", 1))
+    except Exception:
+        count = 1
+    return max(1, min(250, count))
+
+
+def xml_text_from_root(root):
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + ET.tostring(root, encoding="unicode")
+
+
+def parse_xml_root_or_new(text, fallback_root):
+    text = str(text or "").strip()
+    if not text:
+        return ET.Element(fallback_root), "Created new template because the source XML was empty."
+
+    try:
+        return ET.fromstring(text.encode("utf-8")), None
+    except Exception as error:
+        return ET.Element(fallback_root), f"Created new `{fallback_root}` template because XML parsing failed: {error}"
+
+
+def remove_wandering_ce_nodes(root):
+    removed = 0
+    for child in list(root):
+        name = str(child.get("name") or "")
+        if name.startswith(CONSOLE_CE_EVENT_PREFIX):
+            root.remove(child)
+            removed += 1
+    return removed
+
+
+def console_ce_needs_spawnabletypes(config):
+    for event in active_scenario_events(config):
+        if event.get("event_type") == "airdrop" and event.get("loot"):
+            return True
+    return False
+
+
+def cfgspawnabletypes_loot_signature(cargo_node):
+    return tuple(sorted(
+        str(item.get("name") or "").strip()
+        for item in cargo_node.findall("item")
+        if str(item.get("name") or "").strip()
+    ))
+
+
+def find_or_create_spawnable_type(root, class_name):
+    wanted = str(class_name or "").strip()
+    for type_node in root.findall("type"):
+        if str(type_node.get("name") or "").strip().lower() == wanted.lower():
+            return type_node, False
+
+    return ET.SubElement(root, "type", {"name": wanted}), True
+
+
+def merge_airdrop_loot_into_spawnabletypes(root, events):
+    changed_classes = set()
+    cargo_blocks = 0
+
+    for event in events:
+        if event.get("event_type") != "airdrop":
+            continue
+
+        class_name = str(event.get("class_name") or "").strip()
+        loot = [
+            str(item).strip()
+            for item in (event.get("loot") or [])
+            if str(item).strip()
+        ]
+        if not class_name or not loot:
+            continue
+
+        type_node, _ = find_or_create_spawnable_type(root, class_name)
+        signature = tuple(sorted(loot))
+
+        for cargo_node in list(type_node.findall("cargo")):
+            if cfgspawnabletypes_loot_signature(cargo_node) == signature:
+                type_node.remove(cargo_node)
+
+        cargo_node = ET.SubElement(type_node, "cargo", {"chance": "1.00"})
+        for item_name in loot:
+            ET.SubElement(cargo_node, "item", {
+                "name": item_name,
+                "chance": "1.00",
+            })
+
+        changed_classes.add(class_name)
+        cargo_blocks += 1
+
+    return sorted(changed_classes), cargo_blocks
+
+
+def ce_decimal(value, default=0):
+    parsed = parse_dayz_map_number(value)
+    if parsed is None:
+        parsed = default
+    return f"{float(parsed):.2f}".rstrip("0").rstrip(".")
+
+
+def add_console_ce_event_definition(root, event_name, child_type, count, lifetime, restock=0):
+    event_node = ET.SubElement(root, "event", {"name": event_name})
+    fields = [
+        ("nominal", count),
+        ("min", count),
+        ("max", count),
+        ("lifetime", lifetime),
+        ("restock", restock),
+        ("saferadius", 0),
+        ("distanceradius", 0),
+        ("cleanupradius", 100),
+    ]
+    for tag, value in fields:
+        child = ET.SubElement(event_node, tag)
+        child.text = str(int(value))
+
+    flags = ET.SubElement(event_node, "flags")
+    flags.set("deletable", "1")
+    flags.set("init_random", "0")
+    flags.set("remove_damaged", "0")
+
+    position = ET.SubElement(event_node, "position")
+    position.text = "fixed"
+    limit = ET.SubElement(event_node, "limit")
+    limit.text = "custom"
+    active = ET.SubElement(event_node, "active")
+    active.text = "1"
+
+    children = ET.SubElement(event_node, "children")
+    ET.SubElement(children, "child", {
+        "lootmax": "-1",
+        "lootmin": "-1",
+        "max": str(int(count)),
+        "min": str(int(count)),
+        "type": str(child_type),
+    })
+    return event_node
+
+
+def add_console_ce_event_spawn(root, event_name, x, z, angle=0):
+    event_node = ET.SubElement(root, "event", {"name": event_name})
+    ET.SubElement(event_node, "pos", {
+        "x": ce_decimal(x),
+        "z": ce_decimal(z),
+        "a": ce_decimal(angle),
+    })
+    return event_node
+
+
+def console_ce_records_for_event(event):
+    event_type = str(event.get("event_type") or "").strip()
+    class_name = str(event.get("class_name") or "").strip()
+    records = []
+    warnings = []
+
+    if event_type in {"vehicle_reset_all", "vehicle_reset_point"}:
+        warnings.append(
+            f"`{event.get('id')}` is a vehicle reset. Native console XML can add vehicle spawn events, but it cannot delete/reset existing vehicles on command."
+        )
+        return records, warnings
+
+    if not class_name:
+        warnings.append(f"`{event.get('id')}` has no classname, so it was skipped.")
+        return records, warnings
+
+    count = ce_event_nominal_count(event)
+    lifetime = 3600
+    if event_type == "vehicle_spawn":
+        count = 1
+        lifetime = 3888000
+    elif event_type == "airdrop":
+        count = 1
+        lifetime = 7200
+    elif event_type == "zombie_horde":
+        lifetime = 1800
+
+    records.append({
+        "name": ce_event_name(event),
+        "class_name": class_name,
+        "count": count,
+        "lifetime": lifetime,
+        "x": event.get("x"),
+        "z": event.get("z"),
+    })
+
+    if event_type == "airdrop":
+        guard_class = str(event.get("guard_class") or "").strip()
+        guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
+        if guard_class and guard_count:
+            records.append({
+                "name": ce_event_name(event, "guards"),
+                "class_name": guard_class,
+                "count": guard_count,
+                "lifetime": 1800,
+                "x": event.get("x"),
+                "z": event.get("z"),
+            })
+
+        marker_class = str(event.get("marker_class") or "").strip()
+        if event.get("visual_marker") and marker_class:
+            records.append({
+                "name": ce_event_name(event, "marker"),
+                "class_name": marker_class,
+                "count": 1,
+                "lifetime": 7200,
+                "x": event.get("x"),
+                "z": event.get("z"),
+            })
+
+        if event.get("loot_preset") and event.get("loot_preset") != "none":
+            warnings.append(
+                f"`{event.get('id')}` keeps its airdrop crate spawn, but exact crate contents need cfgspawnabletypes/types tuning; CE XML alone cannot fill one single crate instance."
+            )
+
+    if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":
+        warnings.append(
+            f"`{event.get('id')}` spawns the vehicle event, but exact fuel/parts condition is not guaranteed by events.xml/cfgeventspawns.xml alone."
+        )
+
+    return records, warnings
+
+
+def download_console_ce_source(config, guild_id, key, requested_path=""):
+    defaults = console_ce_default_paths(guild_id)
+    settings = console_ce_event_config(config)
+    target_path = requested_path or settings.get(key) or defaults[key]
+    ok, message, text = download_text_file_from_nitrado(config, target_path)
+    if ok and text:
+        return text, target_path, message
+
+    map_key = server_map_key(guild_id)
+    if key == "events_path":
+        reference_parts = ("db", "events.xml")
+        fallback_root = "events"
+    elif key == "spawnabletypes_path":
+        reference_parts = ("cfgspawnabletypes.xml",)
+        fallback_root = "spawnabletypes"
+    else:
+        reference_parts = ("cfgeventspawns.xml",)
+        fallback_root = "eventposdef"
+
+    reference_text = load_dayz_reference_text(map_key, *reference_parts)
+    if reference_text:
+        return reference_text, target_path, f"{message} Using bundled vanilla reference as fallback."
+
+    return f"<{fallback_root}></{fallback_root}>\n", target_path, f"{message} No bundled reference was found, so a minimal template was used."
+
+
+def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path=""):
+    events_text, resolved_events_path, events_source = download_console_ce_source(config, guild_id, "events_path", events_path)
+    spawns_text, resolved_spawns_path, spawns_source = download_console_ce_source(config, guild_id, "spawns_path", spawns_path)
+
+    events_root, events_parse_warning = parse_xml_root_or_new(events_text, "events")
+    spawns_root, spawns_parse_warning = parse_xml_root_or_new(spawns_text, "eventposdef")
+
+    removed_events = remove_wandering_ce_nodes(events_root)
+    removed_spawns = remove_wandering_ce_nodes(spawns_root)
+
+    records = []
+    warnings = []
+    for event in active_scenario_events(config):
+        event_records, event_warnings = console_ce_records_for_event(event)
+        records.extend(event_records)
+        warnings.extend(event_warnings)
+
+    for record in records:
+        add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record["class_name"],
+            record["count"],
+            record["lifetime"],
+        )
+        add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+        )
+
+    messages = [
+        events_source,
+        spawns_source,
+        f"Removed `{removed_events}` old WanderingBot event definition(s) and `{removed_spawns}` old spawn point block(s).",
+        f"Generated `{len(records)}` native CE event record(s).",
+    ]
+    if events_parse_warning:
+        messages.append(events_parse_warning)
+    if spawns_parse_warning:
+        messages.append(spawns_parse_warning)
+    messages.extend(warnings)
+
+    output = {
+        "events_path": resolved_events_path,
+        "events_text": xml_text_from_root(events_root),
+        "spawns_path": resolved_spawns_path,
+        "spawns_text": xml_text_from_root(spawns_root),
+        "spawnabletypes_path": "",
+        "spawnabletypes_text": "",
+        "record_count": len(records),
+        "messages": messages,
+    }
+
+    if console_ce_needs_spawnabletypes(config):
+        spawnable_text, resolved_spawnable_path, spawnable_source = download_console_ce_source(
+            config,
+            guild_id,
+            "spawnabletypes_path",
+            spawnabletypes_path
+        )
+        spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
+        changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, active_scenario_events(config))
+        output["spawnabletypes_path"] = resolved_spawnable_path
+        output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
+        output["messages"].append(spawnable_source)
+        output["messages"].append(
+            f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` airdrop cargo block(s) for: "
+            + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
+        )
+        output["messages"].append(
+            "Note: crate cargo tuning is class-based, so using `WoodenCrate` means other CE-spawned WoodenCrate instances can share that cargo setup."
+        )
+        if spawnable_parse_warning:
+            output["messages"].append(spawnable_parse_warning)
+
+    return output
+
+
+def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
+    built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
+    messages = list(built["messages"])
+
+    events_ok, events_message = upload_text_file_to_nitrado(config, built["events_path"], built["events_text"])
+    spawns_ok, spawns_message = upload_text_file_to_nitrado(config, built["spawns_path"], built["spawns_text"])
+    messages.append(f"`events.xml`: {events_message}")
+    messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
+
+    spawnable_ok = True
+    if built.get("spawnabletypes_text"):
+        spawnable_ok, spawnable_message = upload_text_file_to_nitrado(
+            config,
+            built["spawnabletypes_path"],
+            built["spawnabletypes_text"]
+        )
+        messages.append(f"`cfgspawnabletypes.xml`: {spawnable_message}")
+
+    success = events_ok and spawns_ok and spawnable_ok
+    if success:
+        settings = console_ce_event_config(config)
+        settings["enabled"] = True
+        settings["events_path"] = built["events_path"]
+        settings["spawns_path"] = built["spawns_path"]
+        if built.get("spawnabletypes_path"):
+            settings["spawnabletypes_path"] = built["spawnabletypes_path"]
+        if consume_restart:
+            mark_one_time_scenario_events_uploaded(config)
+        save_guild_configs()
+
+    return success, built, messages
 
 
 def scenario_location_from_choice(location_key, x=None, z=None, y=0, map_key="chernarus"):
@@ -14267,7 +14673,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     output = {
         "items": delivery_queue,
         "vehicles": vehicle_rentals_queue,
-        "scenario_events": active_scenario_events(config),
+        "scenario_events": [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config),
         "generated": str(generated_at)
     }
 
@@ -14280,7 +14686,8 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     )
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
-        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue, active_scenario_events(config)))
+        bridge_scenario_events = [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config)
+        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue, bridge_scenario_events))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
@@ -14289,7 +14696,8 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
         print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
         delivery_queue.clear()
         vehicle_rentals_queue.clear()
-        mark_one_time_scenario_events_uploaded(config)
+        if not console_ce_event_config(config).get("enabled"):
+            mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
         save_delivery_queue()
 
@@ -14592,12 +15000,26 @@ async def restart_delivery_processor():
                 now.hour >= restart_offset
                 and ((now.hour - restart_offset) % restart_interval == 0)
             ):
-                await asyncio.to_thread(
-                    write_and_upload_delivery_xml,
-                    guild_id,
-                    config,
-                    now
-                )
+                if delivery_queue or vehicle_rentals_queue or (has_active_scenario_events(config) and not console_ce_event_config(config).get("enabled")):
+                    await asyncio.to_thread(
+                        write_and_upload_delivery_xml,
+                        guild_id,
+                        config,
+                        now
+                    )
+
+                if has_active_scenario_events(config) and console_ce_event_config(config).get("enabled"):
+                    success, _, messages = await asyncio.to_thread(
+                        upload_console_ce_event_files,
+                        guild_id,
+                        config,
+                        "",
+                        "",
+                        "",
+                        True
+                    )
+                    if not success:
+                        print(f"CONSOLE CE EVENT UPLOAD FAILED {guild_id}: {' | '.join(messages[-4:])}")
 
         except Exception as error:
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
@@ -16913,10 +17335,18 @@ def console_bridge_unavailable_embed():
         inline=False
     )
     embed.add_field(
-        name="What Needs A Different Design",
+        name="What Uses Console XML Now",
         value=(
-            "In-game item delivery, vehicle rental spawning, and cleanup cannot use the `init.c` bridge on console. "
-            "Those need a console-safe workflow such as staff fulfilment, XML/event exports, or Discord-only tracking."
+            "Vehicle spawns, infected events, animal events, airdrop/crate events, event positions, and crate cargo can use "
+            "`/events uploadce`. The bot merges and uploads the needed XML files directly."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="What Still Needs Persistence Reset",
+        value=(
+            "Deleting vehicles already saved on the map or inside bases is not an XML spawn action. "
+            "That needs a provider persistence reset/wipe, or a script bridge on hosts that expose `init.c`."
         ),
         inline=False
     )
@@ -16934,8 +17364,9 @@ def console_bridge_unavailable_embed():
     embed.add_field(
         name="Next Step",
         value=(
-            "Do not keep searching for `init.c` on this console package. Use `/events exportxml` only for XML data exports, "
-            "and treat bridge-only delivery features as unavailable until a console-safe fulfilment mode is added."
+            "Do not keep searching for `init.c` on this console package. Use `/events uploadce` to let the bot merge and upload "
+            "`events.xml`, `cfgeventspawns.xml`, and `cfgspawnabletypes.xml` where needed. "
+            "Only targeted delete/reset actions remain bridge-only."
         ),
         inline=False
     )
@@ -17134,7 +17565,9 @@ async def installdayzbridge(
             discord_safe_content(
                 f"{error}\n\n"
                 "The bot stopped waiting instead of leaving Discord stuck on thinking. "
-                "Try the exact path from `/bridge findinitc`. If it still times out, Nitrado is hanging during the `init.c` download."
+                "Nitrado is hanging during the `init.c` download, so this bridge path is not reliable for this server right now.\n\n"
+                "For console-safe events, use `/events uploadce` instead. That path edits the real XML files directly and does not need `init.c`. "
+                "Only targeted hard vehicle deletion/reset still needs a script bridge or a provider persistence reset."
             ),
             ephemeral=True
         )
@@ -17222,7 +17655,8 @@ async def installdayzbridge(
                 name="What This Means",
                 value=(
                     "The bot cannot auto-patch the bridge unless the mission `init.c` is downloadable by this Nitrado account. "
-                    "Use `/events bridgecode` and paste the snippet manually in Nitrado's file browser if you can edit `init.c` there."
+                    "Use `/events uploadce` for console-safe XML events. Use `/events bridgecode` only if you can edit `init.c` manually "
+                    "and specifically need bridge-only hard reset/delete behavior."
                 ),
                 inline=False
             )
@@ -17317,7 +17751,10 @@ async def installdayzbridge(
         )
         embed.add_field(
             name="Manual Option",
-            value="Run `/events bridgecode` to export the bridge snippet if you can edit `init.c` manually in Nitrado's file browser.",
+            value=(
+                "Run `/events uploadce` for the bridge-free XML route. Run `/events bridgecode` only if you can edit `init.c` manually "
+                "and need bridge-only hard reset/delete behavior."
+            ),
             inline=False
         )
         embed.set_thumbnail(url=BOT_IMAGE)
@@ -17680,7 +18117,7 @@ async def event_create(
 
     embed = discord.Embed(
         title="SCENARIO EVENT CREATED",
-        description="This will be written into `deliveries.xml` for the next restart.",
+        description="This is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
         color=0xE67E22
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
@@ -17956,7 +18393,7 @@ async def event_vehicle(
 
     embed = discord.Embed(
         title="VEHICLE EVENT CREATED",
-        description="This vehicle spawn will be written into `deliveries.xml` for the next restart.",
+        description="This vehicle spawn is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
         color=0x3498DB
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
@@ -18070,7 +18507,7 @@ async def event_airdrop(
 
     embed = discord.Embed(
         title="AIRDROP EVENT CREATED",
-        description="This airdrop will be written into `deliveries.xml` for the next restart.",
+        description="This airdrop is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
         color=0x9B59B6
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
@@ -18188,7 +18625,7 @@ async def event_vehiclereset(
 
     embed = discord.Embed(
         title="VEHICLE RESET EVENT CREATED",
-        description="This reset will be written into `deliveries.xml` before matching restarts.",
+        description="This reset remains a bridge-only action. Native console XML can spawn vehicles, but cannot delete existing ones on command.",
         color=0xF1C40F
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
@@ -18316,6 +18753,116 @@ async def event_delete(interaction: discord.Interaction, event_id: int):
     config["scenario_events"] = kept
     save_guild_configs()
     await interaction.response.send_message(f"Scenario event `{event_id}` deleted.", ephemeral=True)
+
+
+@events_group.command(name="exportce", description="Admin: export console-safe events.xml and cfgeventspawns.xml")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    events_path="Remote events.xml path to merge from",
+    spawns_path="Remote cfgeventspawns.xml path to merge from",
+    spawnabletypes_path="Remote cfgspawnabletypes.xml path to merge from when crate loot is needed"
+)
+async def event_exportce(
+    interaction: discord.Interaction,
+    events_path: str = "",
+    spawns_path: str = "",
+    spawnabletypes_path: str = "",
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    built = await asyncio.to_thread(
+        build_console_ce_event_files,
+        guild_id,
+        config,
+        events_path,
+        spawns_path,
+        spawnabletypes_path
+    )
+
+    files = [
+        discord.File(io.BytesIO(built["events_text"].encode("utf-8")), filename="events.xml"),
+        discord.File(io.BytesIO(built["spawns_text"].encode("utf-8")), filename="cfgeventspawns.xml"),
+    ]
+    if built.get("spawnabletypes_text"):
+        files.append(
+            discord.File(
+                io.BytesIO(built["spawnabletypes_text"].encode("utf-8")),
+                filename="cfgspawnabletypes.xml"
+            )
+        )
+
+    file_targets = [
+        f"`events.xml` -> `{built['events_path']}`",
+        f"`cfgeventspawns.xml` -> `{built['spawns_path']}`",
+    ]
+    if built.get("spawnabletypes_path"):
+        file_targets.append(f"`cfgspawnabletypes.xml` -> `{built['spawnabletypes_path']}`")
+
+    summary = "\n".join(built["messages"][-8:])
+    await interaction.followup.send(
+        "Console-safe event files exported. Upload these to the matching paths, then restart the server:\n"
+        + "\n".join(file_targets)
+        + "\n\n"
+        + discord_safe_content(summary, 1200),
+        files=files,
+        ephemeral=True
+    )
+
+
+@events_group.command(name="uploadce", description="Admin: upload console-safe events.xml and cfgeventspawns.xml to Nitrado")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    events_path="Remote events.xml path. Leave blank for this map's default mission path.",
+    spawns_path="Remote cfgeventspawns.xml path. Leave blank for this map's default mission path.",
+    spawnabletypes_path="Remote cfgspawnabletypes.xml path. Used automatically when crate loot is needed.",
+    consume_restart="True only when uploading immediately for the next restart count"
+)
+async def event_uploadce(
+    interaction: discord.Interaction,
+    events_path: str = "",
+    spawns_path: str = "",
+    spawnabletypes_path: str = "",
+    consume_restart: bool = False,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+
+    success, built, messages = await asyncio.to_thread(
+        upload_console_ce_event_files,
+        guild_id,
+        config,
+        events_path,
+        spawns_path,
+        spawnabletypes_path,
+        consume_restart
+    )
+
+    status = "uploaded" if success else "failed"
+    summary = "\n".join(messages[-10:])
+    restart_note = (
+        "\n\nCE XML mode is now enabled for scheduled restart processing. Future scenario events will use native console XML instead of the bridge."
+        if success else ""
+    )
+    await interaction.followup.send(
+        f"Console CE event upload `{status}`.\n"
+        f"`events.xml`: `{built['events_path']}`\n"
+        f"`cfgeventspawns.xml`: `{built['spawns_path']}`\n"
+        + (f"`cfgspawnabletypes.xml`: `{built['spawnabletypes_path']}`\n" if built.get("spawnabletypes_path") else "")
+        + f"Records generated: `{built['record_count']}`\n\n"
+        + discord_safe_content(summary, 1200)
+        + restart_note,
+        ephemeral=True
+    )
 
 
 @events_group.command(name="exportxml", description="Admin: export deliveries.xml for manual Nitrado upload")
