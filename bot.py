@@ -15,6 +15,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
+import socket
 
 from datetime import datetime, UTC, timedelta
 from discord.ext import commands, tasks
@@ -595,7 +596,7 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
             save_guild_configs()
             return channel
 
-    overwrites = None
+    overwrites = {}
     if private:
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False)
@@ -5798,7 +5799,7 @@ async def setup_command(
             set_channel_key_disabled(guild_configs[guild_id], key, False)
 
         existing_id = channels.get(key)
-        overwrites = None
+        overwrites = {}
 
         if private:
             overwrites = {
@@ -5813,7 +5814,7 @@ async def setup_command(
             if existing_channel:
                 try:
                     await existing_channel.edit(name=name, category=target_category)
-                    if overwrites is not None:
+                    if overwrites:
                         await existing_channel.edit(overwrites=overwrites)
                 except Exception:
                     pass
@@ -5826,7 +5827,7 @@ async def setup_command(
                 channels[key] = existing_channel.id
                 try:
                     await existing_channel.edit(name=name, category=target_category)
-                    if overwrites is not None:
+                    if overwrites:
                         await existing_channel.edit(overwrites=overwrites)
                 except Exception:
                     pass
@@ -6087,23 +6088,67 @@ async def setup_command(
 # NITRADO XML DELIVERY BRIDGE
 # =========================================================
 
+def nitrado_ftp_hosts(config):
+    hosts = [
+        config.get("ftp_host"),
+        os.getenv("NITRADO_FTP_HOST"),
+        "ftps.nitrado.net",
+        "ftp.nitrado.net",
+    ]
+    deduped = []
+    for host in hosts:
+        host = str(host or "").strip()
+        if host and host not in deduped:
+            deduped.append(host)
+    return deduped
+
+
+def format_ftp_connection_error(host_errors):
+    if not host_errors:
+        return "Could not connect to Nitrado FTP."
+
+    dns_errors = [
+        error
+        for _, error in host_errors
+        if isinstance(error, socket.gaierror) or "Name or service not known" in str(error)
+    ]
+    lines = [f"{host}: {error}" for host, error in host_errors]
+    if dns_errors and len(dns_errors) == len(host_errors):
+        return (
+            "Could not resolve any Nitrado FTP host from this bot environment. "
+            "This is DNS/network access, not a missing `init.c` path. Tried: "
+            + "; ".join(lines)
+        )
+    return "Could not connect to Nitrado FTP. Tried: " + "; ".join(lines)
+
+
+def connect_nitrado_ftp(config):
+    ftp_user = config.get("ftp_user")
+    ftp_pass = config.get("ftp_password")
+
+    if not ftp_user or not ftp_pass:
+        return None, None, "FTP details are not configured."
+
+    host_errors = []
+    for ftp_host in nitrado_ftp_hosts(config):
+        try:
+            ftp = FTP_TLS(ftp_host, timeout=30)
+            ftp.login(ftp_user, ftp_pass)
+            ftp.prot_p()
+            return ftp, ftp_host, None
+        except Exception as error:
+            host_errors.append((ftp_host, error))
+
+    return None, None, format_ftp_connection_error(host_errors)
+
 def upload_delivery_xml_to_nitrado(config, xml_path):
 
     try:
 
-        ftp_host = "ftp.nitrado.net"
-        ftp_user = config.get("ftp_user")
-        ftp_pass = config.get("ftp_password")
-
-        if not ftp_user or not ftp_pass:
-
-            print("FTP DETAILS NOT CONFIGURED")
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            print(ftp_error)
             return False
-
-        ftp = FTP_TLS(ftp_host)
-
-        ftp.login(ftp_user, ftp_pass)
-        ftp.prot_p()
 
         target_path = (
             config.get("dayz_delivery_bridge", {}).get("delivery_path")
@@ -6119,7 +6164,7 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 
         ftp.quit()
 
-        print("DELIVERY XML UPLOADED TO NITRADO")
+        print(f"DELIVERY XML UPLOADED TO NITRADO VIA {ftp_host}")
 
         return True
 
@@ -6130,20 +6175,15 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 
 
 def upload_text_file_to_nitrado(config, target_path, text_content):
+    temp_path = None
     try:
-        ftp_user = config.get("ftp_user")
-        ftp_pass = config.get("ftp_password")
-
-        if not ftp_user or not ftp_pass:
-            return False, "FTP details are not configured."
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            return False, ftp_error
 
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".xml") as temp_file:
             temp_file.write(text_content)
             temp_path = temp_file.name
-
-        ftp = FTP_TLS("ftp.nitrado.net")
-        ftp.login(ftp_user, ftp_pass)
-        ftp.prot_p()
 
         remote_folder = os.path.dirname(str(target_path).replace("\\", "/"))
         if remote_folder and remote_folder != "/":
@@ -6162,29 +6202,30 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
         except Exception:
             pass
 
-        return True, "Uploaded successfully."
+        return True, f"Uploaded successfully via {ftp_host}."
 
     except Exception as error:
         return False, str(error)
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 def download_text_file_from_nitrado(config, target_path):
     try:
-        ftp_user = config.get("ftp_user")
-        ftp_pass = config.get("ftp_password")
-
-        if not ftp_user or not ftp_pass:
-            return False, "FTP details are not configured.", None
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            return False, ftp_error, None
 
         buffer = io.BytesIO()
-        ftp = FTP_TLS("ftp.nitrado.net")
-        ftp.login(ftp_user, ftp_pass)
-        ftp.prot_p()
         ftp.retrbinary(f"RETR {target_path}", buffer.write)
         ftp.quit()
 
         content = buffer.getvalue().decode("utf-8", errors="ignore")
-        return True, "Downloaded successfully.", content
+        return True, f"Downloaded successfully via {ftp_host}.", content
 
     except Exception as error:
         return False, str(error), None
@@ -15034,11 +15075,21 @@ async def installdayzbridge(
         requested_init_path
     )
     if not ok:
+        network_error = (
+            "Could not resolve any Nitrado FTP host" in str(message)
+            or "Could not connect to Nitrado FTP" in str(message)
+        )
+        hint = (
+            "\n\nThis is a DNS/network problem in the bot host. Set `NITRADO_FTP_HOST=ftps.nitrado.net` "
+            "or check that the host running the bot can make outbound FTPS/DNS connections."
+            if network_error else
+            "\n\nIf your mission folder has a custom name, rerun with `init_path:/dayzxb/mpmissions/YOURMISSION/init.c`."
+        )
         await interaction.followup.send(
             f"Could not download `init.c`. Last error: `{message}`\n\n"
             "Tried:\n"
             + "\n".join(f"• `{item}`" for item in attempted_paths[:8])
-            + "\n\nIf your mission folder has a custom name, rerun with `init_path:/dayzxb/mpmissions/YOURMISSION/init.c`.",
+            + hint,
             ephemeral=True
         )
         return
