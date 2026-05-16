@@ -5747,6 +5747,13 @@ async def setup_command(
     await interaction.response.defer(ephemeral=True)
 
     guild_id = str(interaction.guild.id)
+    supplied_ftp_host = str(ftp_host or "").strip()
+    if supplied_ftp_host and not looks_like_ftp_host(supplied_ftp_host):
+        await interaction.followup.send(
+            "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
+            ephemeral=True
+        )
+        return
 
     if guild_id not in guild_configs:
 
@@ -5959,8 +5966,8 @@ async def setup_command(
     guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
     guild_configs[guild_id]["ftp_user"] = ftp_user
     guild_configs[guild_id]["ftp_password"] = ftp_password
-    if str(ftp_host or "").strip():
-        guild_configs[guild_id]["ftp_host"] = str(ftp_host or "").strip()
+    if supplied_ftp_host:
+        guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
         guild_configs[guild_id].setdefault("ftp_host", "")
 
@@ -6129,6 +6136,7 @@ async def setup_command(
             name="AUTOMATIC DELIVERY BRIDGE INSTALL",
             value=(
                 "Use `/installdayzbridge` after setup if you want the bot to install the restart delivery hook for you. "
+                "If Nitrado shows a specific FTP host/IP, include it with `ftp_host:` or save it with `/setftphost`. "
                 "It downloads `init.c`, uploads a timestamped backup, inserts `SpawnWanderingDeliveries();` only if missing, "
                 "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot."
             ),
@@ -6742,13 +6750,171 @@ def remote_directory_entries(config, folder):
     return deduped
 
 
+def init_search_roots(config):
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    roots = [
+        "/",
+        "/dayzxb",
+        "/dayzxb/mpmissions",
+        "/dayzxbserver",
+        "/dayzxbserver/mpmissions",
+        "/mpmissions",
+    ]
+
+    if nitrado_user:
+        roots.extend([
+            f"/games/{nitrado_user}/noftp",
+            f"/games/{nitrado_user}/noftp/dayzxb",
+            f"/games/{nitrado_user}/noftp/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/noftp/dayzxbserver",
+            f"/games/{nitrado_user}/noftp/dayzxbserver/mpmissions",
+        ])
+
+    deduped = []
+    for root in roots:
+        root = str(root or "").replace("\\", "/").rstrip("/") or "/"
+        if root not in deduped:
+            deduped.append(root)
+    return deduped
+
+
+def remember_remote_path(paths, candidate):
+    candidate = str(candidate or "").replace("\\", "/").rstrip("/")
+    if candidate and candidate not in paths:
+        paths.append(candidate)
+
+
+def search_remote_init_paths_from_nitrado_api(config):
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "list")
+    if not headers or not url:
+        return []
+
+    found = []
+    for root in init_search_roots(config):
+        for api_root in nitrado_api_file_path_candidates(config, root):
+            try:
+                response = requests.get(
+                    url,
+                    headers=headers,
+                    params={"dir": api_root, "search": "*init.c*"},
+                    timeout=30
+                )
+                if response.status_code != 200:
+                    continue
+
+                data = response.json()
+                for entry in data.get("data", {}).get("entries", []):
+                    name = str(entry.get("name") or "").strip()
+                    path = str(entry.get("path") or "").replace("\\", "/").rstrip("/")
+                    if name.lower() == "init.c":
+                        remember_remote_path(found, path or f"{root.rstrip('/')}/init.c")
+                    elif path.lower().endswith("/init.c"):
+                        remember_remote_path(found, path)
+            except Exception:
+                continue
+
+    return found
+
+
+def ftp_child_path(parent, item):
+    parent = str(parent or "").replace("\\", "/").rstrip("/") or "/"
+    item = str(item or "").replace("\\", "/").rstrip("/")
+    if not item:
+        return ""
+    if item.startswith("/"):
+        return item
+    if parent == "/":
+        return "/" + item.lstrip("/")
+    return f"{parent}/{item.lstrip('/')}"
+
+
+def looks_like_remote_directory(path):
+    name = os.path.basename(str(path or "").rstrip("/")).lower()
+    if not name:
+        return False
+    if name == "init.c":
+        return False
+    if "." in name and not name.startswith("dayzoffline."):
+        return False
+    skip = {"logs", "profiles", "storage_1", "cache", "__pycache__"}
+    return name not in skip
+
+
+def search_remote_init_paths_from_ftp(config, max_depth=8, max_dirs=200):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+    if ftp_error:
+        return []
+
+    found = []
+    queued = []
+    seen_dirs = set()
+
+    try:
+        for root in init_search_roots(config):
+            for candidate in nitrado_ftp_path_candidates(config, root):
+                candidate = str(candidate or "").replace("\\", "/").rstrip("/") or "/"
+                if candidate not in queued:
+                    queued.append(candidate)
+
+        index = 0
+        while index < len(queued) and len(seen_dirs) < max_dirs:
+            current = queued[index]
+            index += 1
+
+            if current in seen_dirs:
+                continue
+            seen_dirs.add(current)
+
+            depth = current.strip("/").count("/")
+            try:
+                listing = ftp.nlst(current)
+            except Exception:
+                continue
+
+            for item in listing:
+                child = ftp_child_path(current, item)
+                if not child:
+                    continue
+
+                name = os.path.basename(child.rstrip("/"))
+                if name.lower() == "init.c":
+                    remember_remote_path(found, child)
+                    continue
+
+                if depth >= max_depth:
+                    continue
+
+                if not looks_like_remote_directory(child):
+                    continue
+
+                if child not in seen_dirs and child not in queued:
+                    queued.append(child)
+    except Exception:
+        pass
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+
+    return found
+
+
 def discover_init_c_paths(config):
+    discovered = []
+
+    for candidate in search_remote_init_paths_from_nitrado_api(config):
+        remember_remote_path(discovered, candidate)
+
+    for candidate in search_remote_init_paths_from_ftp(config):
+        remember_remote_path(discovered, candidate)
+
     bases = [
         "/dayzxb/mpmissions",
         "/dayzxbserver/mpmissions",
         "/mpmissions",
     ]
-    discovered = []
 
     for base in bases:
         for entry in remote_directory_entries(config, base):
@@ -6762,10 +6928,33 @@ def discover_init_c_paths(config):
                 candidate = path
             else:
                 candidate = f"{path}/init.c"
-            if candidate not in discovered:
-                discovered.append(candidate)
+            remember_remote_path(discovered, candidate)
 
     return discovered
+
+
+def bridge_init_c_diagnostic(config):
+    found = discover_init_c_paths(config)
+    visible_roots = []
+
+    for root in init_search_roots(config):
+        entries = remote_directory_entries(config, root)
+        if not entries:
+            continue
+
+        names = []
+        for entry in entries[:8]:
+            name = str(entry.get("name") or os.path.basename(str(entry.get("path") or ""))).strip()
+            if name and name not in names:
+                names.append(name)
+
+        visible_roots.append({
+            "root": root,
+            "count": len(entries),
+            "sample": names,
+        })
+
+    return found, visible_roots
 
 
 WANDERING_DELIVERY_BRIDGE_CODE = r'''
@@ -15930,18 +16119,113 @@ def download_init_c_with_fallback(config, guild_id, init_path=""):
     return False, last_message or "No init.c path could be downloaded.", None, candidates[0] if candidates else "", attempted
 
 
+@bot.tree.command(name="findinitc", description="Admin: search Nitrado FTP/API for your DayZ init.c path")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(ftp_host="Optional: Nitrado FTP host/IP shown in your Nitrado file browser")
+async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
+    if interaction.user.id != interaction.guild.owner_id and not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Server owner or bot owner only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id)
+    if not config:
+        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+        return
+
+    supplied_ftp_host = str(ftp_host or "").strip()
+    if supplied_ftp_host:
+        if not looks_like_ftp_host(supplied_ftp_host):
+            await interaction.followup.send(
+                "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
+                ephemeral=True
+            )
+            return
+        config["ftp_host"] = supplied_ftp_host
+        config.pop("_discovered_ftp_hosts", None)
+        save_guild_configs()
+
+    found_paths, visible_roots = await asyncio.to_thread(bridge_init_c_diagnostic, config)
+
+    embed = discord.Embed(
+        title="INIT.C SEARCH DIAGNOSTIC",
+        color=0x2ECC71 if found_paths else 0xE67E22
+    )
+
+    if found_paths:
+        embed.description = "I found one or more visible `init.c` paths."
+        embed.add_field(
+            name="Found Path(s)",
+            value="\n".join(f"`{path}`" for path in found_paths[:10])[:1000],
+            inline=False
+        )
+        embed.add_field(
+            name="Next Step",
+            value=f"Run `/installdayzbridge install:true init_path:{found_paths[0]}`.",
+            inline=False
+        )
+    else:
+        embed.description = (
+            "I could not find `init.c` anywhere visible through the Nitrado API or FTPS listing. "
+            "That usually means this server package does not expose mission script files to the bot, "
+            "or the mission folder is outside the FTP/API areas Nitrado allows this account to list."
+        )
+        embed.add_field(
+            name="What This Means",
+            value=(
+                "Auto-install cannot patch the bridge unless `init.c` is visible and downloadable. "
+                "Manual install also requires access to the mission `init.c` through Nitrado's file browser or another admin tool."
+            ),
+            inline=False
+        )
+
+    if visible_roots:
+        root_lines = []
+        for item in visible_roots[:8]:
+            sample = ", ".join(item.get("sample", [])[:5]) or "no names returned"
+            root_lines.append(f"`{item['root']}` - {item['count']} item(s): {sample}")
+        embed.add_field(
+            name="Visible Roots",
+            value="\n".join(root_lines)[:1000],
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Visible Roots",
+            value="No searched root returned a directory listing. Check FTP/API permissions, host, service ID, and server platform.",
+            inline=False
+        )
+
+    embed.add_field(
+        name="FTP Host",
+        value=f"`{config.get('ftp_host')}`" if config.get("ftp_host") else "No saved host. You can pass `ftp_host:` here or run `/setftphost`.",
+        inline=False
+    )
+    embed.add_field(
+        name="Roots Checked",
+        value=", ".join(f"`{root}`" for root in init_search_roots(config)[:10])[:1000],
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - DayZ Bridge Diagnostic")
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
 @bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     install="False checks/explains only. True backs up and patches init.c.",
     init_path="Advanced: FTP path to init.c. Leave blank for map-based default.",
-    delivery_path="Advanced: FTP path for deliveries.xml"
+    delivery_path="Advanced: FTP path for deliveries.xml",
+    ftp_host="Optional: Nitrado FTP host/IP shown in your Nitrado file browser"
 )
 async def installdayzbridge(
     interaction: discord.Interaction,
     install: bool = False,
     init_path: str = "",
-    delivery_path: str = "/dayzxb/custom/deliveries.xml"
+    delivery_path: str = "/dayzxb/custom/deliveries.xml",
+    ftp_host: str = ""
 ):
     if interaction.user.id != interaction.guild.owner_id and not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Server owner or bot owner only.", ephemeral=True)
@@ -15953,6 +16237,18 @@ async def installdayzbridge(
     if not config:
         await interaction.followup.send("This server is not setup yet.", ephemeral=True)
         return
+
+    supplied_ftp_host = str(ftp_host or "").strip()
+    if supplied_ftp_host:
+        if not looks_like_ftp_host(supplied_ftp_host):
+            await interaction.followup.send(
+                "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
+                ephemeral=True
+            )
+            return
+        config["ftp_host"] = supplied_ftp_host
+        config.pop("_discovered_ftp_hosts", None)
+        save_guild_configs()
 
     requested_init_path = (init_path or "").strip()
     ok, message, init_text, init_path, attempted_paths = await asyncio.to_thread(
@@ -16016,10 +16312,12 @@ async def installdayzbridge(
             or "Could not connect to Nitrado FTP" in str(message)
         )
         hint = (
-            "\n\nThis is a DNS/network problem in the bot host. Set `NITRADO_FTP_HOST=ftps.nitrado.net` "
-            "or check that the host running the bot can make outbound FTPS/DNS connections."
+            "\n\nThis is a DNS/network problem in the bot host. Pass the exact Nitrado FTP host/IP with "
+            "`ftp_host:` or save it with `/setftphost`, then try again. If that still fails, check that "
+            "the host running the bot can make outbound FTPS/DNS connections."
             if network_error else
-            "\n\nIf your mission folder has a custom name, rerun with `init_path:/dayzxb/mpmissions/YOURMISSION/init.c`."
+            "\n\nRun `/findinitc ftp_host:<your Nitrado FTP host>` to search every visible Nitrado FTP/API root for the real mission path. "
+            "If it finds a path, rerun `/installdayzbridge install:true init_path:<that path>`."
         )
         tried_lines = []
         for item in attempted_paths[:8]:
