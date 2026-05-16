@@ -3484,6 +3484,21 @@ async def setup_command(
             ),
             inline=False
         )
+        setup_embed.add_field(
+            name="DAYZ BRIDGE INSTALL (OWNER CHOICE)",
+            value=(
+                "Shop deliveries and vehicle reset hooks are **opt-in** and **not automatic**.\n"
+                "Server owners must run `/installdayzbridge` when they are ready.\n"
+                "The installer makes a timestamped backup before editing `init.c`, only adds the bridge function/call if missing, uploads a starter `deliveries.xml`, and saves installed paths in guild config.\n"
+                "Default `init.c` paths:\n"
+                "• Chernarus: `/dayzxb/mpmissions/dayzOffline.chernarusplus/init.c`\n"
+                "• Livonia: `/dayzxb/mpmissions/dayzOffline.enoch/init.c`\n"
+                "• Sakhal: `/dayzxb/mpmissions/dayzOffline.sakhal/init.c`\n"
+                "Deliveries XML: `/dayzxb/custom/deliveries.xml`\n"
+                "Custom mission path example: `/installdayzbridge init_path:/dayzxb/mpmissions/YOURMISSION/init.c`"
+            ),
+            inline=False
+        )
 
         setup_embed.add_field(
             name="ECONOMY, SHOP, REWARDS & PUNISHMENTS",
@@ -5141,6 +5156,17 @@ async def helpme(ctx):
             "`/editshopitem item_name price category`\n"
             "`/toggleshopitem item_name`, `/removeshopitem item_name`\n"
             "`/givepennies member amount`, `/shopcategories`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="DayZ Bridge (Owner Opt-In)",
+        value=(
+            "Deliveries/vehicle reset bridge is not silently auto-installed.\n"
+            "Owner runs: `/installdayzbridge`\n"
+            "Optional custom mission path:\n"
+            "`/installdayzbridge init_path:/dayzxb/mpmissions/YOURMISSION/init.c`\n"
+            "Installer behavior: backup first, patch only when missing, upload starter `/dayzxb/custom/deliveries.xml`, and save chosen paths."
         ),
         inline=False
     )
