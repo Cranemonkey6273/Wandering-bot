@@ -3695,6 +3695,64 @@ def channel_matches_saved_key(channel, key):
     return normalized in aliases or any(alias and alias in normalized for alias in aliases)
 
 
+MOJIBAKE_MARKERS = ("đ", "Đ", "â", "ă", "Ă", "ď", "Ď", "\x83", "\x90", "\x9f")
+
+
+def reverse_cp1250_mojibake(text):
+    text = str(text or "")
+    if not text or not any(marker in text for marker in MOJIBAKE_MARKERS):
+        return text
+
+    reverse = {}
+    for byte_value in range(256):
+        try:
+            reverse[bytes([byte_value]).decode("cp1250")] = byte_value
+        except UnicodeDecodeError:
+            pass
+
+    for byte_value in range(0x80, 0xA0):
+        reverse[chr(byte_value)] = byte_value
+
+    raw = bytearray()
+    for char in text:
+        if ord(char) < 128:
+            raw.append(ord(char))
+        elif char in reverse:
+            raw.append(reverse[char])
+        else:
+            return text
+
+    try:
+        return bytes(raw).decode("utf-8")
+    except UnicodeDecodeError:
+        return text
+
+
+def default_channel_key_for_name(name):
+    normalized = normalize_discord_name(name)
+    if not normalized:
+        return None
+
+    best_key = None
+    best_score = 0
+
+    for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
+        aliases = set(CHANNEL_ALIASES.get(key, []))
+        aliases.add(normalize_discord_name(desired_name))
+        aliases.add(normalize_discord_name(key))
+
+        for alias in aliases:
+            if not alias:
+                continue
+            if normalized == alias:
+                return key
+            if alias in normalized and len(alias) > best_score:
+                best_key = key
+                best_score = len(alias)
+
+    return best_key
+
+
 def disabled_channel_keys(config):
     disabled = config.setdefault("disabled_channels", [])
     if not isinstance(disabled, list):
@@ -3754,6 +3812,7 @@ def discover_existing_guild_channels(guild, config):
 async def repair_guild_display_names(guild, config):
     channels = config.setdefault("channels", {})
     repaired = 0
+    edited_channel_ids = set()
 
     for _, category_name, aliases in CATEGORY_REPAIR_SPECS:
         wanted = normalize_discord_name(category_name)
@@ -3770,6 +3829,43 @@ async def repair_guild_display_names(guild, config):
                         pass
                 break
 
+    for category in guild.categories:
+        decoded_name = reverse_cp1250_mojibake(category.name)
+        if decoded_name != category.name:
+            desired_name = decoded_name
+            decoded_normalized = normalize_discord_name(decoded_name)
+            for _, category_name, aliases in CATEGORY_REPAIR_SPECS:
+                wanted = normalize_discord_name(category_name)
+                alias_set = {wanted, *aliases}
+                if decoded_normalized in alias_set or any(alias and alias in decoded_normalized for alias in alias_set):
+                    desired_name = category_name
+                    break
+
+            try:
+                await category.edit(name=desired_name)
+                repaired += 1
+            except Exception:
+                pass
+
+    for candidate in guild.text_channels:
+        decoded_name = reverse_cp1250_mojibake(candidate.name)
+        if decoded_name == candidate.name:
+            continue
+
+        key = default_channel_key_for_name(decoded_name)
+        desired_name = DEFAULT_CHANNEL_NAMES.get(key, decoded_name)
+        if candidate.name == desired_name:
+            continue
+
+        try:
+            await candidate.edit(name=desired_name)
+            edited_channel_ids.add(candidate.id)
+            if key:
+                channels[key] = candidate.id
+            repaired += 1
+        except Exception:
+            pass
+
     for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
         channel = None
         existing_id = channels.get(key)
@@ -3784,7 +3880,7 @@ async def repair_guild_display_names(guild, config):
                     channels[key] = candidate.id
                     break
 
-        if channel and channel.name != desired_name:
+        if channel and channel.id not in edited_channel_ids and channel.name != desired_name:
             try:
                 await channel.edit(name=desired_name)
                 repaired += 1
@@ -3793,6 +3889,18 @@ async def repair_guild_display_names(guild, config):
 
     save_guild_configs()
     return repaired
+
+
+async def repair_display_names_for_active_guilds():
+    for guild in bot.guilds:
+        try:
+            guild_id = str(guild.id)
+            config = guild_configs.setdefault(guild_id, new_guild_config(guild))
+            repaired = await repair_guild_display_names(guild, config)
+            if repaired:
+                print(f"DISPLAY NAME REPAIR {guild.id}: {repaired}")
+        except Exception as error:
+            print(f"DISPLAY NAME REPAIR ERROR {guild.id}: {error}")
 
 
 async def ensure_bot_updates_channel(guild, config, force=False):
@@ -15137,6 +15245,7 @@ async def on_ready():
     load_guild_configs()
     load_processed_adm_lines()
     bootstrap_runtime_from_connected_guilds()
+    await repair_display_names_for_active_guilds()
     await ensure_pve_channels_for_active_guilds()
     load_player_stats()
     load_heatmap()
