@@ -2442,11 +2442,10 @@ def list_adm_logs(config, lookback_hours=None):
             print(f"[SEARCH PATH] {search_path}")
 
             for entry in entries:
-                print(f"FOUND FILE: {entry.get('name')}")
-
-            for entry in entries:
                 if not ADM_LOG_NAME_PATTERN.match(entry.get("name", "")):
                     continue
+
+                print(f"FOUND FILE: {entry.get('name')}")
 
                 entry_time = adm_log_datetime(entry)
                 if cutoff and entry_time and entry_time < cutoff:
