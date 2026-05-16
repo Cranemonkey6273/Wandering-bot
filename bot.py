@@ -6662,47 +6662,58 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
                 pass
 
 
+def download_text_file_from_nitrado_ftp(config, target_path, exact_only=False):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+    if ftp_error:
+        return False, ftp_error, None
+
+    clean = canonical_remote_path(target_path)
+    ftp_paths = [clean, clean.lstrip("/")] if exact_only else nitrado_ftp_path_candidates(config, target_path)
+    ftp_errors = []
+
+    for ftp_path in ftp_paths:
+        buffer = io.BytesIO()
+        try:
+            ftp.retrbinary(f"RETR {ftp_path}", buffer.write)
+            ftp.quit()
+            content = buffer.getvalue().decode("utf-8", errors="ignore")
+            return True, f"Downloaded successfully via {ftp_host} path `{ftp_path}`.", content
+        except Exception as error:
+            ftp_errors.append(f"{ftp_path}: {error}")
+            folder = os.path.dirname(str(ftp_path).replace("\\", "/")) or "/"
+            filename = os.path.basename(str(ftp_path).replace("\\", "/"))
+            if not filename:
+                continue
+            try:
+                cwd_target = canonical_remote_path(folder)
+                ftp.cwd(cwd_target)
+                buffer = io.BytesIO()
+                ftp.retrbinary(f"RETR {filename}", buffer.write)
+                ftp.quit()
+                content = buffer.getvalue().decode("utf-8", errors="ignore")
+                return True, f"Downloaded successfully via {ftp_host} folder `{cwd_target}` file `{filename}`.", content
+            except Exception as cwd_error:
+                ftp_errors.append(f"{folder}/{filename}: {cwd_error}")
+
+    try:
+        ftp.quit()
+    except Exception:
+        pass
+
+    return False, "; ".join(ftp_errors[-6:]) or "FTP download failed.", None
+
+
 def download_text_file_from_nitrado(config, target_path):
     try:
         api_success, api_message, api_content = download_text_file_from_nitrado_api(config, target_path)
         if api_success:
             return True, api_message, api_content
 
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-        if ftp_error:
-            return False, f"{api_message} FTP fallback also failed: {ftp_error}", None
+        ftp_success, ftp_message, ftp_content = download_text_file_from_nitrado_ftp(config, target_path)
+        if ftp_success:
+            return True, ftp_message, ftp_content
 
-        ftp_errors = []
-        for ftp_path in nitrado_ftp_path_candidates(config, target_path):
-            buffer = io.BytesIO()
-            try:
-                ftp.retrbinary(f"RETR {ftp_path}", buffer.write)
-                ftp.quit()
-                content = buffer.getvalue().decode("utf-8", errors="ignore")
-                return True, f"Downloaded successfully via {ftp_host} path `{ftp_path}`.", content
-            except Exception as error:
-                ftp_errors.append(f"{ftp_path}: {error}")
-                folder = os.path.dirname(str(ftp_path).replace("\\", "/")) or "/"
-                filename = os.path.basename(str(ftp_path).replace("\\", "/"))
-                if not filename:
-                    continue
-                try:
-                    cwd_target = canonical_remote_path(folder)
-                    ftp.cwd(cwd_target)
-                    buffer = io.BytesIO()
-                    ftp.retrbinary(f"RETR {filename}", buffer.write)
-                    ftp.quit()
-                    content = buffer.getvalue().decode("utf-8", errors="ignore")
-                    return True, f"Downloaded successfully via {ftp_host} folder `{cwd_target}` file `{filename}`.", content
-                except Exception as cwd_error:
-                    ftp_errors.append(f"{folder}/{filename}: {cwd_error}")
-
-        try:
-            ftp.quit()
-        except Exception:
-            pass
-
-        return False, "; ".join(ftp_errors[-6:]) or "FTP download failed.", None
+        return False, f"{api_message} FTP fallback also failed: {ftp_message}", None
 
     except Exception as error:
         return False, str(error), None
@@ -16302,19 +16313,30 @@ def download_init_c_with_fallback(config, guild_id, init_path=""):
     candidates = []
 
     if init_path:
-        candidates.append(canonical_remote_path(init_path))
+        candidate = canonical_remote_path(init_path)
+        ok, message, init_text = download_text_file_from_nitrado_ftp(config, candidate, exact_only=True)
+        attempted.append(f"{candidate}: {message}")
+        if ok:
+            return True, message, init_text, candidate, attempted
+
+        api_ok, api_message, api_text = download_text_file_from_nitrado_api(config, candidate)
+        attempted.append(f"{candidate}: {api_message}")
+        if api_ok:
+            return True, api_message, api_text, candidate, attempted
+
+        return False, api_message or message, None, candidate, attempted
     else:
         for candidate in init_path_candidates_for_guild(guild_id):
             candidate = canonical_remote_path(candidate)
             if candidate and candidate not in candidates:
                 candidates.append(candidate)
 
-    for candidate in discover_init_c_paths(config):
-        candidate = canonical_remote_path(candidate)
-        if candidate and candidate not in candidates:
-            candidates.append(candidate)
+        for candidate in discover_init_c_paths(config):
+            candidate = canonical_remote_path(candidate)
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
 
-    candidates = sort_init_paths_for_guild(guild_id, candidates)
+        candidates = sort_init_paths_for_guild(guild_id, candidates)
 
     last_message = ""
     for candidate in candidates:
