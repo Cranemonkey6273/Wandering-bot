@@ -17599,6 +17599,16 @@ async def console_setupobjects(
     await interaction.response.defer(ephemeral=True)
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    missing_api_fields = [
+        field_name
+        for field_name in ["nitrado_token", "service_id", "nitrado_user"]
+        if not config.get(field_name)
+    ]
+    missing_ftp_fields = [
+        field_name
+        for field_name in ["ftp_user", "ftp_password"]
+        if not config.get(field_name)
+    ]
     settings = console_object_spawner_config(config)
     settings["object_path"] = object_path or CONSOLE_OBJECT_SPAWNER_PATH
     settings["spawner_ref"] = spawner_ref or CONSOLE_OBJECT_SPAWNER_REF
@@ -17652,6 +17662,20 @@ async def console_setupobjects(
     embed.add_field(name="cfggameplay.json", value=f"`{resolved_cfg_path}`", inline=False)
     embed.add_field(name="Spawner Reference", value=f"`{settings['spawner_ref']}`", inline=False)
     embed.add_field(name="Objects", value=str(len(settings.get("objects", []))), inline=True)
+    if missing_api_fields or missing_ftp_fields:
+        missing_lines = []
+        if missing_api_fields:
+            missing_lines.append("API: " + ", ".join(f"`{field}`" for field in missing_api_fields))
+        if missing_ftp_fields:
+            missing_lines.append("FTP: " + ", ".join(f"`{field}`" for field in missing_ftp_fields))
+        embed.add_field(
+            name="Saved Server Login Missing",
+            value=(
+                "Run `/setup` with your Nitrado API and FTP details first, then run `/console setupobjects` again.\n"
+                + "\n".join(missing_lines)
+            )[:1000],
+            inline=False
+        )
     embed.add_field(name="cfggameplay Source", value=("Downloaded from server" if cfg_ok else cfg_message)[:900], inline=False)
     embed.add_field(name="cfggameplay Changed", value="Yes" if cfg_changed else "Already referenced", inline=True)
     embed.add_field(name="Object Upload", value=("OK" if object_upload[0] else object_upload[1])[:900], inline=False)
@@ -18451,11 +18475,7 @@ async def on_ready():
     startup_results = await refresh_adm_feeds()
     log_adm_protocol_results(startup_results, "ADM STARTUP")
 
-    try:
-        synced = await bot.tree.sync()
-        print(f"SLASH COMMANDS SYNCED: {len(synced)}")
-    except Exception as sync_error:
-        print(sync_error)
+    global_commands = list(bot.tree.get_commands())
 
     for guild in bot.guilds:
         try:
@@ -18467,6 +18487,19 @@ async def on_ready():
             print(f"GUILD SLASH COMMAND NAMES {guild.name}: {guild_command_names}")
         except Exception as sync_error:
             print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
+
+    try:
+        bot.tree.clear_commands(guild=None)
+        cleared_global = await bot.tree.sync()
+        print(f"GLOBAL SLASH COMMAND COPIES CLEARED: {len(cleared_global)}")
+    except Exception as sync_error:
+        print(f"GLOBAL SLASH CLEAR ERROR: {sync_error}")
+    finally:
+        for command in global_commands:
+            try:
+                bot.tree.add_command(command)
+            except Exception:
+                pass
 
 # =========================================================
 # START
