@@ -6109,7 +6109,7 @@ async def setup_command(
                 "`/wallet` - check wallet\n"
                 "`/shop` - view black market\n"
                 "`/buy item_name x y` - queue item delivery\n"
-                "`/rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
+                "`/tools rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
                 "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`\n"
                 "Admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
             ),
@@ -6150,7 +6150,7 @@ async def setup_command(
                 "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
                 "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
                 "Item spawning: add shop items with `/addshopitem`, players use `/buy item_name x y`, then the bot uploads `deliveries.xml` for next restart.\n"
-                "Vehicle resets/rentals: players use `/rentvehicle vehicle_name rental_hours x y`; the vehicle entry is written into the same restart delivery XML.\n"
+                "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x y`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
             ),
             inline=False
@@ -9285,7 +9285,7 @@ async def helpme(ctx):
         name="DayZ Restart Deliveries",
         value=(
             "Items: add shop entries with `/addshopitem`; players use `/buy item_name x y`; the bot writes delivery XML for restart.\n"
-            "Vehicles: players use `/rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
+            "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
             "PC/custom hosts: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup, or use owner-only `/installdayzbridge`.\n"
             "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
@@ -9295,7 +9295,7 @@ async def helpme(ctx):
     embed.add_field(
         name="Economy & Rules",
         value=(
-            "`/wallet`, `/shop`, `/buy`, `/rentvehicle`\n"
+            "`/wallet`, `/shop`, `/buy`, `/tools rentvehicle`\n"
             "`/addreward keyword amount`\n"
             "`/addpunishment keyword amount`\n"
             "`/listrules`\n"
@@ -18278,7 +18278,7 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
         ephemeral=True
     )
 bot.tree.add_command(extra_tools_group)
-@bot.tree.command(name="rentvehicle", description="Rent a vehicle")
+@extra_tools_group.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
 @extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
