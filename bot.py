@@ -3408,6 +3408,16 @@ SHOWCASE_COMMAND_HINTS = [
     "💡 The `/heatmap` command renders a visual map of PvP hotspots, raid locations, and more on your actual server map.",
     "💡 `/radarstatus` shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
     "💡 Want AI-generated DayZ art in your server? Ask an admin to enable it with `/aiimageconfig`.",
+    "💡 `/toplongshots` is the sniper hall of fame — every kill over 300m gets automatically logged.",
+    "💡 `/mylink` shows your linked gamertag and personal stats. Run it any time to check your progress.",
+    "💡 The `/events airdrop` command lets admins spawn an airdrop loot crate anywhere on the map.",
+    "💡 `/createfaction` starts your own faction. Recruit members, claim territory, and fight rival factions.",
+    "💡 `/translationconfig` enables auto-translation for international survivors. Everyone chats in their own language and still understands each other.",
+    "💡 Power tip: `/setup` walks you through the whole bot configuration in under 5 minutes.",
+    "💡 `/welcomeconfig` lets admins customise the new-member welcome message — make a great first impression.",
+    "💡 `/vehiclerentals` adds a paid vehicle rental economy to your DayZ server. Players pay pennies, get keys, return for refunds.",
+    "💡 `/aiimageconfig` enables periodic AI-generated DayZ art. Cinematic, gritty, funny — your choice of style.",
+    "💡 `/serverinfo` posts a public server-info embed any visitor can read for IP, mods, and player count.",
 ]
 
 SHOWCASE_FEATURE_PROMOS = [
@@ -3419,56 +3429,232 @@ SHOWCASE_FEATURE_PROMOS = [
     "📡 Radar zones alert your team the moment a player enters a high-value area like NWAF, Tisy, or any custom coordinate zone you define.",
     "🌍 Automatic translation means international players can chat in their own language and everyone still understands each other.",
     "🎨 AI-generated DayZ art drops into your server periodically — cinematic, funny, or survival horror styles, all created on demand.",
+    "🚨 Real-time raid alerts: the moment someone destroys a wall, Wandering Bot fires a Discord notification — no more silent raids.",
+    "🏆 Leaderboards update live: kills, longshots, deaths, K/D ratios, session time — every stat tracked automatically from ADM.",
+    "🎯 Longshot detector flags every kill over 300m automatically and adds it to the sniper hall of fame.",
+    "👋 Custom welcome messages greet new survivors when they join Discord — make a great first impression instantly.",
+    "📊 Full player stat tracking pulled live from ADM logs. No manual data entry, no spreadsheets, no fuss.",
+    "🪙 The swear jar economy: every time someone swears in chat, pennies move from their wallet to the community pot. Light moderation with a sense of humour.",
+    "⏰ Automated scheduled restart announcements + countdown warnings (30/15/5/1 minute) keep players from losing loot when the server reboots.",
+    "💥 Airdrop events: admins can spawn a loot crate anywhere on the map with a single command — XML pushed to Nitrado automatically.",
 ]
 
 SHOWCASE_QUESTION_RESPONSES = {
+    # ── Setup & onboarding ─────────────────────────────────
     "how do i": [
-        "Great question! Check out **#📖・commands-guide** for a full breakdown of every command with examples.",
-        "Head to **#🚀・getting-started** for a step-by-step walkthrough, or ask me directly and I'll do my best to help.",
+        "Great question! Check out **#🎮✨・COMMANDS・✨🎮** for a full breakdown of every command with examples.",
+        "Head to **#🌟🎉・GET STARTED NOW・🎉🌟** for a step-by-step walkthrough, or ask me directly and I'll do my best to help.",
     ],
     "what can": [
-        "Wandering Bot does a lot — live feeds, economy, factions, PVE quests, heatmaps, radar zones, AI chat, and more. Check **#🎯・features** for the full list.",
-        "The short answer: everything your DayZ server needs in one bot. The long answer is in **#🎯・features**.",
+        "Wandering Bot does a lot — live feeds, economy, factions, PVE quests, heatmaps, radar zones, AI chat, and more. Check **#🎯🚀・FEATURES GALORE・🚀🎯** for the full list.",
+        "The short answer: everything your DayZ server needs in one bot. The long answer is in **#🎯🚀・FEATURES GALORE・🚀🎯**.",
     ],
     "invite": [
-        "The bot invite link is in **#🔗・invite-bot**. Add it to your server and run `/setup` to get started.",
+        "🔗 The bot invite link is in **#🔗💥・INVITE ME!・💥🔗**. Add it to your server and run `/setup` to get started.",
+        "Want me on your server? Grab the link from **#🔗💥・INVITE ME!・💥🔗** — setup takes under 5 minutes!",
     ],
     "setup": [
-        "Setup takes about ten minutes. Invite the bot, run `/setup` with your Nitrado and FTP details, and you're live. Full guide in **#🚀・getting-started**.",
+        "⚙️ Setup takes about 5 minutes. Invite the bot, run `/setup` with your Nitrado token and service ID, and you're live. Full guide in **#🌟🎉・GET STARTED NOW・🎉🌟**.",
+        "🚀 To get started: 1) invite me, 2) run `/setup`, 3) run `/restartadm force` once. The bot does the rest automatically!",
     ],
+    "install": [
+        "Installation is just inviting me to your server and running `/setup`. No file uploads, no config files, no headaches.",
+    ],
+    "configure": [
+        "Most config happens via slash commands: `/setup`, `/welcomeconfig`, `/translationconfig`, `/aiimageconfig`, `/economyconfig`. Each one is interactive.",
+    ],
+    "begin": [
+        "Brand new? Head to **#🌟🎉・GET STARTED NOW・🎉🌟** for the 5-minute getting-started guide.",
+    ],
+    # ── Commands ──────────────────────────────────────────
     "command": [
-        "Every command is documented in **#📖・commands-guide** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pveinfo`.",
+        "🎮 Every command is documented in **#🎮✨・COMMANDS・✨🎮** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pveinfo`.",
+        "Key commands: `/setup` (admin), `/linkgamer` (everyone), `/wallet`, `/topkills`, `/heatmap`, `/pveinfo`. Full list in **#🎮✨・COMMANDS・✨🎮**.",
     ],
+    "slash": [
+        "🎮 I respond to 30+ slash commands! Check **#🎮✨・COMMANDS・✨🎮** for the complete guide.",
+    ],
+    # ── Reviews / feedback ────────────────────────────────
     "review": [
-        "We'd love to hear your thoughts! Drop a message in **#⭐・reviews** — all feedback goes directly to the developer.",
+        "⭐ We'd love to hear your thoughts! Drop a message in **#⭐💫・REVIEWS & LOVE・💫⭐** — all feedback goes directly to the developer.",
+        "Love the bot? Hate the bot? Either way, drop a line in **#⭐💫・REVIEWS & LOVE・💫⭐** and help other server owners find us.",
     ],
+    "love": [
+        "Drop the love in **#⭐💫・REVIEWS & LOVE・💫⭐** 💜",
+    ],
+    "feedback": [
+        "Real talk welcome — leave feedback in **#⭐💫・REVIEWS & LOVE・💫⭐**.",
+    ],
+    # ── Questions ─────────────────────────────────────────
     "question": [
-        "Post it in **#❓・questions-answers** and either the bot or a community member will respond. No question is too basic.",
+        "❓ Post it in **#❓🔥・ASK ANYTHING・🔥❓** and either the bot or a community member will respond. No question is too basic.",
     ],
+    "help": [
+        "Need help? Drop your question in **#❓🔥・ASK ANYTHING・🔥❓** or mention me directly anywhere and I'll do my best!",
+    ],
+    # ── AI / smart features ───────────────────────────────
     "ai": [
-        "The AI layer is always on — mention me in any channel and I'll respond with context-aware advice. Admins can also enable AI-generated DayZ art with `/aiimageconfig`.",
-        "I can answer questions about commands, DayZ gameplay, bot setup, and more. Just mention me or ask in the AI chat channel.",
+        "🧠 The AI layer is always on — mention me in any channel and I'll respond with context-aware advice. Admins can also enable AI-generated DayZ art with `/aiimageconfig`.",
+        "🤖 I'm powered by AI for: smart kill alerts, radar anomaly detection, AI-generated DayZ artwork, intelligent chat responses, and pattern recognition from ADM logs.",
+        "💡 The **#🤖🧠・AI MAGIC・🧠🤖** channel shows off everything I can do with artificial intelligence!",
     ],
+    "smart": [
+        "🧠 Smart features include: pattern recognition from ADM logs, AI image generation, anomaly detection, and context-aware mention replies.",
+    ],
+    "gpt": [
+        "🤖 I use modern LLMs for smart responses. Mention me anywhere and I'll do my best to answer.",
+    ],
+    # ── Killfeed / kills / PvP ────────────────────────────
     "killfeed": [
-        "The killfeed reads your DayZ server's ADM logs in real time and posts every PvP kill to Discord with player names, weapons, distances, and a map link. Set it up with `/setup`.",
+        "⚔️ The killfeed reads your DayZ server's ADM logs in real time and posts every PvP kill to Discord with player names, weapons, distances, and a map link. Set it up with `/setup`.",
     ],
+    "kill": [
+        "⚔️ Every kill gets tracked automatically — weapon, distance, location, with a map link. Use `/linkgamer` to make sure YOUR kills count on the leaderboard.",
+        "🎯 Killfeed updates live from your ADM logs. Check `/topkills` for the leaderboard!",
+    ],
+    "snipe": [
+        "🎯 Longshot detector active! Every kill over 300m gets flagged automatically. Hall of fame: `/toplongshots`.",
+    ],
+    "longshot": [
+        "🏹 Run `/toplongshots` to see the sniper hall of fame — every kill 300m+ logged automatically from ADM.",
+    ],
+    # ── Economy ───────────────────────────────────────────
     "economy": [
-        "The economy system gives players pennies for chatting, completing quests, and good behaviour. They spend them in `/shop`. Admins configure rewards with `/addreward`.",
+        "💰 The economy system gives players pennies for chatting, completing quests, and good behaviour. They spend them in `/shop`. Admins configure rewards with `/addreward`.",
+        "🪙 Full Discord-side economy: earn pennies by playing, spend them in `/shop`, get fined by the swear jar, earn bonuses from PVE quests.",
     ],
+    "money": [
+        "💸 Check your balance with `/wallet`. Spend it in `/shop`. Earn more by playing on the server (link your gamertag first with `/linkgamer`).",
+    ],
+    "wallet": [
+        "💰 `/wallet` shows your penny balance. Earn pennies by playing on a linked server, completing PVE quests, and chatting (just watch the swear jar!).",
+    ],
+    "shop": [
+        "🛒 `/shop` opens the server shop. Admins decide what's stocked — items, perks, custom rewards.",
+    ],
+    "pennies": [
+        "🪙 Pennies are the in-Discord currency. Earned from gameplay, lost to the swear jar, spent in the shop.",
+    ],
+    "swear": [
+        "💸 The swear jar is real! Every swear word costs pennies. Light moderation with a sense of humour. Check your balance with `/wallet`.",
+    ],
+    # ── Factions ──────────────────────────────────────────
     "faction": [
-        "The faction system lets players create and manage factions entirely in Discord. Leaders can add members, set flags, and track activity. Start with `/createfaction`.",
+        "🏴 The faction system lets players create and manage factions entirely in Discord. Leaders can add members, set flags, and track activity. Start with `/createfaction`.",
+        "⚔️ Faction wars are LIVE — create your faction, recruit members, claim territory, fight rivals. All tracked from ADM logs.",
     ],
+    "clan": [
+        "🏴 Same idea, different word — try `/createfaction` to make your own.",
+    ],
+    "team": [
+        "🛡️ Factions let teams form persistent groups with leaders, members, territory and kill attribution. `/createfaction` to start one.",
+    ],
+    # ── Heatmap / map ─────────────────────────────────────
     "heatmap": [
-        "Heatmaps render a visual overlay of PvP kills, raids, building activity, and more on your actual server map. Run `/heatmap` to generate one.",
+        "🗺️ Heatmaps render a visual overlay of PvP kills, raids, building activity, and more on your actual server map. Run `/heatmap` to generate one.",
+        "🔥 `/heatmap pvp`, `/heatmap raids`, `/heatmap builds`, or `/heatmap all` — each generates a colour-coded map image automatically.",
     ],
+    "map": [
+        "📍 Every kill embed includes an iZurvive map link with the exact coordinates. Try `/heatmap` for a visual conflict overlay.",
+    ],
+    "location": [
+        "📡 Locations come straight from ADM logs. Every kill, raid and placement embed includes coordinates + an iZurvive link.",
+    ],
+    # ── Radar ─────────────────────────────────────────────
     "radar": [
-        "Radar zones alert your team when a player enters a defined coordinate area. Set one up with `/addradarzone` and choose a channel with `/setradarchannel`.",
+        "📡 Radar zones alert your team when a player enters a defined coordinate area. Set one up with `/addradarzone` and choose a channel with `/setradarchannel`.",
     ],
+    # ── PVE / quests ──────────────────────────────────────
     "pve": [
-        "The PVE quest system posts rotating challenges — hunting, fishing, crafting, collection, and expeditions — and tracks completions via ADM logs. See `/pveinfo` for active quests.",
+        "🧭 The PVE quest system posts rotating challenges — hunting, fishing, crafting, collection, and expeditions — and tracks completions via ADM logs. See `/pveinfo` for active quests.",
     ],
+    "quest": [
+        "🧭 PVE quests are live! Use `/pveinfo` to see active missions and `/linkgamer` to make sure rewards reach you.",
+    ],
+    "mission": [
+        "🎯 Missions = PVE quests. `/pveinfo` shows what's active right now.",
+    ],
+    "reward": [
+        "🎁 Rewards from PVE quests are paid in pennies straight to your `/wallet` once an admin verifies completion.",
+    ],
+    "fish": [
+        "🎣 Fishing quests are part of the PVE system — `/pveinfo` to see if one's active.",
+    ],
+    "hunt": [
+        "🦌 Hunting quests rotate in the PVE chain. Check `/pveinfo` for active ones.",
+    ],
+    # ── Leaderboards / stats ──────────────────────────────
+    "leaderboard": [
+        "🏆 `/topkills` for the kill leaderboard, `/toplongshots` for snipers. Updates in real-time from ADM logs.",
+    ],
+    "ranking": [
+        "📊 Live rankings via `/topkills` and `/toplongshots`. Link your gamertag first with `/linkgamer` so your kills count.",
+    ],
+    "stats": [
+        "📈 Full player stats: kills, deaths, K/D, longshots, session time, zombie kills. All from ADM. Try `/mylink` for yours.",
+    ],
+    "top": [
+        "👑 Try `/topkills` or `/toplongshots` to see who's on top.",
+    ],
+    # ── Translation ───────────────────────────────────────
     "translate": [
-        "Automatic translation is built in. Configure it with `/translationconfig` — choose `same` to post translations beside the original, or `channel` to forward them elsewhere.",
+        "🌍 Automatic translation is built in. Configure it with `/translationconfig` — choose `same` to post translations beside the original, or `channel` to forward them elsewhere.",
+    ],
+    "language": [
+        "🌐 Multi-language support is on by default. Admins fine-tune it via `/translationconfig`.",
+    ],
+    # ── Online / players ──────────────────────────────────
+    "online": [
+        "✅ The online dashboard updates live as players connect/disconnect. Self-cleaning so chat never gets spammed.",
+    ],
+    "players": [
+        "🎮 Player tracking is automatic. `/topkills`, `/toplongshots`, `/mylink` — all live from ADM.",
+    ],
+    # ── Welcome / first impressions ───────────────────────
+    "welcome": [
+        "👋 Custom welcome messages greet new survivors. `/welcomeconfig` to customise the text, embed, and channel.",
+    ],
+    "new": [
+        "🌟 New here? Start at **#🌟🎉・GET STARTED NOW・🎉🌟** for the quick tour.",
+    ],
+    # ── Restart / uptime ──────────────────────────────────
+    "restart": [
+        "⏰ Automated restart announcements with 30/15/5/1-minute pre-restart countdown warnings. Self-cleaning so chat never gets spammed with restart messages.",
+    ],
+    "uptime": [
+        "🌙 I run 24/7 with zero scheduled downtime. The bot never sleeps even when you do.",
+    ],
+    # ── Vehicles ──────────────────────────────────────────
+    "vehicle": [
+        "🚗 Vehicle rental economy available via `/vehiclerentals`. Players pay pennies, get keys, return for refunds.",
+    ],
+    "car": [
+        "🛻 Same answer as vehicle — try `/vehiclerentals` for a rental economy on your server.",
+    ],
+    # ── DayZ flavour helpers ──────────────────────────────
+    "loot": [
+        "🎁 Loot tip: hit hunting camps, military tents, police stations, medical buildings. Use `/heatmap loot` to see where everyone else is looting.",
+    ],
+    "weapon": [
+        "🔫 Guns spawn at police (basics), hunting (rifles), military (proper trouble). `/heatmap` shows where the fights are happening.",
+    ],
+    "base": [
+        "🏗️ Base tip: small, ugly, hidden and boring survives longer than a giant castle screaming 'please raid me'. Wandering Bot logs ALL building activity.",
+    ],
+    "raid": [
+        "💥 Raid alerts fire the moment a wall is destroyed. No more silent raids — your raids feed catches everything in real time.",
+    ],
+    "bear": [
+        "🐻 If you hear the bear first, it's too late. `/heatmap` tracks animal kill events too.",
+    ],
+    "cheater": [
+        "🚨 Record clips and timestamps before reporting. Wandering Bot's radar system flags suspicious movement automatically.",
+    ],
+    "lag": [
+        "📡 If desync hits, slow down. Use `/admstatus` to check whether the bot is still receiving log updates.",
+    ],
+    "dead": [
+        "💀 DayZ teaches lessons the painful way. Check `/toplongshots` to see who's been doing the teaching.",
     ],
 }
 
@@ -8903,7 +9089,9 @@ async def on_message(message):
     # ── Autonomous showcase handling ─────────────────────
     if message.guild and is_showcase_guild(str(message.guild.id)):
         await showcase_handle_message(message, lower, str(message.guild.id), now_ts)
-    else:
+        # Also run the keyword-based response matcher so the bot recognises
+        # a wide range of topics (kills, factions, economy, loot, etc.)
+        # without requiring slash commands. Internal cooldown prevents spam.
         await maybe_showcase_guild_response(message, lower)
 
     await maybe_reply_to_bot_mention(message, lower)
@@ -15663,18 +15851,18 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     if not category:
         category = await interaction.guild.create_category(category_name)
 
-    # Showcase-specific channels: advertising/informational only — no DayZ game channels
+    # Showcase-specific channels: emoji-heavy advertising/info channels — no DayZ game channels
     showcase_channels = [
-        "💬・talk-to-the-bot",
-        "🎨・ai-image-lab",
-        "📖・commands-guide",
-        "🤖・ai-showcase",
-        "⭐・reviews",
-        "❓・questions-answers",
-        "🎯・features",
-        "🚀・getting-started",
-        "🔗・invite-bot",
-        "📢・announcements",
+        "💬🤖・TALK TO THE BOT・🤖💬",
+        "🎨🖼️・AI IMAGE LAB・🖼️🎨",
+        "🎮✨・COMMANDS・✨🎮",
+        "🤖🧠・AI MAGIC・🧠🤖",
+        "⭐💫・REVIEWS & LOVE・💫⭐",
+        "❓🔥・ASK ANYTHING・🔥❓",
+        "🎯🚀・FEATURES GALORE・🚀🎯",
+        "🌟🎉・GET STARTED NOW・🎉🌟",
+        "🔗💥・INVITE ME!・💥🔗",
+        "📢🎊・UPDATES & NEWS・🎊📢",
     ]
 
     made_channels = {}
@@ -15697,24 +15885,24 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     channels_cfg = guild_configs[guild_id].setdefault("channels", {})
     channels_cfg.clear()
     if "💬・talk-to-the-bot" in made_channels:
-        channels_cfg["general_chat"] = made_channels["💬・talk-to-the-bot"].id
+        channels_cfg["general_chat"] = made_channels["💬🤖・TALK TO THE BOT・🤖💬"].id
     if "🎨・ai-image-lab" in made_channels:
-        channels_cfg["ai_chat"] = made_channels["🎨・ai-image-lab"].id
+        channels_cfg["ai_chat"] = made_channels["🎨🖼️・AI IMAGE LAB・🖼️🎨"].id
     if "❓・questions-answers" in made_channels:
-        channels_cfg["help_channel"] = made_channels["❓・questions-answers"].id
+        channels_cfg["help_channel"] = made_channels["❓🔥・ASK ANYTHING・🔥❓"].id
     if "📢・announcements" in made_channels:
-        channels_cfg["company_announcements"] = made_channels["📢・announcements"].id
+        channels_cfg["company_announcements"] = made_channels["📢🎊・UPDATES & NEWS・🎊📢"].id
 
     ai_settings = ai_image_config(guild_configs[guild_id])
     ai_settings["enabled"] = True
     ai_settings["style"] = "gritty"
     ai_settings["cooldown_seconds"] = 3600
     if "🎨・ai-image-lab" in made_channels:
-        ai_settings["channel_id"] = made_channels["🎨・ai-image-lab"].id
+        ai_settings["channel_id"] = made_channels["🎨🖼️・AI IMAGE LAB・🖼️🎨"].id
     save_guild_configs()
 
     # ── 💬・talk-to-the-bot ─────────────────────────────────────────────────
-    ch = made_channels["💬・talk-to-the-bot"]
+    ch = made_channels["💬🤖・TALK TO THE BOT・🤖💬"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15751,7 +15939,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 🎨・ai-image-lab ────────────────────────────────────────────────────
-    ch = made_channels["🎨・ai-image-lab"]
+    ch = made_channels["🎨🖼️・AI IMAGE LAB・🖼️🎨"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15783,7 +15971,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 📖・commands-guide ──────────────────────────────────────────────────
-    ch = made_channels["📖・commands-guide"]
+    ch = made_channels["🎮✨・COMMANDS・✨🎮"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15860,7 +16048,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     )
 
     # ── 🤖・ai-showcase ─────────────────────────────────────────────────────
-    ch = made_channels["🤖・ai-showcase"]
+    ch = made_channels["🤖🧠・AI MAGIC・🧠🤖"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15922,7 +16110,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── ⭐・reviews ──────────────────────────────────────────────────────────
-    ch = made_channels["⭐・reviews"]
+    ch = made_channels["⭐💫・REVIEWS & LOVE・💫⭐"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15959,7 +16147,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── ❓・questions-answers ────────────────────────────────────────────────
-    ch = made_channels["❓・questions-answers"]
+    ch = made_channels["❓🔥・ASK ANYTHING・🔥❓"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -15999,7 +16187,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 🎯・features ─────────────────────────────────────────────────────────
-    ch = made_channels["🎯・features"]
+    ch = made_channels["🎯🚀・FEATURES GALORE・🚀🎯"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -16065,7 +16253,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 🚀・getting-started ──────────────────────────────────────────────────
-    ch = made_channels["🚀・getting-started"]
+    ch = made_channels["🌟🎉・GET STARTED NOW・🎉🌟"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -16081,7 +16269,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="Step 1 — Invite the Bot",
         value=(
-            f"Use the invite link in **#🔗・invite-bot** to add Wandering Bot to your server. "
+            f"Use the invite link in **#🔗💥・INVITE ME!・💥🔗** to add Wandering Bot to your server. "
             "Grant it Administrator permissions so it can create channels and manage roles."
         ),
         inline=False
@@ -16125,7 +16313,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 🔗・invite-bot ───────────────────────────────────────────────────────
-    ch = made_channels["🔗・invite-bot"]
+    ch = made_channels["🔗💥・INVITE ME!・💥🔗"]
     try:
         await ch.purge(limit=20)
     except Exception:
@@ -16170,7 +16358,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     await ch.send(embed=style_embed(embed))
 
     # ── 📢・announcements ────────────────────────────────────────────────────
-    ch = made_channels["📢・announcements"]
+    ch = made_channels["📢🎊・UPDATES & NEWS・🎊📢"]
     try:
         await ch.purge(limit=20)
     except Exception:
