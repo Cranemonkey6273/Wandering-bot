@@ -11019,7 +11019,7 @@ async def helpme(ctx):
         name="📊 Stats & Leaderboards",
         value=(
             "`/playercard [name]` — full career dossier (omit name for your own)\n"
-            "`/leaderboard setup` — admin: pinned auto-refreshing live board\n"
+            "`/leaderboard setup` — admin: hourly Server + Global leaderboard (6 feeds: kills, headshots, longshots, bounties, streaks, rampages)\n"
             "`/leaderboard hall` — 🏅 all-time Hall of Fame for this server\n"
             "`/leaderboard challenges` — 🎯 today's daily challenge + progress\n"
             "`/leaderboard refresh / unset` — admin\n"
@@ -22089,48 +22089,120 @@ bot.tree.add_command(bounty_group)
 last_mega_leaderboard_message_ids = {}
 
 
-def _gather_mega_leaderboard_rows(guild_id):
-    """Return (bounty_rows, streak_rows, rampage_rows) capped at top 10 each."""
-    gid = str(guild_id)
-    bounty_rows = sorted(
-        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("bounty_earnings", 0) or 0) > 0],
-        key=lambda row: int(row[1].get("bounty_earnings", 0) or 0),
-        reverse=True,
-    )[:10]
-    streak_rows_all = (survival_streaks.get(gid) or {}).items()
-    streak_rows = sorted(
-        [(p, s) for p, s in streak_rows_all if int(s.get("current_days", 0) or 0) > 0],
-        key=lambda row: int(row[1].get("current_days", 0) or 0),
-        reverse=True,
-    )[:10]
-    rampage_rows = sorted(
-        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("rampages", 0) or 0) > 0],
-        key=lambda row: (int(row[1].get("rampages", 0) or 0), int(row[1].get("multikill_best", 0) or 0)),
-        reverse=True,
-    )[:10]
-    return bounty_rows, streak_rows, rampage_rows
+# =========================================================
+# Leaderboard categories (6) — used by both server + global scopes
+# =========================================================
+
+LEADERBOARD_CATEGORIES = [
+    {
+        "key": "kills",       "title": "☠️  PVP KILLS",
+        "source": "player_stats", "stat_key": "kills",
+        "value": lambda v: f"{int(v):,} kills",
+    },
+    {
+        "key": "headshots",   "title": "💥  HEADSHOTS",
+        "source": "player_stats", "stat_key": "headshots",
+        "value": lambda v: f"{int(v):,} HS",
+    },
+    {
+        "key": "longshots",   "title": "🎯  LONGEST SHOTS",
+        "source": "longshot_records", "stat_key": "distance",
+        "value": lambda v: f"{float(v):.0f}m",
+    },
+    {
+        "key": "bounties",    "title": "💰  BOUNTY HUNTERS",
+        "source": "player_stats", "stat_key": "bounty_earnings",
+        "value": lambda v: f"{int(v):,} " + BOUNTY_CURRENCY,
+    },
+    {
+        "key": "streaks",     "title": "🩸  SURVIVAL STREAKS",
+        "source": "survival_streaks", "stat_key": "current_days",
+        "value": lambda v: f"{int(v)}d",
+    },
+    {
+        "key": "rampages",    "title": "🔥  RAMPAGE KINGS",
+        "source": "player_stats", "stat_key": "rampages",
+        "value": lambda v: f"{int(v):,} rampage(s)",
+    },
+]
 
 
-def render_leaderboard_image(guild_id, guild_name="Server"):
-    """Render a purple/gold styled PNG leaderboard image (Shutterstock-style
-    angled rows). Returns BytesIO buffer of the PNG, or None if Pillow
-    fails for any reason."""
+def gather_category_rows(category, scope, guild_id=None, limit=5):
+    """Return [(player, value_str), ...] for a single category.
+    scope='server' uses guild_id filter; scope='global' aggregates."""
+    key = category["key"]
+    src = category["source"]
+    sk = category["stat_key"]
+    rows = []
+
+    if src == "player_stats":
+        for player, stats in player_stats.items():
+            v = int(stats.get(sk, 0) or 0)
+            if v <= 0:
+                continue
+            if scope == "server":
+                if str(stats.get("guild_id", "")) != str(guild_id):
+                    continue
+            rows.append((player, v))
+        rows.sort(key=lambda r: r[1], reverse=True)
+        return [(p, category["value"](v)) for p, v in rows[:limit]]
+
+    if src == "longshot_records":
+        # longshot_records: {guild_id: [{killer, distance, weapon, victim, ...}]}
+        candidates = []
+        if scope == "server":
+            for entry in (longshot_records.get(str(guild_id)) or []):
+                candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0), entry))
+        else:
+            for gid, entries in longshot_records.items():
+                for entry in entries:
+                    candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0), entry))
+        # Best shot per killer (highest distance)
+        best_per_killer = {}
+        for killer, dist, entry in candidates:
+            if dist > best_per_killer.get(killer, (0.0, None))[0]:
+                best_per_killer[killer] = (dist, entry)
+        rows = sorted(best_per_killer.items(), key=lambda r: r[1][0], reverse=True)
+        return [(p, category["value"](info[0])) for p, info in rows[:limit]]
+
+    if src == "survival_streaks":
+        out = []
+        if scope == "server":
+            for player, entry in (survival_streaks.get(str(guild_id)) or {}).items():
+                v = int(entry.get(sk, 0) or 0)
+                if v > 0:
+                    out.append((player, v))
+        else:
+            best_per_player = {}
+            for gid, players in survival_streaks.items():
+                for player, entry in players.items():
+                    v = int(entry.get(sk, 0) or 0)
+                    if v > best_per_player.get(player, 0):
+                        best_per_player[player] = v
+            out = list(best_per_player.items())
+        out.sort(key=lambda r: r[1], reverse=True)
+        return [(p, category["value"](v)) for p, v in out[:limit]]
+
+    return []
+
+
+def render_leaderboard_image(guild_id, scope, scope_label):
+    """Render a purple/gold styled PNG for ONE scope (server OR global).
+    Top 5 per category across all 6 categories. Returns BytesIO or None."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except Exception as e:
         print(f"[LB IMG] PIL import failed: {e}")
         return None
 
-    bounty_rows, streak_rows, rampage_rows = _gather_mega_leaderboard_rows(guild_id)
-
-    # Canvas size — fits Discord embed image area nicely.
-    W, H = 1280, 1080
+    # Canvas — taller to fit 6 categories × 5 rows each (~ 2150px tall)
+    W, H = 1280, 2150
     img = Image.new("RGBA", (W, H), (35, 17, 55, 255))
     draw = ImageDraw.Draw(img)
 
-    # ── Purple gradient background ─────────────────────────
-    top_color = (88, 28, 135)    # rich purple
-    bot_color = (39, 12, 71)     # deep purple
+    # Purple gradient
+    top_color = (88, 28, 135)
+    bot_color = (39, 12, 71)
     for y in range(H):
         t = y / H
         r = int(top_color[0] * (1 - t) + bot_color[0] * t)
@@ -22138,7 +22210,7 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
         b = int(top_color[2] * (1 - t) + bot_color[2] * t)
         draw.line([(0, y), (W, y)], fill=(r, g, b, 255))
 
-    # Subtle diagonal stripes to mimic the reference style
+    # Diagonal stripe overlay
     stripe = Image.new("RGBA", (W, H), (255, 255, 255, 0))
     sdraw = ImageDraw.Draw(stripe)
     for x in range(-H, W, 40):
@@ -22149,7 +22221,7 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
     img = Image.alpha_composite(img, stripe)
     draw = ImageDraw.Draw(img)
 
-    # ── Fonts (graceful fallback) ──────────────────────────
+    # Fonts
     def load_font(size):
         for fname in (
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -22164,11 +22236,11 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
         return ImageFont.load_default()
 
     font_title  = load_font(64)
-    font_sub    = load_font(28)
-    font_col    = load_font(22)
-    font_rank   = load_font(38)
-    font_name   = load_font(28)
-    font_val    = load_font(28)
+    font_scope  = load_font(40)
+    font_sub    = load_font(26)
+    font_rank   = load_font(34)
+    font_name   = load_font(26)
+    font_val    = load_font(26)
     font_footer = load_font(20)
 
     GOLD = (244, 196, 48, 255)
@@ -22179,41 +22251,29 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
     ROW_FILL_ALT = (48, 20, 90, 220)
     HIGHLIGHT = (158, 75, 250, 255)
 
-    # ── Title bar ──────────────────────────────────────────
-    title_text = "🏅 LEADERBOARD 🏅"
-    draw.text((W // 2, 70), title_text, font=font_title, fill=GOLD, anchor="mm")
+    # Header
+    draw.text((W // 2, 60), "🏅 LEADERBOARD 🏅", font=font_title, fill=GOLD, anchor="mm")
+    draw.text((W // 2, 120), scope_label, font=font_scope, fill=SOFT_GOLD, anchor="mm")
     draw.text(
-        (W // 2, 130),
-        f"{guild_name} — refreshed live every 10 minutes",
+        (W // 2, 165),
+        "Refreshed live every hour",
         font=font_sub,
         fill=DIM,
         anchor="mm",
     )
 
-    # ── Three sections, each as a chevron-row block ────────
-    sections = [
-        ("💰  TOP BOUNTY HUNTERS",
-         [(p, f"{int(s.get('bounty_earnings', 0) or 0):,} {BOUNTY_CURRENCY}") for p, s in bounty_rows]),
-        ("🩸  LONGEST SURVIVAL STREAKS",
-         [(p, f"{int(s.get('current_days', 0) or 0)}d (best {int(s.get('longest_days', 0) or 0)}d)") for p, s in streak_rows]),
-        ("🔥  RAMPAGE KINGS",
-         [(p, f"{int(s.get('rampages', 0) or 0)} rampage(s) · best {int(s.get('multikill_best', 0) or 0)}") for p, s in rampage_rows]),
-    ]
-
     medal_colors = [
-        (255, 215, 0, 255),   # gold
-        (192, 192, 192, 255), # silver
-        (205, 127, 50, 255),  # bronze
+        (255, 215, 0, 255),
+        (192, 192, 192, 255),
+        (205, 127, 50, 255),
     ]
-
-    y = 200
-    block_padding = 36
-    row_height = 56
-    row_gap = 8
+    row_height = 52
+    row_gap = 6
+    section_gap = 22
+    section_title_height = 34
 
     def draw_chevron_row(x0, y0, w, h, fill, outline=None):
-        """Slanted parallelogram row, like the reference."""
-        skew = 18
+        skew = 16
         pts = [
             (x0 + skew, y0),
             (x0 + w, y0),
@@ -22222,31 +22282,32 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
         ]
         draw.polygon(pts, fill=fill, outline=outline)
 
-    for sect_idx, (sect_title, rows) in enumerate(sections):
-        # Section title
-        draw.text((80, y), sect_title, font=font_sub, fill=SOFT_GOLD)
-        y += 38
+    y = 210
+    for cat in LEADERBOARD_CATEGORIES:
+        # Section title bar
+        draw.text((80, y), cat["title"], font=font_sub, fill=SOFT_GOLD)
+        y += section_title_height
 
+        rows = gather_category_rows(cat, scope="server" if scope == "server" else "global",
+                                    guild_id=guild_id, limit=5)
         if not rows:
             draw.text(
-                (110, y + 8),
-                "— no data yet — first kill puts someone on the board —",
-                font=font_col,
+                (110, y + 6),
+                "— no data yet —",
+                font=font_name,
                 fill=DIM,
             )
-            y += row_height + block_padding
+            y += row_height + section_gap
             continue
 
-        # Show top 5 of each section to keep the image readable
-        for rank, (player, value) in enumerate(rows[:5], start=1):
+        for rank, (player, value) in enumerate(rows, start=1):
             row_y = y
             x0 = 60
             row_w = W - 120
             fill = ROW_FILL if rank % 2 else ROW_FILL_ALT
             draw_chevron_row(x0, row_y, row_w, row_height, fill=fill)
 
-            # Rank tag (gold/silver/bronze pill for top 3)
-            tag_w = 92
+            tag_w = 80
             if rank <= 3:
                 tag_color = medal_colors[rank - 1]
                 draw_chevron_row(x0, row_y, tag_w, row_height, fill=tag_color)
@@ -22262,19 +22323,19 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
                 anchor="mm",
             )
 
-            # Player name (left aligned, after the rank pill)
-            name_clip = player[:22]
-            draw.text((x0 + tag_w + 30, row_y + row_height // 2 - 1),
+            # Name (truncate)
+            name_clip = player[:20]
+            draw.text((x0 + tag_w + 26, row_y + row_height // 2 - 1),
                       name_clip, font=font_name, fill=WHITE, anchor="lm")
 
-            # Value (right aligned)
-            draw.text((x0 + row_w - 30, row_y + row_height // 2 - 1),
+            # Value (right-aligned)
+            draw.text((x0 + row_w - 26, row_y + row_height // 2 - 1),
                       value, font=font_val, fill=GOLD, anchor="rm")
 
             y += row_height + row_gap
-        y += block_padding
+        y += section_gap
 
-    # ── Footer ─────────────────────────────────────────────
+    # Footer
     draw.text(
         (W // 2, H - 30),
         "Wandering Bot Alpha • Live Leaderboard",
@@ -22290,74 +22351,27 @@ def render_leaderboard_image(guild_id, guild_name="Server"):
 
 
 def build_mega_leaderboard_embed(guild_id):
-    gid = str(guild_id)
-    # Top bounty hunters (by bounty_earnings)
-    bounty_rows = sorted(
-        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("bounty_earnings", 0) or 0) > 0],
-        key=lambda row: int(row[1].get("bounty_earnings", 0) or 0),
-        reverse=True,
-    )[:10]
-    # Longest current survival streaks
-    streak_rows_all = (survival_streaks.get(gid) or {}).items()
-    streak_rows = sorted(
-        [(p, s) for p, s in streak_rows_all if int(s.get("current_days", 0) or 0) > 0],
-        key=lambda row: int(row[1].get("current_days", 0) or 0),
-        reverse=True,
-    )[:10]
-    # Top rampage kings (career rampages)
-    rampage_rows = sorted(
-        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("rampages", 0) or 0) > 0],
-        key=lambda row: (int(row[1].get("rampages", 0) or 0), int(row[1].get("multikill_best", 0) or 0)),
-        reverse=True,
-    )[:10]
-
-    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-    def fmt(rows, get_value, suffix=""):
-        if not rows:
-            return "_No data yet. The next kill could put someone on the board._"
-        out = []
-        for idx, (player, stats) in enumerate(rows, start=1):
-            icon = medals[idx - 1] if idx <= len(medals) else f"`{idx}.`"
-            value = get_value(stats)
-            out.append(f"{icon} **{player}** — `{value}{suffix}`")
-        return "\n".join(out)
-
+    """Compact summary embed — the heavy visuals live in the attached
+    SERVER + GLOBAL PNGs. This is the description block / fallback."""
     embed = discord.Embed(
-        title="🏅 LIVE SERVER LEADERBOARD",
+        title="🏅 LIVE LEADERBOARDS — Server & Global",
         description=(
-            "Auto-refreshes every 10 minutes. "
-            "Top bounty hunters, longest survival streaks, and rampage kings on this server."
+            "Auto-refreshes **every hour**. The previous post is deleted on "
+            "each refresh.\n\n"
+            "**🏠 Server image** — top 5 on this server\n"
+            "**🌍 Global image** — top 5 across every Wandering Bot guild\n\n"
+            "Categories: ☠️ Kills · 💥 Headshots · 🎯 Longshots · 💰 Bounties · 🩸 Streaks · 🔥 Rampages"
         ),
         color=0xE67E22,
     )
-    embed.add_field(
-        name="💰 Top Bounty Hunters",
-        value=fmt(bounty_rows, lambda s: f"{int(s.get('bounty_earnings', 0) or 0):,} {BOUNTY_CURRENCY}"),
-        inline=False,
-    )
-    embed.add_field(
-        name="🩸 Longest Survival Streaks (current)",
-        value=fmt(
-            streak_rows,
-            lambda s: f"{int(s.get('current_days', 0) or 0)}d (best {int(s.get('longest_days', 0) or 0)}d)",
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="🔥 Rampage Kings (career)",
-        value=fmt(
-            rampage_rows,
-            lambda s: f"{int(s.get('rampages', 0) or 0)} rampage(s) · best {int(s.get('multikill_best', 0) or 0)}",
-        ),
-        inline=False,
-    )
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard • refreshes every 10 minutes")
+    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard • refreshes hourly")
     embed.timestamp = datetime.now(UTC)
     return style_embed(embed)
 
 
 async def post_or_update_mega_leaderboard(guild_id, config):
+    """Delete the previous leaderboard message(s) and post a fresh one
+    with both SERVER and GLOBAL styled PNGs attached. Runs hourly."""
     channels = config.get("channels", {})
     ch_id = channels.get("mega_leaderboard")
     if not ch_id:
@@ -22365,57 +22379,69 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     channel = bot.get_channel(ch_id)
     if not channel:
         return False, "channel not found"
-    embed = build_mega_leaderboard_embed(guild_id)
 
-    # Render the styled PNG (purple/gold). If rendering fails we still
-    # post the embed-only fallback.
-    guild_name = guild_configs.get(str(guild_id), {}).get("guild_name", "Server")
-    try:
-        img_buf = await asyncio.to_thread(render_leaderboard_image, guild_id, guild_name)
-    except Exception as render_err:
-        print(f"[LB IMG] render failed for {guild_id}: {render_err}")
-        img_buf = None
-
-    if img_buf is not None:
-        embed.set_image(url="attachment://leaderboard.png")
-
-    # Try to edit the existing message. Note: editing a message *replaces*
-    # attachments only when you pass `attachments=`, so we do that for the
-    # image case and fall back to repost if the original message is gone.
+    # ── Delete previous bot messages in this channel ─────────────
     last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
-    if last_ids:
+    for mid in last_ids:
         try:
-            msg = await channel.fetch_message(last_ids[0])
-            if img_buf is not None:
-                img_buf.seek(0)
-                file = discord.File(img_buf, filename="leaderboard.png")
-                await msg.edit(embed=embed, attachments=[file])
-            else:
-                await msg.edit(embed=embed, attachments=[])
-            return True, "edited"
+            old = await channel.fetch_message(mid)
+            await old.delete()
         except Exception:
             pass
-
+    # Also sweep any stray bot leaderboard messages
     try:
-        await purge_self_dashboard_messages(channel, limit=20)
+        await purge_self_dashboard_messages(channel, limit=15)
     except Exception:
         pass
 
-    if img_buf is not None:
-        img_buf.seek(0)
-        file = discord.File(img_buf, filename="leaderboard.png")
-        sent = await channel.send(embed=embed, file=file)
-    else:
-        sent = await channel.send(embed=embed)
+    # ── Render both scopes in parallel-ish ──────────────────────
+    guild_name = guild_configs.get(str(guild_id), {}).get("guild_name", "Server")
+    try:
+        server_img = await asyncio.to_thread(
+            render_leaderboard_image, guild_id, "server", f"🏠 {guild_name.upper()}"
+        )
+    except Exception as render_err:
+        print(f"[LB IMG] server render failed for {guild_id}: {render_err}")
+        server_img = None
+    try:
+        global_img = await asyncio.to_thread(
+            render_leaderboard_image, guild_id, "global", "🌍 GLOBAL — ALL SERVERS"
+        )
+    except Exception as render_err:
+        print(f"[LB IMG] global render failed for {guild_id}: {render_err}")
+        global_img = None
+
+    embed = build_mega_leaderboard_embed(guild_id)
+
+    files = []
+    if server_img is not None:
+        server_img.seek(0)
+        files.append(discord.File(server_img, filename="server_leaderboard.png"))
+    if global_img is not None:
+        global_img.seek(0)
+        files.append(discord.File(global_img, filename="global_leaderboard.png"))
+
+    if files:
+        # Discord embeds only render one inline image. Pin the SERVER one to
+        # the embed; the GLOBAL one shows as the second attachment below.
+        embed.set_image(url="attachment://server_leaderboard.png")
+
+    try:
+        sent = await channel.send(embed=embed, files=files if files else None)
+    except Exception as send_err:
+        print(f"[MEGA LEADERBOARD] send failed: {send_err}")
+        return False, f"send failed: {send_err}"
+
     try:
         await sent.pin()
     except Exception:
         pass
+
     last_mega_leaderboard_message_ids[str(guild_id)] = [sent.id]
     return True, "posted"
 
 
-@tasks.loop(minutes=10)
+@tasks.loop(hours=1)
 async def mega_leaderboard_loop():
     for guild_id, config in active_guild_config_items():
         try:
@@ -22454,7 +22480,8 @@ async def slash_leaderboard_setup(
     if ok:
         await interaction.followup.send(
             f"✅ Live leaderboard set up in {target.mention}. "
-            f"It will refresh **every 10 minutes** automatically and stays pinned.",
+            f"It will refresh **every hour** automatically (deletes the old "
+            f"message and posts a fresh **Server + Global** leaderboard).",
             ephemeral=True,
         )
     else:
