@@ -178,6 +178,30 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AI_IMAGE_MODEL = os.getenv("WANDERING_AI_IMAGE_MODEL", "gpt-image-1")
 AI_IMAGE_DEFAULT_COOLDOWN_SECONDS = int(os.getenv("WANDERING_AI_IMAGE_COOLDOWN_SECONDS", "21600"))
 
+# ── AI Death Roasts (Emergent Universal LLM Key) ─────────────
+# Roasts are short, one-line bits of flavour text shown in the
+# killfeed embed footer. They are OFF by default per-guild and
+# admins must opt-in via /extra setroasts on.
+EMERGENT_LLM_KEY = os.getenv("EMERGENT_LLM_KEY")
+AI_ROAST_MODEL = os.getenv("WANDERING_AI_ROAST_MODEL", "gpt-5-nano")
+AI_ROAST_PROVIDER = os.getenv("WANDERING_AI_ROAST_PROVIDER", "openai")
+AI_ROAST_TIMEOUT_SECONDS = float(os.getenv("WANDERING_AI_ROAST_TIMEOUT_SECONDS", "8"))
+AI_ROAST_TONE = os.getenv("WANDERING_AI_ROAST_TONE", "mixed")  # mixed|edgy|pg13|brutal_clean
+AI_ROAST_SYSTEM_PROMPT = (
+    "You are the announcer for a hardcore DayZ killfeed. Generate ONE single-line "
+    "trash-talk one-liner about the kill, max 22 words. No quotes, no emojis, no "
+    "hashtags, no preamble — just the roast. Vary the joke each time. Reference the "
+    "weapon or distance if it fits. Tone: switch between dark/edgy, witty/sarcastic, "
+    "and brutal-but-clean. Never use slurs, NSFW content, or real-world tragedies."
+)
+
+# Headshot detection — DayZ ADM hit lines look like:
+#   '... into Head(0) for 95.50 damage (Brain) with M4-A1 from 250.5 meters'
+# So either the "into <part>" segment OR the damage-type segment can
+# tell us it's a headshot. Both are checked.
+HEADSHOT_HIT_LOCATIONS = {"head", "brain", "skull"}
+HEADSHOT_DAMAGE_TYPES = {"brain", "head"}
+
 
 def bot_invite_url(override=""):
     override = str(override or "").strip()
@@ -734,6 +758,19 @@ def extract_pvp_kill_details(line):
     coords = extract_adm_coords(line)
     if coords:
         details["coords"] = coords
+
+    # Headshot detection — DayZ ADM exposes both the hit-zone
+    # ("into Head(0)") and the damage type ("(Brain)"). Either is
+    # enough to flag a headshot.
+    headshot = False
+    hit_location_match = re.search(r'into\s+([A-Za-z]+)', line)
+    if hit_location_match and hit_location_match.group(1).lower() in HEADSHOT_HIT_LOCATIONS:
+        headshot = True
+        details["hit_location"] = hit_location_match.group(1)
+    ammo_value = (details.get("ammo") or "").strip().lower()
+    if ammo_value in HEADSHOT_DAMAGE_TYPES:
+        headshot = True
+    details["headshot"] = headshot
 
     return details
 
@@ -1523,6 +1560,7 @@ def ensure_player_stats_record(guild_id, player_name):
     stats.setdefault("guild_id", str(guild_id))
     stats.setdefault("first_adm_seen", now_text)
     stats.setdefault("kills", 0)
+    stats.setdefault("headshots", 0)
     stats.setdefault("deaths", 0)
     stats.setdefault("zombie_deaths", 0)
     stats.setdefault("suicides", 0)
@@ -1556,6 +1594,8 @@ def update_player_stats_from_adm(guild_id, event_type, line):
         if kill_details:
             add_player_stat(guild_id, kill_details["killer"], "kills")
             add_player_stat(guild_id, kill_details["victim"], "deaths")
+            if kill_details.get("headshot"):
+                add_player_stat(guild_id, kill_details["killer"], "headshots")
             return
 
     if event_type == "disconnect":
@@ -3920,6 +3960,7 @@ def new_guild_config(guild):
         "ftp_user": "",
         "ftp_password": "",
         "ftp_host": "",
+        "roasts_enabled": False,
         "channels": {}
     }
 
@@ -4788,6 +4829,115 @@ def record_longshot(guild_id, longshot_dict):
         del records[LONGSHOT_LEADERBOARD_LIMIT:]
     save_longshot_records()
     return records[0] is longshot_dict
+
+
+# =========================================================
+# AI DEATH ROAST (Emergent Universal LLM Key)
+# =========================================================
+
+_AI_ROAST_FALLBACKS = [
+    "Map called. Said you forgot to read it.",
+    "{killer} just turned {victim} into loot.",
+    "{victim}'s last words: 'where's the shot coming from'.",
+    "{distance:.0f}m. {weapon}. Cold.",
+    "{victim} blinked. {killer} did not.",
+    "Inventory: tab → empty.",
+    "Server tick ate {victim} before {killer} did.",
+    "{killer} sends regards. And one bullet.",
+    "{victim} respawned harder than they spawned.",
+    "Coastal start incoming for {victim}.",
+]
+
+
+def _format_fallback_roast(killer, victim, weapon, distance):
+    template = random.choice(_AI_ROAST_FALLBACKS)
+    try:
+        return template.format(
+            killer=killer or "Unknown",
+            victim=victim or "Unknown",
+            weapon=weapon or "Unknown",
+            distance=float(distance or 0),
+        )
+    except Exception:
+        return template
+
+
+async def generate_death_roast(killer, victim, weapon, distance, headshot=False, tone=None):
+    """Return a short (<= ~22 word) one-liner roast for the killfeed.
+    Uses the Emergent Universal LLM key via emergentintegrations. If the
+    key is missing or the call fails, returns a deterministic fallback so
+    the killfeed never blocks on AI."""
+    killer = (killer or "Unknown").strip()
+    victim = (victim or "Unknown").strip()
+    weapon = (weapon or "Unknown").strip()
+    try:
+        distance = float(distance or 0)
+    except Exception:
+        distance = 0.0
+
+    if not EMERGENT_LLM_KEY:
+        return _format_fallback_roast(killer, victim, weapon, distance)
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as error:
+        print(f"[AI ROAST] emergentintegrations import failed: {error}")
+        return _format_fallback_roast(killer, victim, weapon, distance)
+
+    tone_value = (tone or AI_ROAST_TONE or "mixed").lower()
+    tone_hint = {
+        "edgy": "Tone: dark, edgy DayZ humour. Punchy. No slurs, no real-world tragedies.",
+        "pg13": "Tone: PG-13 witty/sarcastic. No swears.",
+        "brutal_clean": "Tone: brutal but clean. No swears. Make it sting.",
+    }.get(tone_value, "Tone: pick at random between dark/edgy, witty/sarcastic, and brutal-but-clean.")
+
+    headshot_hint = " It was a HEADSHOT — reference that." if headshot else ""
+    distance_hint = f" Distance: {distance:.0f}m." if distance >= 50 else ""
+
+    prompt = (
+        f"Kill event:\n"
+        f"- Killer: {killer}\n"
+        f"- Victim: {victim}\n"
+        f"- Weapon: {weapon}\n"
+        f"- Distance: {distance:.0f}m\n"
+        f"- Headshot: {'yes' if headshot else 'no'}\n\n"
+        f"{tone_hint}{headshot_hint}{distance_hint}\n"
+        f"Return ONLY the one-liner. No prefix, no quotes."
+    )
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"roast-{hashlib.sha1(f'{killer}{victim}{weapon}{distance}'.encode()).hexdigest()[:12]}",
+            system_message=AI_ROAST_SYSTEM_PROMPT,
+        ).with_model(AI_ROAST_PROVIDER, AI_ROAST_MODEL)
+
+        response = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=prompt)),
+            timeout=AI_ROAST_TIMEOUT_SECONDS,
+        )
+        text = (str(response or "")).strip()
+        # Strip any wrapping quotes/backticks the model might add
+        text = text.strip('"').strip("'").strip("`").strip()
+        # Single line only
+        text = text.splitlines()[0] if text else ""
+        # Hard cap at 220 chars so it always fits a Discord embed field
+        if len(text) > 220:
+            text = text[:217].rstrip() + "..."
+        return text or _format_fallback_roast(killer, victim, weapon, distance)
+    except asyncio.TimeoutError:
+        print("[AI ROAST] LLM call timed out — using fallback")
+        return _format_fallback_roast(killer, victim, weapon, distance)
+    except Exception as error:
+        print(f"[AI ROAST] LLM call failed ({error}) — using fallback")
+        return _format_fallback_roast(killer, victim, weapon, distance)
+
+
+def guild_roasts_enabled(guild_id):
+    """AI death roasts are OFF by default; admins must opt in."""
+    gid = str(guild_id)
+    config = guild_configs.get(gid, {})
+    return bool(config.get("roasts_enabled", False))
 
 
 def load_heatmap():
@@ -8796,10 +8946,11 @@ async def parse_adm(guild_id, config):
                 weapon = kill_details.get("weapon", "Unknown")
                 distance = float(kill_details.get("distance", 0) or 0)
                 coords = kill_details.get("coords")
+                is_headshot = bool(kill_details.get("headshot"))
 
                 embed = discord.Embed(
-                    title="PLAYER KILL",
-                    color=0x992D22
+                    title="💥 HEADSHOT — PLAYER KILL" if is_headshot else "PLAYER KILL",
+                    color=0xE74C3C if is_headshot else 0x992D22
                 )
 
                 embed.add_field(
@@ -8835,6 +8986,13 @@ async def parse_adm(guild_id, config):
                         inline=True
                     )
 
+                if is_headshot:
+                    embed.add_field(
+                        name="Hit Zone",
+                        value=f"💥 {kill_details.get('hit_location', 'Head')}",
+                        inline=True
+                    )
+
                 if coords:
 
                     map_link = build_izurvive_link(coords, guild_id)
@@ -8844,6 +9002,25 @@ async def parse_adm(guild_id, config):
                         embed.add_field(
                             name="Kill Location",
                             value=f"[Open Map](<{map_link}>)",
+                            inline=False
+                        )
+
+                # AI death roast — opt-in per guild. Fire-and-await with
+                # internal timeout so we never block the killfeed for
+                # more than AI_ROAST_TIMEOUT_SECONDS. Always falls back
+                # to a static one-liner if the LLM is unavailable.
+                if guild_roasts_enabled(guild_id):
+                    try:
+                        roast = await generate_death_roast(
+                            killer, victim, weapon, distance, headshot=is_headshot
+                        )
+                    except Exception as roast_error:
+                        print(f"[AI ROAST] unexpected error: {roast_error}")
+                        roast = None
+                    if roast:
+                        embed.add_field(
+                            name="📣 Killfeed Says",
+                            value=f"*{roast}*",
                             inline=False
                         )
 
@@ -8867,13 +9044,6 @@ async def parse_adm(guild_id, config):
                 is_new_record = distance > current_record_distance
                 is_longshot = distance >= LONGSHOT_ANNOUNCE_METERS
 
-                # PR #12 adds extract_adm_event_time(line) for true
-                # in-game timestamps. Until that merges, fall back to
-                # "now" — works in both worlds since record_longshot,
-                # rampage detection and first-blood only need *a*
-                # reasonable timestamp.
-                event_time = datetime.now(UTC)
-
                 if is_longshot:
                     # Persist every 300m+ shot — not just the single
                     # current server record. This is what makes the
@@ -8884,6 +9054,7 @@ async def parse_adm(guild_id, config):
                         "distance": distance,
                         "weapon": weapon,
                         "coords": coords,
+                        "headshot": is_headshot,
                         "time": event_time.isoformat() if event_time else datetime.now(UTC).isoformat(),
                     })
 
@@ -20342,6 +20513,44 @@ async def slash_unset_countdown_channel(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(
             "No override was set. Countdowns are already going to the default channel (`general_chat`).",
+            ephemeral=True,
+        )
+
+
+@extra_tools_group.command(
+    name="setroasts",
+    description="Enable or disable AI death roasts in the killfeed for this guild",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(state="Turn AI death roasts on or off")
+@app_commands.choices(state=[
+    app_commands.Choice(name="on", value="on"),
+    app_commands.Choice(name="off", value="off"),
+])
+async def slash_set_roasts(interaction: discord.Interaction, state: app_commands.Choice[str]):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    enabled = state.value == "on"
+    config["roasts_enabled"] = enabled
+    save_guild_configs()
+    key_status = "✅ Universal LLM key is configured." if EMERGENT_LLM_KEY else (
+        "⚠️ `EMERGENT_LLM_KEY` is not set on this bot — roasts will fall back "
+        "to short pre-written one-liners until you add the key."
+    )
+    if enabled:
+        await interaction.response.send_message(
+            "💀 **AI Death Roasts: ON.** Each player-kill embed will now include a one-line trash-talk "
+            f"line from the killfeed. {key_status}\n\nDisable with `/extra setroasts off`.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            "🔇 **AI Death Roasts: OFF.** The killfeed will stay clean. Re-enable with `/extra setroasts on`.",
             ephemeral=True,
         )
 
