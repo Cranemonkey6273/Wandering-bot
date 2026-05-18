@@ -84,6 +84,10 @@ DAILY_RECAP_FILE = data_path("daily_recap.json")
 BOUNTIES_FILE = data_path("bounties.json")
 SURVIVAL_STREAKS_FILE = data_path("survival_streaks.json")
 RECAP_POSTED_FILE = data_path("recap_posted.json")
+ACHIEVEMENTS_FILE = data_path("achievements.json")
+NEMESIS_FILE = data_path("nemesis_log.json")
+ALIVE_STREAKS_FILE = data_path("alive_streaks.json")
+DAILY_CHALLENGE_FILE = data_path("daily_challenges.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
@@ -130,6 +134,14 @@ bounties = {}                      # {guild_id: {target_player_lower: {target, a
 survival_streaks = {}              # {guild_id: {player: {streak_start_date, last_alive_date, longest_days, current_days}}}
 recap_posted = {}                  # {guild_id: "YYYY-MM-DD"} to prevent double-posting
 recent_kill_events = {}            # {guild_id: deque of recent kill dicts} for squad detection
+recent_connect_times = {}          # {guild_id: [(ts, player), ...]} for squad-inbound alerts
+achievements_data = {}             # {guild_id: {player: {"unlocked": [badge_id], "unlocked_at": {badge_id: iso}}}}
+nemesis_data = {}                  # {guild_id: {killer: {victim: count}}}
+alive_streaks = {}                 # {guild_id: {player: {"current_spree": int, "best_spree": int, "last_kill_at": iso}}}
+daily_challenges = {}              # {guild_id: {"date": "YYYY-MM-DD", "challenge": {...}, "completed_by": [players]}}
+SQUAD_INBOUND_WINDOW_SECONDS = 60
+SQUAD_INBOUND_MIN_PLAYERS = 5
+NEMESIS_MILESTONES = (3, 5, 10, 25)
 LONGSHOT_LEADERBOARD_LIMIT = 50    # max longshots stored per guild
 RAMPAGE_WINDOW_SECONDS = 60        # kills within this window count as a streak
 RAMPAGE_MIN_KILLS = 3              # min kills in the window to trigger a rampage embed
@@ -5119,6 +5131,314 @@ def get_streak_milestone(days):
 
 
 # =========================================================
+# 🏆 ACHIEVEMENTS / BADGES
+# =========================================================
+
+ACHIEVEMENT_DEFS = {
+    # id: (display_name, emoji, description, evaluator(stats, ctx)->bool)
+    "first_blood":       ("First Blood",        "🩸", "Get your first PvP kill."),
+    "double_digits":     ("Double Digits",      "💯", "Reach 10 PvP kills."),
+    "century_club":      ("Century Club",       "💯", "Reach 100 PvP kills."),
+    "killer_instinct":   ("Killer Instinct",    "☠️", "Reach 500 PvP kills."),
+    "headhunter":        ("Headhunter",         "🎯", "Land 10 headshots."),
+    "headhunter_elite":  ("Elite Headhunter",   "🎯", "Land 100 headshots."),
+    "longshot_300":      ("Reach Out",          "🔭", "Confirm a 300m+ kill."),
+    "longshot_500":      ("Sniper",             "🔭", "Confirm a 500m+ kill."),
+    "longshot_700":      ("Marksman God",       "🔭", "Confirm a 700m+ kill."),
+    "rampage_first":     ("Rampage",            "🔥", "Notch your first 3-kill rampage."),
+    "rampage_5":         ("Unstoppable",        "💥", "Notch a 5-kill rampage."),
+    "vehicle_kill":      ("Hit & Run",          "🚗", "Get a vehicle kill."),
+    "vehicular_psycho":  ("Vehicular Psycho",   "🚗", "Get 10 vehicle kills."),
+    "iron_lung":         ("Iron Lung",          "🫁", "Survive 7 consecutive days."),
+    "iron_lung_30":      ("Iron Veteran",       "🛡️", "Survive 30 consecutive days."),
+    "iron_lung_100":     ("Cockroach",          "🪳", "Survive 100 consecutive days."),
+    "bounty_hunter":     ("Bounty Hunter",      "💰", "Claim your first bounty."),
+    "bounty_pro":        ("Bounty Pro",         "💰", "Claim 5 bounties."),
+    "nemesis":           ("Nemesis",            "👹", "Kill the same player 5 times."),
+    "thousand_yard":     ("Thousand-Yard Stare", "👁️", "Spend 24+ hours online."),
+    "builder":           ("Architect",          "🔨", "Place 50 building parts."),
+    "raider":            ("Raider",             "💣", "Tear down 10 enemy structures."),
+    "hunter":            ("Hunter",             "🏹", "Take down 25 animals."),
+}
+
+
+def load_achievements():
+    global achievements_data
+    achievements_data = load_json(ACHIEVEMENTS_FILE) or {}
+
+
+def save_achievements():
+    save_json(ACHIEVEMENTS_FILE, achievements_data)
+
+
+def _player_achievements(guild_id, player):
+    gid = str(guild_id)
+    return achievements_data.setdefault(gid, {}).setdefault(player, {
+        "unlocked": [],
+        "unlocked_at": {},
+    })
+
+
+def _award_achievement(guild_id, player, badge_id):
+    """Unlock badge if not already; returns the badge tuple to announce,
+    or None if already unlocked."""
+    if badge_id not in ACHIEVEMENT_DEFS or not player or player == "Unknown":
+        return None
+    entry = _player_achievements(guild_id, player)
+    if badge_id in entry["unlocked"]:
+        return None
+    entry["unlocked"].append(badge_id)
+    entry["unlocked_at"][badge_id] = datetime.now(UTC).isoformat()
+    save_achievements()
+    return ACHIEVEMENT_DEFS[badge_id]
+
+
+def evaluate_achievements_for_player(guild_id, player, *, just_kill=False, distance=0, headshot=False, vehicle_kill=False, claimed_bounty=False, nemesis_count=0):
+    """Run all evaluators for a player and return list of newly-unlocked badges."""
+    stats = player_stats.get(player) or {}
+    newly = []
+
+    def maybe(badge_id, condition):
+        if condition:
+            badge = _award_achievement(guild_id, player, badge_id)
+            if badge:
+                newly.append((badge_id, badge))
+
+    kills = int(stats.get("kills", 0) or 0)
+    headshots = int(stats.get("headshots", 0) or 0)
+    vehicle_kills = int(stats.get("vehicle_kills", 0) or 0)
+    rampages = int(stats.get("rampages", 0) or 0)
+    multikill_best = int(stats.get("multikill_best", 0) or 0)
+    longest_shot = float(stats.get("longest_shot_distance", 0) or 0)
+    current_streak = int(stats.get("current_streak_days", 0) or 0)
+    bounty_claims = int(stats.get("bounty_claims", 0) or 0)
+    time_online = int(stats.get("time_online_seconds", 0) or 0)
+    builds = int(stats.get("builds", 0) or 0)
+    raids = int(stats.get("raids", 0) or 0)
+    animals = int(stats.get("animals_hunted", 0) or 0)
+
+    maybe("first_blood",      kills >= 1)
+    maybe("double_digits",    kills >= 10)
+    maybe("century_club",     kills >= 100)
+    maybe("killer_instinct",  kills >= 500)
+    maybe("headhunter",       headshots >= 10)
+    maybe("headhunter_elite", headshots >= 100)
+    maybe("longshot_300",     longest_shot >= 300 or distance >= 300)
+    maybe("longshot_500",     longest_shot >= 500 or distance >= 500)
+    maybe("longshot_700",     longest_shot >= 700 or distance >= 700)
+    maybe("rampage_first",    rampages >= 1 or multikill_best >= 3)
+    maybe("rampage_5",        multikill_best >= 5)
+    maybe("vehicle_kill",     vehicle_kills >= 1 or vehicle_kill)
+    maybe("vehicular_psycho", vehicle_kills >= 10)
+    maybe("iron_lung",        current_streak >= 7)
+    maybe("iron_lung_30",     current_streak >= 30)
+    maybe("iron_lung_100",    current_streak >= 100)
+    maybe("bounty_hunter",    bounty_claims >= 1 or claimed_bounty)
+    maybe("bounty_pro",       bounty_claims >= 5)
+    maybe("nemesis",          nemesis_count >= 5)
+    maybe("thousand_yard",    time_online >= 86400)
+    maybe("builder",          builds >= 50)
+    maybe("raider",           raids >= 10)
+    maybe("hunter",           animals >= 25)
+    return newly
+
+
+async def announce_achievements(channel, guild_id, player, unlocked):
+    """Post a single embed with all newly unlocked badges for a player."""
+    if not channel or not unlocked:
+        return
+    lines = [f"{badge[1]} **{badge[0]}** — {badge[2]}" for _, badge in unlocked]
+    embed = discord.Embed(
+        title=f"🏆 ACHIEVEMENT UNLOCKED — {player}",
+        description="\n".join(lines),
+        color=0xF1C40F,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=f"Wandering Bot Alpha — Achievement System")
+    embed.timestamp = datetime.now(UTC)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as err:
+        print(f"[ACHIEVEMENT] post failed: {err}")
+
+
+# =========================================================
+# 👹 NEMESIS TRACKING
+# =========================================================
+
+def load_nemesis():
+    global nemesis_data
+    nemesis_data = load_json(NEMESIS_FILE) or {}
+
+
+def save_nemesis():
+    save_json(NEMESIS_FILE, nemesis_data)
+
+
+def record_nemesis(guild_id, killer, victim):
+    """Bump the kill-count for (killer→victim). Returns the new count."""
+    if not killer or not victim or killer == victim:
+        return 0
+    gid = str(guild_id)
+    entry = nemesis_data.setdefault(gid, {}).setdefault(killer, {})
+    entry[victim] = int(entry.get(victim, 0) or 0) + 1
+    save_nemesis()
+    return entry[victim]
+
+
+def get_top_nemeses(guild_id, player, limit=3):
+    """Players that have killed `player` the most times."""
+    gid = str(guild_id)
+    counts = {}
+    for killer, victims in (nemesis_data.get(gid) or {}).items():
+        if killer == player:
+            continue
+        n = int(victims.get(player, 0) or 0)
+        if n:
+            counts[killer] = n
+    return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+
+def get_top_victims(guild_id, player, limit=3):
+    """Players that this player has killed the most."""
+    gid = str(guild_id)
+    counts = (nemesis_data.get(gid) or {}).get(player) or {}
+    return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+
+# =========================================================
+# 🔫 ALIVE-STREAK (kills since last death)
+# =========================================================
+
+def load_alive_streaks():
+    global alive_streaks
+    alive_streaks = load_json(ALIVE_STREAKS_FILE) or {}
+
+
+def save_alive_streaks():
+    save_json(ALIVE_STREAKS_FILE, alive_streaks)
+
+
+def bump_alive_streak(guild_id, player, event_time=None):
+    """Add 1 to player's current kill-spree. Returns the new count."""
+    if not player or player == "Unknown":
+        return 0
+    gid = str(guild_id)
+    entry = alive_streaks.setdefault(gid, {}).setdefault(player, {
+        "current_spree": 0,
+        "best_spree": 0,
+        "last_kill_at": "",
+    })
+    entry["current_spree"] = int(entry.get("current_spree", 0) or 0) + 1
+    if entry["current_spree"] > int(entry.get("best_spree", 0) or 0):
+        entry["best_spree"] = entry["current_spree"]
+    entry["last_kill_at"] = (event_time or datetime.now(UTC)).isoformat()
+    save_alive_streaks()
+    return entry["current_spree"]
+
+
+def end_alive_streak(guild_id, player):
+    """Player died — return (ended_spree, best_spree) and zero current."""
+    if not player or player == "Unknown":
+        return 0, 0
+    gid = str(guild_id)
+    entry = alive_streaks.setdefault(gid, {}).setdefault(player, {
+        "current_spree": 0,
+        "best_spree": 0,
+        "last_kill_at": "",
+    })
+    ended = int(entry.get("current_spree", 0) or 0)
+    best = int(entry.get("best_spree", 0) or 0)
+    entry["current_spree"] = 0
+    save_alive_streaks()
+    return ended, best
+
+
+# =========================================================
+# 🎯 DAILY CHALLENGES
+# =========================================================
+
+CHALLENGE_POOL = [
+    {"id": "hs3",          "name": "Triple-Tap",      "desc": "Land 3 headshots today.",        "type": "headshots",     "target": 3,  "reward": 100},
+    {"id": "k5",           "name": "Body Count",       "desc": "Get 5 PvP kills today.",         "type": "kills",         "target": 5,  "reward": 150},
+    {"id": "k10",          "name": "Death Dealer",     "desc": "Get 10 PvP kills today.",        "type": "kills",         "target": 10, "reward": 300},
+    {"id": "ls300",        "name": "Reach Out",        "desc": "Land a 300m+ shot today.",       "type": "longshot",      "target": 300, "reward": 200},
+    {"id": "ls500",        "name": "Cold Sniper",      "desc": "Land a 500m+ shot today.",       "type": "longshot",      "target": 500, "reward": 400},
+    {"id": "veh1",         "name": "Hit & Run",        "desc": "Score a vehicle kill today.",    "type": "vehicle_kills", "target": 1,  "reward": 250},
+    {"id": "rampage",      "name": "Rampage Ready",    "desc": "Land a 3-kill rampage today.",   "type": "rampage",       "target": 3,  "reward": 350},
+    {"id": "survive",      "name": "Stay Frosty",      "desc": "Be online but stay alive today.","type": "survive_day",   "target": 1,  "reward": 200},
+]
+
+
+def load_daily_challenges():
+    global daily_challenges
+    daily_challenges = load_json(DAILY_CHALLENGE_FILE) or {}
+
+
+def save_daily_challenges():
+    save_json(DAILY_CHALLENGE_FILE, daily_challenges)
+
+
+def get_or_roll_daily_challenge(guild_id, event_time=None):
+    """Return today's challenge for the guild, generating one if missing."""
+    gid = str(guild_id)
+    today = _today_key(event_time)
+    state = daily_challenges.get(gid) or {}
+    if state.get("date") == today and state.get("challenge"):
+        return state
+    # Pick by hash of date+guild for deterministic per-day selection
+    seed = int(hashlib.sha1(f"{gid}-{today}".encode()).hexdigest(), 16)
+    challenge = CHALLENGE_POOL[seed % len(CHALLENGE_POOL)]
+    state = {
+        "date": today,
+        "challenge": challenge,
+        "completed_by": [],
+        "progress": {},
+    }
+    daily_challenges[gid] = state
+    save_daily_challenges()
+    return state
+
+
+def progress_daily_challenge(guild_id, player, *, kill_distance=0, headshot=False, vehicle_kill=False, rampage_size=0, event_time=None):
+    """Update a player's progress on today's challenge. Returns the
+    challenge dict if they just completed it, else None."""
+    if not player or player == "Unknown":
+        return None
+    state = get_or_roll_daily_challenge(guild_id, event_time)
+    ch = state.get("challenge") or {}
+    completed_by = state.setdefault("completed_by", [])
+    if player in completed_by:
+        return None
+    progress = state.setdefault("progress", {}).setdefault(player, 0)
+    ch_type = ch.get("type")
+    bumped = False
+    if ch_type == "kills":
+        state["progress"][player] = progress + 1
+        bumped = True
+    elif ch_type == "headshots" and headshot:
+        state["progress"][player] = progress + 1
+        bumped = True
+    elif ch_type == "vehicle_kills" and vehicle_kill:
+        state["progress"][player] = progress + 1
+        bumped = True
+    elif ch_type == "longshot" and kill_distance >= ch.get("target", 0):
+        state["progress"][player] = ch.get("target", 0)
+        bumped = True
+    elif ch_type == "rampage" and rampage_size >= ch.get("target", 0):
+        state["progress"][player] = ch.get("target", 0)
+        bumped = True
+    if not bumped:
+        return None
+    if state["progress"][player] >= int(ch.get("target", 1) or 1):
+        completed_by.append(player)
+        save_daily_challenges()
+        return ch
+    save_daily_challenges()
+    return None
+
+
+# =========================================================
 # AI DEATH ROAST (Emergent Universal LLM Key)
 # =========================================================
 
@@ -8748,6 +9068,42 @@ async def parse_adm(guild_id, config):
 
             online_players[guild_id].add(player_name)
             player_online_times[guild_id][player_name] = datetime.now(UTC)
+            # ── 🪖 Squad-inbound alert: 5+ connects within 60s ────
+            now_ts_conn = (event_time or datetime.now(UTC)).timestamp()
+            conn_log = recent_connect_times.setdefault(guild_id, [])
+            conn_log.append((now_ts_conn, player_name))
+            # purge stale
+            conn_log[:] = [
+                (t, p) for (t, p) in conn_log
+                if now_ts_conn - t <= SQUAD_INBOUND_WINDOW_SECONDS
+            ]
+            unique_recent = sorted({p for (_, p) in conn_log})
+            if len(unique_recent) >= SQUAD_INBOUND_MIN_PLAYERS and killfeed_channel:
+                # Only post once per window — track via the last-post ts
+                last_post = recent_connect_times.get(f"_last_post_{guild_id}", 0)
+                if now_ts_conn - last_post > SQUAD_INBOUND_WINDOW_SECONDS:
+                    recent_connect_times[f"_last_post_{guild_id}"] = now_ts_conn
+                    sq_embed = discord.Embed(
+                        title="🪖 SQUAD INBOUND",
+                        description=(
+                            f"**{len(unique_recent)}** survivors just connected in under "
+                            f"{SQUAD_INBOUND_WINDOW_SECONDS}s. Stay frosty."
+                        ),
+                        color=0x34495E,
+                    )
+                    sq_embed.add_field(
+                        name="Connected",
+                        value=", ".join(f"`{p}`" for p in unique_recent[:10]),
+                        inline=False,
+                    )
+                    sq_embed.set_thumbnail(url=BOT_IMAGE)
+                    sq_embed.set_footer(text="Wandering Bot Alpha — Squad Inbound")
+                    sq_embed.timestamp = event_time or datetime.now(UTC)
+                    try:
+                        await killfeed_channel.send(embed=style_embed(sq_embed))
+                    except Exception as squad_err:
+                        print(f"[SQUAD INBOUND] post failed: {squad_err}")
+
             # Survival-streak: mark player alive today + announce milestones
             streak_entry = note_player_alive(guild_id, player_name, event_time=event_time)
             if streak_entry and killfeed_channel:
@@ -8814,6 +9170,9 @@ async def parse_adm(guild_id, config):
                 if coords_match else None
             )
 
+            # ─── 💀 Session recap on disconnect ───────────────────
+            session_started = player_online_times[guild_id].get(player_name)
+
             if player_name in online_players[guild_id]:
                 online_players[guild_id].remove(player_name)
 
@@ -8830,6 +9189,28 @@ async def parse_adm(guild_id, config):
                 value=player_name,
                 inline=False
             )
+
+            if session_started:
+                try:
+                    duration = int((datetime.now(UTC) - session_started).total_seconds())
+                    if duration >= 60:
+                        embed.add_field(
+                            name="⏱️ Session Length",
+                            value=format_duration(duration),
+                            inline=True,
+                        )
+                except Exception:
+                    pass
+            # Show player's current alive-streak summary if non-trivial
+            spree_entry = (alive_streaks.get(str(guild_id)) or {}).get(player_name) or {}
+            current_spree = int(spree_entry.get("current_spree", 0) or 0)
+            best_spree = int(spree_entry.get("best_spree", 0) or 0)
+            if current_spree >= 1 or best_spree >= 3:
+                embed.add_field(
+                    name="🔫 Kill Spree",
+                    value=f"This life: **{current_spree}** • Personal best: **{best_spree}**",
+                    inline=True,
+                )
 
             if coords:
 
@@ -9263,6 +9644,7 @@ async def parse_adm(guild_id, config):
                 add_player_stat(guild_id, v_victim, "deaths")
                 save_player_stats()
                 reset_player_streak(guild_id, v_victim, event_time=event_time)
+                end_alive_streak(guild_id, v_victim)
                 record_daily_kill(
                     guild_id,
                     killer=f"🚗 {v_vehicle}",
@@ -9402,6 +9784,18 @@ async def parse_adm(guild_id, config):
                         inline=False
                     )
 
+                # ─── Nemesis tracking ────────────────────────────────
+                nemesis_count = record_nemesis(guild_id, killer, victim)
+                if nemesis_count in NEMESIS_MILESTONES:
+                    embed.add_field(
+                        name="👹 RIVALRY HEATED UP",
+                        value=(
+                            f"**{killer}** has now killed **{victim}** "
+                            f"**{nemesis_count}** times. This is personal."
+                        ),
+                        inline=False,
+                    )
+
                 # ─── Squad detection ─────────────────────────────────
                 # If another distinct killer scored a kill in this zone
                 # within SQUAD_WINDOW_SECONDS, flag the squad-mates.
@@ -9452,6 +9846,16 @@ async def parse_adm(guild_id, config):
                         inline=True,
                     )
 
+                # ─── 🔫 Alive-streak (kills since last death) ────────
+                killer_spree = bump_alive_streak(guild_id, killer, event_time=event_time)
+                ended_spree, best_spree = end_alive_streak(guild_id, victim)
+                if killer_spree >= 5:
+                    embed.add_field(
+                        name="🔫 ON A KILL SPREE",
+                        value=f"**{killer}** is on a **{killer_spree}-kill** spree without dying.",
+                        inline=True,
+                    )
+
                 embed.set_thumbnail(url=BOT_IMAGE)
 
                 embed.set_footer(
@@ -9463,6 +9867,80 @@ async def parse_adm(guild_id, config):
                 killfeed_message = await killfeed_channel.send(
                     embed=embed
                 )
+                # ─── Killfeed reactions for engagement ──────────────
+                for emoji in ("🔥", "🎯", "💀"):
+                    try:
+                        await killfeed_message.add_reaction(emoji)
+                    except Exception:
+                        break  # missing-perms or rate-limit; skip rest
+                # ─── 🔫 Spree-ended embed if victim was on 3+ ────────
+                if ended_spree >= 3:
+                    spree_embed = discord.Embed(
+                        title=f"🔫 {ended_spree}-KILL SPREE ENDED",
+                        description=(
+                            f"**{killer}** ended **{victim}**'s **{ended_spree}-kill** spree.\n"
+                            f"Victim's personal best: **{best_spree} kills**."
+                        ),
+                        color=0xC0392B,
+                    )
+                    spree_embed.set_thumbnail(url=BOT_IMAGE)
+                    spree_embed.set_footer(text="Wandering Bot Alpha — Spree Watch")
+                    spree_embed.timestamp = event_time or datetime.now(UTC)
+                    try:
+                        await killfeed_channel.send(embed=style_embed(spree_embed))
+                    except Exception:
+                        pass
+
+                # ─── 🎯 Daily challenge progress ─────────────────────
+                completed_challenge = progress_daily_challenge(
+                    guild_id, killer,
+                    kill_distance=distance, headshot=is_headshot,
+                    vehicle_kill=False, rampage_size=0,
+                    event_time=event_time,
+                )
+                if completed_challenge and killfeed_channel:
+                    # Reward in linked-user's wallet (if a Discord member is linked)
+                    try:
+                        reward = int(completed_challenge.get("reward", 0) or 0)
+                        linked_user_id = linked_user_id_for_player(killer)
+                        if linked_user_id and reward > 0:
+                            wallet = wallets.setdefault(linked_user_id, {
+                                "name": linked_players.get(linked_user_id, {}).get("discord_name", killer),
+                                "balance": 0,
+                                "daily_transactions": 0,
+                            })
+                            wallet["balance"] = int(wallet.get("balance", 0) or 0) + reward
+                            save_wallets()
+                    except Exception as wallet_err:
+                        print(f"[CHALLENGE REWARD] failed: {wallet_err}")
+                    cc_embed = discord.Embed(
+                        title=f"🎯 DAILY CHALLENGE COMPLETE — {completed_challenge.get('name', '?')}",
+                        description=(
+                            f"**{killer}** finished today's challenge: *{completed_challenge.get('desc', '')}*\n"
+                            f"Reward: **{int(completed_challenge.get('reward', 0)):,} Pennies**"
+                        ),
+                        color=0x2ECC71,
+                    )
+                    cc_embed.set_thumbnail(url=BOT_IMAGE)
+                    cc_embed.set_footer(text="Wandering Bot Alpha — Daily Challenges")
+                    cc_embed.timestamp = event_time or datetime.now(UTC)
+                    try:
+                        await killfeed_channel.send(embed=style_embed(cc_embed))
+                    except Exception:
+                        pass
+
+                # ─── 🏆 Achievement evaluation ───────────────────────
+                newly = evaluate_achievements_for_player(
+                    guild_id, killer,
+                    just_kill=True,
+                    distance=distance,
+                    headshot=is_headshot,
+                    claimed_bounty=bool(bounty_claim),
+                    nemesis_count=nemesis_count,
+                )
+                if newly:
+                    await announce_achievements(killfeed_channel, guild_id, killer, newly)
+
                 # Auto-thread on epic single-shot kills (300m+ headshot)
                 if (
                     is_headshot
@@ -9584,6 +10062,23 @@ async def parse_adm(guild_id, config):
                         # First time hitting a "rampage", count it
                         add_player_stat(guild_id, killer, "rampages")
                         save_player_stats()
+                        # Progress rampage daily-challenge
+                        try:
+                            cc = progress_daily_challenge(
+                                guild_id, killer, rampage_size=streak_size, event_time=event_time
+                            )
+                            if cc:
+                                cc_embed = discord.Embed(
+                                    title=f"🎯 DAILY CHALLENGE COMPLETE — {cc.get('name', '?')}",
+                                    description=f"**{killer}** finished today's challenge: *{cc.get('desc', '')}*",
+                                    color=0x2ECC71,
+                                )
+                                cc_embed.set_thumbnail(url=BOT_IMAGE)
+                                cc_embed.set_footer(text="Wandering Bot Alpha — Daily Challenges")
+                                cc_embed.timestamp = event_time or datetime.now(UTC)
+                                await killfeed_channel.send(embed=style_embed(cc_embed))
+                        except Exception:
+                            pass
                     desc_lines = [
                         f"**{killer}** is on a tear — **{streak_size}** kills in under {RAMPAGE_WINDOW_SECONDS} seconds.",
                         "",
@@ -10521,19 +11016,78 @@ async def helpme(ctx):
     )
 
     embed.add_field(
+        name="📊 Stats & Leaderboards",
+        value=(
+            "`/playercard [name]` — full career dossier (omit name for your own)\n"
+            "`/leaderboard setup` — admin: pinned auto-refreshing live board\n"
+            "`/leaderboard hall` — 🏅 all-time Hall of Fame for this server\n"
+            "`/leaderboard challenges` — 🎯 today's daily challenge + progress\n"
+            "`/leaderboard refresh / unset` — admin\n"
+            "`/topkills`, `/toplongshots`, `/online`"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="💰 Bounties",
+        value=(
+            "`/bounty set <player> <amount>` — place a bounty (pool-style)\n"
+            "`/bounty list` — show active bounties\n"
+            "`/bounty clear <player>` — admin only\n"
+            "_Bounties auto-claim when the target dies in the killfeed._"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="🔥 Killfeed Flavour (auto)",
+        value=(
+            "• 💥 Headshot embeds + Hit Zone field\n"
+            "• 🔫 Kill-spree tracking + 'SPREE ENDED' embeds\n"
+            "• 👹 Nemesis rivalry alerts (3/5/10/25 kill milestones)\n"
+            "• 🛡️ Squad detection in same zone\n"
+            "• 🪖 Squad-inbound alert on 5+ connects in 60s\n"
+            "• 🩸 Streak Broken field when 7+ day survivor dies\n"
+            "• 🚗💥 Vehicle-kill embeds\n"
+            "• 💀 Session recap on disconnect\n"
+            "• 🎁 Auto-reactions on kill embeds (🔥🎯💀)\n"
+            "• 🏆 Achievement unlocks announced live\n"
+            "• 🧵 Auto-threads on epic events (300m+ HS / 500m+ longshot / 5+ rampage)"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="📰 Recaps & News",
+        value=(
+            "`/extra recap [today|yesterday|week]` — manual recap pull\n"
+            "`/extra setrecapchannel` — pick auto-post channel\n"
+            "`/extra spectator` — live who-is-online + last 10 min of kills\n"
+            "_Daily recap + AI news bulletin auto-posts at the configured UTC hour._"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="🤖 AI Roasts",
+        value=(
+            "`/extra setroasts on|off` — admin opt-in per guild\n"
+            "`/extra setroasttone <mixed|edgy|pg13|brutal_clean>` — live switch\n"
+            "_Requires `EMERGENT_LLM_KEY` Railway env var (free fallback works without)._"
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
         name="Live Intelligence",
         value=(
             "`/online` - online survivors\n"
             "`/serverstatus` - bot status\n"
             "`/map` - admin-only live survivor map\n"
             "`/heatmap` - PvP heatmap summary\n"
-            "`/topkills` - top kills\n"
-            "`/toplongshots` - longshot leaderboard\n"
             "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
             "`/backfillkills` - fill killfeed/longshots from recent ADM history\n"
-            "`/setaiimages` - occasional AI-generated DayZ-style pictures\n"
-            "`/aiimagepostnow` - post one AI picture immediately\n"
-            "`/playerstats player_name` - player lookup"
+            "`/setaiimages`, `/aiimagepostnow`"
         ),
         inline=False
     )
@@ -10570,20 +11124,16 @@ async def helpme(ctx):
     embed.add_field(
         name="Server Control",
         value=(
-            "`/restartserver`\n"
-            "`/admstatus`\n"
-            "`/restartadm force`\n"
-            "`/tools reloadguilds`\n"
-            "`/setrestartinterval hours`\n"
-            "`/setrestartstart hour`\n"
-            "`/cancelrestarts`\n"
-            "`/listrestarts`\n"
-            "`/botupdates`\n"
-            "`/togglebasedamage state`\n"
-            "`/setradarchannel channel`\n"
-            "`/radarping x y reason`\n"
+            "`/restartserver`, `/admstatus`, `/restartadm force`\n"
+            "`/server setrestartinterval`, `/server setrestartstart`\n"
+            "`/server cancelrestarts`, `/server listrestarts`\n"
+            "`/server togglebasedamage state`\n"
+            "`/server sendmessage <text>` — broadcast in-game chat (via Nitrado)\n"
+            "`/extra reloadguilds`\n"
+            "`/setradarchannel channel`, `/radarping x y reason`\n"
             "`/addradarzone`, `/radarstatus`, `/forcelinkgamer`\n"
-            "`/setdayzmessages` - owner-only in-game message XML upload"
+            "`/setdayzmessages` - owner-only in-game message XML upload\n"
+            "`/botupdates`"
         ),
         inline=False
     )
@@ -21381,6 +21931,48 @@ def build_player_card_embed(guild_id, player_name):
         ),
         inline=False,
     )
+
+    # 🔫 Current alive-streak / personal-best
+    spree = (alive_streaks.get(gid) or {}).get(player_name) or {}
+    cur_spree = int(spree.get("current_spree", 0) or 0)
+    best_spree = int(spree.get("best_spree", 0) or 0)
+    if cur_spree or best_spree:
+        embed.add_field(
+            name="🔫 Kill Spree",
+            value=f"This life: **{cur_spree}** • Personal best: **{best_spree}**",
+            inline=True,
+        )
+
+    # 👹 Top nemeses (who killed this player most)
+    top_nem = get_top_nemeses(gid, player_name, limit=3)
+    if top_nem:
+        embed.add_field(
+            name="👹 Top Nemeses",
+            value="\n".join(f"• `{name}` ({n}x)" for name, n in top_nem),
+            inline=True,
+        )
+    # 🎯 Favourite victims
+    top_vic = get_top_victims(gid, player_name, limit=3)
+    if top_vic:
+        embed.add_field(
+            name="🎯 Favourite Victims",
+            value="\n".join(f"• `{name}` ({n}x)" for name, n in top_vic),
+            inline=True,
+        )
+
+    # 🏆 Achievements
+    ach = _player_achievements(gid, player_name)
+    unlocked = ach.get("unlocked", [])
+    if unlocked:
+        badges = " ".join(
+            ACHIEVEMENT_DEFS[b][1] for b in unlocked if b in ACHIEVEMENT_DEFS
+        )
+        embed.add_field(
+            name=f"🏆 Achievements ({len(unlocked)}/{len(ACHIEVEMENT_DEFS)})",
+            value=badges + f"\n*Hover/tap emoji or run `/whoami` to inspect.*",
+            inline=False,
+        )
+
     if stats.get("first_adm_seen"):
         embed.set_footer(text=f"First seen in ADM: {stats.get('first_adm_seen', 'Unknown')}")
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -21388,10 +21980,24 @@ def build_player_card_embed(guild_id, player_name):
     return style_embed(embed)
 
 
-@bot.tree.command(name="playercard", description="Show a full DayZ career stat card for a player")
-@app_commands.describe(player_name="In-game player name (case-sensitive)")
-async def slash_playercard(interaction: discord.Interaction, player_name: str):
+@bot.tree.command(name="playercard", description="Show your career stat card (or someone else's)")
+@app_commands.describe(player_name="In-game name (omit to use your linked gamertag)")
+async def slash_playercard(interaction: discord.Interaction, player_name: str = None):
     guild_id = str(interaction.guild.id) if interaction.guild else ""
+    if not player_name:
+        # Try to resolve via linked_players
+        discord_id = str(interaction.user.id)
+        for linked_name, info in linked_players.items():
+            if str(info.get("discord_id", "")) == discord_id:
+                player_name = linked_name
+                break
+        if not player_name:
+            await interaction.response.send_message(
+                "❌ You haven't linked a gamertag yet. Run `/linkgamer <your in-game name>` first, "
+                "or pass `/playercard <name>` to look up someone else.",
+                ephemeral=True,
+            )
+            return
     embed = build_player_card_embed(guild_id, player_name)
     if not embed:
         await interaction.response.send_message(
@@ -21677,6 +22283,169 @@ async def slash_leaderboard_unset(interaction: discord.Interaction):
             "Live leaderboard wasn't configured for this guild.",
             ephemeral=True,
         )
+
+
+@leaderboard_group.command(name="hall", description="🏅 All-time Hall of Fame for this server")
+async def slash_leaderboard_hall(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    gid = str(guild_id)
+
+    embed = discord.Embed(
+        title="🏅 SERVER HALL OF FAME",
+        description="The greatest moments this server has ever seen.",
+        color=0xF1C40F,
+    )
+
+    # Longest shot ever
+    all_shots = longshot_records.get(gid, [])
+    if all_shots:
+        top = all_shots[0]
+        embed.add_field(
+            name="🎯 Longest Shot Ever",
+            value=(
+                f"**{top.get('killer', '?')}** dropped **{top.get('victim', '?')}**\n"
+                f"at **{float(top.get('distance', 0) or 0):.1f}m** with **{top.get('weapon', '?')}**"
+            ),
+            inline=False,
+        )
+
+    # Biggest rampage ever (career multikill_best)
+    rampage_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid],
+        key=lambda row: int(row[1].get("multikill_best", 0) or 0),
+        reverse=True,
+    )
+    if rampage_rows and int(rampage_rows[0][1].get("multikill_best", 0) or 0) > 0:
+        p, s = rampage_rows[0]
+        embed.add_field(
+            name="🔥 Biggest Rampage",
+            value=f"**{p}** — **{int(s.get('multikill_best', 0))}** kills in 60s",
+            inline=True,
+        )
+
+    # Longest survival streak ever
+    streak_rows = sorted(
+        ((survival_streaks.get(gid) or {}).items()),
+        key=lambda row: int(row[1].get("longest_days", 0) or 0),
+        reverse=True,
+    )
+    if streak_rows and int(streak_rows[0][1].get("longest_days", 0) or 0) > 0:
+        p, s = streak_rows[0]
+        embed.add_field(
+            name="🩸 Longest Survival",
+            value=f"**{p}** — **{int(s.get('longest_days', 0))}** days",
+            inline=True,
+        )
+
+    # Top all-time bounty hunter
+    bh_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("bounty_earnings", 0) or 0) > 0],
+        key=lambda row: int(row[1].get("bounty_earnings", 0) or 0),
+        reverse=True,
+    )
+    if bh_rows:
+        p, s = bh_rows[0]
+        embed.add_field(
+            name="💰 Top Bounty Hunter",
+            value=f"**{p}** — **{int(s.get('bounty_earnings', 0)):,} {BOUNTY_CURRENCY}**",
+            inline=True,
+        )
+
+    # Top kill-spree ever
+    spree_rows = sorted(
+        (alive_streaks.get(gid) or {}).items(),
+        key=lambda row: int(row[1].get("best_spree", 0) or 0),
+        reverse=True,
+    )
+    if spree_rows and int(spree_rows[0][1].get("best_spree", 0) or 0) > 0:
+        p, s = spree_rows[0]
+        embed.add_field(
+            name="🔫 Longest Kill Spree",
+            value=f"**{p}** — **{int(s.get('best_spree', 0))}** kills without dying",
+            inline=True,
+        )
+
+    # Most kills all-time
+    kill_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid],
+        key=lambda row: int(row[1].get("kills", 0) or 0),
+        reverse=True,
+    )
+    if kill_rows and int(kill_rows[0][1].get("kills", 0) or 0) > 0:
+        p, s = kill_rows[0]
+        embed.add_field(
+            name="☠️ Most PvP Kills",
+            value=f"**{p}** — **{int(s.get('kills', 0))}** kills",
+            inline=True,
+        )
+
+    # Top headhunter
+    hs_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid],
+        key=lambda row: int(row[1].get("headshots", 0) or 0),
+        reverse=True,
+    )
+    if hs_rows and int(hs_rows[0][1].get("headshots", 0) or 0) > 0:
+        p, s = hs_rows[0]
+        embed.add_field(
+            name="💥 Most Headshots",
+            value=f"**{p}** — **{int(s.get('headshots', 0))}** HS",
+            inline=True,
+        )
+
+    if not embed.fields:
+        embed.description = "No legendary moments recorded yet. Go make some history."
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Hall of Fame")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+@leaderboard_group.command(name="challenges", description="🎯 See today's daily challenge + progress")
+async def slash_leaderboard_challenges(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    state = get_or_roll_daily_challenge(guild_id)
+    ch = state.get("challenge") or {}
+    completed_by = state.get("completed_by") or []
+    progress = state.get("progress") or {}
+
+    embed = discord.Embed(
+        title=f"🎯 DAILY CHALLENGE — {state.get('date', '')}",
+        description=f"**{ch.get('name', '?')}** — *{ch.get('desc', '')}*",
+        color=0x2ECC71,
+    )
+    embed.add_field(name="🏆 Reward", value=f"{int(ch.get('reward', 0)):,} Pennies", inline=True)
+    embed.add_field(name="🎯 Target", value=str(ch.get("target", "?")), inline=True)
+    embed.add_field(name="✅ Completed by", value=str(len(completed_by)), inline=True)
+
+    if completed_by:
+        embed.add_field(
+            name="🥇 Finishers",
+            value=", ".join(f"`{p}`" for p in completed_by[:10]),
+            inline=False,
+        )
+
+    # Top in-progress (not yet completed)
+    leaderboard = [
+        (p, n) for p, n in progress.items()
+        if p not in completed_by and int(n or 0) > 0
+    ]
+    leaderboard.sort(key=lambda x: int(x[1] or 0), reverse=True)
+    if leaderboard:
+        embed.add_field(
+            name="📊 In Progress",
+            value="\n".join(
+                f"• `{p}` — {int(n)}/{ch.get('target', '?')}"
+                for p, n in leaderboard[:5]
+            ),
+            inline=False,
+        )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Daily Challenges")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed))
 
 
 bot.tree.add_command(leaderboard_group)
@@ -22488,6 +23257,10 @@ async def on_ready():
     load_bounties()
     load_survival_streaks()
     load_recap_posted()
+    load_achievements()
+    load_nemesis()
+    load_alive_streaks()
+    load_daily_challenges()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
