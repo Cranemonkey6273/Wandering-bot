@@ -22134,7 +22134,7 @@ LEADERBOARD_CATEGORIES = [
     },
     {
         "key": "longshot",    "title": "🎯  LONGEST SHOT",
-        "source": "longshot_records", "stat_key": "distance",
+        "source": "longshot_combined", "stat_key": "longest_shot_distance",
         "value": lambda v: f"{float(v):.0f}m",
     },
     {
@@ -22193,6 +22193,35 @@ def gather_category_rows(category, scope, guild_id=None, limit=10):
             if dist > best.get(killer, 0):
                 best[killer] = dist
         rows = sorted(best.items(), key=lambda r: r[1], reverse=True)
+        return [(p, category["value"](v)) for p, v in rows[:limit]]
+
+    if src == "longshot_combined":
+        # Merge longest-shot data from two sources so every confirmed
+        # shot shows up regardless of when it was recorded:
+        #   1. player_stats[].longest_shot_distance — updated on EVERY
+        #      kill (not just 300m+); persists across restarts.
+        #   2. longshot_records.json — historical 300m+ shots.
+        # We take max(distance) per player.
+        best = {}
+        # (1) player_stats
+        for player, stats in player_stats.items():
+            if scope == "server" and str(stats.get("guild_id", "")) != str(guild_id):
+                continue
+            v = float(stats.get("longest_shot_distance", 0) or 0)
+            if v > best.get(player, 0):
+                best[player] = v
+        # (2) longshot_records (older 300m+ history)
+        if scope == "server":
+            entries_iter = [(str(guild_id), longshot_records.get(str(guild_id)) or [])]
+        else:
+            entries_iter = list(longshot_records.items())
+        for _gid, entries in entries_iter:
+            for entry in (entries or []):
+                killer = entry.get("killer", "?")
+                v = float(entry.get("distance", 0) or 0)
+                if v > best.get(killer, 0):
+                    best[killer] = v
+        rows = sorted(((p, v) for p, v in best.items() if v > 0), key=lambda r: r[1], reverse=True)
         return [(p, category["value"](v)) for p, v in rows[:limit]]
 
     if src == "alive_streaks":
