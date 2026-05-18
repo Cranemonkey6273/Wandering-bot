@@ -80,6 +80,10 @@ LINKED_PLAYERS_FILE = data_path("linked_players.json")
 LONGSHOT_RECORDS_FILE = data_path("longshot_records.json")
 RAMPAGE_TRACKER_FILE = data_path("rampage_tracker.json")
 FIRST_BLOOD_FILE = data_path("first_blood.json")
+DAILY_RECAP_FILE = data_path("daily_recap.json")
+BOUNTIES_FILE = data_path("bounties.json")
+SURVIVAL_STREAKS_FILE = data_path("survival_streaks.json")
+RECAP_POSTED_FILE = data_path("recap_posted.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
@@ -121,9 +125,22 @@ longshot_records = {}              # {guild_id: [longshot_dict, ...] sorted by d
 recent_kills_by_killer = {}        # {guild_id: {killer: [(timestamp, victim, weapon), ...]}} for rampage detection
 first_blood_today = {}             # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
 final_kill_today = {}              # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
+daily_recap_data = {}              # {guild_id: {"YYYY-MM-DD": {kills, headshots, vehicle_kills, killers, weapons, zones, longshots, ...}}}
+bounties = {}                      # {guild_id: {target_player_lower: {target, amount, posted_by, posted_at, currency}}}
+survival_streaks = {}              # {guild_id: {player: {streak_start_date, last_alive_date, longest_days, current_days}}}
+recap_posted = {}                  # {guild_id: "YYYY-MM-DD"} to prevent double-posting
+recent_kill_events = {}            # {guild_id: deque of recent kill dicts} for squad detection
 LONGSHOT_LEADERBOARD_LIMIT = 50    # max longshots stored per guild
 RAMPAGE_WINDOW_SECONDS = 60        # kills within this window count as a streak
 RAMPAGE_MIN_KILLS = 3              # min kills in the window to trigger a rampage embed
+SQUAD_WINDOW_SECONDS = 90          # kills by different killers within this window in same zone = squad
+SQUAD_MIN_MATES = 2                # min number of distinct killers to flag squad
+RECAP_DAILY_HOUR_UTC = int(os.getenv("WANDERING_RECAP_HOUR_UTC", "0"))  # daily recap post hour (UTC)
+NEWS_BULLETIN_ENABLED = str(os.getenv("WANDERING_NEWS_BULLETIN_ENABLED", "1")).lower() in {"1", "true", "yes", "on"}
+SURVIVAL_STREAK_MILESTONES = (7, 14, 30, 60, 100)
+BOUNTY_CURRENCY = os.getenv("WANDERING_BOUNTY_CURRENCY", "Rubles")
+THREAD_ON_LONGSHOT_METERS = 500
+THREAD_ON_RAMPAGE_KILLS = 5
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
@@ -772,6 +789,40 @@ def extract_pvp_kill_details(line):
         headshot = True
     details["headshot"] = headshot
 
+    return details
+
+
+def extract_vehicle_kill_details(line):
+    """Parse vehicle kill events like:
+       Player "X" (DEAD) (pos=<...>) hit by Transport_PickupTruck for 250 damage
+       Player "X" (DEAD) (pos=<...>) hit by Vehicle Sedan_01 from ..."""
+    if "(dead)" not in line.lower():
+        return None
+    victim_match = re.search(r'"([^"]+)"\s+\(DEAD\)', line)
+    vehicle_match = re.search(
+        r'hit by (?:Vehicle\s+([A-Za-z0-9_\-]+)|(Transport[A-Za-z0-9_\-]*))',
+        line,
+        re.IGNORECASE,
+    )
+    if not victim_match:
+        return None
+    vehicle_name = "Vehicle"
+    if vehicle_match:
+        vehicle_name = vehicle_match.group(1) or vehicle_match.group(2) or "Vehicle"
+    vehicle_clean = re.sub(r'^Transport_?', '', vehicle_name).replace("_", " ") or vehicle_name
+    details = {
+        "victim": victim_match.group(1),
+        "vehicle": vehicle_clean,
+    }
+    coords = extract_adm_coords(line)
+    if coords:
+        details["coords"] = coords
+    distance_match = re.search(r'from ([0-9]+\.?[0-9]*)\s*m', line, re.IGNORECASE)
+    if distance_match:
+        try:
+            details["distance"] = float(distance_match.group(1))
+        except Exception:
+            pass
     return details
 
 
@@ -1561,6 +1612,19 @@ def ensure_player_stats_record(guild_id, player_name):
     stats.setdefault("first_adm_seen", now_text)
     stats.setdefault("kills", 0)
     stats.setdefault("headshots", 0)
+    stats.setdefault("vehicle_kills", 0)
+    stats.setdefault("vehicle_deaths", 0)
+    stats.setdefault("rampages", 0)
+    stats.setdefault("multikill_best", 0)
+    stats.setdefault("longest_shot_distance", 0)
+    stats.setdefault("longest_shot_weapon", "")
+    stats.setdefault("longest_shot_victim", "")
+    stats.setdefault("bounty_claims", 0)
+    stats.setdefault("bounty_earnings", 0)
+    stats.setdefault("current_streak_days", 0)
+    stats.setdefault("longest_streak_days", 0)
+    stats.setdefault("streak_start_date", "")
+    stats.setdefault("last_alive_date", "")
     stats.setdefault("deaths", 0)
     stats.setdefault("zombie_deaths", 0)
     stats.setdefault("suicides", 0)
@@ -4832,6 +4896,229 @@ def record_longshot(guild_id, longshot_dict):
 
 
 # =========================================================
+# DAILY RECAP / NEWS / SQUAD STATE
+# =========================================================
+
+def load_daily_recap():
+    global daily_recap_data
+    daily_recap_data = load_json(DAILY_RECAP_FILE) or {}
+
+
+def save_daily_recap():
+    save_json(DAILY_RECAP_FILE, daily_recap_data)
+
+
+def load_recap_posted():
+    global recap_posted
+    recap_posted = load_json(RECAP_POSTED_FILE) or {}
+
+
+def save_recap_posted():
+    save_json(RECAP_POSTED_FILE, recap_posted)
+
+
+def _today_key(event_time=None):
+    when = event_time or datetime.now(UTC)
+    return when.date().isoformat()
+
+
+def _yesterday_key(event_time=None):
+    when = event_time or datetime.now(UTC)
+    return (when.date() - timedelta(days=1)).isoformat()
+
+
+def record_daily_kill(guild_id, killer, victim, weapon, distance, headshot, zone, vehicle=False, event_time=None):
+    """Aggregate a single kill event into the day's recap bucket."""
+    gid = str(guild_id)
+    today = _today_key(event_time)
+    bucket = daily_recap_data.setdefault(gid, {}).setdefault(today, {
+        "total_kills": 0,
+        "headshots": 0,
+        "vehicle_kills": 0,
+        "killers": {},
+        "victims": {},
+        "weapons": {},
+        "zones": {},
+        "biggest_shot": None,
+    })
+    bucket["total_kills"] = bucket.get("total_kills", 0) + 1
+    if headshot:
+        bucket["headshots"] = bucket.get("headshots", 0) + 1
+    if vehicle:
+        bucket["vehicle_kills"] = bucket.get("vehicle_kills", 0) + 1
+    bucket["killers"][killer] = bucket["killers"].get(killer, 0) + 1
+    bucket["victims"][victim] = bucket["victims"].get(victim, 0) + 1
+    if weapon:
+        bucket["weapons"][weapon] = bucket["weapons"].get(weapon, 0) + 1
+    if zone:
+        bucket["zones"][zone] = bucket["zones"].get(zone, 0) + 1
+    biggest = bucket.get("biggest_shot") or {"distance": 0}
+    try:
+        d = float(distance or 0)
+    except Exception:
+        d = 0.0
+    if d > float(biggest.get("distance", 0) or 0):
+        bucket["biggest_shot"] = {
+            "killer": killer,
+            "victim": victim,
+            "weapon": weapon,
+            "distance": d,
+        }
+    # Cap retention to last 60 days per guild
+    if len(daily_recap_data[gid]) > 60:
+        oldest = sorted(daily_recap_data[gid].keys())[:-60]
+        for k in oldest:
+            daily_recap_data[gid].pop(k, None)
+    save_daily_recap()
+
+
+# =========================================================
+# BOUNTIES
+# =========================================================
+
+def load_bounties():
+    global bounties
+    bounties = load_json(BOUNTIES_FILE) or {}
+
+
+def save_bounties():
+    save_json(BOUNTIES_FILE, bounties)
+
+
+def _bounty_key(name):
+    return (name or "").strip().lower()
+
+
+def add_bounty(guild_id, target, amount, posted_by):
+    gid = str(guild_id)
+    key = _bounty_key(target)
+    if not key or amount <= 0:
+        return None
+    entry = bounties.setdefault(gid, {}).setdefault(key, {
+        "target": target,
+        "amount": 0,
+        "posted_by": posted_by,
+        "posted_at": datetime.now(UTC).isoformat(),
+        "currency": BOUNTY_CURRENCY,
+    })
+    entry["amount"] += int(amount)
+    entry["target"] = target  # preserve casing
+    entry["last_topup_at"] = datetime.now(UTC).isoformat()
+    save_bounties()
+    return entry
+
+
+def get_bounty(guild_id, target):
+    return bounties.get(str(guild_id), {}).get(_bounty_key(target))
+
+
+def clear_bounty(guild_id, target):
+    return bounties.get(str(guild_id), {}).pop(_bounty_key(target), None)
+
+
+def list_bounties(guild_id):
+    return list(bounties.get(str(guild_id), {}).values())
+
+
+def claim_bounty_on_kill(guild_id, killer, victim):
+    """If the victim has a bounty, transfer the prize to the killer's
+    stats and clear the bounty. Returns the claimed bounty dict or None."""
+    bounty = get_bounty(guild_id, victim)
+    if not bounty:
+        return None
+    amount = int(bounty.get("amount", 0) or 0)
+    if amount <= 0:
+        return None
+    add_player_stat(guild_id, killer, "bounty_claims")
+    add_player_stat(guild_id, killer, "bounty_earnings", amount=amount)
+    save_player_stats()
+    clear_bounty(guild_id, victim)
+    return {**bounty, "claimed_by": killer, "claimed_amount": amount}
+
+
+# =========================================================
+# SURVIVAL STREAKS
+# =========================================================
+
+def load_survival_streaks():
+    global survival_streaks
+    survival_streaks = load_json(SURVIVAL_STREAKS_FILE) or {}
+
+
+def save_survival_streaks():
+    save_json(SURVIVAL_STREAKS_FILE, survival_streaks)
+
+
+def note_player_alive(guild_id, player_name, event_time=None):
+    """Mark a player as alive today. If they have no current streak,
+    start one. Returns the updated streak entry."""
+    if not player_name or player_name == "Unknown":
+        return None
+    gid = str(guild_id)
+    today = _today_key(event_time)
+    entry = survival_streaks.setdefault(gid, {}).setdefault(player_name, {
+        "streak_start_date": today,
+        "last_alive_date": today,
+        "longest_days": 1,
+        "current_days": 1,
+    })
+    last_alive = entry.get("last_alive_date") or today
+    try:
+        last_date = datetime.strptime(last_alive, "%Y-%m-%d").date()
+        today_date = datetime.strptime(today, "%Y-%m-%d").date()
+        gap = (today_date - last_date).days
+    except Exception:
+        gap = 0
+    if gap == 0:
+        pass  # same day, no change
+    elif gap == 1:
+        entry["current_days"] = int(entry.get("current_days", 0) or 0) + 1
+    else:
+        entry["streak_start_date"] = today
+        entry["current_days"] = 1
+    entry["last_alive_date"] = today
+    if int(entry.get("current_days", 0) or 0) > int(entry.get("longest_days", 0) or 0):
+        entry["longest_days"] = int(entry["current_days"])
+    # Mirror onto player_stats so /playercard can show it
+    stats = ensure_player_stats_record(guild_id, player_name)
+    if stats:
+        stats["current_streak_days"] = entry["current_days"]
+        stats["longest_streak_days"] = entry["longest_days"]
+        stats["streak_start_date"] = entry["streak_start_date"]
+        stats["last_alive_date"] = entry["last_alive_date"]
+    save_survival_streaks()
+    return entry
+
+
+def reset_player_streak(guild_id, player_name, event_time=None):
+    """Player died — wipe their current streak (preserve longest)."""
+    if not player_name or player_name == "Unknown":
+        return None
+    gid = str(guild_id)
+    entry = survival_streaks.setdefault(gid, {}).setdefault(player_name, {
+        "streak_start_date": "",
+        "last_alive_date": "",
+        "longest_days": 0,
+        "current_days": 0,
+    })
+    broken_days = int(entry.get("current_days", 0) or 0)
+    entry["current_days"] = 0
+    entry["streak_start_date"] = ""
+    entry["last_alive_date"] = ""
+    stats = ensure_player_stats_record(guild_id, player_name)
+    if stats:
+        stats["current_streak_days"] = 0
+        stats["streak_start_date"] = ""
+    save_survival_streaks()
+    return broken_days
+
+
+def get_streak_milestone(days):
+    """If `days` crosses one of the milestones, return it, else None."""
+    return days if days in SURVIVAL_STREAK_MILESTONES else None
+
+
+# =========================================================
 # AI DEATH ROAST (Emergent Universal LLM Key)
 # =========================================================
 
@@ -4938,6 +5225,12 @@ def guild_roasts_enabled(guild_id):
     gid = str(guild_id)
     config = guild_configs.get(gid, {})
     return bool(config.get("roasts_enabled", False))
+
+
+def guild_roast_tone(guild_id):
+    gid = str(guild_id)
+    config = guild_configs.get(gid, {})
+    return (config.get("roast_tone") or AI_ROAST_TONE or "mixed").lower()
 
 
 def load_heatmap():
@@ -5304,6 +5597,12 @@ def classify_event(line):
 
     if 'hit by player "' in lower and ("(dead)" in lower or "[hp: 0]" in lower):
         return "kill"
+
+    # Vehicle deaths/hits — DayZ ADM lines look like:
+    #   Player "X" (DEAD) ... hit by Transport_PickupTruck for 250 damage
+    #   Player "X" (DEAD) ... hit by Vehicle CivilianSedan from ...
+    if "(dead)" in lower and (" by transport" in lower or " by vehicle" in lower or "by transporthit" in lower):
+        return "vehicle_kill"
 
     if "hit by" in lower:
         return "cut"
@@ -8449,6 +8748,23 @@ async def parse_adm(guild_id, config):
 
             online_players[guild_id].add(player_name)
             player_online_times[guild_id][player_name] = datetime.now(UTC)
+            # Survival-streak: mark player alive today + announce milestones
+            streak_entry = note_player_alive(guild_id, player_name, event_time=event_time)
+            if streak_entry and killfeed_channel:
+                milestone = get_streak_milestone(int(streak_entry.get("current_days", 0) or 0))
+                if milestone:
+                    try:
+                        m_embed = discord.Embed(
+                            title=f"🩸 SURVIVAL MILESTONE — {milestone} DAYS",
+                            description=f"**{player_name}** has stayed alive for **{milestone}** consecutive days. Loot accordingly.",
+                            color=0x16A085,
+                        )
+                        m_embed.set_thumbnail(url=BOT_IMAGE)
+                        m_embed.set_footer(text="Wandering Bot Alpha — Survival Streak")
+                        m_embed.timestamp = event_time or datetime.now(UTC)
+                        await killfeed_channel.send(embed=style_embed(m_embed))
+                    except Exception as milestone_err:
+                        print(f"[STREAK] milestone post failed: {milestone_err}")
 
             embed = discord.Embed(
                 title="🟢 SURVIVOR CONNECTED",
@@ -8933,6 +9249,54 @@ async def parse_adm(guild_id, config):
                 await unconscious_channel.send(
                     embed=style_embed(embed)
                 )
+        # ================= VEHICLE KILL =================
+
+        elif event_type == "vehicle_kill" and killfeed_channel:
+            vk = extract_vehicle_kill_details(line)
+            if vk:
+                v_victim = vk["victim"]
+                v_vehicle = vk.get("vehicle", "Vehicle")
+                v_coords = vk.get("coords")
+                v_zone = get_zone_from_line(line) or "Unknown"
+
+                add_player_stat(guild_id, v_victim, "vehicle_deaths")
+                add_player_stat(guild_id, v_victim, "deaths")
+                save_player_stats()
+                reset_player_streak(guild_id, v_victim, event_time=event_time)
+                record_daily_kill(
+                    guild_id,
+                    killer=f"🚗 {v_vehicle}",
+                    victim=v_victim,
+                    weapon=v_vehicle,
+                    distance=vk.get("distance", 0),
+                    headshot=False,
+                    zone=v_zone,
+                    vehicle=True,
+                    event_time=event_time,
+                )
+
+                v_embed = discord.Embed(
+                    title="🚗💥 VEHICLE KILL",
+                    description=f"**{v_victim}** got run over by a **{v_vehicle}**.",
+                    color=0xE67E22,
+                )
+                v_embed.add_field(name="Victim", value=v_victim, inline=True)
+                v_embed.add_field(name="Vehicle", value=v_vehicle, inline=True)
+                if vk.get("distance"):
+                    v_embed.add_field(name="Impact Distance", value=f"{vk['distance']}m", inline=True)
+                v_embed.add_field(name="Zone", value=v_zone, inline=True)
+                if v_coords:
+                    map_link = build_izurvive_link(v_coords, guild_id)
+                    if map_link:
+                        v_embed.add_field(name="Location", value=f"[Open Map](<{map_link}>)", inline=False)
+                v_embed.set_thumbnail(url=BOT_IMAGE)
+                v_embed.set_footer(text="Wandering Bot Alpha — Vehicle Carnage Tracker")
+                v_embed.timestamp = event_time or datetime.now(UTC)
+                try:
+                    await killfeed_channel.send(embed=style_embed(v_embed))
+                except Exception:
+                    pass
+
         # ================= KILLFEED =================
 
         elif event_type == "kill" and killfeed_channel:
@@ -9012,7 +9376,9 @@ async def parse_adm(guild_id, config):
                 if guild_roasts_enabled(guild_id):
                     try:
                         roast = await generate_death_roast(
-                            killer, victim, weapon, distance, headshot=is_headshot
+                            killer, victim, weapon, distance,
+                            headshot=is_headshot,
+                            tone=guild_roast_tone(guild_id),
                         )
                     except Exception as roast_error:
                         print(f"[AI ROAST] unexpected error: {roast_error}")
@@ -9024,6 +9390,68 @@ async def parse_adm(guild_id, config):
                             inline=False
                         )
 
+                # ─── Bounty claim ─────────────────────────────────────
+                bounty_claim = claim_bounty_on_kill(guild_id, killer, victim)
+                if bounty_claim:
+                    embed.add_field(
+                        name="💰 BOUNTY CLAIMED",
+                        value=(
+                            f"**{killer}** collected **{bounty_claim['claimed_amount']:,} "
+                            f"{bounty_claim.get('currency', BOUNTY_CURRENCY)}** for hunting **{victim}**."
+                        ),
+                        inline=False
+                    )
+
+                # ─── Squad detection ─────────────────────────────────
+                # If another distinct killer scored a kill in this zone
+                # within SQUAD_WINDOW_SECONDS, flag the squad-mates.
+                zone_now = get_zone_from_line(line) or "Unknown"
+                now_ts_for_squad = (event_time or datetime.now(UTC)).timestamp()
+                ev_deque = recent_kill_events.setdefault(guild_id, [])
+                # purge stale
+                ev_deque[:] = [e for e in ev_deque if now_ts_for_squad - e.get("ts", 0) <= SQUAD_WINDOW_SECONDS]
+                squad_mates = [
+                    e["killer"] for e in ev_deque
+                    if e.get("zone") == zone_now and e.get("killer") != killer
+                ]
+                ev_deque.append({
+                    "ts": now_ts_for_squad,
+                    "killer": killer,
+                    "victim": victim,
+                    "zone": zone_now,
+                    "weapon": weapon,
+                })
+                # cap memory
+                if len(ev_deque) > 50:
+                    del ev_deque[:-50]
+                if len(set(squad_mates)) >= (SQUAD_MIN_MATES - 1):
+                    mates_unique = sorted(set(squad_mates))
+                    embed.add_field(
+                        name="🛡️ POSSIBLE SQUAD",
+                        value=", ".join([killer] + mates_unique) + f"  *(same zone within {SQUAD_WINDOW_SECONDS}s)*",
+                        inline=False,
+                    )
+
+                # ─── Per-killer longest-shot tracking ────────────────
+                killer_stats = ensure_player_stats_record(guild_id, killer)
+                if killer_stats and distance > float(killer_stats.get("longest_shot_distance", 0) or 0):
+                    killer_stats["longest_shot_distance"] = distance
+                    killer_stats["longest_shot_weapon"] = weapon
+                    killer_stats["longest_shot_victim"] = victim
+                if is_headshot:
+                    add_player_stat(guild_id, killer, "headshots")
+                save_player_stats()
+
+                # ─── Streaks: killer alive, victim reset ─────────────
+                note_player_alive(guild_id, killer, event_time=event_time)
+                broken_days = reset_player_streak(guild_id, victim, event_time=event_time)
+                if broken_days and broken_days >= 7:
+                    embed.add_field(
+                        name="🩸 Streak Broken",
+                        value=f"**{victim}** had survived **{broken_days}** day(s).",
+                        inline=True,
+                    )
+
                 embed.set_thumbnail(url=BOT_IMAGE)
 
                 embed.set_footer(
@@ -9032,9 +9460,22 @@ async def parse_adm(guild_id, config):
 
                 embed.timestamp = event_time
 
-                await killfeed_channel.send(
+                killfeed_message = await killfeed_channel.send(
                     embed=embed
                 )
+                # Auto-thread on epic single-shot kills (300m+ headshot)
+                if (
+                    is_headshot
+                    and distance >= LONGSHOT_ANNOUNCE_METERS
+                    and isinstance(killfeed_channel, discord.TextChannel)
+                ):
+                    try:
+                        await killfeed_message.create_thread(
+                            name=f"💥 {killer} • {distance:.0f}m headshot"[:95],
+                            auto_archive_duration=1440,
+                        )
+                    except Exception as thread_error:
+                        print(f"[THREAD] headshot thread failed: {thread_error}")
 
                 guild_longshot_records = longshot_records.get(guild_id, [])
                 current_record_distance = float(
@@ -9101,6 +9542,19 @@ async def parse_adm(guild_id, config):
                 }
                 save_first_blood()
 
+                # ─── Daily recap aggregate ───────────────────────────
+                record_daily_kill(
+                    guild_id,
+                    killer=killer,
+                    victim=victim,
+                    weapon=weapon,
+                    distance=distance,
+                    headshot=is_headshot,
+                    zone=zone_now,
+                    vehicle=False,
+                    event_time=event_time,
+                )
+
                 # ─── Multi-kill / Rampage detection ──────────────────
                 now_ts = (event_time or datetime.now(UTC)).timestamp()
                 guild_kill_log = recent_kills_by_killer.setdefault(guild_id, {})
@@ -9112,6 +9566,12 @@ async def parse_adm(guild_id, config):
                 ]
                 killer_kills.append({"ts": now_ts, "victim": victim, "weapon": weapon})
                 streak_size = len(killer_kills)
+                # Track personal-best multikill regardless of whether we
+                # announce it.
+                k_stats = ensure_player_stats_record(guild_id, killer)
+                if k_stats and streak_size > int(k_stats.get("multikill_best", 0) or 0):
+                    k_stats["multikill_best"] = streak_size
+                    save_player_stats()
                 # Only post on exact thresholds 3, 4, 5+ to avoid spam
                 if streak_size >= RAMPAGE_MIN_KILLS and killfeed_channel:
                     streak_titles = {
@@ -9120,6 +9580,10 @@ async def parse_adm(guild_id, config):
                         5: ("🔥💥 RAMPAGE — 5 KILLS", 0xC0392B),
                     }
                     title, color = streak_titles.get(streak_size, (f"💀 UNSTOPPABLE — {streak_size} KILLS", 0x8E44AD))
+                    if streak_size == RAMPAGE_MIN_KILLS:
+                        # First time hitting a "rampage", count it
+                        add_player_stat(guild_id, killer, "rampages")
+                        save_player_stats()
                     desc_lines = [
                         f"**{killer}** is on a tear — **{streak_size}** kills in under {RAMPAGE_WINDOW_SECONDS} seconds.",
                         "",
@@ -9136,7 +9600,20 @@ async def parse_adm(guild_id, config):
                     streak_embed.set_footer(text=f"Wandering Bot Alpha — Multi-Kill Window {RAMPAGE_WINDOW_SECONDS}s")
                     streak_embed.timestamp = event_time or datetime.now(UTC)
                     try:
-                        await killfeed_channel.send(embed=style_embed(streak_embed))
+                        streak_msg = await killfeed_channel.send(embed=style_embed(streak_embed))
+                        # Auto-thread on serious rampages so survivors can
+                        # talk it out without spamming killfeed.
+                        if (
+                            streak_size >= THREAD_ON_RAMPAGE_KILLS
+                            and isinstance(killfeed_channel, discord.TextChannel)
+                        ):
+                            try:
+                                await streak_msg.create_thread(
+                                    name=f"🔥 {killer}'s rampage ({streak_size} kills)"[:95],
+                                    auto_archive_duration=60,
+                                )
+                            except Exception as thread_error:
+                                print(f"[THREAD] rampage thread failed: {thread_error}")
                     except Exception:
                         pass
 
@@ -9194,9 +9671,21 @@ async def parse_adm(guild_id, config):
 
                         longshot_embed.timestamp = event_time
 
-                        await longshot_channel.send(
+                        ls_msg = await longshot_channel.send(
                             embed=style_embed(longshot_embed)
                         )
+                        # Thread on epic 500m+ shots
+                        if (
+                            distance >= THREAD_ON_LONGSHOT_METERS
+                            and isinstance(longshot_channel, discord.TextChannel)
+                        ):
+                            try:
+                                await ls_msg.create_thread(
+                                    name=f"🎯 {killer} • {distance:.0f}m on {victim}"[:95],
+                                    auto_archive_duration=1440,
+                                )
+                            except Exception as thread_error:
+                                print(f"[THREAD] longshot thread failed: {thread_error}")
 
 # =========================================================
 # ADM LOOP
@@ -13709,6 +14198,9 @@ async def start_background_tasks():
 
         if not temp_ban_expiry_loop.is_running():
             temp_ban_expiry_loop.start()
+
+        if not recap_loop.is_running():
+            recap_loop.start()
 
     except RuntimeError:
         pass
@@ -20555,6 +21047,61 @@ async def slash_set_roasts(interaction: discord.Interaction, state: app_commands
         )
 
 
+@extra_tools_group.command(
+    name="setroasttone",
+    description="Live-switch the AI death-roast tone for this guild",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(tone="Tone preset for the LLM roast generator")
+@app_commands.choices(tone=[
+    app_commands.Choice(name="mixed (random)", value="mixed"),
+    app_commands.Choice(name="edgy", value="edgy"),
+    app_commands.Choice(name="pg13", value="pg13"),
+    app_commands.Choice(name="brutal_clean", value="brutal_clean"),
+])
+async def slash_set_roasttone(interaction: discord.Interaction, tone: app_commands.Choice[str]):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    config["roast_tone"] = tone.value
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Roast tone set to **{tone.name}**. Next kill will use the new vibe.",
+        ephemeral=True,
+    )
+
+
+@extra_tools_group.command(
+    name="setrecapchannel",
+    description="Set the channel for daily/weekly recap auto-posts",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel="Channel for recaps (leave empty for current channel; falls back to killfeed)")
+async def slash_set_recap_channel(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    target = channel or interaction.channel
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    config.setdefault("channels", {})["recap"] = target.id
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Daily/weekly recap auto-posts will be sent in {target.mention}.\n"
+        f"They fire at **{RECAP_DAILY_HOUR_UTC:02d}:00 UTC**.",
+        ephemeral=True,
+    )
+
+
 @bot.command()
 async def setcountdownchannel(ctx, *, channel_mention: str = None):
     """Prefix variant: `!setcountdownchannel #channel` — or run with no
@@ -20757,6 +21304,488 @@ async def slash_whoami(interaction: discord.Interaction):
     embed.set_footer(text="Wandering Bot Alpha — Identity Check")
     embed.timestamp = datetime.now(UTC)
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+# =========================================================
+# /playercard — full career stat card
+# =========================================================
+
+def build_player_card_embed(guild_id, player_name):
+    stats = player_stats.get(player_name, {})
+    if not stats:
+        return None
+    gid = str(guild_id)
+    kills = stat_int(stats, "kills") if stats else 0
+    deaths = stat_int(stats, "deaths") if stats else 0
+    headshots = stat_int(stats, "headshots") if stats else 0
+    vehicle_kills = stat_int(stats, "vehicle_kills") if stats else 0
+    vehicle_deaths = stat_int(stats, "vehicle_deaths") if stats else 0
+    rampages = stat_int(stats, "rampages") if stats else 0
+    multikill_best = stat_int(stats, "multikill_best") if stats else 0
+    bounty_claims = stat_int(stats, "bounty_claims") if stats else 0
+    bounty_earnings = stat_int(stats, "bounty_earnings") if stats else 0
+    longest_shot = float(stats.get("longest_shot_distance", 0) or 0)
+    longest_weapon = stats.get("longest_shot_weapon", "") or "—"
+    longest_victim = stats.get("longest_shot_victim", "") or "—"
+    current_streak = stat_int(stats, "current_streak_days") if stats else 0
+    longest_streak = stat_int(stats, "longest_streak_days") if stats else 0
+    online_seconds = stat_int(stats, "time_online_seconds") if stats else 0
+    cuts = stat_int(stats, "cuts") if stats else 0
+    suicides = stat_int(stats, "suicides") if stats else 0
+    zombies = stat_int(stats, "zombie_deaths") if stats else 0
+    builds = stat_int(stats, "builds") if stats else 0
+    raids = stat_int(stats, "raids") if stats else 0
+    animals = stat_int(stats, "animals_hunted") if stats else 0
+    kd = kills if deaths == 0 else round(kills / max(1, deaths), 2)
+    hs_rate = round((headshots / kills) * 100, 1) if kills > 0 else 0.0
+
+    embed = discord.Embed(
+        title=f"🪪 PLAYER CARD — {player_name}",
+        description=(
+            f"`{guild_configs.get(gid, {}).get('guild_name', 'Server')}` "
+            f"survivor dossier."
+        ),
+        color=0x1ABC9C,
+    )
+    embed.add_field(name="☠️ Kills", value=str(kills), inline=True)
+    embed.add_field(name="💀 Deaths", value=str(deaths), inline=True)
+    embed.add_field(name="⚖️ K/D", value=str(kd), inline=True)
+    embed.add_field(name="💥 Headshots", value=f"{headshots} ({hs_rate}%)", inline=True)
+    embed.add_field(name="🔥 Rampages", value=f"{rampages} (best: {multikill_best})", inline=True)
+    embed.add_field(
+        name="🎯 Longest Shot",
+        value=(
+            f"{longest_shot:.0f}m with {longest_weapon}\non {longest_victim}"
+            if longest_shot > 0 else "—"
+        ),
+        inline=False,
+    )
+    embed.add_field(name="🚗 Vehicle Kills", value=str(vehicle_kills), inline=True)
+    embed.add_field(name="🚗💀 Vehicle Deaths", value=str(vehicle_deaths), inline=True)
+    embed.add_field(name="🩸 Survival Streak", value=f"{current_streak}d (best: {longest_streak}d)", inline=True)
+    if bounty_claims:
+        embed.add_field(
+            name="💰 Bounty Hunter",
+            value=f"{bounty_claims} claim(s) • {bounty_earnings:,} {BOUNTY_CURRENCY}",
+            inline=True,
+        )
+    embed.add_field(name="⏱️ Time Online", value=format_duration(online_seconds), inline=True)
+    embed.add_field(
+        name="📋 Misc",
+        value=(
+            f"Zombie deaths: {zombies}  •  Suicides: {suicides}  •  Cuts: {cuts}\n"
+            f"Builds: {builds}  •  Raids: {raids}  •  Animals: {animals}"
+        ),
+        inline=False,
+    )
+    if stats.get("first_adm_seen"):
+        embed.set_footer(text=f"First seen in ADM: {stats.get('first_adm_seen', 'Unknown')}")
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.timestamp = datetime.now(UTC)
+    return style_embed(embed)
+
+
+@bot.tree.command(name="playercard", description="Show a full DayZ career stat card for a player")
+@app_commands.describe(player_name="In-game player name (case-sensitive)")
+async def slash_playercard(interaction: discord.Interaction, player_name: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    embed = build_player_card_embed(guild_id, player_name)
+    if not embed:
+        await interaction.response.send_message(
+            f"❌ No stats found for **{player_name}**. Make sure the name matches exactly what shows in the ADM logs.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================================================
+# /bounty — set / list / claim history / clear
+# =========================================================
+
+bounty_group = app_commands.Group(name="bounty", description="DayZ bounty system — put a price on someone's head.")
+
+
+@bounty_group.command(name="set", description="Place a bounty on a player's head")
+@app_commands.describe(player="Target in-game name", amount=f"{BOUNTY_CURRENCY} to add to the bounty pool")
+async def slash_bounty_set(interaction: discord.Interaction, player: str, amount: int):
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    posted_by = interaction.user.display_name
+    entry = add_bounty(guild_id, player, amount, posted_by)
+    if not entry:
+        await interaction.response.send_message("Could not set bounty.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="💰 BOUNTY POSTED",
+        description=f"**{entry['target']}** is now worth **{entry['amount']:,} {entry.get('currency', BOUNTY_CURRENCY)}**.",
+        color=0xF1C40F,
+    )
+    embed.add_field(name="Posted by", value=posted_by, inline=True)
+    embed.add_field(name="Pool", value=f"{entry['amount']:,} {entry.get('currency', BOUNTY_CURRENCY)}", inline=True)
+    embed.set_footer(text="Wandering Bot Alpha — Bounty System")
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+@bounty_group.command(name="list", description="List all active bounties on this server")
+async def slash_bounty_list(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    items = list_bounties(guild_id)
+    items.sort(key=lambda b: int(b.get("amount", 0) or 0), reverse=True)
+    embed = discord.Embed(title="💰 ACTIVE BOUNTIES", color=0xF1C40F)
+    if not items:
+        embed.description = "No active bounties. Run `/bounty set <player> <amount>` to start one."
+    else:
+        lines = []
+        for idx, b in enumerate(items[:25], start=1):
+            lines.append(
+                f"**{idx}.** `{b.get('target', 'Unknown')}` — "
+                f"**{int(b.get('amount', 0)):,} {b.get('currency', BOUNTY_CURRENCY)}** "
+                f"(by {b.get('posted_by', '?')})"
+            )
+        embed.description = "\n".join(lines)
+    embed.set_footer(text="Wandering Bot Alpha — Bounty Board")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+@bounty_group.command(name="clear", description="Admin: remove a bounty without anyone claiming it")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(player="Target whose bounty should be cleared")
+async def slash_bounty_clear(interaction: discord.Interaction, player: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    removed = clear_bounty(guild_id, player)
+    if not removed:
+        await interaction.response.send_message(f"No active bounty on **{player}**.", ephemeral=True)
+        return
+    await interaction.response.send_message(
+        f"✅ Cleared bounty on **{removed.get('target', player)}** "
+        f"({int(removed.get('amount', 0)):,} {removed.get('currency', BOUNTY_CURRENCY)} refunded to the void).",
+        ephemeral=True,
+    )
+
+
+bot.tree.add_command(bounty_group)
+
+
+# =========================================================
+# /recap — daily / weekly recap (manual)
+# =========================================================
+
+def _format_top(d, k=3):
+    items = sorted((d or {}).items(), key=lambda x: x[1], reverse=True)[:k]
+    return ", ".join(f"`{name}` ({n})" for name, n in items) if items else "—"
+
+
+def build_recap_embed(guild_id, day_key, *, title_prefix="📰 DAILY RECAP"):
+    gid = str(guild_id)
+    bucket = (daily_recap_data.get(gid) or {}).get(day_key)
+    embed = discord.Embed(
+        title=f"{title_prefix} — {day_key}",
+        color=0x3498DB,
+    )
+    if not bucket or not bucket.get("total_kills"):
+        embed.description = "No PvP kills recorded for this date."
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.timestamp = datetime.now(UTC)
+        return style_embed(embed)
+    total = bucket.get("total_kills", 0)
+    hs = bucket.get("headshots", 0)
+    veh = bucket.get("vehicle_kills", 0)
+    hs_rate = round((hs / total) * 100, 1) if total else 0
+    biggest = bucket.get("biggest_shot") or {}
+    embed.description = (
+        f"**{total}** kills • **{hs}** headshots ({hs_rate}%) • **{veh}** vehicle kills"
+    )
+    embed.add_field(name="🏆 Top Killers", value=_format_top(bucket.get("killers"), 3), inline=False)
+    embed.add_field(name="🔫 Deadliest Weapons", value=_format_top(bucket.get("weapons"), 3), inline=False)
+    embed.add_field(name="📍 Deadliest Zones", value=_format_top(bucket.get("zones"), 3), inline=False)
+    if biggest and biggest.get("distance"):
+        embed.add_field(
+            name="🎯 Biggest Shot",
+            value=f"**{biggest.get('killer', '?')}** → {biggest.get('victim', '?')} • {float(biggest.get('distance', 0)):.0f}m ({biggest.get('weapon', '?')})",
+            inline=False,
+        )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Daily Recap")
+    embed.timestamp = datetime.now(UTC)
+    return style_embed(embed)
+
+
+def build_weekly_recap_embed(guild_id):
+    gid = str(guild_id)
+    today = datetime.now(UTC).date()
+    keys = [(today - timedelta(days=i)).isoformat() for i in range(7)]
+    agg = {"total_kills": 0, "headshots": 0, "vehicle_kills": 0,
+           "killers": {}, "weapons": {}, "zones": {},
+           "biggest_shot": {"distance": 0}}
+    for key in keys:
+        bucket = (daily_recap_data.get(gid) or {}).get(key)
+        if not bucket:
+            continue
+        agg["total_kills"] += int(bucket.get("total_kills", 0) or 0)
+        agg["headshots"] += int(bucket.get("headshots", 0) or 0)
+        agg["vehicle_kills"] += int(bucket.get("vehicle_kills", 0) or 0)
+        for k, v in (bucket.get("killers") or {}).items():
+            agg["killers"][k] = agg["killers"].get(k, 0) + v
+        for k, v in (bucket.get("weapons") or {}).items():
+            agg["weapons"][k] = agg["weapons"].get(k, 0) + v
+        for k, v in (bucket.get("zones") or {}).items():
+            agg["zones"][k] = agg["zones"].get(k, 0) + v
+        big = bucket.get("biggest_shot") or {}
+        if float(big.get("distance", 0) or 0) > float(agg["biggest_shot"].get("distance", 0) or 0):
+            agg["biggest_shot"] = big
+
+    embed = discord.Embed(
+        title=f"📰 WEEKLY RECAP — last 7 days",
+        color=0x2980B9,
+        description=(
+            f"**{agg['total_kills']}** kills • **{agg['headshots']}** headshots • "
+            f"**{agg['vehicle_kills']}** vehicle kills"
+        ),
+    )
+    embed.add_field(name="🏆 Top Killers", value=_format_top(agg["killers"], 5), inline=False)
+    embed.add_field(name="🔫 Deadliest Weapons", value=_format_top(agg["weapons"], 5), inline=False)
+    embed.add_field(name="📍 Deadliest Zones", value=_format_top(agg["zones"], 5), inline=False)
+    big = agg.get("biggest_shot") or {}
+    if big and big.get("distance"):
+        embed.add_field(
+            name="🎯 Biggest Shot of the Week",
+            value=f"**{big.get('killer', '?')}** → {big.get('victim', '?')} • {float(big.get('distance', 0)):.0f}m ({big.get('weapon', '?')})",
+            inline=False,
+        )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Weekly Recap")
+    embed.timestamp = datetime.now(UTC)
+    return style_embed(embed)
+
+
+@bot.tree.command(name="recap", description="Show the daily or weekly server recap")
+@app_commands.describe(period="today / yesterday / week")
+@app_commands.choices(period=[
+    app_commands.Choice(name="today", value="today"),
+    app_commands.Choice(name="yesterday", value="yesterday"),
+    app_commands.Choice(name="week", value="week"),
+])
+async def slash_recap(interaction: discord.Interaction, period: app_commands.Choice[str] = None):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    period_value = period.value if period else "today"
+    if period_value == "week":
+        embed = build_weekly_recap_embed(guild_id)
+    elif period_value == "yesterday":
+        embed = build_recap_embed(guild_id, _yesterday_key(), title_prefix="📰 RECAP")
+    else:
+        embed = build_recap_embed(guild_id, _today_key(), title_prefix="📰 TODAY SO FAR")
+    await interaction.response.send_message(embed=embed)
+
+
+# =========================================================
+# AI News Bulletin
+# =========================================================
+
+async def generate_news_bulletin(guild_name, day_key, bucket):
+    """Use Emergent LLM key to produce a short Reuters-style bulletin
+    summarizing the day. Falls back to a deterministic template."""
+    if not bucket or not bucket.get("total_kills"):
+        return None
+    top_killer = max((bucket.get("killers") or {}).items(), key=lambda x: x[1], default=("?", 0))
+    top_weapon = max((bucket.get("weapons") or {}).items(), key=lambda x: x[1], default=("?", 0))
+    top_zone = max((bucket.get("zones") or {}).items(), key=lambda x: x[1], default=("?", 0))
+    big = bucket.get("biggest_shot") or {}
+    fallback = (
+        f"**{guild_name} — {day_key}.** {bucket['total_kills']} kills on the books. "
+        f"`{top_killer[0]}` led the leaderboard ({top_killer[1]}). "
+        f"`{top_weapon[0]}` was the weapon of choice. "
+        f"`{top_zone[0]}` ran red. "
+        + (f"Longest confirmed shot: {float(big.get('distance', 0)):.0f}m by `{big.get('killer','?')}`."
+           if big.get("distance") else "")
+    )
+    if not EMERGENT_LLM_KEY:
+        return fallback
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as error:
+        print(f"[NEWS] emergentintegrations import failed: {error}")
+        return fallback
+    prompt = (
+        "Write a 2-3 sentence dry, Reuters-style news bulletin summarising today's DayZ killfeed. "
+        "No emojis, no markdown bold. Reference at least one player name and one zone.\n\n"
+        f"Server: {guild_name}\nDate: {day_key}\n"
+        f"Total kills: {bucket['total_kills']}\nHeadshots: {bucket['headshots']}\n"
+        f"Vehicle kills: {bucket['vehicle_kills']}\n"
+        f"Top killer: {top_killer[0]} ({top_killer[1]} kills)\n"
+        f"Deadliest weapon: {top_weapon[0]}\n"
+        f"Deadliest zone: {top_zone[0]}\n"
+        f"Biggest shot: {float(big.get('distance', 0)):.0f}m by {big.get('killer', '?')} on {big.get('victim', '?')}\n"
+    )
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"news-{day_key}-{guild_name[:20]}",
+            system_message="You are a deadpan post-apocalyptic newsreader. Keep it dry and short.",
+        ).with_model(AI_ROAST_PROVIDER, AI_ROAST_MODEL)
+        response = await asyncio.wait_for(chat.send_message(UserMessage(text=prompt)), timeout=15)
+        text = (str(response or "")).strip().strip('"').strip("'")
+        return text or fallback
+    except Exception as error:
+        print(f"[NEWS] LLM bulletin failed ({error}) — using fallback")
+        return fallback
+
+
+# =========================================================
+# Daily recap loop — runs hourly, posts at RECAP_DAILY_HOUR_UTC
+# =========================================================
+
+def _recap_target_channel(guild_id):
+    config = guild_configs.get(str(guild_id), {})
+    channels = config.get("channels", {})
+    ch = channels.get("recap") or channels.get("killfeed") or channels.get("general_chat")
+    return bot.get_channel(ch) if ch else None
+
+
+@tasks.loop(minutes=30)
+async def recap_loop():
+    """Every 30 minutes, check every active guild — if today's recap hour
+    has been reached and we haven't posted yet for yesterday, post it."""
+    try:
+        now = datetime.now(UTC)
+        if now.hour != RECAP_DAILY_HOUR_UTC and now.hour != (RECAP_DAILY_HOUR_UTC + 1) % 24:
+            return
+        yesterday = _yesterday_key(now)
+        for guild_id, config in active_guild_config_items():
+            try:
+                if recap_posted.get(str(guild_id)) == yesterday:
+                    continue
+                channel = _recap_target_channel(guild_id)
+                if not channel:
+                    continue
+                bucket = (daily_recap_data.get(str(guild_id)) or {}).get(yesterday)
+                if not bucket:
+                    recap_posted[str(guild_id)] = yesterday
+                    save_recap_posted()
+                    continue
+                recap_embed = build_recap_embed(guild_id, yesterday, title_prefix="📰 DAILY RECAP")
+                await channel.send(embed=recap_embed)
+                if NEWS_BULLETIN_ENABLED:
+                    bulletin = await generate_news_bulletin(
+                        guild_display_name(guild_id), yesterday, bucket
+                    )
+                    if bulletin:
+                        news_embed = discord.Embed(
+                            title="📡 SURVIVOR NEWS BULLETIN",
+                            description=bulletin,
+                            color=0x7F8C8D,
+                        )
+                        news_embed.set_footer(text=f"Wandering Bot Alpha — News • {yesterday}")
+                        news_embed.timestamp = datetime.now(UTC)
+                        await channel.send(embed=style_embed(news_embed))
+                recap_posted[str(guild_id)] = yesterday
+                save_recap_posted()
+            except Exception as guild_err:
+                print(f"[RECAP LOOP] guild {guild_id} failed: {guild_err}")
+    except Exception as error:
+        print(f"[RECAP LOOP] top-level error: {error}")
+
+
+# =========================================================
+# /spectator — live snapshot of online players + recent kills
+# =========================================================
+
+@bot.tree.command(name="spectator", description="Live snapshot: who's online + recent kills + active hotspots")
+async def slash_spectator(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    online = sorted(online_players.get(guild_id, set()))
+    locations = player_last_coords.get(guild_id, {})
+    embed = discord.Embed(
+        title="📡 LIVE SPECTATOR FEED",
+        description=f"**{len(online)}** survivor(s) online right now.",
+        color=0x1ABC9C,
+    )
+    # Online + last known zone
+    lines = []
+    for player in online[:20]:
+        coord_record = locations.get(player) or {}
+        zone_text = coord_record.get("zone") or coord_record.get("zone_name") or "Unknown"
+        lines.append(f"• `{player}` — {zone_text}")
+    if lines:
+        embed.add_field(name="🟢 Online", value="\n".join(lines), inline=False)
+    # Recent kills (last 90s)
+    now_ts = datetime.now(UTC).timestamp()
+    ev_deque = recent_kill_events.get(guild_id, [])
+    fresh = [e for e in ev_deque if now_ts - e.get("ts", 0) <= 600][-10:]
+    if fresh:
+        embed.add_field(
+            name="☠️ Recent Kills (last 10 mins)",
+            value="\n".join(f"• `{e['killer']}` → `{e['victim']}` ({e.get('weapon','?')}) in *{e.get('zone','?')}*" for e in fresh),
+            inline=False,
+        )
+    # Today's hot zone
+    today_bucket = (daily_recap_data.get(guild_id) or {}).get(_today_key()) or {}
+    zones = today_bucket.get("zones") or {}
+    if zones:
+        embed.add_field(name="🔥 Today's Hot Zone", value=_format_top(zones, 1), inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Live Spectator")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed))
+
+
+# =========================================================
+# /sendmessage — Nitrado in-game broadcast (best-effort REST)
+# =========================================================
+
+def nitrado_send_chat(config, message):
+    """Best-effort: POST to Nitrado's gameserver chat endpoint. If the
+    endpoint or token isn't authorised, returns (False, error_message)."""
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    if not token or not service_id:
+        return False, "Missing nitrado_token / service_id in guild config."
+    url = f"https://api.nitrado.net/services/{service_id}/gameservers/games/dayz/chat"
+    try:
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            data={"message": message},
+            timeout=10,
+        )
+        if resp.status_code in (200, 201, 204):
+            return True, "Sent."
+        return False, f"Nitrado returned HTTP {resp.status_code}: {resp.text[:200]}"
+    except Exception as error:
+        return False, f"Request failed: {error}"
+
+
+@bot.tree.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(message="Text to broadcast in-game (max 240 chars)")
+async def slash_sendmessage(interaction: discord.Interaction, message: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    config = guild_configs.get(guild_id, {})
+    text = message.strip()[:240]
+    if not text:
+        await interaction.response.send_message("Message cannot be empty.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    ok, info = await asyncio.to_thread(nitrado_send_chat, config, text)
+    if ok:
+        await interaction.followup.send(f"📡 Broadcast sent: `{text}`", ephemeral=True)
+    else:
+        await interaction.followup.send(
+            "❌ Could not send in-game broadcast.\n"
+            f"```\n{info}\n```\n"
+            "Note: some Nitrado plans / consoles do not expose the chat endpoint. "
+            "You may need to use the Nitrado web console instead.",
+            ephemeral=True,
+        )
 
 
 @extra_tools_group.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
@@ -21222,6 +22251,10 @@ async def on_ready():
     load_pve_challenges()
     load_longshot_records()
     load_first_blood()
+    load_daily_recap()
+    load_bounties()
+    load_survival_streaks()
+    load_recap_posted()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
