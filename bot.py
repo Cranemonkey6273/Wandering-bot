@@ -11272,7 +11272,14 @@ async def scheduled_restart_loop():
                 continue
 
             channels = config.get("channels", {})
-            chat_channel = bot.get_channel(channels.get("general_chat"))
+            # Honour per-guild override: admins can set the countdown to
+            # post in a dedicated channel via /extra setcountdownchannel.
+            # Falls back to general_chat if no override is configured.
+            countdown_channel_id = (
+                channels.get("restart_countdown")
+                or channels.get("general_chat")
+            )
+            chat_channel = bot.get_channel(countdown_channel_id)
             if not chat_channel:
                 continue
 
@@ -11379,9 +11386,13 @@ async def scheduled_restart_loop():
                 )
                 last_restart_message_ids[guild_id] = sent_alert.id
 
-                # Post the "go touch grass" follow-up in main chat and
-                # self-clean the prior countdown so the chain ends cleanly.
-                chat_channel = bot.get_channel(channels.get("general_chat"))
+                # Post the "go touch grass" follow-up to the same channel
+                # the countdown was using (honours the per-guild override).
+                countdown_channel_id = (
+                    channels.get("restart_countdown")
+                    or channels.get("general_chat")
+                )
+                chat_channel = bot.get_channel(countdown_channel_id)
                 if chat_channel:
                     final_embed = discord.Embed(
                         title="💥 SERVER IS RESTARTING NOW",
@@ -13274,6 +13285,41 @@ async def start_background_tasks():
 # LIVE ONLINE DASHBOARD
 # =========================================================
 
+
+async def purge_self_dashboard_messages(channel, limit=10):
+    """Delete recent bot-authored messages in a dashboard-style channel.
+
+    Used at the top of dashboard refresh loops (online, heatmap, pve_heatmap,
+    leaderboards, restart_alerts) so orphan messages from previous bot
+    sessions or stale in-memory `last_*_message_ids` state get cleaned up
+    before a new dashboard message is posted.
+
+    Idempotent — safe to call before every post. Tries the fast bulk-purge
+    API first, falls back to manual per-message deletion if the bot lacks
+    the Manage Messages permission.
+    """
+    if not channel:
+        return
+    try:
+        # Fast path: requires Manage Messages permission. Bulk-deletes up to
+        # `limit` of the most recent bot messages in one API call.
+        await channel.purge(limit=limit, check=lambda m: m.author == bot.user)
+        return
+    except Exception:
+        pass
+    # Fallback: iterate history and delete one at a time. Works without
+    # Manage Messages, but only for messages younger than 14 days.
+    try:
+        async for old_msg in channel.history(limit=limit):
+            if old_msg.author == bot.user:
+                try:
+                    await old_msg.delete()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 @tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
 async def online_dashboard_loop():
 
@@ -13319,13 +13365,10 @@ async def online_dashboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_message_id = last_online_message_ids.get(guild_id)
-            if old_message_id:
-                try:
-                    old_message = await online_channel.fetch_message(old_message_id)
-                    await old_message.delete()
-                except Exception:
-                    pass
+            # Defensively purge any stale bot messages in this channel
+            # (orphans from previous sessions where the in-memory message
+            # ID was lost on bot restart). Then post the fresh dashboard.
+            await purge_self_dashboard_messages(online_channel, limit=10)
 
             sent_message = await online_channel.send(embed=embed)
             last_online_message_ids[guild_id] = sent_message.id
@@ -13403,13 +13446,9 @@ async def heatmap_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_message_id = last_heatmap_message_ids.get(guild_id)
-            if old_message_id:
-                try:
-                    old_message = await heatmap_channel.fetch_message(old_message_id)
-                    await old_message.delete()
-                except Exception:
-                    pass
+            # Purge any stale bot heatmaps (including orphans from prior
+            # bot sessions) before posting the fresh one.
+            await purge_self_dashboard_messages(heatmap_channel, limit=10)
 
             sent_message = await heatmap_channel.send(embed=embed, file=file)
             last_heatmap_message_ids[guild_id] = sent_message.id
@@ -13445,13 +13484,8 @@ async def heatmap_loop():
                 pve_embed.set_thumbnail(url=BOT_IMAGE)
                 pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour")
 
-                old_pve_message_id = last_pve_heatmap_message_ids.get(guild_id)
-                if old_pve_message_id:
-                    try:
-                        old_pve_message = await pve_heatmap_channel.fetch_message(old_pve_message_id)
-                        await old_pve_message.delete()
-                    except Exception:
-                        pass
+                # Purge stale PVE heatmaps before posting the fresh one.
+                await purge_self_dashboard_messages(pve_heatmap_channel, limit=10)
 
                 pve_sent_message = await pve_heatmap_channel.send(embed=pve_embed, file=pve_file)
                 last_pve_heatmap_message_ids[guild_id] = pve_sent_message.id
@@ -13591,16 +13625,9 @@ async def leaderboard_loop():
 
             embed.timestamp = datetime.now(UTC)
 
-            old_message_ids = last_leaderboard_message_ids.get(guild_id)
-            if old_message_ids:
-                if not isinstance(old_message_ids, list):
-                    old_message_ids = [old_message_ids]
-                for old_message_id in old_message_ids[:2]:
-                    try:
-                        old_message = await leaderboard_channel.fetch_message(old_message_id)
-                        await old_message.delete()
-                    except Exception:
-                        pass
+            # Purge stale leaderboards (including orphans from previous
+            # bot sessions) before posting the fresh one.
+            await purge_self_dashboard_messages(leaderboard_channel, limit=10)
 
             sent_message = await leaderboard_channel.send(embed=embed)
             last_leaderboard_message_ids[guild_id] = [sent_message.id]
@@ -20003,6 +20030,108 @@ async def slash_setadminrole(interaction: discord.Interaction, role: discord.Rol
     config["admin_roles"] = [role.name]
     save_guild_configs()
     await interaction.response.send_message(f"Primary admin role set to {role.mention}.", ephemeral=True)
+
+
+@extra_tools_group.command(
+    name="setcountdownchannel",
+    description="Set the channel where pre-restart countdown messages (30/15/5/1 min) are posted",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel="Channel for the countdown (leave empty to use the current channel)")
+async def slash_set_countdown_channel(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    target = channel or interaction.channel
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    config.setdefault("channels", {})["restart_countdown"] = target.id
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Pre-restart countdown announcements (30/15/5/1 min + the post-restart message) will now be posted in {target.mention}.\n\n"
+        f"Run `/extra unsetcountdownchannel` to revert to the default (`general_chat`).",
+        ephemeral=True,
+    )
+
+
+@extra_tools_group.command(
+    name="unsetcountdownchannel",
+    description="Revert restart-countdown messages to post in general_chat",
+)
+@app_commands.default_permissions(administrator=True)
+async def slash_unset_countdown_channel(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    channels = config.get("channels", {})
+    if "restart_countdown" in channels:
+        channels.pop("restart_countdown", None)
+        save_guild_configs()
+        await interaction.response.send_message(
+            "✅ Countdown channel override removed. Countdowns will go back to the default (`general_chat`).",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            "No override was set. Countdowns are already going to the default channel (`general_chat`).",
+            ephemeral=True,
+        )
+
+
+@bot.command()
+async def setcountdownchannel(ctx, *, channel_mention: str = None):
+    """Prefix variant: `!setcountdownchannel #channel` — or run with no
+    argument inside the channel you want to use. Sets the channel where
+    the bot posts its 30/15/5/1 minute pre-restart countdown messages."""
+    if not has_member_admin_power(ctx.author):
+        await ctx.send("Admin only.")
+        return
+
+    target = None
+    if ctx.message.channel_mentions:
+        target = ctx.message.channel_mentions[0]
+    elif channel_mention:
+        # Look up by name if user typed a bare name (not a #mention)
+        name = channel_mention.lstrip("#").strip()
+        target = discord.utils.get(ctx.guild.text_channels, name=name)
+
+    if target is None:
+        target = ctx.channel
+
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": ctx.guild.name, "channels": {}}
+    )
+    config.setdefault("channels", {})["restart_countdown"] = target.id
+    save_guild_configs()
+    await ctx.send(
+        f"✅ Pre-restart countdown announcements will now be posted in {target.mention}.\n"
+        f"(Run `!unsetcountdownchannel` to revert.)"
+    )
+
+
+@bot.command()
+async def unsetcountdownchannel(ctx):
+    if not has_member_admin_power(ctx.author):
+        await ctx.send("Admin only.")
+        return
+    guild_id = str(ctx.guild.id)
+    channels = guild_configs.get(guild_id, {}).get("channels", {})
+    if "restart_countdown" in channels:
+        channels.pop("restart_countdown", None)
+        save_guild_configs()
+        await ctx.send("✅ Countdown channel override removed.")
+    else:
+        await ctx.send("No countdown channel override was set.")
+
+
 @extra_tools_group.command(name="addstaffrole", description="Add a staff role")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
