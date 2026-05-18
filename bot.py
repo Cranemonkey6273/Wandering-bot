@@ -22089,6 +22089,206 @@ bot.tree.add_command(bounty_group)
 last_mega_leaderboard_message_ids = {}
 
 
+def _gather_mega_leaderboard_rows(guild_id):
+    """Return (bounty_rows, streak_rows, rampage_rows) capped at top 10 each."""
+    gid = str(guild_id)
+    bounty_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("bounty_earnings", 0) or 0) > 0],
+        key=lambda row: int(row[1].get("bounty_earnings", 0) or 0),
+        reverse=True,
+    )[:10]
+    streak_rows_all = (survival_streaks.get(gid) or {}).items()
+    streak_rows = sorted(
+        [(p, s) for p, s in streak_rows_all if int(s.get("current_days", 0) or 0) > 0],
+        key=lambda row: int(row[1].get("current_days", 0) or 0),
+        reverse=True,
+    )[:10]
+    rampage_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("rampages", 0) or 0) > 0],
+        key=lambda row: (int(row[1].get("rampages", 0) or 0), int(row[1].get("multikill_best", 0) or 0)),
+        reverse=True,
+    )[:10]
+    return bounty_rows, streak_rows, rampage_rows
+
+
+def render_leaderboard_image(guild_id, guild_name="Server"):
+    """Render a purple/gold styled PNG leaderboard image (Shutterstock-style
+    angled rows). Returns BytesIO buffer of the PNG, or None if Pillow
+    fails for any reason."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as e:
+        print(f"[LB IMG] PIL import failed: {e}")
+        return None
+
+    bounty_rows, streak_rows, rampage_rows = _gather_mega_leaderboard_rows(guild_id)
+
+    # Canvas size — fits Discord embed image area nicely.
+    W, H = 1280, 1080
+    img = Image.new("RGBA", (W, H), (35, 17, 55, 255))
+    draw = ImageDraw.Draw(img)
+
+    # ── Purple gradient background ─────────────────────────
+    top_color = (88, 28, 135)    # rich purple
+    bot_color = (39, 12, 71)     # deep purple
+    for y in range(H):
+        t = y / H
+        r = int(top_color[0] * (1 - t) + bot_color[0] * t)
+        g = int(top_color[1] * (1 - t) + bot_color[1] * t)
+        b = int(top_color[2] * (1 - t) + bot_color[2] * t)
+        draw.line([(0, y), (W, y)], fill=(r, g, b, 255))
+
+    # Subtle diagonal stripes to mimic the reference style
+    stripe = Image.new("RGBA", (W, H), (255, 255, 255, 0))
+    sdraw = ImageDraw.Draw(stripe)
+    for x in range(-H, W, 40):
+        sdraw.polygon(
+            [(x, 0), (x + 6, 0), (x + 6 + H, H), (x + H, H)],
+            fill=(255, 255, 255, 10),
+        )
+    img = Image.alpha_composite(img, stripe)
+    draw = ImageDraw.Draw(img)
+
+    # ── Fonts (graceful fallback) ──────────────────────────
+    def load_font(size):
+        for fname in (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "DejaVuSans-Bold.ttf",
+            "arial.ttf",
+        ):
+            try:
+                return ImageFont.truetype(fname, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    font_title  = load_font(64)
+    font_sub    = load_font(28)
+    font_col    = load_font(22)
+    font_rank   = load_font(38)
+    font_name   = load_font(28)
+    font_val    = load_font(28)
+    font_footer = load_font(20)
+
+    GOLD = (244, 196, 48, 255)
+    SOFT_GOLD = (255, 215, 0, 255)
+    WHITE = (245, 245, 250, 255)
+    DIM = (210, 195, 230, 255)
+    ROW_FILL = (62, 28, 110, 220)
+    ROW_FILL_ALT = (48, 20, 90, 220)
+    HIGHLIGHT = (158, 75, 250, 255)
+
+    # ── Title bar ──────────────────────────────────────────
+    title_text = "🏅 LEADERBOARD 🏅"
+    draw.text((W // 2, 70), title_text, font=font_title, fill=GOLD, anchor="mm")
+    draw.text(
+        (W // 2, 130),
+        f"{guild_name} — refreshed live every 10 minutes",
+        font=font_sub,
+        fill=DIM,
+        anchor="mm",
+    )
+
+    # ── Three sections, each as a chevron-row block ────────
+    sections = [
+        ("💰  TOP BOUNTY HUNTERS",
+         [(p, f"{int(s.get('bounty_earnings', 0) or 0):,} {BOUNTY_CURRENCY}") for p, s in bounty_rows]),
+        ("🩸  LONGEST SURVIVAL STREAKS",
+         [(p, f"{int(s.get('current_days', 0) or 0)}d (best {int(s.get('longest_days', 0) or 0)}d)") for p, s in streak_rows]),
+        ("🔥  RAMPAGE KINGS",
+         [(p, f"{int(s.get('rampages', 0) or 0)} rampage(s) · best {int(s.get('multikill_best', 0) or 0)}") for p, s in rampage_rows]),
+    ]
+
+    medal_colors = [
+        (255, 215, 0, 255),   # gold
+        (192, 192, 192, 255), # silver
+        (205, 127, 50, 255),  # bronze
+    ]
+
+    y = 200
+    block_padding = 36
+    row_height = 56
+    row_gap = 8
+
+    def draw_chevron_row(x0, y0, w, h, fill, outline=None):
+        """Slanted parallelogram row, like the reference."""
+        skew = 18
+        pts = [
+            (x0 + skew, y0),
+            (x0 + w, y0),
+            (x0 + w - skew, y0 + h),
+            (x0, y0 + h),
+        ]
+        draw.polygon(pts, fill=fill, outline=outline)
+
+    for sect_idx, (sect_title, rows) in enumerate(sections):
+        # Section title
+        draw.text((80, y), sect_title, font=font_sub, fill=SOFT_GOLD)
+        y += 38
+
+        if not rows:
+            draw.text(
+                (110, y + 8),
+                "— no data yet — first kill puts someone on the board —",
+                font=font_col,
+                fill=DIM,
+            )
+            y += row_height + block_padding
+            continue
+
+        # Show top 5 of each section to keep the image readable
+        for rank, (player, value) in enumerate(rows[:5], start=1):
+            row_y = y
+            x0 = 60
+            row_w = W - 120
+            fill = ROW_FILL if rank % 2 else ROW_FILL_ALT
+            draw_chevron_row(x0, row_y, row_w, row_height, fill=fill)
+
+            # Rank tag (gold/silver/bronze pill for top 3)
+            tag_w = 92
+            if rank <= 3:
+                tag_color = medal_colors[rank - 1]
+                draw_chevron_row(x0, row_y, tag_w, row_height, fill=tag_color)
+                rank_color = (40, 18, 70, 255)
+            else:
+                draw_chevron_row(x0, row_y, tag_w, row_height, fill=HIGHLIGHT)
+                rank_color = WHITE
+            draw.text(
+                (x0 + tag_w // 2, row_y + row_height // 2),
+                f"{rank:02d}",
+                font=font_rank,
+                fill=rank_color,
+                anchor="mm",
+            )
+
+            # Player name (left aligned, after the rank pill)
+            name_clip = player[:22]
+            draw.text((x0 + tag_w + 30, row_y + row_height // 2 - 1),
+                      name_clip, font=font_name, fill=WHITE, anchor="lm")
+
+            # Value (right aligned)
+            draw.text((x0 + row_w - 30, row_y + row_height // 2 - 1),
+                      value, font=font_val, fill=GOLD, anchor="rm")
+
+            y += row_height + row_gap
+        y += block_padding
+
+    # ── Footer ─────────────────────────────────────────────
+    draw.text(
+        (W // 2, H - 30),
+        "Wandering Bot Alpha • Live Leaderboard",
+        font=font_footer,
+        fill=DIM,
+        anchor="mm",
+    )
+
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    return buf
+
+
 def build_mega_leaderboard_embed(guild_id):
     gid = str(guild_id)
     # Top bounty hunters (by bounty_earnings)
@@ -22166,20 +22366,47 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     if not channel:
         return False, "channel not found"
     embed = build_mega_leaderboard_embed(guild_id)
-    # Try to edit the existing message; if it's gone, purge & repost.
+
+    # Render the styled PNG (purple/gold). If rendering fails we still
+    # post the embed-only fallback.
+    guild_name = guild_configs.get(str(guild_id), {}).get("guild_name", "Server")
+    try:
+        img_buf = await asyncio.to_thread(render_leaderboard_image, guild_id, guild_name)
+    except Exception as render_err:
+        print(f"[LB IMG] render failed for {guild_id}: {render_err}")
+        img_buf = None
+
+    if img_buf is not None:
+        embed.set_image(url="attachment://leaderboard.png")
+
+    # Try to edit the existing message. Note: editing a message *replaces*
+    # attachments only when you pass `attachments=`, so we do that for the
+    # image case and fall back to repost if the original message is gone.
     last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
     if last_ids:
         try:
             msg = await channel.fetch_message(last_ids[0])
-            await msg.edit(embed=embed)
+            if img_buf is not None:
+                img_buf.seek(0)
+                file = discord.File(img_buf, filename="leaderboard.png")
+                await msg.edit(embed=embed, attachments=[file])
+            else:
+                await msg.edit(embed=embed, attachments=[])
             return True, "edited"
         except Exception:
             pass
+
     try:
         await purge_self_dashboard_messages(channel, limit=20)
     except Exception:
         pass
-    sent = await channel.send(embed=embed)
+
+    if img_buf is not None:
+        img_buf.seek(0)
+        file = discord.File(img_buf, filename="leaderboard.png")
+        sent = await channel.send(embed=embed, file=file)
+    else:
+        sent = await channel.send(embed=embed)
     try:
         await sent.pin()
     except Exception:
