@@ -22239,203 +22239,70 @@ def gather_category_rows(category, scope, guild_id=None, limit=10):
     return []
 
 
-def render_leaderboard_image(guild_id, scope, scope_label):
-    """Render a purple/gold styled PNG for ONE scope (server OR global).
-    10 categories × top 10 in a 2-column layout. Returns BytesIO or None."""
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-    except Exception as e:
-        print(f"[LB IMG] PIL import failed: {e}")
-        return None
+def _rank_icon(idx):
+    """Return the rank icon for a 1-indexed rank position (1..10)."""
+    table = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    if 1 <= idx <= len(table):
+        return table[idx - 1]
+    return f"`{idx:>2}.`"
 
-    # 2-column canvas: 5 categories per column. Each category has
-    # 10 rows so we need ~ 32 (title) + 10*38 + 9*3 + 20 (gap) = 459px
-    # per category. 5 cats × 459 = 2295 + header 200 + footer 30 = 2525.
-    W, H = 1800, 2560
-    img = Image.new("RGBA", (W, H), (35, 17, 55, 255))
-    draw = ImageDraw.Draw(img)
 
-    # Purple gradient
-    top_color = (88, 28, 135)
-    bot_color = (39, 12, 71)
-    for y in range(H):
-        t = y / H
-        r = int(top_color[0] * (1 - t) + bot_color[0] * t)
-        g = int(top_color[1] * (1 - t) + bot_color[1] * t)
-        b = int(top_color[2] * (1 - t) + bot_color[2] * t)
-        draw.line([(0, y), (W, y)], fill=(r, g, b, 255))
+def build_scope_leaderboard_embed(guild_id, scope, scope_label, scope_emoji, color):
+    """Build ONE rich Discord embed for a single scope (server OR global),
+    with all 10 categories as embed fields arranged in an inline grid.
 
-    # Diagonal stripe overlay
-    stripe = Image.new("RGBA", (W, H), (255, 255, 255, 0))
-    sdraw = ImageDraw.Draw(stripe)
-    for x in range(-H, W, 50):
-        sdraw.polygon(
-            [(x, 0), (x + 6, 0), (x + 6 + H, H), (x + H, H)],
-            fill=(255, 255, 255, 10),
-        )
-    img = Image.alpha_composite(img, stripe)
-    draw = ImageDraw.Draw(img)
-
-    # Fonts
-    def load_font(size):
-        for fname in (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "DejaVuSans-Bold.ttf",
-            "arial.ttf",
-        ):
-            try:
-                return ImageFont.truetype(fname, size)
-            except Exception:
-                continue
-        return ImageFont.load_default()
-
-    font_title  = load_font(64)
-    font_scope  = load_font(36)
-    font_sub    = load_font(20)
-    font_section = load_font(22)
-    font_rank   = load_font(24)
-    font_name   = load_font(19)
-    font_val    = load_font(19)
-    font_footer = load_font(18)
-
-    GOLD = (244, 196, 48, 255)
-    SOFT_GOLD = (255, 215, 0, 255)
-    WHITE = (245, 245, 250, 255)
-    DIM = (210, 195, 230, 255)
-    ROW_FILL = (62, 28, 110, 220)
-    ROW_FILL_ALT = (48, 20, 90, 220)
-    HIGHLIGHT = (158, 75, 250, 255)
-
-    # Header
-    draw.text((W // 2, 55), "🏅 LEADERBOARD 🏅", font=font_title, fill=GOLD, anchor="mm")
-    draw.text((W // 2, 110), scope_label, font=font_scope, fill=SOFT_GOLD, anchor="mm")
-    draw.text(
-        (W // 2, 150),
-        "Refreshed live every hour • Top 10 per category",
-        font=font_sub,
-        fill=DIM,
-        anchor="mm",
+    Each field is a top-10 list using rank-medal emoji + bold name +
+    monospaced value, kept under Discord's 1024-char-per-field cap."""
+    embed = discord.Embed(
+        title=f"{scope_emoji}  {scope_label}",
+        description="*Top 10 per category — refreshed every hour.*",
+        color=color,
     )
 
-    medal_colors = [
-        (255, 215, 0, 255),
-        (192, 192, 192, 255),
-        (205, 127, 50, 255),
-    ]
-    row_height = 38
-    row_gap = 3
-    section_gap = 20
-    section_title_height = 32
+    for cat in LEADERBOARD_CATEGORIES:
+        rows = gather_category_rows(cat, scope=scope, guild_id=guild_id, limit=10)
+        if not rows:
+            value = "_— no data yet —_"
+        else:
+            lines = []
+            for idx, (player, val_str) in enumerate(rows, start=1):
+                icon = _rank_icon(idx)
+                name_clip = (player or "?")[:18]
+                lines.append(f"{icon}  **{name_clip}** · `{val_str}`")
+            value = "\n".join(lines)
+            # Discord cap: 1024 chars per field
+            if len(value) > 1020:
+                value = value[:1020] + "…"
+        embed.add_field(name=cat["title"], value=value, inline=True)
 
-    def draw_chevron_row(x0, y0, w, h, fill, outline=None):
-        skew = 12
-        pts = [
-            (x0 + skew, y0),
-            (x0 + w, y0),
-            (x0 + w - skew, y0 + h),
-            (x0, y0 + h),
-        ]
-        draw.polygon(pts, fill=fill, outline=outline)
-
-    col_padding = 50
-    col_width = (W - 3 * col_padding) // 2  # 2 columns with inner padding
-    col_x = [col_padding, col_padding * 2 + col_width]
-    col_y_start = 200
-
-    # Categories split into two columns: left = combat/longshot (top 5),
-    # right = activity/deaths (bottom 5)
-    left_cats = LEADERBOARD_CATEGORIES[:5]
-    right_cats = LEADERBOARD_CATEGORIES[5:]
-
-    def draw_column(cats, x_start):
-        y = col_y_start
-        for cat in cats:
-            draw.text((x_start + 18, y), cat["title"], font=font_section, fill=SOFT_GOLD)
-            y += section_title_height
-
-            rows = gather_category_rows(cat, scope=scope, guild_id=guild_id, limit=10)
-            if not rows:
-                draw.text(
-                    (x_start + 30, y + 4),
-                    "— no data yet —",
-                    font=font_name,
-                    fill=DIM,
-                )
-                y += row_height + section_gap
-                continue
-
-            for rank, (player, value) in enumerate(rows, start=1):
-                row_y = y
-                fill = ROW_FILL if rank % 2 else ROW_FILL_ALT
-                draw_chevron_row(x_start, row_y, col_width, row_height, fill=fill)
-
-                tag_w = 56
-                if rank <= 3:
-                    tag_color = medal_colors[rank - 1]
-                    draw_chevron_row(x_start, row_y, tag_w, row_height, fill=tag_color)
-                    rank_color = (40, 18, 70, 255)
-                else:
-                    draw_chevron_row(x_start, row_y, tag_w, row_height, fill=HIGHLIGHT)
-                    rank_color = WHITE
-                draw.text(
-                    (x_start + tag_w // 2, row_y + row_height // 2),
-                    f"{rank:02d}",
-                    font=font_rank,
-                    fill=rank_color,
-                    anchor="mm",
-                )
-
-                name_clip = player[:18]
-                draw.text((x_start + tag_w + 18, row_y + row_height // 2 - 1),
-                          name_clip, font=font_name, fill=WHITE, anchor="lm")
-                draw.text((x_start + col_width - 18, row_y + row_height // 2 - 1),
-                          value, font=font_val, fill=GOLD, anchor="rm")
-                y += row_height + row_gap
-            y += section_gap
-
-    draw_column(left_cats, col_x[0])
-    draw_column(right_cats, col_x[1])
-
-    # Footer
-    draw.text(
-        (W // 2, H - 25),
-        "Wandering Bot Alpha • Live Leaderboard",
-        font=font_footer,
-        fill=DIM,
-        anchor="mm",
-    )
-
-    buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="PNG", optimize=True)
-    buf.seek(0)
-    return buf
+    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard")
+    embed.timestamp = datetime.now(UTC)
+    return style_embed(embed)
 
 
-def build_mega_leaderboard_embed(guild_id):
-    """Compact summary embed — the heavy visuals live in the attached
-    SERVER + GLOBAL PNGs. This is the description block / fallback."""
+def build_mega_leaderboard_summary_embed():
+    """Compact lead-in embed posted alongside the two scope embeds."""
     embed = discord.Embed(
         title="🏅 LIVE LEADERBOARDS — Server & Global",
         description=(
-            "Auto-refreshes **every hour**. The previous post is deleted on "
-            "each refresh.\n\n"
-            "**🏠 Server image** — top 10 on this server\n"
-            "**🌍 Global image** — top 10 across every Wandering Bot guild\n\n"
-            "**Categories:** ☠️ Kills · 💀 Deaths · ⏱️ Time Played · 🔨 Builds · "
+            "Auto-refreshes **every hour** — the previous post is deleted on each refresh.\n\n"
+            "**🏠 Server** — top 10 on this server\n"
+            "**🌍 Global** — top 10 across every Wandering Bot guild\n\n"
+            "**Tracked:** ☠️ Kills · 💀 Deaths · ⏱️ Time Played · 🔨 Builds · "
             "🔫 Kill Streak · 🎯 Longest Shot · 🤬 Swearing · 🚩 Flags · "
             "🐺 Animal Deaths · 🧟 Zombie Deaths"
         ),
         color=0xE67E22,
     )
-    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard • refreshes hourly")
+    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard • hourly")
     embed.timestamp = datetime.now(UTC)
     return style_embed(embed)
 
 
 async def post_or_update_mega_leaderboard(guild_id, config):
     """Delete the previous leaderboard message(s) and post a fresh one
-    with both SERVER and GLOBAL styled PNGs attached. Runs hourly."""
+    with three stacked embeds: summary header + Server scope + Global
+    scope. Runs hourly."""
     channels = config.get("channels", {})
     ch_id = channels.get("mega_leaderboard")
     if not ch_id:
@@ -22444,7 +22311,7 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     if not channel:
         return False, "channel not found"
 
-    # ── Delete previous bot messages in this channel ─────────────
+    # ── Delete previous bot messages we tracked ─────────────────
     last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
     for mid in last_ids:
         try:
@@ -22458,40 +22325,23 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     except Exception:
         pass
 
-    # ── Render both scopes in parallel-ish ──────────────────────
     guild_name = guild_configs.get(str(guild_id), {}).get("guild_name", "Server")
+
+    summary_embed = build_mega_leaderboard_summary_embed()
+    server_embed = build_scope_leaderboard_embed(
+        guild_id, "server",
+        f"{guild_name.upper()} — SERVER LEADERBOARD",
+        "🏠", 0x9B59B6,
+    )
+    global_embed = build_scope_leaderboard_embed(
+        guild_id, "global",
+        "GLOBAL LEADERBOARD — ALL SERVERS",
+        "🌍", 0xF1C40F,
+    )
+
+    # Discord allows up to 10 embeds per message — three is fine.
     try:
-        server_img = await asyncio.to_thread(
-            render_leaderboard_image, guild_id, "server", f"🏠 {guild_name.upper()}"
-        )
-    except Exception as render_err:
-        print(f"[LB IMG] server render failed for {guild_id}: {render_err}")
-        server_img = None
-    try:
-        global_img = await asyncio.to_thread(
-            render_leaderboard_image, guild_id, "global", "🌍 GLOBAL — ALL SERVERS"
-        )
-    except Exception as render_err:
-        print(f"[LB IMG] global render failed for {guild_id}: {render_err}")
-        global_img = None
-
-    embed = build_mega_leaderboard_embed(guild_id)
-
-    files = []
-    if server_img is not None:
-        server_img.seek(0)
-        files.append(discord.File(server_img, filename="server_leaderboard.png"))
-    if global_img is not None:
-        global_img.seek(0)
-        files.append(discord.File(global_img, filename="global_leaderboard.png"))
-
-    if files:
-        # Discord embeds only render one inline image. Pin the SERVER one to
-        # the embed; the GLOBAL one shows as the second attachment below.
-        embed.set_image(url="attachment://server_leaderboard.png")
-
-    try:
-        sent = await channel.send(embed=embed, files=files if files else None)
+        sent = await channel.send(embeds=[summary_embed, server_embed, global_embed])
     except Exception as send_err:
         print(f"[MEGA LEADERBOARD] send failed: {send_err}")
         return False, f"send failed: {send_err}"
