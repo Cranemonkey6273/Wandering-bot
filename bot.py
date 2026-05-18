@@ -77,6 +77,9 @@ PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
+LONGSHOT_RECORDS_FILE = data_path("longshot_records.json")
+RAMPAGE_TRACKER_FILE = data_path("rampage_tracker.json")
+FIRST_BLOOD_FILE = data_path("first_blood.json")
 SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
@@ -114,7 +117,13 @@ zone_keywords = {
     "Severograd": ["severo"]
 }
 player_stats = {}
-longshot_records = {}
+longshot_records = {}              # {guild_id: [longshot_dict, ...] sorted by distance desc, max 50}
+recent_kills_by_killer = {}        # {guild_id: {killer: [(timestamp, victim, weapon), ...]}} for rampage detection
+first_blood_today = {}             # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
+final_kill_today = {}              # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
+LONGSHOT_LEADERBOARD_LIMIT = 50    # max longshots stored per guild
+RAMPAGE_WINDOW_SECONDS = 60        # kills within this window count as a streak
+RAMPAGE_MIN_KILLS = 3              # min kills in the window to trigger a rampage embed
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
@@ -1682,26 +1691,75 @@ def build_topkills_grid_embed(guild):
 
 
 def build_longshots_grid_embed():
-    sorted_records = sorted(
-        longshot_records.items(),
-        key=lambda row: row[1].get("distance", 0),
-        reverse=True
-    )
+    """Top 10 longshots across all guilds — flat, ranked, with podium
+    icons, weapon, victim, distance and source server."""
+    flat = []
+    for guild_id, records in longshot_records.items():
+        if isinstance(records, list):
+            for entry in records:
+                if not isinstance(entry, dict):
+                    continue
+                flat.append((guild_id, entry))
+        elif isinstance(records, dict) and records.get("killer"):
+            flat.append((guild_id, records))
 
-    lines = ["#  Shooter               Dist   Server"]
-    for index, (guild_id, data) in enumerate(sorted_records[:10], start=1):
-        guild_name = guild_configs.get(guild_id, {}).get("guild_name", "Unknown Server")
-        lines.append(
-            f"{index:<2} {trim_table_text(data.get('killer'), 21)} {str(data.get('distance', 0)) + 'm':>6}  {trim_table_text(guild_name, 18).strip()}"
-        )
+    flat.sort(
+        key=lambda row: float(row[1].get("distance", 0) or 0),
+        reverse=True,
+    )
 
     embed = discord.Embed(
         title="🎯 GLOBAL LONGSHOT LEADERBOARD",
-        description="Longest confirmed shots across all connected servers.\n```text\n" + "\n".join(lines) + "\n```",
-        color=0xF1C40F
+        color=0xF1C40F,
+    )
+
+    if not flat:
+        embed.description = (
+            "No 300m+ shots recorded yet.\n\n"
+            "Once your ADM feed sees one, it'll show up here automatically and "
+            "persist across bot restarts."
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha — Longshot Intelligence")
+        return style_embed(embed)
+
+    description_lines = []
+    for index, (guild_id, entry) in enumerate(flat[:10], start=1):
+        icon = leaderboard_rank_icon(index)
+        killer = str(entry.get("killer", "Unknown"))[:24]
+        victim = str(entry.get("victim", "Unknown"))[:22]
+        weapon = str(entry.get("weapon", "Unknown"))[:24]
+        distance = float(entry.get("distance", 0) or 0)
+        guild_name = guild_configs.get(guild_id, {}).get("guild_name", "Server")
+        description_lines.append(
+            f"{icon} **`{distance:>5.1f}m`** — **{killer}** → {victim}\n"
+            f"      🔫 {weapon}  ·  🌍 *{guild_name[:24]}*"
+        )
+
+    embed.description = "\n\n".join(description_lines)
+    # Show #1 record-holder prominently in a field
+    top = flat[0][1]
+    embed.add_field(
+        name="🏆 Current Server Record-Holder",
+        value=(
+            f"**{top.get('killer', 'Unknown')}** at **{float(top.get('distance', 0) or 0):.1f}m**\n"
+            f"with **{top.get('weapon', 'Unknown')}** on *{top.get('victim', 'Unknown')}*"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📊 Total Longshots Tracked",
+        value=str(len(flat)),
+        inline=True,
+    )
+    embed.add_field(
+        name="🎯 Threshold",
+        value=f"{LONGSHOT_ANNOUNCE_METERS}m+",
+        inline=True,
     )
     embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Longshot Intelligence")
+    embed.set_footer(text="Wandering Bot Alpha — Longshot Intelligence")
+    embed.timestamp = datetime.now(UTC)
     return style_embed(embed)
 
 
@@ -4681,6 +4739,55 @@ def load_player_stats():
 
 def save_player_stats():
     save_json(PLAYER_STATS_FILE, player_stats)
+
+
+def load_longshot_records():
+    """Load top-N longshots per guild from disk. Migrates the legacy
+    single-record-per-guild format (where each value was a dict of one
+    longshot) into the new list-of-longshots format."""
+    global longshot_records
+    raw = load_json(LONGSHOT_RECORDS_FILE)
+    migrated = {}
+    for guild_id, value in (raw or {}).items():
+        if isinstance(value, list):
+            migrated[str(guild_id)] = value
+        elif isinstance(value, dict) and value.get("killer"):
+            migrated[str(guild_id)] = [value]
+        else:
+            migrated[str(guild_id)] = []
+    longshot_records = migrated
+
+
+def save_longshot_records():
+    save_json(LONGSHOT_RECORDS_FILE, longshot_records)
+
+
+def load_first_blood():
+    global first_blood_today, final_kill_today
+    data = load_json(FIRST_BLOOD_FILE)
+    first_blood_today = data.get("first_blood", {}) if isinstance(data, dict) else {}
+    final_kill_today = data.get("final_kill", {}) if isinstance(data, dict) else {}
+
+
+def save_first_blood():
+    save_json(FIRST_BLOOD_FILE, {
+        "first_blood": first_blood_today,
+        "final_kill": final_kill_today,
+    })
+
+
+def record_longshot(guild_id, longshot_dict):
+    """Append a new longshot to the guild's list, keep sorted desc by
+    distance, cap at LONGSHOT_LEADERBOARD_LIMIT. Returns True if the new
+    shot is a new server record (i.e., it's now #1)."""
+    gid = str(guild_id)
+    records = longshot_records.setdefault(gid, [])
+    records.append(longshot_dict)
+    records.sort(key=lambda r: float(r.get("distance", 0) or 0), reverse=True)
+    if len(records) > LONGSHOT_LEADERBOARD_LIMIT:
+        del records[LONGSHOT_LEADERBOARD_LIMIT:]
+    save_longshot_records()
+    return records[0] is longshot_dict
 
 
 def load_heatmap():
@@ -8752,23 +8859,115 @@ async def parse_adm(guild_id, config):
                     embed=embed
                 )
 
-                guild_longshot = longshot_records.get(guild_id, {
-                    "killer": "None",
-                    "distance": 0,
-                    "weapon": "Unknown"
-                })
+                guild_longshot_records = longshot_records.get(guild_id, [])
+                current_record_distance = float(
+                    guild_longshot_records[0].get("distance", 0)
+                ) if guild_longshot_records else 0
 
-                is_new_record = distance > guild_longshot.get("distance", 0)
+                is_new_record = distance > current_record_distance
                 is_longshot = distance >= LONGSHOT_ANNOUNCE_METERS
 
-                if is_new_record:
+                # PR #12 adds extract_adm_event_time(line) for true
+                # in-game timestamps. Until that merges, fall back to
+                # "now" — works in both worlds since record_longshot,
+                # rampage detection and first-blood only need *a*
+                # reasonable timestamp.
+                event_time = datetime.now(UTC)
 
-                    longshot_records[guild_id] = {
+                if is_longshot:
+                    # Persist every 300m+ shot — not just the single
+                    # current server record. This is what makes the
+                    # leaderboard actually populate.
+                    record_longshot(guild_id, {
                         "killer": killer,
                         "victim": victim,
                         "distance": distance,
-                        "weapon": weapon
+                        "weapon": weapon,
+                        "coords": coords,
+                        "time": event_time.isoformat() if event_time else datetime.now(UTC).isoformat(),
+                    })
+
+                # ─── First-blood / Final-kill of the day ─────────────
+                today_key = event_time.date().isoformat() if event_time else datetime.now(UTC).date().isoformat()
+                fb_record = first_blood_today.get(guild_id) or {}
+                if fb_record.get("date") != today_key:
+                    first_blood_today[guild_id] = {
+                        "date": today_key,
+                        "killer": killer,
+                        "victim": victim,
+                        "weapon": weapon,
+                        "distance": distance,
+                        "coords": coords,
+                        "time": (event_time or datetime.now(UTC)).isoformat(),
                     }
+                    save_first_blood()
+                    if killfeed_channel:
+                        fb_embed = discord.Embed(
+                            title="🥇 FIRST BLOOD OF THE DAY",
+                            description=f"**{killer}** opens the day with a kill on **{victim}** at the worst possible moment for everyone else.",
+                            color=0xC0392B,
+                        )
+                        fb_embed.add_field(name="Weapon", value=weapon, inline=True)
+                        if distance > 0:
+                            fb_embed.add_field(name="Distance", value=f"{distance}m", inline=True)
+                        fb_embed.set_thumbnail(url=BOT_IMAGE)
+                        fb_embed.set_footer(text="Wandering Bot Alpha — First Blood Tracker")
+                        fb_embed.timestamp = event_time or datetime.now(UTC)
+                        try:
+                            await killfeed_channel.send(embed=style_embed(fb_embed))
+                        except Exception:
+                            pass
+
+                # Always update final-kill (last kill seen for this date)
+                final_kill_today[guild_id] = {
+                    "date": today_key,
+                    "killer": killer,
+                    "victim": victim,
+                    "weapon": weapon,
+                    "distance": distance,
+                    "coords": coords,
+                    "time": (event_time or datetime.now(UTC)).isoformat(),
+                }
+                save_first_blood()
+
+                # ─── Multi-kill / Rampage detection ──────────────────
+                now_ts = (event_time or datetime.now(UTC)).timestamp()
+                guild_kill_log = recent_kills_by_killer.setdefault(guild_id, {})
+                killer_kills = guild_kill_log.setdefault(killer, [])
+                # purge stale entries outside the rolling window
+                killer_kills[:] = [
+                    k for k in killer_kills
+                    if now_ts - k.get("ts", 0) <= RAMPAGE_WINDOW_SECONDS
+                ]
+                killer_kills.append({"ts": now_ts, "victim": victim, "weapon": weapon})
+                streak_size = len(killer_kills)
+                # Only post on exact thresholds 3, 4, 5+ to avoid spam
+                if streak_size >= RAMPAGE_MIN_KILLS and killfeed_channel:
+                    streak_titles = {
+                        3: ("🔥 TRIPLE KILL", 0xE67E22),
+                        4: ("💥 QUAD KILL", 0xE74C3C),
+                        5: ("🔥💥 RAMPAGE — 5 KILLS", 0xC0392B),
+                    }
+                    title, color = streak_titles.get(streak_size, (f"💀 UNSTOPPABLE — {streak_size} KILLS", 0x8E44AD))
+                    desc_lines = [
+                        f"**{killer}** is on a tear — **{streak_size}** kills in under {RAMPAGE_WINDOW_SECONDS} seconds.",
+                        "",
+                        "**Victims:**",
+                    ]
+                    for k in killer_kills[-streak_size:]:
+                        desc_lines.append(f"• {k['victim']} ({k['weapon']})")
+                    streak_embed = discord.Embed(
+                        title=title,
+                        description="\n".join(desc_lines),
+                        color=color,
+                    )
+                    streak_embed.set_thumbnail(url=BOT_IMAGE)
+                    streak_embed.set_footer(text=f"Wandering Bot Alpha — Multi-Kill Window {RAMPAGE_WINDOW_SECONDS}s")
+                    streak_embed.timestamp = event_time or datetime.now(UTC)
+                    try:
+                        await killfeed_channel.send(embed=style_embed(streak_embed))
+                    except Exception:
+                        pass
 
                 if is_longshot or is_new_record:
 
@@ -20259,6 +20458,98 @@ async def slash_radarping(interaction: discord.Interaction, x: str, y: str, reas
 @bot.tree.command(name="admstatus", description="Admin: show ADM feed status")
 @app_commands.default_permissions(administrator=True)
 async def slash_admstatus(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "admstatus")
+
+
+@bot.tree.command(name="whoami", description="Show what level of bot-admin access you have and what's linked to you")
+async def slash_whoami(interaction: discord.Interaction):
+    """Diagnostic command — shows every reason the bot thinks (or doesn't
+    think) you're an admin, plus your linked gamertag and basic stats.
+    Useful for figuring out 'why can/can't this person use /pvecomplete?'
+    questions without trial and error."""
+    member = interaction.user
+    guild = interaction.guild
+    guild_id = str(guild.id) if guild else None
+
+    # Compute every admin tier
+    is_global_owner = is_global_bot_owner_id(getattr(member, "id", ""))
+    is_guild_owner = bool(guild and getattr(guild, "owner_id", None) == getattr(member, "id", None))
+    has_admin_perm = bool(getattr(getattr(member, "guild_permissions", None), "administrator", False))
+
+    matching_admin_roles = []
+    if guild_id:
+        config = guild_configs.get(guild_id, {}) or {}
+        admin_roles = config.get("admin_roles", DEFAULT_ADMIN_ROLES)
+        admin_role_set = {str(name).strip().lower() for name in (admin_roles or [])}
+        for role in getattr(member, "roles", []) or []:
+            if str(getattr(role, "name", "")).strip().lower() in admin_role_set:
+                matching_admin_roles.append(role.name)
+
+    is_bot_admin = is_global_owner or is_guild_owner or has_admin_perm or bool(matching_admin_roles)
+    can_modify_roles = is_global_owner or is_guild_owner or has_admin_perm
+
+    embed = discord.Embed(
+        title=f"🪪 {member.display_name}",
+        description=(
+            "🟢 **You ARE a bot admin.**" if is_bot_admin
+            else "🔴 **You are NOT a bot admin.**"
+        ),
+        color=0x2ECC71 if is_bot_admin else 0x95A5A6,
+    )
+
+    perms_lines = []
+    perms_lines.append(("✅" if is_global_owner else "⬜") + " Global bot owner ID")
+    perms_lines.append(("✅" if is_guild_owner else "⬜") + " Discord guild owner")
+    perms_lines.append(("✅" if has_admin_perm else "⬜") + " Discord `Administrator` permission")
+    if matching_admin_roles:
+        perms_lines.append("✅ Bot `admin_roles` match: " + ", ".join(f"`{r}`" for r in matching_admin_roles))
+    else:
+        perms_lines.append("⬜ Bot `admin_roles` match — none of your roles are in the configured list")
+    embed.add_field(
+        name="🔐 Admin power sources",
+        value="\n".join(perms_lines),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="✏️ Can modify admin roles? (`/extra setadminrole` etc.)",
+        value="✅ Yes" if can_modify_roles else "❌ No (requires Discord admin / guild owner / bot owner)",
+        inline=False,
+    )
+
+    # Linked gamertag + stats
+    discord_id = str(member.id)
+    linked_player = None
+    for player_name, info in linked_players.items():
+        if str(info.get("discord_id", "")) == discord_id:
+            linked_player = (player_name, info)
+            break
+    if linked_player:
+        player_name, info = linked_player
+        stats = player_stats.get(player_name, {})
+        embed.add_field(
+            name="🎮 Linked gamertag",
+            value=f"**`{player_name}`** — linked since <t:{int(info.get('linked_at', 0))}:R>" if info.get("linked_at") else f"**`{player_name}`**",
+            inline=False,
+        )
+        kills = stat_int(stats, "kills") if stats else 0
+        deaths = stat_int(stats, "deaths") if stats else 0
+        kd = kills if deaths == 0 else round(kills / max(1, deaths), 2)
+        embed.add_field(name="☠️ Kills", value=str(kills), inline=True)
+        embed.add_field(name="💀 Deaths", value=str(deaths), inline=True)
+        embed.add_field(name="⚖️ K/D", value=str(kd), inline=True)
+    else:
+        embed.add_field(
+            name="🎮 Linked gamertag",
+            value="❌ No gamertag linked yet — run `/linkgamer <your in-game name>` to start tracking stats.",
+            inline=False,
+        )
+
+    embed.set_thumbnail(url=getattr(member.display_avatar, "url", BOT_IMAGE))
+    embed.set_footer(text="Wandering Bot Alpha — Identity Check")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
 @extra_tools_group.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
 @app_commands.default_permissions(administrator=True)
 async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
@@ -20720,6 +21011,8 @@ async def on_ready():
     load_support_tickets()
     load_factions()
     load_pve_challenges()
+    load_longshot_records()
+    load_first_blood()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
