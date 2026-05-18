@@ -21970,10 +21970,66 @@ def nitrado_send_chat(config, message):
         return False, f"Request failed: {error}"
 
 
-@extra_tools_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
+@extra_tools_group.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
+@app_commands.default_permissions(administrator=True)
+async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
+@bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(force="Reprocess recent ADM lines")
+async def slash_restartadm(interaction: discord.Interaction, force: bool = False):
+    await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no")
+@bot.tree.command(name="restartserver", description="Restart server")
+@app_commands.default_permissions(administrator=True)
+async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
+
+
+# =========================================================
+# /server group — server admin (restarts, base damage, in-game chat)
+# =========================================================
+
+server_group = app_commands.Group(
+    name="server",
+    description="DayZ server admin tools (restart schedule, base damage, in-game chat)",
+)
+
+
+@server_group.command(name="togglebasedamage", description="Toggle base damage on/off via Nitrado")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(state="on or off")
+async def slash_server_togglebasedamage(interaction: discord.Interaction, state: str):
+    await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
+
+
+@server_group.command(name="setrestartinterval", description="Set the server restart interval (hours)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(hours="Hours 1-24")
+async def slash_server_setrestartinterval(interaction: discord.Interaction, hours: int):
+    await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
+
+
+@server_group.command(name="setrestartstart", description="Set the first daily restart hour (UTC)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(hour="Hour 0-23")
+async def slash_server_setrestartstart(interaction: discord.Interaction, hour: int):
+    await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
+
+
+@server_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
+@app_commands.default_permissions(administrator=True)
+async def slash_server_cancelrestarts(interaction: discord.Interaction):
+    await run_legacy_as_slash(interaction, "cancelrestarts")
+
+
+@server_group.command(name="listrestarts", description="List the current restart schedule")
+@app_commands.default_permissions(administrator=True)
+async def slash_server_listrestarts(interaction: discord.Interaction):
+    await run_legacy_as_slash(interaction, "listrestarts")
+
+
+@server_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(message="Text to broadcast in-game (max 240 chars)")
-async def slash_sendmessage(interaction: discord.Interaction, message: str):
+async def slash_server_sendmessage(interaction: discord.Interaction, message: str):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
@@ -21991,41 +22047,12 @@ async def slash_sendmessage(interaction: discord.Interaction, message: str):
         await interaction.followup.send(
             "❌ Could not send in-game broadcast.\n"
             f"```\n{info}\n```\n"
-            "Note: some Nitrado plans / consoles do not expose the chat endpoint. "
-            "You may need to use the Nitrado web console instead.",
+            "Note: some Nitrado plans / consoles do not expose the chat endpoint.",
             ephemeral=True,
         )
 
 
-@extra_tools_group.command(name="reloadguilds", description="Admin: reload saved guild configs after redeploy")
-@app_commands.default_permissions(administrator=True)
-async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
-@bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(force="Reprocess recent ADM lines")
-async def slash_restartadm(interaction: discord.Interaction, force: bool = False):
-    await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no")
-@bot.tree.command(name="restartserver", description="Restart server")
-@app_commands.default_permissions(administrator=True)
-async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
-@extra_tools_group.command(name="togglebasedamage", description="Toggle base damage on/off via Nitrado")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(state="on or off")
-async def slash_togglebasedamage(interaction: discord.Interaction, state: str): await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
-@extra_tools_group.command(name="setrestartinterval", description="Set the server restart interval (hours)")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(hours="Hours 1-24")
-async def slash_setrestartinterval(interaction: discord.Interaction, hours: int): await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
-@extra_tools_group.command(name="setrestartstart", description="Set the first daily restart hour (UTC)")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(hour="Hour 0-23")
-async def slash_setrestartstart(interaction: discord.Interaction, hour: int): await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
-@extra_tools_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
-@app_commands.default_permissions(administrator=True)
-async def slash_cancelrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "cancelrestarts")
-@extra_tools_group.command(name="listrestarts", description="List the current restart schedule")
-@app_commands.default_permissions(administrator=True)
-async def slash_listrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "listrestarts")
+bot.tree.add_command(server_group)
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
