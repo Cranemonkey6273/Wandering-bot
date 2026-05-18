@@ -14202,6 +14202,9 @@ async def start_background_tasks():
         if not recap_loop.is_running():
             recap_loop.start()
 
+        if not mega_leaderboard_loop.is_running():
+            mega_leaderboard_loop.start()
+
     except RuntimeError:
         pass
 
@@ -21474,6 +21477,212 @@ bot.tree.add_command(bounty_group)
 
 
 # =========================================================
+# 🏅 LIVE LEADERBOARD (bounty hunters / streaks / rampage kings)
+# =========================================================
+
+last_mega_leaderboard_message_ids = {}
+
+
+def build_mega_leaderboard_embed(guild_id):
+    gid = str(guild_id)
+    # Top bounty hunters (by bounty_earnings)
+    bounty_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("bounty_earnings", 0) or 0) > 0],
+        key=lambda row: int(row[1].get("bounty_earnings", 0) or 0),
+        reverse=True,
+    )[:10]
+    # Longest current survival streaks
+    streak_rows_all = (survival_streaks.get(gid) or {}).items()
+    streak_rows = sorted(
+        [(p, s) for p, s in streak_rows_all if int(s.get("current_days", 0) or 0) > 0],
+        key=lambda row: int(row[1].get("current_days", 0) or 0),
+        reverse=True,
+    )[:10]
+    # Top rampage kings (career rampages)
+    rampage_rows = sorted(
+        [(p, s) for p, s in player_stats.items() if str(s.get("guild_id", "")) == gid and int(s.get("rampages", 0) or 0) > 0],
+        key=lambda row: (int(row[1].get("rampages", 0) or 0), int(row[1].get("multikill_best", 0) or 0)),
+        reverse=True,
+    )[:10]
+
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    def fmt(rows, get_value, suffix=""):
+        if not rows:
+            return "_No data yet. The next kill could put someone on the board._"
+        out = []
+        for idx, (player, stats) in enumerate(rows, start=1):
+            icon = medals[idx - 1] if idx <= len(medals) else f"`{idx}.`"
+            value = get_value(stats)
+            out.append(f"{icon} **{player}** — `{value}{suffix}`")
+        return "\n".join(out)
+
+    embed = discord.Embed(
+        title="🏅 LIVE SERVER LEADERBOARD",
+        description=(
+            "Auto-refreshes every 10 minutes. "
+            "Top bounty hunters, longest survival streaks, and rampage kings on this server."
+        ),
+        color=0xE67E22,
+    )
+    embed.add_field(
+        name="💰 Top Bounty Hunters",
+        value=fmt(bounty_rows, lambda s: f"{int(s.get('bounty_earnings', 0) or 0):,} {BOUNTY_CURRENCY}"),
+        inline=False,
+    )
+    embed.add_field(
+        name="🩸 Longest Survival Streaks (current)",
+        value=fmt(
+            streak_rows,
+            lambda s: f"{int(s.get('current_days', 0) or 0)}d (best {int(s.get('longest_days', 0) or 0)}d)",
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🔥 Rampage Kings (career)",
+        value=fmt(
+            rampage_rows,
+            lambda s: f"{int(s.get('rampages', 0) or 0)} rampage(s) · best {int(s.get('multikill_best', 0) or 0)}",
+        ),
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha — Live Leaderboard • refreshes every 10 minutes")
+    embed.timestamp = datetime.now(UTC)
+    return style_embed(embed)
+
+
+async def post_or_update_mega_leaderboard(guild_id, config):
+    channels = config.get("channels", {})
+    ch_id = channels.get("mega_leaderboard")
+    if not ch_id:
+        return False, "no channel configured"
+    channel = bot.get_channel(ch_id)
+    if not channel:
+        return False, "channel not found"
+    embed = build_mega_leaderboard_embed(guild_id)
+    # Try to edit the existing message; if it's gone, purge & repost.
+    last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
+    if last_ids:
+        try:
+            msg = await channel.fetch_message(last_ids[0])
+            await msg.edit(embed=embed)
+            return True, "edited"
+        except Exception:
+            pass
+    try:
+        await purge_self_dashboard_messages(channel, limit=20)
+    except Exception:
+        pass
+    sent = await channel.send(embed=embed)
+    try:
+        await sent.pin()
+    except Exception:
+        pass
+    last_mega_leaderboard_message_ids[str(guild_id)] = [sent.id]
+    return True, "posted"
+
+
+@tasks.loop(minutes=10)
+async def mega_leaderboard_loop():
+    for guild_id, config in active_guild_config_items():
+        try:
+            await post_or_update_mega_leaderboard(guild_id, config)
+        except Exception as error:
+            print(f"[MEGA LEADERBOARD] {guild_id} failed: {error}")
+
+
+leaderboard_group = app_commands.Group(
+    name="leaderboard",
+    description="Live auto-updating leaderboard (bounty hunters, streaks, rampages)",
+)
+
+
+@leaderboard_group.command(name="setup", description="Set the channel for the live leaderboard message")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel="Channel where the auto-updating leaderboard message lives (defaults to current channel)")
+async def slash_leaderboard_setup(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    target = channel or interaction.channel
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    config.setdefault("channels", {})["mega_leaderboard"] = target.id
+    # Reset cached message id so we post a brand-new pinned message
+    last_mega_leaderboard_message_ids.pop(guild_id, None)
+    save_guild_configs()
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    if ok:
+        await interaction.followup.send(
+            f"✅ Live leaderboard set up in {target.mention}. "
+            f"It will refresh **every 10 minutes** automatically and stays pinned.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.followup.send(
+            f"⚠️ Channel saved but initial post failed: `{info}`. "
+            f"It will retry on the next refresh tick.",
+            ephemeral=True,
+        )
+
+
+@leaderboard_group.command(name="refresh", description="Force-refresh the live leaderboard now")
+@app_commands.default_permissions(administrator=True)
+async def slash_leaderboard_refresh(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    if not config.get("channels", {}).get("mega_leaderboard"):
+        await interaction.response.send_message(
+            "No live-leaderboard channel set. Run `/leaderboard setup` first.",
+            ephemeral=True,
+        )
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    await interaction.followup.send(
+        f"✅ Refreshed (`{info}`)." if ok else f"❌ Refresh failed: `{info}`",
+        ephemeral=True,
+    )
+
+
+@leaderboard_group.command(name="unset", description="Disable the live leaderboard for this guild")
+@app_commands.default_permissions(administrator=True)
+async def slash_leaderboard_unset(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    channels = config.get("channels", {})
+    if "mega_leaderboard" in channels:
+        channels.pop("mega_leaderboard", None)
+        save_guild_configs()
+        last_mega_leaderboard_message_ids.pop(guild_id, None)
+        await interaction.response.send_message(
+            "✅ Live leaderboard disabled. The pinned message will stop updating "
+            "(you can delete it manually whenever you like).",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            "Live leaderboard wasn't configured for this guild.",
+            ephemeral=True,
+        )
+
+
+bot.tree.add_command(leaderboard_group)
+
+
+# =========================================================
 # /recap — daily / weekly recap (manual)
 # =========================================================
 
@@ -21565,7 +21774,7 @@ def build_weekly_recap_embed(guild_id):
     return style_embed(embed)
 
 
-@bot.tree.command(name="recap", description="Show the daily or weekly server recap")
+@extra_tools_group.command(name="recap", description="Show the daily or weekly server recap")
 @app_commands.describe(period="today / yesterday / week")
 @app_commands.choices(period=[
     app_commands.Choice(name="today", value="today"),
@@ -21696,7 +21905,7 @@ async def recap_loop():
 # /spectator — live snapshot of online players + recent kills
 # =========================================================
 
-@bot.tree.command(name="spectator", description="Live snapshot: who's online + recent kills + active hotspots")
+@extra_tools_group.command(name="spectator", description="Live snapshot: who's online + recent kills + active hotspots")
 async def slash_spectator(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id) if interaction.guild else ""
     online = sorted(online_players.get(guild_id, set()))
@@ -21761,7 +21970,7 @@ def nitrado_send_chat(config, message):
         return False, f"Request failed: {error}"
 
 
-@bot.tree.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
+@extra_tools_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(message="Text to broadcast in-game (max 240 chars)")
 async def slash_sendmessage(interaction: discord.Interaction, message: str):
@@ -21799,27 +22008,24 @@ async def slash_restartadm(interaction: discord.Interaction, force: bool = False
 @bot.tree.command(name="restartserver", description="Restart server")
 @app_commands.default_permissions(administrator=True)
 async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
-@bot.tree.command(name="togglebasedamage", description="Toggle base damage")
+@extra_tools_group.command(name="togglebasedamage", description="Toggle base damage on/off via Nitrado")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(state="on or off")
 async def slash_togglebasedamage(interaction: discord.Interaction, state: str): await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
-@bot.tree.command(name="setrestartinterval", description="Set restart interval")
+@extra_tools_group.command(name="setrestartinterval", description="Set the server restart interval (hours)")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(hours="Hours 1-24")
 async def slash_setrestartinterval(interaction: discord.Interaction, hours: int): await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
-@bot.tree.command(name="setrestartstart", description="Set restart start hour UTC")
+@extra_tools_group.command(name="setrestartstart", description="Set the first daily restart hour (UTC)")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(hour="Hour 0-23")
 async def slash_setrestartstart(interaction: discord.Interaction, hour: int): await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
-@bot.tree.command(name="cancelrestarts", description="Admin: disable recurring server restart schedule")
+@extra_tools_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
 @app_commands.default_permissions(administrator=True)
 async def slash_cancelrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "cancelrestarts")
-@bot.tree.command(name="listrestarts", description="List restart schedule")
+@extra_tools_group.command(name="listrestarts", description="List the current restart schedule")
 @app_commands.default_permissions(administrator=True)
 async def slash_listrestarts(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "listrestarts")
-@bot.tree.command(name="playerstats", description="Lookup player stats")
-@app_commands.describe(player_name="Player name")
-async def slash_playerstats(interaction: discord.Interaction, player_name: str): await run_legacy_as_slash(interaction, "playerstats", player_name=player_name)
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
