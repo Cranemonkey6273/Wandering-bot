@@ -18,6 +18,7 @@ import discord
 import socket
 
 from datetime import datetime, UTC, timedelta
+from collections import OrderedDict
 from discord.ext import commands, tasks
 from discord import app_commands
 
@@ -89,6 +90,14 @@ DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "
 
 guild_configs = {}
 processed_lines = {}
+# Per-guild asyncio.Lock so two ADM scans for the same guild can never
+# overlap (which used to cause the same log line to be posted twice).
+adm_scan_locks = {}
+# Maximum number of recently-seen ADM line hashes to keep per guild.
+# Must be high enough that lines still inside the `lines[-250:]` parse
+# window remain in cache between scans, even on a quiet server where
+# the same lines linger in that window for a long time.
+PROCESSED_ADM_CACHE_LIMIT = 5000
 online_players = {}
 player_last_coords = {}
 player_online_times = {}
@@ -2897,15 +2906,62 @@ def is_global_bot_owner_id(user_id):
 
 
 def has_member_admin_power(member):
+    if not member:
+        return False
+
     if is_global_bot_owner_id(getattr(member, "id", "")):
+        return True
+
+    guild = getattr(member, "guild", None)
+    if guild is not None and getattr(guild, "owner_id", None) == getattr(member, "id", None):
+        return True
+
+    permissions = getattr(member, "guild_permissions", None)
+    if bool(getattr(permissions, "administrator", False)):
+        return True
+
+    # Check configured bot `admin_roles` for this guild (alternate admin role system).
+    if guild is not None:
+        config = guild_configs.get(str(guild.id), {}) or {}
+        admin_roles = config.get("admin_roles", DEFAULT_ADMIN_ROLES)
+        if admin_roles:
+            admin_role_set = {str(name).strip().lower() for name in admin_roles if str(name).strip()}
+            member_roles = getattr(member, "roles", []) or []
+            for role in member_roles:
+                if str(getattr(role, "name", "")).strip().lower() in admin_role_set:
+                    return True
+
+    return False
+
+
+def has_interaction_admin_power(interaction):
+    return has_member_admin_power(getattr(interaction, "user", None))
+
+
+def can_modify_admin_roles(member):
+    """Strict gate for editing the bot's admin_roles list.
+
+    Only the global bot owner, the Discord guild owner, or a member with the
+    native Discord `Administrator` permission may add/remove bot admin roles.
+    A member who only has bot admin power via the `admin_roles` config CANNOT
+    use this to escalate themselves or others.
+    """
+    if not member:
+        return False
+
+    if is_global_bot_owner_id(getattr(member, "id", "")):
+        return True
+
+    guild = getattr(member, "guild", None)
+    if guild is not None and getattr(guild, "owner_id", None) == getattr(member, "id", None):
         return True
 
     permissions = getattr(member, "guild_permissions", None)
     return bool(getattr(permissions, "administrator", False))
 
 
-def has_interaction_admin_power(interaction):
-    return has_member_admin_power(getattr(interaction, "user", None))
+def can_modify_admin_roles_interaction(interaction):
+    return can_modify_admin_roles(getattr(interaction, "user", None))
 
 
 def owner_voice_config(guild_id):
@@ -4498,25 +4554,41 @@ def load_processed_adm_lines():
 
     for guild_id, hashes in data.items():
         if isinstance(hashes, list):
-            processed_lines[str(guild_id)] = set(str(item) for item in hashes)
+            # Use an OrderedDict as an insertion-ordered set so trimming
+            # always evicts the oldest entries, never random ones.
+            ordered = OrderedDict()
+            for item in hashes:
+                ordered[str(item)] = None
+            processed_lines[str(guild_id)] = ordered
 
 
 def save_processed_adm_lines():
     data = {}
 
     for guild_id, hashes in processed_lines.items():
-        hash_list = list(hashes)
-        data[guild_id] = hash_list[-1000:]
+        # `hashes` is an OrderedDict; keep the most recent
+        # PROCESSED_ADM_CACHE_LIMIT keys for crash recovery.
+        keys = list(hashes.keys()) if isinstance(hashes, OrderedDict) else list(hashes)
+        data[guild_id] = keys[-PROCESSED_ADM_CACHE_LIMIT:]
 
     save_json(PROCESSED_ADM_FILE, data)
 
 
 def remember_processed_line(guild_id, line_hash):
     ensure_guild_runtime(guild_id)
-    processed_lines[guild_id].add(line_hash)
+    cache = processed_lines[guild_id]
 
-    if len(processed_lines[guild_id]) > 1000:
-        processed_lines[guild_id] = set(list(processed_lines[guild_id])[-1000:])
+    # Move to end if it already existed; otherwise insert at the end.
+    # Either way, the entry is now the "most recently seen" so it will
+    # be the last to be evicted by the FIFO trim below.
+    if line_hash in cache:
+        cache.move_to_end(line_hash)
+    else:
+        cache[line_hash] = None
+
+    # Deterministic FIFO trim: drop the oldest entries until at limit.
+    while len(cache) > PROCESSED_ADM_CACHE_LIMIT:
+        cache.popitem(last=False)
 
     save_processed_adm_lines()
 
@@ -4607,7 +4679,11 @@ def zone_from_coords(coords):
 def ensure_guild_runtime(guild_id):
 
     if guild_id not in processed_lines:
-        processed_lines[guild_id] = set()
+        processed_lines[guild_id] = OrderedDict()
+    elif not isinstance(processed_lines[guild_id], OrderedDict):
+        # Migrate any legacy `set` cache to OrderedDict on the fly.
+        legacy = processed_lines[guild_id]
+        processed_lines[guild_id] = OrderedDict((str(item), None) for item in legacy)
 
     if guild_id not in online_players:
         online_players[guild_id] = set()
@@ -8508,13 +8584,29 @@ async def parse_adm(guild_id, config):
 
 async def refresh_adm_for_guild(guild_id, config, *, force=False):
 
+    guild_id = str(guild_id)
+
+    # Per-guild lock prevents two concurrent ADM scans from racing each
+    # other and posting the same line twice before either has marked it
+    # as processed. Concurrent triggers used to come from: adm_loop (every
+    # 3 min), on_ready re-firing on reconnect, !restartadm, /forcerefresh.
+    lock = adm_scan_locks.setdefault(guild_id, asyncio.Lock())
+    if lock.locked():
+        return False, "ADM scan already in progress for this guild"
+
+    async with lock:
+        return await _refresh_adm_for_guild_locked(guild_id, config, force=force)
+
+
+async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
+
     ensure_guild_runtime(guild_id)
 
     if is_showcase_guild(guild_id):
         return False, "Showcase guild skipped; no ADM setup needed"
 
     if force:
-        processed_lines[guild_id] = set()
+        processed_lines[guild_id] = OrderedDict()
         save_processed_adm_lines()
 
     required_keys = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
@@ -9652,7 +9744,8 @@ async def topkills(ctx):
 @bot.command()
 async def setadminrole(ctx, *, role_name: str):
 
-    if not has_member_admin_power(ctx.author):
+    if not can_modify_admin_roles(ctx.author):
+        await ctx.send("Only a Discord administrator or the guild owner can change bot admin roles.")
         return
 
     role = resolve_guild_role(ctx.guild, role_name)
@@ -9683,7 +9776,8 @@ async def setadminrole(ctx, *, role_name: str):
 @bot.command()
 async def addstaffrole(ctx, *, role_name: str):
 
-    if not has_member_admin_power(ctx.author):
+    if not can_modify_admin_roles(ctx.author):
+        await ctx.send("Only a Discord administrator or the guild owner can change bot admin roles.")
         return
 
     role = resolve_guild_role(ctx.guild, role_name)
@@ -14284,6 +14378,43 @@ def scenario_event_mode_text(event):
     return f"{remaining} restart(s)"
 
 
+async def auto_push_scenario_events_xml(guild_id, config):
+    """Push merged events.xml / cfgeventspawns.xml / cfgspawnabletypes.xml to
+    Nitrado right after an admin creates a new scenario event.
+
+    Returns a tuple (success, status_text) where `status_text` is a human-
+    readable string suitable for embed descriptions. Does NOT consume the
+    event's restart counter — the normal restart processor handles that on
+    the actual server restart.
+    """
+    try:
+        upload_success, _, upload_messages = await asyncio.to_thread(
+            upload_console_ce_event_files,
+            guild_id,
+            config,
+            "",
+            "",
+            "",
+            False,
+        )
+    except Exception as upload_error:
+        return False, (
+            "⚠️ Event created but auto-upload to Nitrado FAILED — it will NOT appear "
+            f"on the server until you run `/events uploadce`. Reason: {upload_error}"
+        )
+
+    if upload_success:
+        return True, (
+            "✅ XML uploaded to Nitrado. Event will appear after the next server restart."
+        )
+
+    last_msg = upload_messages[-1] if upload_messages else "no message"
+    return False, (
+        "⚠️ Event created but auto-upload to Nitrado FAILED — it will NOT appear "
+        f"on the server until you run `/events uploadce`. Reason: {last_msg}"
+    )
+
+
 def restart_count_fields(restarts=1):
     try:
         restarts = int(restarts or 1)
@@ -18153,10 +18284,12 @@ async def event_create(
     events.append(event_record)
     save_guild_configs()
 
+    upload_success, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+
     embed = discord.Embed(
         title="SCENARIO EVENT CREATED",
-        description="This is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
-        color=0xE67E22
+        description=upload_status,
+        color=0x2ECC71 if upload_success else 0xE74C3C
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Mode", value=scenario_event_mode_text(event_record), inline=True)
@@ -18251,7 +18384,13 @@ async def event_horde(
     scenario_events_for_config(config).append(event_record)
     save_guild_configs()
 
-    embed = discord.Embed(title="HORDE EVENT CREATED", color=0xE74C3C)
+    upload_success, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+
+    embed = discord.Embed(
+        title="HORDE EVENT CREATED",
+        description=upload_status,
+        color=0x2ECC71 if upload_success else 0xE74C3C
+    )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Zombie Class", value=f"`{class_name}`", inline=False)
@@ -18339,7 +18478,13 @@ async def event_animals(
     scenario_events_for_config(config).append(event_record)
     save_guild_configs()
 
-    embed = discord.Embed(title="ANIMAL PACK EVENT CREATED", color=0x2ECC71)
+    upload_success, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+
+    embed = discord.Embed(
+        title="ANIMAL PACK EVENT CREATED",
+        description=upload_status,
+        color=0x2ECC71 if upload_success else 0xE74C3C
+    )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Animal Class", value=f"`{class_name}`", inline=False)
@@ -18429,10 +18574,12 @@ async def event_vehicle(
     events.append(event_record)
     save_guild_configs()
 
+    upload_success, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+
     embed = discord.Embed(
         title="VEHICLE EVENT CREATED",
-        description="This vehicle spawn is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
-        color=0x3498DB
+        description=upload_status,
+        color=0x2ECC71 if upload_success else 0xE74C3C
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
@@ -18547,10 +18694,12 @@ async def event_airdrop(
     events.append(event_record)
     save_guild_configs()
 
+    upload_success, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+
     embed = discord.Embed(
         title="AIRDROP EVENT CREATED",
-        description="This airdrop is queued for the restart event backend. Use `/events uploadce` for console-safe XML upload.",
-        color=0x9B59B6
+        description=upload_status,
+        color=0x2ECC71 if upload_success else 0xE74C3C
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
@@ -19463,8 +19612,11 @@ async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slas
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_setadminrole(interaction: discord.Interaction, role: discord.Role):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
+    if not can_modify_admin_roles_interaction(interaction):
+        await interaction.response.send_message(
+            "Only a Discord administrator or the guild owner can change bot admin roles.",
+            ephemeral=True
+        )
         return
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
@@ -19475,8 +19627,11 @@ async def slash_setadminrole(interaction: discord.Interaction, role: discord.Rol
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(role="Existing Discord role")
 async def slash_addstaffrole(interaction: discord.Interaction, role: discord.Role):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
+    if not can_modify_admin_roles_interaction(interaction):
+        await interaction.response.send_message(
+            "Only a Discord administrator or the guild owner can change bot admin roles.",
+            ephemeral=True
+        )
         return
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
