@@ -1647,6 +1647,7 @@ def ensure_player_stats_record(guild_id, player_name):
     stats.setdefault("packed", 0)
     stats.setdefault("raids", 0)
     stats.setdefault("animals_hunted", 0)
+    stats.setdefault("animal_deaths", 0)
     stats.setdefault("flags_raised", 0)
     stats.setdefault("flags_lowered", 0)
     stats.setdefault("time_online_seconds", 0)
@@ -1687,6 +1688,18 @@ def update_player_stats_from_adm(guild_id, event_type, line):
         add_player_stat(guild_id, player_name, "cuts")
         add_player_stat(guild_id, player_name, "deaths")
         return
+
+    # Animal kill events may be either a hunt (player killed animal) or
+    # a death-by-animal (animal killed player). Disambiguate using the
+    # "(DEAD)" + "killed by" + animal-term pattern.
+    if event_type == "animal_kill":
+        lower = line.lower()
+        animal_terms_local = ("wolf", "bear", "cow", "pig", "goat", "sheep",
+                              "chicken", "deer", "boar", "rooster", "hen")
+        if "(dead)" in lower and "killed by" in lower and any(t in lower for t in animal_terms_local):
+            add_player_stat(guild_id, player_name, "animal_deaths")
+            add_player_stat(guild_id, player_name, "deaths")
+            return
 
     stat_map = {
         "zombie_kill": ("zombie_deaths", "deaths"),
@@ -11019,7 +11032,7 @@ async def helpme(ctx):
         name="📊 Stats & Leaderboards",
         value=(
             "`/playercard [name]` — full career dossier (omit name for your own)\n"
-            "`/leaderboard setup` — admin: hourly Server + Global leaderboard (6 feeds: kills, headshots, longshots, bounties, streaks, rampages)\n"
+            "`/leaderboard setup` — admin: hourly Server + Global leaderboard (10 feeds: kills, deaths, time played, builds, kill streak, longest shot, swearing, flags raised, animal deaths, zombie deaths)\n"
             "`/leaderboard hall` — 🏅 all-time Hall of Fame for this server\n"
             "`/leaderboard challenges` — 🎯 today's daily challenge + progress\n"
             "`/leaderboard refresh / unset` — admin\n"
@@ -22095,47 +22108,66 @@ last_mega_leaderboard_message_ids = {}
 
 LEADERBOARD_CATEGORIES = [
     {
-        "key": "kills",       "title": "☠️  PVP KILLS",
+        "key": "kills",       "title": "☠️  MOST KILLS",
         "source": "player_stats", "stat_key": "kills",
         "value": lambda v: f"{int(v):,} kills",
     },
     {
-        "key": "headshots",   "title": "💥  HEADSHOTS",
-        "source": "player_stats", "stat_key": "headshots",
-        "value": lambda v: f"{int(v):,} HS",
+        "key": "deaths",      "title": "💀  MOST DEATHS",
+        "source": "player_stats", "stat_key": "deaths",
+        "value": lambda v: f"{int(v):,} deaths",
     },
     {
-        "key": "longshots",   "title": "🎯  LONGEST SHOTS",
+        "key": "time_played", "title": "⏱️  MOST TIME PLAYED",
+        "source": "player_stats", "stat_key": "time_online_seconds",
+        "value": lambda v: format_duration(int(v or 0)),
+    },
+    {
+        "key": "builds",      "title": "🔨  MOST BUILT",
+        "source": "player_stats", "stat_key": "builds",
+        "value": lambda v: f"{int(v):,} parts",
+    },
+    {
+        "key": "kill_spree",  "title": "🔫  HIGHEST KILL STREAK",
+        "source": "alive_streaks", "stat_key": "best_spree",
+        "value": lambda v: f"{int(v)} kills w/o dying",
+    },
+    {
+        "key": "longshot",    "title": "🎯  LONGEST SHOT",
         "source": "longshot_records", "stat_key": "distance",
         "value": lambda v: f"{float(v):.0f}m",
     },
     {
-        "key": "bounties",    "title": "💰  BOUNTY HUNTERS",
-        "source": "player_stats", "stat_key": "bounty_earnings",
-        "value": lambda v: f"{int(v):,} " + BOUNTY_CURRENCY,
+        "key": "swears",      "title": "🤬  MOST SWEARING",
+        "source": "swear_jar", "stat_key": "count",
+        "value": lambda v: f"{int(v):,} swears",
     },
     {
-        "key": "streaks",     "title": "🩸  SURVIVAL STREAKS",
-        "source": "survival_streaks", "stat_key": "current_days",
-        "value": lambda v: f"{int(v)}d",
+        "key": "flags",       "title": "🚩  MOST FLAGS RAISED",
+        "source": "player_stats", "stat_key": "flags_raised",
+        "value": lambda v: f"{int(v):,} flags",
     },
     {
-        "key": "rampages",    "title": "🔥  RAMPAGE KINGS",
-        "source": "player_stats", "stat_key": "rampages",
-        "value": lambda v: f"{int(v):,} rampage(s)",
+        "key": "animal_deaths", "title": "🐺  MOST DEATHS BY ANIMAL",
+        "source": "player_stats", "stat_key": "animal_deaths",
+        "value": lambda v: f"{int(v):,} deaths",
+    },
+    {
+        "key": "zombie_deaths", "title": "🧟  MOST DEATHS BY ZOMBIES",
+        "source": "player_stats", "stat_key": "zombie_deaths",
+        "value": lambda v: f"{int(v):,} deaths",
     },
 ]
 
 
-def gather_category_rows(category, scope, guild_id=None, limit=5):
+def gather_category_rows(category, scope, guild_id=None, limit=10):
     """Return [(player, value_str), ...] for a single category.
     scope='server' uses guild_id filter; scope='global' aggregates."""
-    key = category["key"]
-    src = category["source"]
     sk = category["stat_key"]
-    rows = []
+    src = category["source"]
 
     if src == "player_stats":
+        rows = []
         for player, stats in player_stats.items():
             v = int(stats.get(sk, 0) or 0)
             if v <= 0:
@@ -22148,34 +22180,36 @@ def gather_category_rows(category, scope, guild_id=None, limit=5):
         return [(p, category["value"](v)) for p, v in rows[:limit]]
 
     if src == "longshot_records":
-        # longshot_records: {guild_id: [{killer, distance, weapon, victim, ...}]}
         candidates = []
         if scope == "server":
             for entry in (longshot_records.get(str(guild_id)) or []):
-                candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0), entry))
+                candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0)))
         else:
             for gid, entries in longshot_records.items():
                 for entry in entries:
-                    candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0), entry))
-        # Best shot per killer (highest distance)
-        best_per_killer = {}
-        for killer, dist, entry in candidates:
-            if dist > best_per_killer.get(killer, (0.0, None))[0]:
-                best_per_killer[killer] = (dist, entry)
-        rows = sorted(best_per_killer.items(), key=lambda r: r[1][0], reverse=True)
-        return [(p, category["value"](info[0])) for p, info in rows[:limit]]
+                    candidates.append((entry.get("killer", "?"), float(entry.get("distance", 0) or 0)))
+        best = {}
+        for killer, dist in candidates:
+            if dist > best.get(killer, 0):
+                best[killer] = dist
+        rows = sorted(best.items(), key=lambda r: r[1], reverse=True)
+        return [(p, category["value"](v)) for p, v in rows[:limit]]
 
-    if src == "survival_streaks":
+    if src == "alive_streaks":
         out = []
         if scope == "server":
-            for player, entry in (survival_streaks.get(str(guild_id)) or {}).items():
+            for player, entry in (alive_streaks.get(str(guild_id)) or {}).items():
                 v = int(entry.get(sk, 0) or 0)
                 if v > 0:
                     out.append((player, v))
         else:
             best_per_player = {}
-            for gid, players in survival_streaks.items():
+            for gid, players in alive_streaks.items():
+                if not isinstance(players, dict):
+                    continue
                 for player, entry in players.items():
+                    if not isinstance(entry, dict):
+                        continue
                     v = int(entry.get(sk, 0) or 0)
                     if v > best_per_player.get(player, 0):
                         best_per_player[player] = v
@@ -22183,20 +22217,41 @@ def gather_category_rows(category, scope, guild_id=None, limit=5):
         out.sort(key=lambda r: r[1], reverse=True)
         return [(p, category["value"](v)) for p, v in out[:limit]]
 
+    if src == "swear_jar":
+        # swear_jar is a flat dict keyed by Discord user_id, with
+        # 'name' and 'count' fields. Not per-guild — same data shown
+        # in both server and global scopes (consistent with how it's
+        # stored).
+        rows = []
+        for user_id, entry in swear_jar.items():
+            if not isinstance(entry, dict):
+                continue
+            v = int(entry.get(sk, 0) or 0)
+            if v <= 0:
+                continue
+            name = entry.get("name", f"user_{user_id}")
+            # Drop the #discriminator if it's a legacy User#1234 format
+            name = name.split("#")[0] if "#" in name else name
+            rows.append((name, v))
+        rows.sort(key=lambda r: r[1], reverse=True)
+        return [(p, category["value"](v)) for p, v in rows[:limit]]
+
     return []
 
 
 def render_leaderboard_image(guild_id, scope, scope_label):
     """Render a purple/gold styled PNG for ONE scope (server OR global).
-    Top 5 per category across all 6 categories. Returns BytesIO or None."""
+    10 categories × top 10 in a 2-column layout. Returns BytesIO or None."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except Exception as e:
         print(f"[LB IMG] PIL import failed: {e}")
         return None
 
-    # Canvas — taller to fit 6 categories × 5 rows each (~ 2150px tall)
-    W, H = 1280, 2150
+    # 2-column canvas: 5 categories per column. Each category has
+    # 10 rows so we need ~ 32 (title) + 10*38 + 9*3 + 20 (gap) = 459px
+    # per category. 5 cats × 459 = 2295 + header 200 + footer 30 = 2525.
+    W, H = 1800, 2560
     img = Image.new("RGBA", (W, H), (35, 17, 55, 255))
     draw = ImageDraw.Draw(img)
 
@@ -22213,7 +22268,7 @@ def render_leaderboard_image(guild_id, scope, scope_label):
     # Diagonal stripe overlay
     stripe = Image.new("RGBA", (W, H), (255, 255, 255, 0))
     sdraw = ImageDraw.Draw(stripe)
-    for x in range(-H, W, 40):
+    for x in range(-H, W, 50):
         sdraw.polygon(
             [(x, 0), (x + 6, 0), (x + 6 + H, H), (x + H, H)],
             fill=(255, 255, 255, 10),
@@ -22236,12 +22291,13 @@ def render_leaderboard_image(guild_id, scope, scope_label):
         return ImageFont.load_default()
 
     font_title  = load_font(64)
-    font_scope  = load_font(40)
-    font_sub    = load_font(26)
-    font_rank   = load_font(34)
-    font_name   = load_font(26)
-    font_val    = load_font(26)
-    font_footer = load_font(20)
+    font_scope  = load_font(36)
+    font_sub    = load_font(20)
+    font_section = load_font(22)
+    font_rank   = load_font(24)
+    font_name   = load_font(19)
+    font_val    = load_font(19)
+    font_footer = load_font(18)
 
     GOLD = (244, 196, 48, 255)
     SOFT_GOLD = (255, 215, 0, 255)
@@ -22252,11 +22308,11 @@ def render_leaderboard_image(guild_id, scope, scope_label):
     HIGHLIGHT = (158, 75, 250, 255)
 
     # Header
-    draw.text((W // 2, 60), "🏅 LEADERBOARD 🏅", font=font_title, fill=GOLD, anchor="mm")
-    draw.text((W // 2, 120), scope_label, font=font_scope, fill=SOFT_GOLD, anchor="mm")
+    draw.text((W // 2, 55), "🏅 LEADERBOARD 🏅", font=font_title, fill=GOLD, anchor="mm")
+    draw.text((W // 2, 110), scope_label, font=font_scope, fill=SOFT_GOLD, anchor="mm")
     draw.text(
-        (W // 2, 165),
-        "Refreshed live every hour",
+        (W // 2, 150),
+        "Refreshed live every hour • Top 10 per category",
         font=font_sub,
         fill=DIM,
         anchor="mm",
@@ -22267,13 +22323,13 @@ def render_leaderboard_image(guild_id, scope, scope_label):
         (192, 192, 192, 255),
         (205, 127, 50, 255),
     ]
-    row_height = 52
-    row_gap = 6
-    section_gap = 22
-    section_title_height = 34
+    row_height = 38
+    row_gap = 3
+    section_gap = 20
+    section_title_height = 32
 
     def draw_chevron_row(x0, y0, w, h, fill, outline=None):
-        skew = 16
+        skew = 12
         pts = [
             (x0 + skew, y0),
             (x0 + w, y0),
@@ -22282,62 +22338,68 @@ def render_leaderboard_image(guild_id, scope, scope_label):
         ]
         draw.polygon(pts, fill=fill, outline=outline)
 
-    y = 210
-    for cat in LEADERBOARD_CATEGORIES:
-        # Section title bar
-        draw.text((80, y), cat["title"], font=font_sub, fill=SOFT_GOLD)
-        y += section_title_height
+    col_padding = 50
+    col_width = (W - 3 * col_padding) // 2  # 2 columns with inner padding
+    col_x = [col_padding, col_padding * 2 + col_width]
+    col_y_start = 200
 
-        rows = gather_category_rows(cat, scope="server" if scope == "server" else "global",
-                                    guild_id=guild_id, limit=5)
-        if not rows:
-            draw.text(
-                (110, y + 6),
-                "— no data yet —",
-                font=font_name,
-                fill=DIM,
-            )
-            y += row_height + section_gap
-            continue
+    # Categories split into two columns: left = combat/longshot (top 5),
+    # right = activity/deaths (bottom 5)
+    left_cats = LEADERBOARD_CATEGORIES[:5]
+    right_cats = LEADERBOARD_CATEGORIES[5:]
 
-        for rank, (player, value) in enumerate(rows, start=1):
-            row_y = y
-            x0 = 60
-            row_w = W - 120
-            fill = ROW_FILL if rank % 2 else ROW_FILL_ALT
-            draw_chevron_row(x0, row_y, row_w, row_height, fill=fill)
+    def draw_column(cats, x_start):
+        y = col_y_start
+        for cat in cats:
+            draw.text((x_start + 18, y), cat["title"], font=font_section, fill=SOFT_GOLD)
+            y += section_title_height
 
-            tag_w = 80
-            if rank <= 3:
-                tag_color = medal_colors[rank - 1]
-                draw_chevron_row(x0, row_y, tag_w, row_height, fill=tag_color)
-                rank_color = (40, 18, 70, 255)
-            else:
-                draw_chevron_row(x0, row_y, tag_w, row_height, fill=HIGHLIGHT)
-                rank_color = WHITE
-            draw.text(
-                (x0 + tag_w // 2, row_y + row_height // 2),
-                f"{rank:02d}",
-                font=font_rank,
-                fill=rank_color,
-                anchor="mm",
-            )
+            rows = gather_category_rows(cat, scope=scope, guild_id=guild_id, limit=10)
+            if not rows:
+                draw.text(
+                    (x_start + 30, y + 4),
+                    "— no data yet —",
+                    font=font_name,
+                    fill=DIM,
+                )
+                y += row_height + section_gap
+                continue
 
-            # Name (truncate)
-            name_clip = player[:20]
-            draw.text((x0 + tag_w + 26, row_y + row_height // 2 - 1),
-                      name_clip, font=font_name, fill=WHITE, anchor="lm")
+            for rank, (player, value) in enumerate(rows, start=1):
+                row_y = y
+                fill = ROW_FILL if rank % 2 else ROW_FILL_ALT
+                draw_chevron_row(x_start, row_y, col_width, row_height, fill=fill)
 
-            # Value (right-aligned)
-            draw.text((x0 + row_w - 26, row_y + row_height // 2 - 1),
-                      value, font=font_val, fill=GOLD, anchor="rm")
+                tag_w = 56
+                if rank <= 3:
+                    tag_color = medal_colors[rank - 1]
+                    draw_chevron_row(x_start, row_y, tag_w, row_height, fill=tag_color)
+                    rank_color = (40, 18, 70, 255)
+                else:
+                    draw_chevron_row(x_start, row_y, tag_w, row_height, fill=HIGHLIGHT)
+                    rank_color = WHITE
+                draw.text(
+                    (x_start + tag_w // 2, row_y + row_height // 2),
+                    f"{rank:02d}",
+                    font=font_rank,
+                    fill=rank_color,
+                    anchor="mm",
+                )
 
-            y += row_height + row_gap
-        y += section_gap
+                name_clip = player[:18]
+                draw.text((x_start + tag_w + 18, row_y + row_height // 2 - 1),
+                          name_clip, font=font_name, fill=WHITE, anchor="lm")
+                draw.text((x_start + col_width - 18, row_y + row_height // 2 - 1),
+                          value, font=font_val, fill=GOLD, anchor="rm")
+                y += row_height + row_gap
+            y += section_gap
+
+    draw_column(left_cats, col_x[0])
+    draw_column(right_cats, col_x[1])
 
     # Footer
     draw.text(
-        (W // 2, H - 30),
+        (W // 2, H - 25),
         "Wandering Bot Alpha • Live Leaderboard",
         font=font_footer,
         fill=DIM,
@@ -22358,9 +22420,11 @@ def build_mega_leaderboard_embed(guild_id):
         description=(
             "Auto-refreshes **every hour**. The previous post is deleted on "
             "each refresh.\n\n"
-            "**🏠 Server image** — top 5 on this server\n"
-            "**🌍 Global image** — top 5 across every Wandering Bot guild\n\n"
-            "Categories: ☠️ Kills · 💥 Headshots · 🎯 Longshots · 💰 Bounties · 🩸 Streaks · 🔥 Rampages"
+            "**🏠 Server image** — top 10 on this server\n"
+            "**🌍 Global image** — top 10 across every Wandering Bot guild\n\n"
+            "**Categories:** ☠️ Kills · 💀 Deaths · ⏱️ Time Played · 🔨 Builds · "
+            "🔫 Kill Streak · 🎯 Longest Shot · 🤬 Swearing · 🚩 Flags · "
+            "🐺 Animal Deaths · 🧟 Zombie Deaths"
         ),
         color=0xE67E22,
     )
