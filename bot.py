@@ -12,6 +12,7 @@ import io
 import asyncio
 import requests
 import tempfile
+import shutil
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
@@ -1206,10 +1207,16 @@ async def process_temp_ban_expiries():
         save_guild_configs()
 
 
-async def send_special_adm_feed(guild_id, config, event_type, line):
+async def send_special_adm_feed(guild_id, config, event_type, line, event_time=None):
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
         return
+
+    # Anchor every embed to the in-game time the event was logged, not
+    # when the bot got around to processing it. Falls back to "now" if
+    # the ADM line has no parseable HH:MM:SS prefix.
+    if event_time is None:
+        event_time = extract_adm_event_time(line) or datetime.now(UTC)
 
     feed_map = {
         "flag_raise": ("flag_feed", DEFAULT_CHANNEL_NAMES["flag_feed"], True, "🚩 FLAG RAISED", 0x2ECC71),
@@ -1256,6 +1263,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
 
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Placement Intelligence")
+        embed.timestamp = event_time
         await channel.send(embed=style_embed(embed))
         return
 
@@ -1287,6 +1295,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
 
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Private Suicide Feed")
+        embed.timestamp = event_time
         await channel.send(embed=style_embed(embed))
         return
 
@@ -1322,6 +1331,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
 
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Survivor Damage Feed")
+        embed.timestamp = event_time
         await channel.send(embed=style_embed(embed))
         return
 
@@ -1335,6 +1345,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line):
         embed.add_field(name="Map", value=f"[Open Location](<{map_link}>)", inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
+    embed.timestamp = event_time
     await channel.send(embed=style_embed(embed))
 
 
@@ -4732,6 +4743,46 @@ def stable_line_hash(line):
     ).hexdigest()
 
 
+_ADM_TIME_PREFIX_RE = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2})\b")
+
+
+def extract_adm_event_time(line, *, now=None):
+    """Extract the in-game wall-clock time from an ADM log line and return
+    a timezone-aware UTC datetime, or None if the line has no recognisable
+    `HH:MM:SS` prefix.
+
+    DayZ ADM lines look like:
+        01:23:45 | Player "Bob" (id=ABC pos=<x, 0, z>) is connected
+    The log only stores HH:MM:SS, never a date — we anchor it to today's
+    UTC date (or yesterday's if the parsed time is *more* than 12 hours
+    in the future relative to `now`, which handles late-night scans
+    where the log line was written just before UTC midnight).
+    """
+    if not line:
+        return None
+    match = _ADM_TIME_PREFIX_RE.match(line)
+    if not match:
+        return None
+    try:
+        hh = int(match.group(1))
+        mm = int(match.group(2))
+        ss = int(match.group(3))
+        if not (0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60):
+            return None
+    except Exception:
+        return None
+
+    reference = now or datetime.now(UTC)
+    candidate = reference.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+    # ADM lines are always written in the past relative to "now". If the
+    # parsed time appears to be more than 5 minutes in the future (a small
+    # buffer for clock skew between the game server and the bot), it must
+    # actually be from yesterday's log.
+    if candidate > reference + timedelta(minutes=5):
+        candidate -= timedelta(days=1)
+    return candidate
+
+
 def load_processed_adm_lines():
     global processed_lines
 
@@ -5708,7 +5759,7 @@ def extract_adm_log_time(line):
     return match.group(1) if match else None
 
 
-def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None):
+def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None, event_time=None):
     killer = kill_details["killer"]
     victim = kill_details["victim"]
     weapon = kill_details.get("weapon", "Unknown")
@@ -5742,11 +5793,15 @@ def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None):
     embed.set_thumbnail(url=BOT_IMAGE)
     footer = "Wandering Bot Alpha - PvP History Backfill" if history else "Wandering Bot Alpha - PvP Intelligence"
     embed.set_footer(text=footer)
-    embed.timestamp = datetime.now(UTC)
+    # Anchor the embed to the in-game event time so Discord shows "when
+    # the kill actually happened" rather than "when the bot processed it".
+    if event_time is None and line:
+        event_time = extract_adm_event_time(line)
+    embed.timestamp = event_time or datetime.now(UTC)
     return embed
 
 
-def build_longshot_embed(kill_details, is_new_record=False, history=False, guild_id=None):
+def build_longshot_embed(kill_details, is_new_record=False, history=False, guild_id=None, event_time=None):
     killer = kill_details["killer"]
     victim = kill_details["victim"]
     weapon = kill_details.get("weapon", "Unknown")
@@ -5774,7 +5829,7 @@ def build_longshot_embed(kill_details, is_new_record=False, history=False, guild
 
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text=f"Wandering Bot Alpha - Longshot Tracking - Threshold {LONGSHOT_ANNOUNCE_METERS}m")
-    embed.timestamp = datetime.now(UTC)
+    embed.timestamp = event_time or datetime.now(UTC)
     return embed
 
 
@@ -8067,6 +8122,13 @@ async def parse_adm(guild_id, config):
 
         remember_processed_line(guild_id, line_hash)
 
+        # Parse the in-game event time from the ADM line ONCE per line.
+        # Every embed dispatched off this line will use this timestamp so
+        # Discord shows "when the event actually happened in-game", not
+        # "when the bot got around to processing it". Falls back to "now"
+        # if the line has no parseable HH:MM:SS prefix.
+        event_time = extract_adm_event_time(line) or datetime.now(UTC)
+
         event_type = classify_event(line)
 
         if not event_type:
@@ -8100,7 +8162,7 @@ async def parse_adm(guild_id, config):
 
         await check_radar_zones_for_adm(guild_id, config, event_type, line)
         await process_pve_progress_from_adm(guild_id, config, event_type, line)
-        await send_special_adm_feed(guild_id, config, event_type, line)
+        await send_special_adm_feed(guild_id, config, event_type, line, event_time=event_time)
 
         if event_type in [
             "flag_raise",
@@ -8148,7 +8210,7 @@ async def parse_adm(guild_id, config):
                 text="Wandering Bot Alpha • Connection Feed"
             )
 
-            embed.timestamp = datetime.now(UTC)
+            embed.timestamp = event_time
 
             await connect_channel.send(embed=embed)
 
@@ -8214,7 +8276,7 @@ async def parse_adm(guild_id, config):
                 text="Wandering Bot Alpha • Disconnect Feed"
             )
 
-            embed.timestamp = datetime.now(UTC)
+            embed.timestamp = event_time
 
             disconnect_channel = bot.get_channel(
                 channels.get("disconnects")
@@ -8333,7 +8395,7 @@ async def parse_adm(guild_id, config):
                 text="Wandering Bot Alpha • Building Intelligence"
             )
 
-            embed.timestamp = datetime.now(UTC)
+            embed.timestamp = event_time
 
             await build_channel.send(embed=embed)
 
@@ -8431,7 +8493,7 @@ async def parse_adm(guild_id, config):
                 text="Wandering Bot Alpha • Raid Intelligence"
             )
 
-            embed.timestamp = datetime.now(UTC)
+            embed.timestamp = event_time
 
             await raid_channel.send(embed=embed)
 
@@ -8518,7 +8580,7 @@ async def parse_adm(guild_id, config):
                     text="Wandering Bot • Zombie Activity"
                 )
 
-                embed.timestamp = datetime.now(UTC)
+                embed.timestamp = event_time
 
                 await zombie_channel.send(
                     embed=style_embed(embed)
@@ -8554,7 +8616,7 @@ async def parse_adm(guild_id, config):
                     text="Wandering Bot • Zombie Fatality"
                 )
 
-                embed.timestamp = datetime.now(UTC)
+                embed.timestamp = event_time
 
                 await zombie_channel.send(
                     embed=style_embed(embed)
@@ -8609,7 +8671,7 @@ async def parse_adm(guild_id, config):
                     text="Wandering Bot Alpha - Medical Feed"
                 )
 
-                embed.timestamp = datetime.now(UTC)
+                embed.timestamp = event_time
 
                 await unconscious_channel.send(
                     embed=style_embed(embed)
@@ -8684,7 +8746,7 @@ async def parse_adm(guild_id, config):
                     text="Wandering Bot Alpha - PvP Intelligence"
                 )
 
-                embed.timestamp = datetime.now(UTC)
+                embed.timestamp = event_time
 
                 await killfeed_channel.send(
                     embed=embed
@@ -8760,7 +8822,7 @@ async def parse_adm(guild_id, config):
                             text=f"Wandering Bot Alpha - Longshot Tracking - Threshold {LONGSHOT_ANNOUNCE_METERS}m"
                         )
 
-                        longshot_embed.timestamp = datetime.now(UTC)
+                        longshot_embed.timestamp = event_time
 
                         await longshot_channel.send(
                             embed=style_embed(longshot_embed)
@@ -20232,11 +20294,169 @@ async def slash_playerstats(interaction: discord.Interaction, player_name: str):
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
-@extra_tools_group.command(name="importtypesxml", description="Admin: preload shop from vanilla types.xml")
+def auto_fetch_types_xml_from_server(config, guild_id):
+    """Try every standard Nitrado console & PC types.xml path and return
+    (success, message, local_temp_path) on the first hit.
+
+    The caller is responsible for cleaning up the parent temp directory
+    of `local_temp_path` once they're done with it.
+    """
+    map_key = server_map_key(guild_id) if guild_id else None
+    missions = map_mission_folder_names(map_key) if map_key else [
+        "dayzOffline.chernarusplus",
+        "dayzOffline.enoch",
+        "dayzOffline.sakhal",
+        "dayzOffline.sakhalplus",
+        "dayzOffline.namalsk",
+    ]
+    roots = [
+        "/dayzxb_missions",
+        "/dayzxb/mpmissions",
+        "/dayzps_missions",
+        "/dayzps/mpmissions",
+        "/mpmissions",
+    ]
+    tried = []
+    for root in roots:
+        for mission in missions:
+            remote = f"{root}/{mission}/db/types.xml"
+            tried.append(remote)
+            ok, msg, content = download_text_file_from_nitrado(config, remote)
+            if ok and content and "<types>" in content and "<type " in content:
+                tmp_dir = tempfile.mkdtemp(prefix="wb_typesxml_auto_")
+                local = os.path.join(tmp_dir, "types.xml")
+                try:
+                    with open(local, "w", encoding="utf-8") as fh:
+                        fh.write(content)
+                except Exception as write_err:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    return False, f"Found types.xml at {remote} but failed to save: {write_err}", None
+                return True, remote, local
+    return False, "Tried " + ", ".join(tried[:6]) + (f" (+{len(tried)-6} more)" if len(tried) > 6 else ""), None
+
+
+@extra_tools_group.command(name="importtypesxml", description="Admin: auto-import your server's types.xml into the shop")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(source_path="Optional path to types.xml", default_price="Fallback price")
-async def slash_importtypesxml(interaction: discord.Interaction, source_path: str = None, default_price: int = 100):
-    await run_legacy_as_slash(interaction, "importtypesxml", source_path=source_path, default_price=default_price)
+@app_commands.describe(
+    types_file="(optional) Attach a types.xml file directly. Leave blank to auto-pull from your Nitrado server.",
+    default_price="Fallback price for items with no price set (default 100)",
+    source_path="(advanced) Server-side filesystem path to a types.xml — only useful if you've SSH'd one onto the bot host",
+)
+async def slash_importtypesxml(
+    interaction: discord.Interaction,
+    types_file: discord.Attachment = None,
+    default_price: int = 100,
+    source_path: str = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    config = guild_configs.get(guild_id, {}) if guild_id else {}
+
+    resolved_source = None
+    cleanup_dir = None
+    source_label = None
+
+    # ── 1) Admin-attached file (priority — overrides everything) ──
+    if types_file:
+        if not types_file.filename.lower().endswith(".xml"):
+            await interaction.followup.send(
+                f"❌ `{types_file.filename}` doesn't look like an XML file. Attach a `types.xml` (or any `*.xml`) and try again.",
+                ephemeral=True
+            )
+            return
+        if types_file.size > 50 * 1024 * 1024:
+            await interaction.followup.send(
+                f"❌ `{types_file.filename}` is {types_file.size // (1024*1024)} MB — too big for a types.xml.",
+                ephemeral=True
+            )
+            return
+        try:
+            cleanup_dir = tempfile.mkdtemp(prefix="wb_typesxml_upload_")
+            resolved_source = os.path.join(cleanup_dir, types_file.filename)
+            await types_file.save(resolved_source)
+            source_label = f"Discord attachment ({types_file.filename})"
+        except Exception as download_err:
+            if cleanup_dir:
+                shutil.rmtree(cleanup_dir, ignore_errors=True)
+            await interaction.followup.send(
+                f"❌ Failed to download the attached file: `{download_err}`",
+                ephemeral=True
+            )
+            return
+
+    # ── 2) Auto-pull from Nitrado (PRIMARY automatic path) ──
+    elif not source_path:
+        ok, msg_or_path, local_path = await asyncio.to_thread(
+            auto_fetch_types_xml_from_server, config, guild_id
+        )
+        if ok:
+            resolved_source = local_path
+            cleanup_dir = os.path.dirname(local_path)
+            source_label = f"Nitrado: `{msg_or_path}`"
+        else:
+            await interaction.followup.send(
+                "❌ Couldn't auto-fetch `types.xml` from your Nitrado server.\n\n"
+                f"Tried these paths: {msg_or_path}\n\n"
+                "Three options to fix this:\n"
+                "1. Make sure Nitrado API/FTP is set up in your guild config (`/setup`)\n"
+                "2. Re-run this command and **attach** your `types.xml` to the `types_file` option\n"
+                "3. SSH a `types.xml` next to the bot and re-run with the `source_path` option",
+                ephemeral=True
+            )
+            return
+
+    # ── 3) Manual source_path fallback ──
+    else:
+        resolved_source = source_path
+        source_label = f"local path: `{source_path}`"
+
+    # ── Run the import ──
+    try:
+        added, updated, types_path = await asyncio.to_thread(
+            load_shop_items_from_types_xml,
+            resolved_source,
+            default_price,
+            False
+        )
+    except Exception as import_err:
+        if cleanup_dir:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+        await interaction.followup.send(
+            f"❌ Import failed while parsing the XML: `{import_err}`",
+            ephemeral=True
+        )
+        return
+
+    if cleanup_dir:
+        shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+    if not types_path:
+        await interaction.followup.send(
+            "❌ The file was reachable but contained no parseable `<type>` entries.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="🛒 TYPES.XML IMPORTED TO SHOP",
+        description=f"**Source:** {source_label}",
+        color=0x2ECC71
+    )
+    embed.add_field(name="Items Added", value=str(added), inline=True)
+    embed.add_field(name="Items Updated", value=str(updated), inline=True)
+    embed.add_field(name="Total Shop Items", value=str(len(shop_items)), inline=True)
+    embed.add_field(
+        name="Default Price",
+        value=f"`{default_price}` pennies (applied to items without a price in types.xml)",
+        inline=False
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=False)
 @bot.tree.command(name="addshopitem", description="Admin: add an item to the shop")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname", price="Price in pennies", category="Shop category")
