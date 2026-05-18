@@ -5178,6 +5178,8 @@ last_online_message_ids = {}
 last_leaderboard_message_ids = {}
 last_heatmap_message_ids = {}
 last_pve_heatmap_message_ids = {}
+last_restart_message_ids = {}
+last_restart_countdown_message_ids = {}
 
 CUSTOM_FEED_TYPES = [
     "text",
@@ -11146,6 +11148,92 @@ DEFAULT_RESTART_INTERVAL_HOURS = 4
 last_restart_hour = {}
 restart_warning_tracker = {}
 
+
+RESTART_COUNTDOWN_WARNINGS = {
+    30: {
+        "title": "⏰ HEADS UP — SERVER RESTARTING IN 30 MINUTES",
+        "body": (
+            "Wrap up any firefights, head back toward base, and start "
+            "thinking about logging out somewhere safe.\n\n"
+            "If you don't, you'll respawn somewhere you didn't want to be."
+        ),
+        "color": 0x2ECC71,
+    },
+    15: {
+        "title": "⚠️ 15 MINUTES TO RESTART",
+        "body": (
+            "Stash your loot. Don't start anything new. Drive your car "
+            "into a bush you can remember. Avoid logout zones with "
+            "zombies camped on top of you."
+        ),
+        "color": 0xF1C40F,
+    },
+    5: {
+        "title": "🚨 5 MINUTES — TIME TO SAVE YO SHIT",
+        "body": (
+            "If you're not in a tent or building **right now**, you're "
+            "about to lose things. Log out **NOW**. Bushes don't count."
+        ),
+        "color": 0xE67E22,
+    },
+    1: {
+        "title": "💥 RESTART IN 60 SECONDS",
+        "body": (
+            "Server restart imminent. Disconnect immediately if you value "
+            "your gear. See you on the other side, survivor."
+        ),
+        "color": 0xE74C3C,
+    },
+}
+
+
+RESTART_DOWN_FUNNIES = [
+    "Server's down — go touch some grass. The real kind, not the in-game kind. 🌱",
+    "Restart in progress. Use this time to question every life decision that led you here.",
+    "Server is napping. Maybe make a sandwich? Drink some water? Pretend you have hobbies?",
+    "Wandering Bot is rebooting the apocalypse. Please hold while we re-spawn the suffering.",
+    "Server is restarting. If you blame the bot, the bot blames you back. It's a healthy relationship.",
+    "Off you go, survivor. Stretch, hydrate, and don't punch anyone over a tent location.",
+    "Server's having a moment. Give it 5. Don't @ Dave about it.",
+    "Restart underway. Touch grass, pet a dog, do laundry, anything except waiting in queue.",
+]
+
+
+def _minutes_until_next_restart(now, restart_offset, restart_interval):
+    """Return minutes until the next scheduled restart hour, or None if
+    the next restart is further away than the largest configured warning
+    threshold."""
+    try:
+        restart_offset = int(restart_offset or 0) % 24
+        restart_interval = int(restart_interval or 0)
+    except Exception:
+        return None
+
+    if restart_interval <= 0:
+        return None
+
+    restart_hours = [
+        h for h in range(24)
+        if h >= restart_offset and ((h - restart_offset) % restart_interval == 0)
+    ]
+    if not restart_hours:
+        return None
+
+    current_minutes = now.hour * 60 + now.minute
+    candidates = []
+    for h in restart_hours:
+        candidate = h * 60
+        delta = candidate - current_minutes
+        if delta <= 0:
+            delta += 24 * 60
+        candidates.append(delta)
+
+    minutes_left = min(candidates) if candidates else None
+    if minutes_left is None or minutes_left > max(RESTART_COUNTDOWN_WARNINGS):
+        return None
+    return minutes_left
+
+
 @tasks.loop(minutes=1)
 async def scheduled_restart_loop():
 
@@ -11155,6 +11243,73 @@ async def scheduled_restart_loop():
 
     current_hour = now.hour
     current_minute = now.minute
+
+    # ────────────────────────────────────────────────────────────────
+    # PRE-RESTART COUNTDOWN WARNINGS in general_chat
+    # Fires at 30, 15, 5 and 1 minutes before each scheduled restart.
+    # Each new warning deletes the previous one so chat never gets
+    # spammed with multiple countdowns from the same cycle.
+    # ────────────────────────────────────────────────────────────────
+    for guild_id, config in active_guild_config_items():
+        try:
+            if config.get("restart_schedule_enabled", True) is False:
+                continue
+
+            restart_interval = int(config.get(
+                "restart_interval_hours",
+                DEFAULT_RESTART_INTERVAL_HOURS
+            ) or DEFAULT_RESTART_INTERVAL_HOURS)
+            restart_offset = int(config.get("restart_start_hour", 0) or 0)
+            if restart_interval <= 0:
+                continue
+
+            minutes_until = _minutes_until_next_restart(now, restart_offset, restart_interval)
+            if minutes_until is None:
+                continue
+
+            warning = RESTART_COUNTDOWN_WARNINGS.get(minutes_until)
+            if not warning:
+                continue
+
+            channels = config.get("channels", {})
+            chat_channel = bot.get_channel(channels.get("general_chat"))
+            if not chat_channel:
+                continue
+
+            fired = restart_warning_tracker.setdefault(guild_id, {})
+            cycle_key = (current_hour + (minutes_until // 60)) % 24
+            cycle_marker = f"{now.date().isoformat()}-{cycle_key:02d}"
+            already_fired = fired.setdefault(cycle_marker, set())
+            if minutes_until in already_fired:
+                continue
+            already_fired.add(minutes_until)
+
+            today_marker = now.date().isoformat()
+            for stale_key in [k for k in fired if not k.startswith(today_marker)]:
+                fired.pop(stale_key, None)
+
+            embed = discord.Embed(
+                title=warning["title"],
+                description=warning["body"],
+                color=warning["color"]
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot Alpha — Pre-Restart Warning")
+            embed.timestamp = now
+
+            previous_id = last_restart_countdown_message_ids.get(guild_id)
+            if previous_id:
+                try:
+                    previous_msg = await chat_channel.fetch_message(previous_id)
+                    await previous_msg.delete()
+                except Exception:
+                    pass
+
+            sent = await chat_channel.send(embed=style_embed(embed))
+            last_restart_countdown_message_ids[guild_id] = sent.id
+
+        except Exception as countdown_error:
+            print(f"RESTART COUNTDOWN ERROR {guild_id}: {countdown_error}")
 
     for guild_id, config in active_guild_config_items():
 
@@ -11209,9 +11364,46 @@ async def scheduled_restart_loop():
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
-                await announce_channel.send(
+                # Self-clean: delete previous restart-alerts message so
+                # at most one is ever visible in the channel.
+                previous_alert_id = last_restart_message_ids.get(guild_id)
+                if previous_alert_id:
+                    try:
+                        previous_alert = await announce_channel.fetch_message(previous_alert_id)
+                        await previous_alert.delete()
+                    except Exception:
+                        pass
+
+                sent_alert = await announce_channel.send(
                     embed=style_embed(embed)
                 )
+                last_restart_message_ids[guild_id] = sent_alert.id
+
+                # Post the "go touch grass" follow-up in main chat and
+                # self-clean the prior countdown so the chain ends cleanly.
+                chat_channel = bot.get_channel(channels.get("general_chat"))
+                if chat_channel:
+                    final_embed = discord.Embed(
+                        title="💥 SERVER IS RESTARTING NOW",
+                        description=random.choice(RESTART_DOWN_FUNNIES),
+                        color=0x95A5A6
+                    )
+                    final_embed.set_thumbnail(url=BOT_IMAGE)
+                    final_embed.set_footer(text="Wandering Bot Alpha — Restart Notice")
+                    final_embed.timestamp = now
+
+                    previous_countdown_id = last_restart_countdown_message_ids.get(guild_id)
+                    if previous_countdown_id:
+                        try:
+                            previous_countdown = await chat_channel.fetch_message(previous_countdown_id)
+                            await previous_countdown.delete()
+                        except Exception:
+                            pass
+
+                    sent_final = await chat_channel.send(embed=style_embed(final_embed))
+                    last_restart_countdown_message_ids[guild_id] = sent_final.id
+
+                restart_warning_tracker[guild_id] = {}
 
                 token = config.get("nitrado_token")
                 service_id = config.get("service_id")
