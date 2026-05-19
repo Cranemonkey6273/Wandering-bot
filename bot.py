@@ -14732,8 +14732,11 @@ async def start_background_tasks():
         if not online_dashboard_loop.is_running():
             online_dashboard_loop.start()
 
-        if not leaderboard_loop.is_running():
-            leaderboard_loop.start()
+        # NOTE: legacy leaderboard_loop disabled — superseded by
+        # mega_leaderboard_loop which posts the emoji-rich Server + Global
+        # board hourly. Re-enable only if you ever revert that PR.
+        # if not leaderboard_loop.is_running():
+        #     leaderboard_loop.start()
 
         if not heatmap_loop.is_running():
             heatmap_loop.start()
@@ -22348,9 +22351,11 @@ async def post_or_update_mega_leaderboard(guild_id, config):
             await old.delete()
         except Exception:
             pass
-    # Also sweep any stray bot leaderboard messages
+    # Also sweep any stray bot leaderboard messages — bumped to 50 so
+    # the legacy '🏆 DAYZ SERVER COMMAND BOARD' message from the old
+    # leaderboard_loop also gets cleaned out.
     try:
-        await purge_self_dashboard_messages(channel, limit=15)
+        await purge_self_dashboard_messages(channel, limit=50)
     except Exception:
         pass
 
