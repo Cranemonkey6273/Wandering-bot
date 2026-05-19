@@ -4690,44 +4690,95 @@ def ensure_wallet(user):
     return wallets[user_id]
 
 
-async def translate_text(text, target_language="en", source_language="auto"):
-
-    if not TRANSLATE_API_URL:
+async def _translate_via_mymemory(text, target_language, source_language):
+    """Free, no-API-key translation via MyMemory (5000 chars/day per IP).
+    Stable and well-supported — used as the primary backend."""
+    src = source_language or "auto"
+    # MyMemory doesn't accept 'auto' literally — use 'autodetect'
+    if src.lower() in ("auto", "autodetect", ""):
+        src = "autodetect"
+    try:
+        response = await asyncio.to_thread(
+            requests.get,
+            "https://api.mymemory.translated.net/get",
+            params={
+                "q": text,
+                "langpair": f"{src}|{target_language or 'en'}",
+                "de": "noreply@wandering-bot.local",  # bumps daily quota a bit
+            },
+            timeout=12,
+        )
+        if response.status_code != 200:
+            print(f"[TRANSLATE] MyMemory HTTP {response.status_code}: {response.text[:200]}")
+            return None
+        data = response.json()
+        status = data.get("responseStatus")
+        if status != 200 and status != "200":
+            print(f"[TRANSLATE] MyMemory status={status} msg={data.get('responseDetails')}")
+            return None
+        return (data.get("responseData") or {}).get("translatedText")
+    except Exception as err:
+        print(f"[TRANSLATE] MyMemory error: {err}")
         return None
 
+
+async def _translate_via_libretranslate(text, target_language, source_language):
+    """LibreTranslate fallback — only used if TRANSLATE_API_URL is set to
+    something other than the default broken libretranslate.de host AND a
+    TRANSLATE_API_KEY is configured."""
+    if not TRANSLATE_API_URL or not TRANSLATE_API_KEY:
+        return None
+    # The default `libretranslate.de` endpoint no longer accepts unkeyed
+    # requests (returns 301/400). Skip it unless the user has explicitly
+    # set a different working URL.
+    if "libretranslate.de" in TRANSLATE_API_URL and not TRANSLATE_API_KEY:
+        return None
     payload = {
         "q": text,
         "source": source_language or "auto",
         "target": target_language or "en",
-        "format": "text"
+        "format": "text",
+        "api_key": TRANSLATE_API_KEY,
     }
-
-    if TRANSLATE_API_KEY:
-        payload["api_key"] = TRANSLATE_API_KEY
-
     try:
         response = await asyncio.to_thread(
             requests.post,
             TRANSLATE_API_URL,
             json=payload,
-            timeout=12
+            timeout=12,
         )
-
         if response.status_code != 200:
-            print(f"TRANSLATION ERROR STATUS: {response.status_code}")
+            print(f"[TRANSLATE] LibreTranslate HTTP {response.status_code}: {response.text[:200]}")
             return None
-
         data = response.json()
         return data.get("translatedText") or data.get("translated_text")
-
-    except Exception as error:
-        print(f"TRANSLATION ERROR: {error}")
+    except Exception as err:
+        print(f"[TRANSLATE] LibreTranslate error: {err}")
         return None
+
+
+async def translate_text(text, target_language="en", source_language="auto"):
+    """Translate text. Tries MyMemory first (free, no key), then
+    LibreTranslate if the user has configured TRANSLATE_API_KEY.
+    Returns the translated string or None."""
+    if not text or not text.strip():
+        return None
+    # Primary: MyMemory (free, no key, official, multi-language)
+    result = await _translate_via_mymemory(text, target_language, source_language)
+    if result:
+        return result
+    # Fallback: LibreTranslate if user provided a working key
+    result = await _translate_via_libretranslate(text, target_language, source_language)
+    return result
 
 
 async def maybe_translate_message(message):
 
     if not message.guild or not message.content.strip():
+        return
+
+    # Don't translate bots / our own webhooks
+    if message.author.bot or message.webhook_id:
         return
 
     if message.content.startswith(("/", "!")):
@@ -4750,7 +4801,15 @@ async def maybe_translate_message(message):
         translation.get("source_language", "auto")
     )
 
-    if not translated or translated.strip() == message.content.strip():
+    if not translated:
+        return
+
+    # If the translated text matches the source (case-insensitive +
+    # punctuation-stripped), the message was likely already in the
+    # target language — don't post a useless duplicate.
+    def _norm(s):
+        return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+    if _norm(translated) == _norm(message.content):
         return
 
     mode = translation.get("mode", "same")
@@ -4764,17 +4823,18 @@ async def maybe_translate_message(message):
         return
 
     embed = discord.Embed(
-        title="Translation",
+        title=f"🌍 Translation → {translation.get('target_language', 'en').upper()}",
         description=translated[:1500],
         color=0x1ABC9C
     )
-    embed.add_field(name="Original Author", value=message.author.mention, inline=True)
-    embed.add_field(name="Target Language", value=translation.get("target_language", "en"), inline=True)
-
+    embed.add_field(name="From", value=message.author.mention, inline=True)
     if mode == "channel":
-        embed.add_field(name="Original Channel", value=message.channel.mention, inline=False)
+        embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
 
-    await target_channel.send(embed=style_embed(embed))
+    try:
+        await target_channel.send(embed=style_embed(embed))
+    except Exception as send_err:
+        print(f"[TRANSLATE] send failed: {send_err}")
 
 
 async def apply_chat_reward_punishment_rules(message, lower):
