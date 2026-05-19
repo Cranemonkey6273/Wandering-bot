@@ -4795,13 +4795,21 @@ async def maybe_translate_message(message):
     if source_channel_id and int(source_channel_id) != message.channel.id:
         return
 
+    target_lang = translation.get("target_language", "en")
+    src_lang = translation.get("source_language", "auto")
+
+    print(f"[TRANSLATE] attempting guild={guild_id} channel={message.channel.id} "
+          f"author={message.author} src={src_lang} target={target_lang} "
+          f"text={message.content[:80]!r}")
+
     translated = await translate_text(
         message.content[:900],
-        translation.get("target_language", "en"),
-        translation.get("source_language", "auto")
+        target_lang,
+        src_lang,
     )
 
     if not translated:
+        print(f"[TRANSLATE] backend returned None — see earlier [TRANSLATE] log for cause")
         return
 
     # If the translated text matches the source (case-insensitive +
@@ -4810,6 +4818,7 @@ async def maybe_translate_message(message):
     def _norm(s):
         return "".join(ch for ch in (s or "").lower() if ch.isalnum())
     if _norm(translated) == _norm(message.content):
+        print(f"[TRANSLATE] skipped — translated == source (already in target lang)")
         return
 
     mode = translation.get("mode", "same")
@@ -4820,10 +4829,11 @@ async def maybe_translate_message(message):
         target_channel = bot.get_channel(int(target_channel_id)) if target_channel_id else None
 
     if not target_channel:
+        print(f"[TRANSLATE] no target channel resolved — mode={mode}")
         return
 
     embed = discord.Embed(
-        title=f"🌍 Translation → {translation.get('target_language', 'en').upper()}",
+        title=f"🌍 Translation → {target_lang.upper()}",
         description=translated[:1500],
         color=0x1ABC9C
     )
@@ -4833,6 +4843,11 @@ async def maybe_translate_message(message):
 
     try:
         await target_channel.send(embed=style_embed(embed))
+        print(f"[TRANSLATE] posted to #{getattr(target_channel, 'name', target_channel.id)}")
+    except discord.Forbidden as forbidden_err:
+        print(f"[TRANSLATE] FORBIDDEN posting to #{getattr(target_channel, 'name', '?')}: "
+              f"{forbidden_err}. The bot is missing 'Send Messages' / 'Embed Links' "
+              f"permission in that channel.")
     except Exception as send_err:
         print(f"[TRANSLATE] send failed: {send_err}")
 
@@ -18484,6 +18499,36 @@ async def translationconfig(
 
     save_guild_configs()
 
+    # ── Live verification ────────────────────────────────────────
+    # Run an actual translation right now so the admin instantly sees
+    # whether the backend is reachable, or gets a clear error to act on.
+    verification = ""
+    if mode != "off":
+        try:
+            sample = "Hello, this is a translation test."
+            sample_translated = await translate_text(
+                sample,
+                target_language.lower().strip() or "en",
+                source_language.lower().strip() or "auto",
+            )
+            if sample_translated:
+                verification = (
+                    f"✅ **Live test passed.**\n"
+                    f"`Hello, this is a translation test.` → `{sample_translated[:200]}`"
+                )
+            else:
+                verification = (
+                    "⚠️ **Live test failed** — the translation backend (MyMemory) "
+                    "did not return a result. Common causes:\n"
+                    "• Daily free quota exhausted (5000 chars/day per Railway IP — "
+                    "comes back tomorrow)\n"
+                    "• Outbound HTTPS blocked by your host\n"
+                    "• Invalid language code (use 2-letter ISO, e.g. `en`, `es`, `fr`)\n"
+                    "Check the Railway logs for `[TRANSLATE]` lines for the exact error."
+                )
+        except Exception as test_err:
+            verification = f"⚠️ Live test crashed: `{test_err}`"
+
     embed = discord.Embed(
         title="Translation Config Updated",
         description=(
@@ -18497,6 +18542,18 @@ async def translationconfig(
     embed.add_field(name="Source", value=source_channel.mention if source_channel else "All channels", inline=True)
     embed.add_field(name="Target", value=target_channel.mention if target_channel else "Same channel", inline=True)
     embed.add_field(name="Language", value=f"{source_language} -> {target_language}", inline=False)
+    if verification:
+        embed.add_field(name="Live Verification", value=verification, inline=False)
+    embed.add_field(
+        name="Heads-up",
+        value=(
+            "Translations only fire when **Message Content Intent** is enabled "
+            "in the Discord Developer Portal under your bot's settings. "
+            "If you see no translations even after this passes the live test, "
+            "double-check that toggle is ON."
+        ),
+        inline=False,
+    )
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
