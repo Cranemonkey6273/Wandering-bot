@@ -18899,7 +18899,14 @@ async def adminunban(interaction: discord.Interaction, user_id: str, reason: str
     await interaction.response.send_message(f"Unbanned `{user}` and posted the reason.", ephemeral=True)
 
 
-@bot.tree.command(name="translationconfig", description="Admin: configure automatic translation")
+translation_group = app_commands.Group(
+    name="translation",
+    description="Multi-rule translation config (add/list/remove/clear rules)",
+)
+bot.tree.add_command(translation_group)
+
+
+@translation_group.command(name="config", description="Admin: configure automatic translation")
 @app_commands.describe(
     mode="same posts translations in the same chat, channel forwards them, off disables translation",
     target_language="Target language code, example: en, es, fr, de",
@@ -19080,7 +19087,7 @@ async def translationconfig(
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="translationlist", description="Admin: list all configured translation rules for this server")
+@translation_group.command(name="list", description="Admin: list all configured translation rules for this server")
 async def translationlist(interaction: discord.Interaction):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -19122,7 +19129,7 @@ async def translationlist(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="translationremove", description="Admin: remove a specific translation rule by number")
+@translation_group.command(name="remove", description="Admin: remove a specific translation rule by number")
 @app_commands.describe(rule_number="The rule number shown in /translationlist (1, 2, 3, ...)")
 async def translationremove(interaction: discord.Interaction, rule_number: int):
     if not has_interaction_admin_power(interaction):
@@ -19174,7 +19181,7 @@ async def translationremove(interaction: discord.Interaction, rule_number: int):
     )
 
 
-@bot.tree.command(name="translationclear", description="Admin: remove ALL translation rules for this server")
+@translation_group.command(name="clear", description="Admin: remove ALL translation rules for this server")
 async def translationclear(interaction: discord.Interaction):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -19431,7 +19438,7 @@ async def addradarzone(
     )
 
 
-@bot.tree.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
+@extra_tools_group.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     zone_id="Zone ID from /listradarzones",
