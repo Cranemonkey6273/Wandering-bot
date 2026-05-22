@@ -92,6 +92,7 @@ SUPPORT_TICKETS_FILE = data_path("support_tickets.json")
 WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
 PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
+PVE_AI_CAMPAIGNS_FILE = data_path("pve_ai_campaigns.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
@@ -5685,6 +5686,233 @@ def guild_roast_tone(guild_id):
     return (config.get("roast_tone") or AI_ROAST_TONE or "mixed").lower()
 
 
+# Provider/model used for heavier generative work (quest campaigns, news
+# digests). Defaults to Claude Sonnet (better at long-form structured
+# JSON), but operators can override via env. Falls back gracefully to
+# whatever AI_ROAST_PROVIDER/AI_ROAST_MODEL is configured if these are
+# unset, so a single env-key change toggles everything.
+AI_CAMPAIGN_PROVIDER = os.getenv("WANDERING_AI_CAMPAIGN_PROVIDER", "anthropic")
+AI_CAMPAIGN_MODEL = os.getenv("WANDERING_AI_CAMPAIGN_MODEL", "claude-sonnet-4-6")
+AI_CAMPAIGN_TIMEOUT_SECONDS = float(os.getenv("WANDERING_AI_CAMPAIGN_TIMEOUT_SECONDS", "60"))
+
+PVE_CAMPAIGN_SYSTEM_PROMPT = (
+    "You are a DayZ PVE quest designer for a Discord bot called Wandering Bot Alpha. "
+    "You write tight, evocative quest entries that feel earned in a survival sandbox: "
+    "no fantasy elements, no game-breaking rewards, no real-world tragedies. "
+    "You ALWAYS reply with strict, valid JSON only — no markdown fences, no commentary."
+)
+
+
+def _coerce_quest_kind(raw_kind):
+    """Map free-form AI-generated kind strings to the canonical kinds the
+    rest of the bot already routes through themed PVE channels."""
+    if not raw_kind:
+        return "Survival"
+    cleaned = str(raw_kind).strip().lower()
+    aliases = {
+        "hunt": "Hunting",
+        "hunting": "Hunting",
+        "kill": "Hunting",
+        "predator": "Hunting",
+        "fish": "Fishing",
+        "fishing": "Fishing",
+        "angling": "Fishing",
+        "collect": "Collection",
+        "collection": "Collection",
+        "gather": "Collection",
+        "scavenge": "Collection",
+        "loot": "Collection",
+        "craft": "Crafting",
+        "crafting": "Crafting",
+        "repair": "Repair",
+        "build": "Crafting",
+        "explore": "Explorer",
+        "explorer": "Explorer",
+        "exploration": "Explorer",
+        "expedition": "Explorer",
+        "travel": "Explorer",
+        "survive": "Survival",
+        "survival": "Survival",
+        "rescue": "Rescue",
+        "zombie": "Zombie Control",
+        "infected": "Zombie Control",
+        "treasure": "Treasure Hunt",
+        "story": "Quest Line",
+        "quest line": "Quest Line",
+    }
+    return aliases.get(cleaned, str(raw_kind).strip().title()[:32] or "Survival")
+
+
+def _coerce_difficulty(raw):
+    cleaned = str(raw or "").strip().lower()
+    return {
+        "easy": "Easy",
+        "medium": "Medium",
+        "med": "Medium",
+        "normal": "Medium",
+        "hard": "Hard",
+        "tough": "Hard",
+        "legendary": "Legendary",
+        "epic": "Legendary",
+        "boss": "Legendary",
+    }.get(cleaned, "Medium")
+
+
+def _normalize_ai_quest_entry(raw, campaign_name):
+    """Validate one AI-generated quest dict and coerce it into the schema
+    PVE_CHALLENGE_BANK uses. Returns None if the entry is unusable."""
+    if not isinstance(raw, dict):
+        return None
+    title = str(raw.get("title") or "").strip()
+    goal = str(raw.get("goal") or "").strip()
+    if not title or not goal:
+        return None
+    # Ensure the goal can be safely fed into `goal.format(count=...)`
+    # without raising. We escape any stray braces, then if no {count}
+    # placeholder exists we leave the goal as a fixed string.
+    if "{count}" not in goal:
+        goal = goal.replace("{", "{{").replace("}", "}}")
+    kind = _coerce_quest_kind(raw.get("kind"))
+    difficulty = _coerce_difficulty(raw.get("difficulty"))
+    tips = str(raw.get("tips") or "Move quiet, plan water, and don't fight what you can avoid.").strip()
+    reward = str(raw.get("reward") or "Admin-chosen pennies, food, ammo, or medical kit.").strip()
+    reward_pennies = raw.get("reward_pennies")
+    try:
+        reward_pennies = int(reward_pennies) if reward_pennies is not None else pve_reward_for_difficulty(difficulty)
+    except Exception:
+        reward_pennies = pve_reward_for_difficulty(difficulty)
+    return {
+        "kind": kind,
+        "title": title[:120],
+        "goal": goal[:400],
+        "reward": reward[:200],
+        "reward_pennies": reward_pennies,
+        "difficulty": difficulty,
+        "tips": tips[:300],
+        "quest_line": campaign_name,
+    }
+
+
+async def generate_ai_pve_campaign(theme, count=12):
+    """Ask the LLM to produce a list of DayZ PVE quests matching `theme`.
+    Returns (quests, error_message). On success quests is a non-empty list
+    of dicts matching PVE_CHALLENGE_BANK's schema; on failure quests is
+    [] and error_message describes why."""
+    theme = (theme or "").strip()
+    if not theme:
+        return [], "No theme provided."
+    if not EMERGENT_LLM_KEY:
+        return [], "EMERGENT_LLM_KEY is not configured on this bot."
+
+    count = max(4, min(int(count or 12), 40))
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as error:
+        return [], f"emergentintegrations import failed: {error}"
+
+    prompt = (
+        f"Design exactly {count} DayZ PVE quests for a survival server, all themed around: \"{theme}\".\n\n"
+        "Output strict JSON in this exact shape (no markdown, no commentary):\n"
+        "{\n"
+        f"  \"campaign_name\": \"<a 2-5 word campaign title evocative of the theme>\",\n"
+        "  \"quests\": [\n"
+        "    {\n"
+        "      \"kind\": \"Hunting|Fishing|Collection|Crafting|Repair|Explorer|Survival|Rescue|Zombie Control|Treasure Hunt|Quest Line\",\n"
+        "      \"title\": \"<short evocative quest title, 3-8 words>\",\n"
+        "      \"goal\": \"<one sentence objective. If quantity-based, use the literal token {count} where the number goes.>\",\n"
+        "      \"reward\": \"<one short sentence describing the reward>\",\n"
+        "      \"difficulty\": \"Easy|Medium|Hard|Legendary\",\n"
+        "      \"tips\": \"<one short sentence of in-game advice>\"\n"
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "Rules:\n"
+        f"- Quests must feel survival-grounded, no fantasy/magic. Reflect the theme \"{theme}\" in title + flavour.\n"
+        "- Mix difficulties: roughly 40% Easy, 35% Medium, 20% Hard, 5% Legendary.\n"
+        "- Spread the kinds across hunting/collection/exploration/crafting where possible.\n"
+        "- Keep goals concise. If a quest has a count target, use the literal token {count}, not a number.\n"
+        "- Tips should reference real DayZ mechanics (loot tiers, infected aggro, weather, stamina) — never real-world tragedies.\n"
+        "- Do NOT include any text outside the JSON object."
+    )
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"pve-campaign-{hashlib.sha1(theme.encode()).hexdigest()[:12]}",
+            system_message=PVE_CAMPAIGN_SYSTEM_PROMPT,
+        ).with_model(AI_CAMPAIGN_PROVIDER, AI_CAMPAIGN_MODEL)
+
+        response = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=prompt)),
+            timeout=AI_CAMPAIGN_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return [], "LLM call timed out."
+    except Exception as error:
+        return [], f"LLM call failed: {error}"
+
+    raw = (str(response or "")).strip()
+    # Strip any markdown fences the model might add anyway.
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, count=1)
+        raw = re.sub(r"\s*```\s*$", "", raw, count=1)
+
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        # Fall back: try to extract the first {...} block.
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return [], "LLM did not return valid JSON."
+        try:
+            parsed = json.loads(match.group(0))
+        except Exception as error:
+            return [], f"LLM JSON parse failed: {error}"
+
+    campaign_name = str(parsed.get("campaign_name") or theme).strip()[:80] or theme[:80]
+    raw_quests = parsed.get("quests")
+    if not isinstance(raw_quests, list) or not raw_quests:
+        return [], "LLM response contained no quests array."
+
+    normalized = []
+    for entry in raw_quests:
+        cleaned = _normalize_ai_quest_entry(entry, campaign_name)
+        if cleaned:
+            normalized.append(cleaned)
+
+    if not normalized:
+        return [], "LLM returned quests but none were usable."
+
+    return normalized, campaign_name
+
+
+def save_ai_campaign_for_guild(guild_id, theme, campaign_name, quests, author_id=None):
+    """Persist a generated campaign under `guild_id` and return its id."""
+    gid = str(guild_id)
+    guild_block = pve_ai_campaigns.setdefault(gid, {})
+    campaign_id = f"camp-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}"
+    guild_block[campaign_id] = {
+        "id": campaign_id,
+        "theme": theme,
+        "name": campaign_name,
+        "created": datetime.now(UTC).isoformat(),
+        "generated_by": str(author_id) if author_id is not None else None,
+        "quests": quests,
+    }
+    # Cap to the 10 most recent campaigns per guild to keep the JSON
+    # file small even after months of generating.
+    if len(guild_block) > 10:
+        ordered_ids = sorted(
+            guild_block.keys(),
+            key=lambda cid: guild_block[cid].get("created", ""),
+        )
+        for stale_id in ordered_ids[:-10]:
+            guild_block.pop(stale_id, None)
+    save_pve_ai_campaigns()
+    return campaign_id
+
+
 def load_heatmap():
     global territory_heat
     territory_heat = load_json(HEATMAP_FILE)
@@ -5739,6 +5967,41 @@ def save_pve_challenges():
     save_json(PVE_CHALLENGES_FILE, pve_challenges)
 
 
+# AI-generated PVE campaigns persisted per-guild so they survive Railway
+# container restarts (the filesystem is ephemeral but this file lives on
+# the mounted volume via DATA_ROOT). Schema:
+#   { guild_id: { campaign_id: { theme, name, created, generated_by,
+#                                quests: [ {kind, title, goal, reward,
+#                                           tips, difficulty} ] } } }
+pve_ai_campaigns = {}
+
+
+def load_pve_ai_campaigns():
+    global pve_ai_campaigns
+    pve_ai_campaigns = load_json(PVE_AI_CAMPAIGNS_FILE) or {}
+
+
+def save_pve_ai_campaigns():
+    save_json(PVE_AI_CAMPAIGNS_FILE, pve_ai_campaigns)
+
+
+def guild_ai_campaign_quests(guild_id):
+    """Return a flat list of AI-generated quest templates for `guild_id`,
+    formatted to match PVE_CHALLENGE_BANK entries so they can be mixed
+    into the normal PVE quest generator.
+    """
+    guild_block = pve_ai_campaigns.get(str(guild_id), {})
+    pool = []
+    for campaign in guild_block.values():
+        for quest in campaign.get("quests", []):
+            if not isinstance(quest, dict):
+                continue
+            if not quest.get("title") or not quest.get("goal"):
+                continue
+            pool.append(quest)
+    return pool
+
+
 def stable_line_hash(line):
     return hashlib.sha256(
         line.encode("utf-8", errors="ignore")
@@ -5783,6 +6046,33 @@ def extract_adm_event_time(line, *, now=None):
     if candidate > reference + timedelta(minutes=5):
         candidate -= timedelta(days=1)
     return candidate
+
+
+# How old (in seconds) an ADM event can be before we refuse to dispatch
+# Discord feeds for it. This is the critical guard that prevents Railway
+# container restarts from spamming the server with yesterday's events
+# every time the in-memory + on-disk processed_lines cache gets wiped.
+# 2 hours is the sweet spot: long enough to backfill genuine "missed
+# events" after a brief outage, short enough to never re-broadcast
+# yesterday's killfeed.
+ADM_EVENT_MAX_AGE_SECONDS = 2 * 60 * 60
+
+
+def is_adm_event_stale(event_time, *, now=None, max_age_seconds=ADM_EVENT_MAX_AGE_SECONDS):
+    """Return True if `event_time` is older than `max_age_seconds` relative
+    to `now` (defaults to current UTC). Used to suppress feed dispatch for
+    ADM lines that were already logged hours ago (e.g. after a Railway
+    container restart wipes the processed-line cache and the bot re-scans
+    the entire .ADM file fresh).
+    """
+    if event_time is None:
+        return False
+    reference = now or datetime.now(UTC)
+    try:
+        age = (reference - event_time).total_seconds()
+    except Exception:
+        return False
+    return age > max_age_seconds
 
 
 def load_processed_adm_lines():
@@ -9135,7 +9425,18 @@ async def parse_adm(guild_id, config):
         # Discord shows "when the event actually happened in-game", not
         # "when the bot got around to processing it". Falls back to "now"
         # if the line has no parseable HH:MM:SS prefix.
-        event_time = extract_adm_event_time(line) or datetime.now(UTC)
+        parsed_event_time = extract_adm_event_time(line)
+        event_time = parsed_event_time or datetime.now(UTC)
+
+        # AGE GUARD: Railway containers restart at random and wipe the
+        # in-memory processed_lines cache. The on-disk JSON backup may
+        # also be gone (ephemeral disk). When that happens the bot
+        # re-reads the entire .ADM file fresh and would spam Discord
+        # with every event from the past 24 hours. Skip dispatch for
+        # any event older than ADM_EVENT_MAX_AGE_SECONDS. We still
+        # remembered the hash above so we won't keep re-checking it.
+        if parsed_event_time is not None and is_adm_event_stale(parsed_event_time):
+            continue
 
         event_type = classify_event(line)
 
@@ -14057,14 +14358,22 @@ def find_active_pve_quest_by_code(guild_id, quest_code):
     return None
 
 
-def generate_pve_challenge(kind=None, difficulty=None):
-    candidates = PVE_CHALLENGE_BANK
+def generate_pve_challenge(kind=None, difficulty=None, guild_id=None):
+    # Mix any AI-generated campaign quests for this guild into the base
+    # challenge bank so server owners can extend the quest pool without
+    # waiting for a code release. AI quests use the exact same schema
+    # so they flow through every existing PVE feature for free.
+    base_bank = list(PVE_CHALLENGE_BANK)
+    if guild_id is not None:
+        base_bank.extend(guild_ai_campaign_quests(guild_id))
+
+    candidates = base_bank
     if kind:
         wanted = str(kind).lower()
         candidates = [
-            challenge for challenge in PVE_CHALLENGE_BANK
+            challenge for challenge in base_bank
             if str(challenge.get("kind", "")).lower() == wanted
-        ] or PVE_CHALLENGE_BANK
+        ] or base_bank
 
     if difficulty:
         wanted_difficulty = str(difficulty).title()
@@ -14370,7 +14679,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     if not quest_channel:
         return False, "PVE quest channel missing"
 
-    challenge = generate_pve_challenge()
+    challenge = generate_pve_challenge(guild_id=guild_id)
     guild_challenges = pve_challenges.setdefault(str(guild_id), [])
     guild_challenges.append(challenge)
     pve_challenges[str(guild_id)] = guild_challenges[-25:]
@@ -14435,7 +14744,7 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     if not channels.get(channel_key):
         await ensure_pve_channels(guild, config)
 
-    challenge = generate_pve_challenge(kind, difficulty)
+    challenge = generate_pve_challenge(kind, difficulty, guild_id=guild_id)
     challenge["channel_key"] = channel_key
     challenge["slot_difficulty"] = difficulty
     channel = bot.get_channel(channels.get(channel_key))
@@ -21855,6 +22164,159 @@ async def event_bridgecode(interaction: discord.Interaction):
 bot.tree.add_command(events_group)
 
 
+@events_group.command(
+    name="generatequests",
+    description="Admin: AI-generate a themed PVE quest campaign for this server"
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    theme="Theme for the campaign (e.g. 'lost convoy', 'winter outbreak', 'coastal salvage')",
+    count="How many quests to generate (4-40, default 12)"
+)
+async def event_generate_quests(interaction: discord.Interaction, theme: str, count: int = 12):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    theme = (theme or "").strip()
+    if not theme:
+        await interaction.response.send_message("Provide a theme.", ephemeral=True)
+        return
+
+    if not EMERGENT_LLM_KEY:
+        await interaction.response.send_message(
+            "AI quest generation needs the `EMERGENT_LLM_KEY` Railway env var.",
+            ephemeral=True
+        )
+        return
+
+    # LLM calls can take 20-60s; defer immediately so Discord doesn't
+    # time out the interaction at the 3-second mark.
+    await interaction.response.defer(ephemeral=True, thinking=True)
+
+    quests, campaign_name_or_error = await generate_ai_pve_campaign(theme, count=count)
+    if not quests:
+        await interaction.followup.send(
+            f"AI quest generation failed: {campaign_name_or_error}",
+            ephemeral=True
+        )
+        return
+
+    campaign_id = save_ai_campaign_for_guild(
+        interaction.guild.id,
+        theme=theme,
+        campaign_name=campaign_name_or_error,
+        quests=quests,
+        author_id=interaction.user.id,
+    )
+
+    # Build a preview embed with the first ~6 quests.
+    embed = discord.Embed(
+        title=f"🧭 NEW PVE CAMPAIGN: {campaign_name_or_error}",
+        description=(
+            f"**Theme:** {theme}\n"
+            f"**Quests generated:** {len(quests)}\n"
+            f"**Campaign ID:** `{campaign_id}`\n\n"
+            "These quests are now part of this server's PVE pool — they will appear "
+            "in the rotation alongside the built-in quest bank automatically. "
+            "Disable with `/events deletecampaign`."
+        ),
+        color=0x9B59B6,
+    )
+    preview = quests[:6]
+    for q in preview:
+        difficulty = q.get("difficulty", "Medium")
+        kind = q.get("kind", "Survival")
+        goal = q.get("goal", "")
+        # Render {count} as "[count]" in preview so admins see the
+        # placeholder without crashing on .format().
+        goal_preview = goal.replace("{count}", "[count]")
+        embed.add_field(
+            name=f"[{difficulty}] {q.get('title', 'Untitled')}",
+            value=f"_{kind}_ — {goal_preview[:180]}",
+            inline=False,
+        )
+    if len(quests) > len(preview):
+        embed.set_footer(text=f"+ {len(quests) - len(preview)} more quests in the campaign")
+    else:
+        embed.set_footer(text="Wandering Bot Alpha - AI PVE Campaign")
+    embed.set_thumbnail(url=BOT_IMAGE)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@events_group.command(
+    name="listcampaigns",
+    description="Admin: list AI-generated PVE campaigns for this server"
+)
+@app_commands.default_permissions(administrator=True)
+async def event_list_campaigns(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    gid = str(interaction.guild.id)
+    guild_block = pve_ai_campaigns.get(gid, {})
+    if not guild_block:
+        await interaction.response.send_message(
+            "No AI-generated campaigns yet. Run `/events generatequests theme:<idea>` to make one.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🧭 AI PVE Campaigns",
+        description=f"{len(guild_block)} campaign(s) stored for this server.",
+        color=0x9B59B6,
+    )
+    ordered = sorted(
+        guild_block.values(),
+        key=lambda c: c.get("created", ""),
+        reverse=True,
+    )
+    for campaign in ordered[:10]:
+        embed.add_field(
+            name=f"{campaign.get('name', 'Campaign')} ({len(campaign.get('quests', []))} quests)",
+            value=(
+                f"**Theme:** {campaign.get('theme', '?')}\n"
+                f"**ID:** `{campaign.get('id', '?')}`\n"
+                f"**Created:** {campaign.get('created', '?')[:19].replace('T', ' ')}"
+            ),
+            inline=False,
+        )
+    embed.set_footer(text="Use /events deletecampaign campaign_id:<id> to remove one.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@events_group.command(
+    name="deletecampaign",
+    description="Admin: delete an AI-generated PVE campaign by ID"
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(campaign_id="Campaign ID from /events listcampaigns")
+async def event_delete_campaign(interaction: discord.Interaction, campaign_id: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    gid = str(interaction.guild.id)
+    guild_block = pve_ai_campaigns.get(gid, {})
+    cid = (campaign_id or "").strip()
+    if not cid or cid not in guild_block:
+        await interaction.response.send_message(
+            "Campaign not found. Use `/events listcampaigns` to see valid IDs.",
+            ephemeral=True,
+        )
+        return
+
+    removed = guild_block.pop(cid)
+    save_pve_ai_campaigns()
+    await interaction.response.send_message(
+        f"Removed campaign **{removed.get('name', cid)}** ({len(removed.get('quests', []))} quests).",
+        ephemeral=True,
+    )
+
+
 console_group = app_commands.Group(
     name="console",
     description="Console-safe DayZ object spawner tools"
@@ -24314,6 +24776,7 @@ async def on_ready():
     load_support_tickets()
     load_factions()
     load_pve_challenges()
+    load_pve_ai_campaigns()
     load_longshot_records()
     load_first_blood()
     load_daily_recap()
