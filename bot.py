@@ -10567,6 +10567,10 @@ async def on_message(message):
         return
 
     await maybe_translate_message(message)
+    try:
+        await handle_quest_request_message(message)
+    except Exception as qr_err:
+        print(f"[QUESTGEN] handler error: {qr_err}")
     await apply_chat_reward_punishment_rules(message, lower)
 
     found_words = [
@@ -13948,6 +13952,296 @@ for _campaign_name, _entries in [
             "quest_line": _campaign_name,
             "target_event": None,
         })
+
+
+# =========================================================
+# 🪶 AI QUEST GENERATION — admin quest-request channel
+# =========================================================
+# Admins designate one channel as their "quest request" channel via
+# /extra setquestrequestchannel. Anything written in that channel by
+# an admin is treated as a quest-generation prompt. The bot calls the
+# Emergent LLM key, validates the JSON response, then DMs a preview
+# embed with Approve/Reject buttons. On approval, the generated quests
+# are appended to PVE_CHALLENGE_BANK in memory and persisted to disk.
+
+CUSTOM_CAMPAIGNS_FILE = data_path("custom_campaigns.json")
+QUEST_REQUEST_LOG_FILE = data_path("quest_request_log.json")
+custom_campaigns_state = {}       # {guild_id: [{campaign_name, quests:[...]}, ...]}
+quest_request_log = {}            # {guild_id: [{ts, requester, prompt, count}]}
+
+
+def load_custom_campaigns():
+    global custom_campaigns_state
+    custom_campaigns_state = load_json(CUSTOM_CAMPAIGNS_FILE) or {}
+    # Replay every saved quest back into PVE_CHALLENGE_BANK on boot
+    for gid, packs in custom_campaigns_state.items():
+        for pack in (packs or []):
+            for q in (pack.get("quests") or []):
+                PVE_CHALLENGE_BANK.append({
+                    "kind": "Quest Line",
+                    "title": q.get("title", "Custom Quest"),
+                    "goal": q.get("goal", ""),
+                    "reward": f"{int(q.get('reward_pennies', 250))} pennies — admin-chosen story reward.",
+                    "tips": q.get("tips", ""),
+                    "difficulty": q.get("difficulty", "Medium"),
+                    "reward_pennies": int(q.get("reward_pennies", 250) or 250),
+                    "quest_line": pack.get("campaign_name", "Custom Pack"),
+                    "target_event": None,
+                    "custom": True,
+                })
+
+
+def save_custom_campaigns():
+    save_json(CUSTOM_CAMPAIGNS_FILE, custom_campaigns_state)
+
+
+def load_quest_request_log():
+    global quest_request_log
+    quest_request_log = load_json(QUEST_REQUEST_LOG_FILE) or {}
+
+
+def save_quest_request_log():
+    save_json(QUEST_REQUEST_LOG_FILE, quest_request_log)
+
+
+def _commit_custom_quest_pack(guild_id, campaign_name, quests):
+    """Store and inject a validated quest pack."""
+    gid = str(guild_id)
+    pack = {
+        "campaign_name": campaign_name,
+        "created_at": datetime.now(UTC).isoformat(),
+        "quests": quests,
+    }
+    custom_campaigns_state.setdefault(gid, []).append(pack)
+    save_custom_campaigns()
+    for q in quests:
+        PVE_CHALLENGE_BANK.append({
+            "kind": "Quest Line",
+            "title": q.get("title", "Custom Quest"),
+            "goal": q.get("goal", ""),
+            "reward": f"{int(q.get('reward_pennies', 250))} pennies — admin-chosen story reward.",
+            "tips": q.get("tips", ""),
+            "difficulty": q.get("difficulty", "Medium"),
+            "reward_pennies": int(q.get("reward_pennies", 250) or 250),
+            "quest_line": campaign_name,
+            "target_event": None,
+            "custom": True,
+        })
+
+
+async def generate_quests_via_llm(prompt, requester_name):
+    """Call the Emergent LLM key to generate a quest pack from a free-form
+    prompt. Returns (campaign_name, [quest_dicts]) or (None, []) on
+    failure."""
+    if not EMERGENT_LLM_KEY:
+        return None, []
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as e:
+        print(f"[QUESTGEN] emergentintegrations import failed: {e}")
+        return None, []
+    system_msg = (
+        "You are a DayZ PvE quest writer for a hardcore survival server. "
+        "Generate a JSON object with EXACTLY this schema:\n"
+        '{ "campaign_name": "<short evocative pack name>",\n'
+        '  "quests": [\n'
+        '    { "title": "<Pack Name I — Step Title>",\n'
+        '      "goal": "<concrete in-game objective the admin can verify>",\n'
+        '      "tips": "<1-sentence lore/gameplay hint>",\n'
+        '      "difficulty": "Easy|Medium|Hard|Brutal|Legendary",\n'
+        '      "reward_pennies": <int 200..3500> }\n'
+        '  ] }\n'
+        "Constraints: 1) progressive narrative across quests; 2) gritty DayZ tone; "
+        "3) goals must be photographable/verifiable; 4) escalate difficulty; "
+        "5) no kid-friendly fluff; 6) NO markdown around the JSON, only the raw JSON object."
+    )
+    user_msg = (
+        f"Admin '{requester_name}' wants a quest pack with these requirements:\n\n"
+        f"{prompt}\n\n"
+        "Default to 10 quests if no count is specified. If a count >50 is requested, "
+        "cap it at 50. Output ONLY the JSON object."
+    )
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"questgen-{hashlib.sha1(prompt.encode()).hexdigest()[:12]}",
+            system_message=system_msg,
+        ).with_model("openai", "gpt-5-nano")
+        response = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=user_msg)), timeout=60
+        )
+        raw = str(response or "").strip()
+        # Strip markdown fences if the LLM ignored instructions
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.lower().startswith("json"):
+                raw = raw[4:].strip()
+        data = json.loads(raw)
+        camp = (data.get("campaign_name") or "Custom Pack").strip()[:60]
+        quests = data.get("quests") or []
+        # Validate + clamp
+        cleaned = []
+        for q in quests[:50]:
+            if not isinstance(q, dict):
+                continue
+            title = str(q.get("title", "")).strip()[:120]
+            goal = str(q.get("goal", "")).strip()[:600]
+            if not title or not goal:
+                continue
+            cleaned.append({
+                "title": title,
+                "goal": goal,
+                "tips": str(q.get("tips", "")).strip()[:400],
+                "difficulty": str(q.get("difficulty", "Medium")).strip()[:20] or "Medium",
+                "reward_pennies": max(200, min(3500, int(q.get("reward_pennies", 500) or 500))),
+            })
+        return camp, cleaned
+    except asyncio.TimeoutError:
+        print("[QUESTGEN] LLM call timed out")
+        return None, []
+    except Exception as e:
+        print(f"[QUESTGEN] LLM error: {e}")
+        return None, []
+
+
+class QuestPackApprovalView(discord.ui.View):
+    """Approve/Reject buttons posted alongside a generated quest preview."""
+
+    def __init__(self, guild_id, campaign_name, quests, requester_id, channel_to_post):
+        super().__init__(timeout=900)  # 15-min approval window
+        self.guild_id = guild_id
+        self.campaign_name = campaign_name
+        self.quests = quests
+        self.requester_id = requester_id
+        self.channel_to_post = channel_to_post
+
+    @discord.ui.button(label="✅ Approve & post", style=discord.ButtonStyle.success)
+    async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.requester_id and not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Only the requester or an admin can approve.", ephemeral=True)
+            return
+        _commit_custom_quest_pack(self.guild_id, self.campaign_name, self.quests)
+        # Post the actual quest list in the chosen channel
+        target = self.channel_to_post or interaction.channel
+        embed = discord.Embed(
+            title=f"📜 NEW QUEST PACK — {self.campaign_name}",
+            description=f"**{len(self.quests)}** quests added to the bank.",
+            color=0x2ECC71,
+        )
+        for q in self.quests[:25]:
+            embed.add_field(
+                name=f"[{q['difficulty']}] {q['title']}"[:256],
+                value=f"{q['goal'][:200]}\n*Reward:* {q['reward_pennies']} pennies",
+                inline=False,
+            )
+        embed.set_footer(text="Wandering Bot Alpha — Custom Quest Pack")
+        embed.timestamp = datetime.now(UTC)
+        try:
+            await target.send(embed=style_embed(embed))
+        except Exception as e:
+            print(f"[QUESTGEN] post-to-channel failed: {e}")
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(
+            content=f"✅ **{len(self.quests)}** quests added to the bank and posted in {target.mention}.",
+            view=self,
+        )
+
+    @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger)
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.requester_id and not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Only the requester or an admin can reject.", ephemeral=True)
+            return
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ Quest pack discarded.", view=self)
+
+
+async def handle_quest_request_message(message):
+    """Called from on_message when an admin posts in the configured
+    quest-request channel. Generates a preview + approval buttons."""
+    if not message.guild or message.author.bot:
+        return
+    guild_id = str(message.guild.id)
+    config = guild_configs.get(guild_id, {})
+    req_channel_id = config.get("quest_request_channel_id")
+    if not req_channel_id or int(req_channel_id) != message.channel.id:
+        return
+    # Permission gate
+    member = message.author
+    perms = message.channel.permissions_for(member) if message.channel else None
+    is_admin = bool(perms and perms.administrator)
+    if not is_admin:
+        admin_role_names = {r.lower() for r in (config.get("admin_roles") or DEFAULT_ADMIN_ROLES)}
+        member_role_names = {r.name.lower() for r in member.roles}
+        is_admin = bool(admin_role_names & member_role_names)
+    if not is_admin:
+        return  # silently ignore non-admin chatter
+    prompt = (message.content or "").strip()
+    if len(prompt) < 8:
+        return
+    # Optional inline channel hint: "post in #pve-naval"
+    target_channel = message.channel
+    chan_match = re.search(r"(?:post|put|send|drop)\s+(?:in|to|into)\s+<#(\d+)>", prompt, re.IGNORECASE)
+    if chan_match:
+        try:
+            target_channel = bot.get_channel(int(chan_match.group(1))) or message.channel
+        except Exception:
+            pass
+    if not target_channel:
+        target_channel = message.channel
+    thinking = await message.reply(
+        "🪶 Generating quest pack via AI… (up to ~30s)"
+    )
+    camp_name, quests = await generate_quests_via_llm(prompt, member.display_name)
+    if not quests:
+        await thinking.edit(content=(
+            "❌ Couldn't generate quests. Either the LLM call failed, the response "
+            "wasn't valid JSON, or `EMERGENT_LLM_KEY` isn't set on Railway.\n"
+            "Check the Railway logs for `[QUESTGEN]` lines."
+        ))
+        return
+    # Build preview embed
+    preview = discord.Embed(
+        title=f"🪶 QUEST PACK PREVIEW — {camp_name}",
+        description=(
+            f"**{len(quests)}** quests generated for **{member.display_name}**.\n"
+            f"_Target channel for the live post:_ {target_channel.mention}"
+        ),
+        color=0x9B59B6,
+    )
+    for q in quests[:10]:
+        preview.add_field(
+            name=f"[{q['difficulty']}] {q['title']}"[:256],
+            value=f"{q['goal'][:140]}\n*Reward:* {q['reward_pennies']} pennies",
+            inline=False,
+        )
+    if len(quests) > 10:
+        preview.add_field(
+            name="…",
+            value=f"+{len(quests) - 10} more quests (shown in full when approved)",
+            inline=False,
+        )
+    preview.set_footer(text="Approve below to add these to the bank and post them.")
+    preview.timestamp = datetime.now(UTC)
+    view = QuestPackApprovalView(
+        guild_id=guild_id,
+        campaign_name=camp_name,
+        quests=quests,
+        requester_id=member.id,
+        channel_to_post=target_channel,
+    )
+    await thinking.edit(content=None, embed=style_embed(preview), view=view)
+    # Log
+    quest_request_log.setdefault(guild_id, []).append({
+        "ts": datetime.now(UTC).isoformat(),
+        "requester": str(member.id),
+        "prompt": prompt[:500],
+        "count": len(quests),
+    })
+    if len(quest_request_log[guild_id]) > 100:
+        quest_request_log[guild_id] = quest_request_log[guild_id][-100:]
+    save_quest_request_log()
 
 
 PVE_INFO_TOPICS = {
@@ -23880,6 +24174,96 @@ async def slash_server_sendmessage(interaction: discord.Interaction, message: st
 
 
 bot.tree.add_command(server_group)
+
+
+@server_group.command(
+    name="setquestchannel",
+    description="Set the admin-only quest-request channel where AI generates new quest packs",
+)
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(channel="Channel admins type quest prompts in (e.g. 'give me 20 naval-themed story quests, post in #pve-naval')")
+async def slash_set_quest_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    config["quest_request_channel_id"] = channel.id
+    save_guild_configs()
+    key_note = "" if EMERGENT_LLM_KEY else (
+        "\n\n⚠️ `EMERGENT_LLM_KEY` is not set on Railway — the AI generator "
+        "won't run until you add the key in env vars."
+    )
+    await interaction.response.send_message(
+        f"✅ Quest-request channel set to {channel.mention}.\n\n"
+        "**How to use it (admins only):**\n"
+        "Just type what you want, e.g.:\n"
+        "> *Give me 20 story quests with a naval salvage theme, post in #pve-naval*\n"
+        "> *15 quick brutal-difficulty quests about scavenging military bases*\n"
+        "> *Generate 30 progressive quests about a faction war, gritty tone*\n\n"
+        "Optional: include `post in #channel` and the live quests will land there once you approve.\n"
+        f"You'll get a preview with Approve/Reject buttons.{key_note}",
+        ephemeral=True,
+    )
+
+
+@server_group.command(
+    name="unsetquestchannel",
+    description="Disable the AI quest-request channel",
+)
+@app_commands.default_permissions(administrator=True)
+async def slash_unset_quest_channel(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    if config.pop("quest_request_channel_id", None):
+        save_guild_configs()
+        await interaction.response.send_message(
+            "✅ Quest-request channel disabled. Admin chatter there will no longer trigger AI generation.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            "No quest-request channel was configured.", ephemeral=True
+        )
+
+
+@server_group.command(
+    name="listcustomquests",
+    description="List all AI-generated custom quest packs added to this server",
+)
+@app_commands.default_permissions(administrator=True)
+async def slash_list_custom_quests(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    packs = custom_campaigns_state.get(guild_id) or []
+    embed = discord.Embed(
+        title="🪶 CUSTOM QUEST PACKS",
+        description=(
+            f"**{len(packs)}** AI-generated pack(s) on this server."
+            if packs else "No custom quest packs have been generated yet. "
+            "Run `/server setquestchannel` and start prompting in that channel."
+        ),
+        color=0x9B59B6,
+    )
+    for pack in packs[-15:]:
+        embed.add_field(
+            name=pack.get("campaign_name", "Custom Pack")[:200],
+            value=(
+                f"**{len(pack.get('quests') or [])}** quests · "
+                f"created {pack.get('created_at', '?')[:10]}"
+            ),
+            inline=False,
+        )
+    embed.set_footer(text="Wandering Bot Alpha — Custom Quest Packs")
+    embed.timestamp = datetime.now(UTC)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
@@ -24337,6 +24721,8 @@ async def on_ready():
     load_nemesis()
     load_alive_streaks()
     load_daily_challenges()
+    load_custom_campaigns()
+    load_quest_request_log()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
