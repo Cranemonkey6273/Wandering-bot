@@ -19747,66 +19747,9 @@ async def addradarzone(
     )
 
 
-@extra_tools_group.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    zone_id="Zone ID from /listradarzones",
-    alert_channel="Channel where this zone's alerts will post (omit to keep the current setting)",
-    mention_role="Role to ping when this zone triggers (omit to keep the current setting)",
-    clear_alert_channel="True = remove the per-zone channel and fall back to the default radar channel",
-    clear_mention_role="True = remove the ping role for this zone",
-)
-async def editradarzone(
-    interaction: discord.Interaction,
-    zone_id: int,
-    alert_channel: discord.TextChannel = None,
-    mention_role: discord.Role = None,
-    clear_alert_channel: bool = False,
-    clear_mention_role: bool = False,
-):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id, {})
-    zones = config.get("radar_zones", [])
-    zone = next((z for z in zones if int(z.get("id", -1)) == int(zone_id)), None)
-    if not zone:
-        await interaction.response.send_message(
-            f"No zone with ID `{zone_id}`. Use `/listradarzones` to see them.",
-            ephemeral=True
-        )
-        return
-
-    changes = []
-    if clear_alert_channel:
-        zone["alert_channel_id"] = None
-        changes.append("cleared alert channel (will use default radar channel)")
-    elif alert_channel:
-        zone["alert_channel_id"] = alert_channel.id
-        changes.append(f"alerts → {alert_channel.mention}")
-
-    if clear_mention_role:
-        zone["mention_role_id"] = None
-        changes.append("cleared ping role")
-    elif mention_role:
-        zone["mention_role_id"] = mention_role.id
-        changes.append(f"pings → {mention_role.mention}")
-
-    if not changes:
-        await interaction.response.send_message(
-            "Nothing to change. Provide `alert_channel`, `mention_role`, or one of the `clear_*` flags.",
-            ephemeral=True
-        )
-        return
-
-    save_guild_configs()
-    await interaction.response.send_message(
-        f"Zone `{zone_id}` ({zone.get('name', '?')}) updated: " + "; ".join(changes),
-        ephemeral=True,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
+# NOTE: /extra editradarzone is registered AFTER `extra_tools_group` is
+# defined further down in this file (search for the next reference).
+# Defining it here would NameError at import time.
 
 
 @bot.tree.command(name="listradarzones", description="Admin: list configured radar zones")
@@ -22783,6 +22726,68 @@ extra_tools_group = app_commands.Group(
     name="tools",
     description="Extra utility and admin tools"
 )
+
+
+@extra_tools_group.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    zone_id="Zone ID from /listradarzones",
+    alert_channel="Channel where this zone's alerts will post (omit to keep the current setting)",
+    mention_role="Role to ping when this zone triggers (omit to keep the current setting)",
+    clear_alert_channel="True = remove the per-zone channel and fall back to the default radar channel",
+    clear_mention_role="True = remove the ping role for this zone",
+)
+async def editradarzone(
+    interaction: discord.Interaction,
+    zone_id: int,
+    alert_channel: discord.TextChannel = None,
+    mention_role: discord.Role = None,
+    clear_alert_channel: bool = False,
+    clear_mention_role: bool = False,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    zones = config.get("radar_zones", [])
+    zone = next((z for z in zones if int(z.get("id", -1)) == int(zone_id)), None)
+    if not zone:
+        await interaction.response.send_message(
+            f"No zone with ID `{zone_id}`. Use `/listradarzones` to see them.",
+            ephemeral=True
+        )
+        return
+
+    changes = []
+    if clear_alert_channel:
+        zone["alert_channel_id"] = None
+        changes.append("cleared alert channel (will use default radar channel)")
+    elif alert_channel:
+        zone["alert_channel_id"] = alert_channel.id
+        changes.append(f"alerts → {alert_channel.mention}")
+
+    if clear_mention_role:
+        zone["mention_role_id"] = None
+        changes.append("cleared ping role")
+    elif mention_role:
+        zone["mention_role_id"] = mention_role.id
+        changes.append(f"pings → {mention_role.mention}")
+
+    if not changes:
+        await interaction.response.send_message(
+            "Nothing to change. Provide `alert_channel`, `mention_role`, or one of the `clear_*` flags.",
+            ephemeral=True
+        )
+        return
+
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"Zone `{zone_id}` ({zone.get('name', '?')}) updated: " + "; ".join(changes),
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 
 @bot.tree.command(name="helpme", description="Show command/help information")
