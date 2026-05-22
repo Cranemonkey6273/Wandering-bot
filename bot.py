@@ -459,6 +459,34 @@ BOT_UPDATE_NOTES = [
         "commands": "`/events workshopsetup`, plus freestyle chat inside the new quest-workshop channel",
         "audience": "Admins",
     },
+    {
+        "id": "2026-02-quest-rewards-delivery",
+        "title": "Quest Rewards Now Actually Deliver",
+        "summary": "When the AI promises a map, intel brief, or stash coordinates as a quest reward, the bot now actually generates and delivers it on /pvecomplete. Two new auto-created channels: pve-rewards (public win log) and pve-rewards-private (admin audit). Private rewards (like coordinates) are DMed to the player so other survivors can't race them to a stash they can't see.",
+        "commands": "Automatic on `/pvecomplete`",
+        "audience": "Everyone",
+    },
+    {
+        "id": "2026-02-pvp-manhunt-payback-champion",
+        "title": "PvP Boost: Manhunts, Paybacks, and Daily Kill Champion",
+        "summary": "Three new flavour-rich PvP signals added to the kill feed: 🎯 MANHUNT auto-flags any player who racks up 5+ kills in an hour as WANTED until they die, 🔥 PAYBACK celebrates revenge kills against someone who killed you in the last 30 minutes, and 🏆 DAILY KILL CHAMPION announces the day's top killers in the recap channel every 24h.",
+        "commands": "(automatic, no command needed)",
+        "audience": "Everyone",
+    },
+    {
+        "id": "2026-02-emoji-rich-feeds",
+        "title": "All Feeds Now Emoji-Rich and Easier to Read",
+        "summary": "Killfeed, longshot feed, connect/disconnect feed, and the flag feed have all been redesigned with emoji-rich titles, bold field labels, prominent map links, and live online-player counts. The flag feed in particular now shows base name, action, coords, and map link as a proper embed instead of the old text dump.",
+        "commands": "(automatic on every feed)",
+        "audience": "Everyone",
+    },
+    {
+        "id": "2026-02-quest-run-conditions",
+        "title": "PVE Quests: Run Conditions Added",
+        "summary": "AI-generated PVE quests now include When To Run hints — time of day (day/dusk/night/dawn), weather (clear/rain/fog/storm/cold/snow), and recommended squad size (solo/duo/trio/squad). These appear as a dedicated field on the quest embed so players know exactly when and how the quest is best tackled.",
+        "commands": "Automatic on every AI-generated quest",
+        "audience": "Everyone",
+    },
 ]
 
 SWEAR_REWARD_MIN = 300
@@ -1476,6 +1504,49 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
 
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Survivor Damage Feed")
+        embed.timestamp = event_time
+        await channel.send(embed=style_embed(embed))
+        return
+
+    if event_type in ["flag_raise", "flag_lower"]:
+        # Parse base name from common ADM flag log shapes:
+        #   ... raised the flag of base "Bob's Camp" at <pos>
+        #   ... lowered the flag of base "Cobalt Outpost"
+        base_match = re.search(r'flag of (?:base )?"([^"]+)"', line, re.IGNORECASE)
+        base_name = base_match.group(1) if base_match else "Unknown Base"
+        x, z, _ = split_adm_coords(coords)
+
+        if event_type == "flag_raise":
+            description = (
+                f"🟢 **{player}** has **raised** the territory flag at "
+                f"**{base_name}**.\n\nThe base is now **active and protected** — "
+                f"despawn timers reset, walls hold, contents stay."
+            )
+        else:
+            description = (
+                f"🔴 **{player}** has **lowered** the territory flag at "
+                f"**{base_name}**.\n\nThe base is now **vulnerable** — "
+                f"despawn timers running, expect raids."
+            )
+
+        embed = discord.Embed(title=title, description=description, color=color)
+        embed.add_field(name="🏴 Base", value=base_name, inline=True)
+        embed.add_field(name="👤 Player", value=player, inline=True)
+        embed.add_field(name="🎯 Action", value="Raised" if event_type == "flag_raise" else "Lowered", inline=True)
+
+        if x or z:
+            coord_lines = []
+            if x:
+                coord_lines.append(f"X: `{x}`")
+            if z:
+                coord_lines.append(f"Z: `{z}`")
+            embed.add_field(name="📍 Location", value="\n".join(coord_lines), inline=True)
+
+        if map_link:
+            embed.add_field(name="🗺️ Map", value=f"[Open iZurvive]({map_link})", inline=True)
+
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - 🚩 Territory Flag Feed")
         embed.timestamp = event_time
         await channel.send(embed=style_embed(embed))
         return
@@ -5700,6 +5771,152 @@ def get_top_victims(guild_id, player, limit=3):
 
 
 # =========================================================
+# 🎯 PAYBACK / REVENGE DETECTION
+# When player B is killed by player A, then later B kills A — that
+# kill is flagged as PAYBACK and gets its own celebratory embed.
+# Window: 30 minutes between the original kill and the revenge kill.
+# Stored in-memory only (intentionally) — server restart resets it
+# so payback feels fresh.
+# =========================================================
+
+PAYBACK_WINDOW_SECONDS = 30 * 60
+recent_kill_pairs = {}  # {guild_id: [(killer, victim, ts), ...]} — last 200
+
+
+def record_kill_for_payback(guild_id, killer, victim, ts=None):
+    """Track this kill and check whether `killer` is taking revenge on
+    a player who killed them recently. Returns the seconds-since-original
+    if this is a payback kill, otherwise None."""
+    gid = str(guild_id)
+    ts = ts or datetime.now(UTC).timestamp()
+    pairs = recent_kill_pairs.setdefault(gid, [])
+
+    # Purge stale pairs > window
+    pairs[:] = [(k, v, t) for (k, v, t) in pairs if ts - t <= PAYBACK_WINDOW_SECONDS]
+
+    payback_age = None
+    # Was this killer recently killed by the victim? That's payback.
+    for (orig_killer, orig_victim, orig_ts) in pairs:
+        if orig_killer == victim and orig_victim == killer:
+            payback_age = int(ts - orig_ts)
+            break
+
+    pairs.append((killer, victim, ts))
+    if len(pairs) > 200:
+        del pairs[:-200]
+
+    return payback_age
+
+
+# =========================================================
+# 🏆 DAILY KILL CHAMPION
+# Tracks per-day per-guild kill counts and exposes a function to
+# build a leaderboard embed at the daily-recap window.
+# Stored on disk so mid-day restarts don't lose progress.
+# =========================================================
+
+DAILY_KILL_TRACKER_FILE = data_path("daily_kill_tracker.json")
+daily_kill_tracker = {}  # {guild_id: {"date": "YYYY-MM-DD", "kills": {player: count}, "champion_announced_for_date": "..." }}
+
+
+def load_daily_kill_tracker():
+    global daily_kill_tracker
+    daily_kill_tracker = load_json(DAILY_KILL_TRACKER_FILE) or {}
+
+
+def save_daily_kill_tracker():
+    save_json(DAILY_KILL_TRACKER_FILE, daily_kill_tracker)
+
+
+def record_daily_kill(guild_id, killer):
+    """Bump today's kill count for `killer`. If the date rolled, reset.
+    Returns the new total for today."""
+    if not killer:
+        return 0
+    gid = str(guild_id)
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    block = daily_kill_tracker.setdefault(gid, {"date": today, "kills": {}})
+    if block.get("date") != today:
+        # Day rolled — wipe and start fresh.
+        block["date"] = today
+        block["kills"] = {}
+        block.pop("champion_announced_for_date", None)
+    kills = block.setdefault("kills", {})
+    kills[killer] = int(kills.get(killer, 0) or 0) + 1
+    save_daily_kill_tracker()
+    return kills[killer]
+
+
+def daily_kill_top(guild_id, limit=5):
+    gid = str(guild_id)
+    block = daily_kill_tracker.get(gid) or {}
+    kills = block.get("kills") or {}
+    return sorted(kills.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+
+# =========================================================
+# 🎯 MANHUNT / WANTED-PLAYER AUTO-BOUNTY
+# When a single killer racks up MANHUNT_TRIGGER_KILLS in
+# MANHUNT_WINDOW_SECONDS, post a manhunt embed flagging them as a
+# server-wide threat. The bot also tags them as "wanted" until they
+# die — at which point the manhunt resolves.
+# =========================================================
+
+MANHUNT_WINDOW_SECONDS = 60 * 60   # 1h sliding window
+MANHUNT_TRIGGER_KILLS = 5          # 5+ kills in 1h triggers manhunt
+MANHUNT_FILE = data_path("manhunts.json")
+active_manhunts = {}  # {guild_id: {player: {"started": iso, "kills": int}}}
+manhunt_kill_log = {}  # {guild_id: {killer: [ts, ts, ...]}} — in-memory only
+
+
+def load_manhunts():
+    global active_manhunts
+    active_manhunts = load_json(MANHUNT_FILE) or {}
+
+
+def save_manhunts():
+    save_json(MANHUNT_FILE, active_manhunts)
+
+
+def evaluate_manhunt_trigger(guild_id, killer):
+    """Decide whether `killer` should be marked WANTED based on their
+    kills in the recent window. Maintains its own kill log per killer.
+    Returns the kill-count if newly triggered, otherwise None."""
+    gid = str(guild_id)
+    if active_manhunts.get(gid, {}).get(killer):
+        return None  # Already on manhunt — no re-trigger.
+
+    now_ts = datetime.now(UTC).timestamp()
+    log = manhunt_kill_log.setdefault(gid, {}).setdefault(killer, [])
+    log.append(now_ts)
+    # Purge stale entries beyond the window.
+    log[:] = [t for t in log if now_ts - t <= MANHUNT_WINDOW_SECONDS]
+    if len(log) < MANHUNT_TRIGGER_KILLS:
+        return None
+
+    active_manhunts.setdefault(gid, {})[killer] = {
+        "started": str(datetime.now(UTC)),
+        "kills": len(log),
+    }
+    save_manhunts()
+    return len(log)
+
+
+def resolve_manhunt_on_death(guild_id, victim):
+    """If `victim` was on a manhunt, remove them and return their stats."""
+    gid = str(guild_id)
+    block = active_manhunts.get(gid, {})
+    if victim in block:
+        ended = block.pop(victim)
+        save_manhunts()
+        # Clear their kill log too so they start clean if they go on a streak again.
+        if gid in manhunt_kill_log and victim in manhunt_kill_log[gid]:
+            del manhunt_kill_log[gid][victim]
+        return ended
+    return None
+
+
+# =========================================================
 # 🔫 ALIVE-STREAK (kills since last death)
 # =========================================================
 
@@ -6166,6 +6383,18 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     if reward_visibility not in {"public", "private"}:
         reward_visibility = "public"
 
+    time_of_day = str(raw.get("time_of_day") or "any").strip().lower()
+    if time_of_day not in {"any", "day", "dusk", "night", "dawn"}:
+        time_of_day = "any"
+
+    weather = str(raw.get("weather") or "any").strip().lower()
+    if weather not in {"any", "clear", "rain", "fog", "storm", "cold", "snow"}:
+        weather = "any"
+
+    recommended_squad = str(raw.get("recommended_squad") or "solo").strip().lower()
+    if recommended_squad not in {"solo", "duo", "trio", "squad"}:
+        recommended_squad = "solo"
+
     return {
         "kind": kind,
         "title": title[:120],
@@ -6181,6 +6410,9 @@ def _normalize_ai_quest_entry(raw, campaign_name):
         "reward_pennies": reward_pennies,
         "difficulty": difficulty,
         "estimated_minutes": estimated,
+        "time_of_day": time_of_day,
+        "weather": weather,
+        "recommended_squad": recommended_squad,
         "tips": tips[:600],
         "quest_line": campaign_name,
     }
@@ -6223,6 +6455,9 @@ async def generate_ai_pve_campaign(theme, count=12):
         "      \"locations\": [\"<specific named DayZ town/landmark 1>\", \"<specific named DayZ town/landmark 2>\"],\n"
         "      \"items_needed\": [\"<real DayZ item 1>\", \"<real DayZ item 2>\", \"<real DayZ item 3>\"],\n"
         "      \"dangers\": [\"<specific danger e.g. 'High infected density at NWAF tents'>\", \"<another danger>\"],\n"
+        "      \"time_of_day\": \"any|day|dusk|night|dawn\",\n"
+        "      \"weather\": \"any|clear|rain|fog|storm|cold|snow\",\n"
+        "      \"recommended_squad\": \"solo|duo|trio|squad\",\n"
         "      \"reward\": \"<one short sentence describing the reward>\",\n"
         "      \"reward_type\": \"pennies|infected_map|intel_brief|loot_drop_coords|role_grant|custom\",\n"
         "      \"reward_visibility\": \"public|private\",\n"
@@ -6242,6 +6477,9 @@ async def generate_ai_pve_campaign(theme, count=12):
         "- `locations` must list 1-4 real DayZ Chernarus or Livonia towns/landmarks (e.g. 'Krasnostav airfield', 'Tisy military base', 'Polana train station', 'NWAF ATC tower'). Never invented placenames.\n"
         "- `items_needed` must list 3-6 actual DayZ items by their in-game name where possible (e.g. 'M4-A1', 'Chemlight', 'Field shovel', 'Splint', 'Sewing kit', 'Saline bag IV', 'Cooking tripod', 'Long stick', 'Rope').\n"
         "- `dangers` must call out at least 2 specific risks: infected aggro hotspots, contaminated zone radiation, dynamic crash sites, weather (rain/cold), territorial wolves/bears, etc.\n"
+        "- `time_of_day`: pick the time when this quest is best/most dramatic. Use 'any' if it doesn't matter. 'night' is great for stealth/zombie quests, 'dawn' for hunts, 'dusk' for ambushes.\n"
+        "- `weather`: pick a weather condition that fits the theme. 'fog' for stealth missions, 'storm' for survival challenges, 'clear' for long-range, 'any' if it doesn't matter.\n"
+        "- `recommended_squad`: solo=lone wolf stealth, duo=overwatch + breacher, trio=balanced, squad=4+ for legendary objectives.\n"
         "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
         "- If quest is quantity-based, use literal {count} token in `goal`, not a number.\n"
         "- IMPORTANT — Pick `reward_type` from this exact list (these are the ONLY rewards the bot can actually deliver):\n"
@@ -6544,6 +6782,22 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
             inline=True,
         )
 
+    # Run conditions: time of day + weather + recommended squad. Only
+    # render if at least one is non-default so quests with no special
+    # conditions stay clean.
+    time_of_day = (quest.get("time_of_day") or "any").lower()
+    weather = (quest.get("weather") or "any").lower()
+    squad = (quest.get("recommended_squad") or "solo").lower()
+    time_emoji = {"day": "☀️ Day", "dusk": "🌆 Dusk", "night": "🌙 Night", "dawn": "🌅 Dawn", "any": "🕒 Any time"}.get(time_of_day, "🕒 Any time")
+    weather_emoji = {"clear": "☀️ Clear", "rain": "🌧️ Rain", "fog": "🌫️ Fog", "storm": "⛈️ Storm", "cold": "❄️ Cold", "snow": "🌨️ Snow", "any": "🌤️ Any weather"}.get(weather, "🌤️ Any weather")
+    squad_emoji = {"solo": "🧍 Solo", "duo": "👥 Duo", "trio": "👨‍👨‍👦 Trio", "squad": "🪖 Squad (4+)"}.get(squad, "🧍 Solo")
+    if time_of_day != "any" or weather != "any" or squad != "solo":
+        embed.add_field(
+            name="⏰ When To Run",
+            value=f"**Time:** {time_emoji}\n**Weather:** {weather_emoji}\n**Squad:** {squad_emoji}",
+            inline=False,
+        )
+
     dangers = quest.get("dangers") or []
     if dangers:
         embed.add_field(
@@ -6580,6 +6834,9 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         "reward_pennies": int(quest.get("reward_pennies") or pve_reward_for_difficulty(difficulty)),
         "difficulty": difficulty,
         "estimated_minutes": quest.get("estimated_minutes"),
+        "time_of_day": quest.get("time_of_day", "any"),
+        "weather": quest.get("weather", "any"),
+        "recommended_squad": quest.get("recommended_squad", "solo"),
         "tips": quest.get("tips", ""),
         "quest_line": (campaign or {}).get("name") or quest.get("quest_line"),
         "channel_key": channel_key,
@@ -10838,20 +11095,32 @@ async def parse_adm(guild_id, config):
                         print(f"[STREAK] milestone post failed: {milestone_err}")
 
             embed = discord.Embed(
-                title="🟢 SURVIVOR CONNECTED",
+                title="🟢🎮 SURVIVOR CONNECTED",
+                description=f"**{player_name}** just spawned in. Watch your six.",
                 color=0x2ECC71
             )
 
             embed.add_field(
                 name="👤 Survivor",
-                value=player_name,
-                inline=False
+                value=f"**{player_name}**",
+                inline=True
+            )
+            embed.add_field(
+                name="📡 Status",
+                value="🟢 Online",
+                inline=True,
+            )
+            online_count = len(online_players[guild_id])
+            embed.add_field(
+                name="👥 Players Online",
+                value=f"**{online_count}**",
+                inline=True,
             )
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
             embed.set_footer(
-                text="Wandering Bot Alpha • Connection Feed"
+                text="Wandering Bot Alpha • 🎮 Live Connection Feed"
             )
 
             embed.timestamp = event_time
@@ -10895,14 +11164,21 @@ async def parse_adm(guild_id, config):
                 del player_online_times[guild_id][player_name]
 
             embed = discord.Embed(
-                title="🔴 SURVIVOR DISCONNECTED",
+                title="🔴📴 SURVIVOR DISCONNECTED",
+                description=f"**{player_name}** is logging off. Stay alert — log-out doesn't mean safe.",
                 color=0xE74C3C
             )
 
             embed.add_field(
                 name="👤 Survivor",
-                value=player_name,
-                inline=False
+                value=f"**{player_name}**",
+                inline=True
+            )
+            online_count = len(online_players[guild_id])
+            embed.add_field(
+                name="👥 Players Online",
+                value=f"**{online_count}**",
+                inline=True,
             )
 
             if session_started:
@@ -11410,46 +11686,46 @@ async def parse_adm(guild_id, config):
                 is_headshot = bool(kill_details.get("headshot"))
 
                 embed = discord.Embed(
-                    title="💥 HEADSHOT — PLAYER KILL" if is_headshot else "PLAYER KILL",
+                    title="💥🎯 HEADSHOT — PLAYER ELIMINATED" if is_headshot else "🔫💀 PLAYER ELIMINATED",
                     color=0xE74C3C if is_headshot else 0x992D22
                 )
 
                 embed.add_field(
-                    name="Killer",
-                    value=killer,
+                    name="🔪 Killer",
+                    value=f"**{killer}**",
                     inline=True
                 )
 
                 embed.add_field(
-                    name="Victim",
-                    value=victim,
+                    name="🎯 Victim",
+                    value=f"**{victim}**",
                     inline=True
                 )
 
                 if distance > 0:
 
                     embed.add_field(
-                        name="Distance",
-                        value=f"{distance}m",
+                        name="📏 Distance",
+                        value=f"**{distance}m**",
                         inline=True
                     )
 
                 embed.add_field(
-                    name="Weapon",
-                    value=weapon,
+                    name="🔫 Weapon",
+                    value=f"`{weapon}`",
                     inline=False
                 )
 
                 if kill_details.get("ammo"):
                     embed.add_field(
-                        name="Ammo",
-                        value=kill_details["ammo"],
+                        name="🧨 Ammo",
+                        value=f"`{kill_details['ammo']}`",
                         inline=True
                     )
 
                 if is_headshot:
                     embed.add_field(
-                        name="Hit Zone",
+                        name="💥 Hit Zone",
                         value=f"💥 {kill_details.get('hit_location', 'Head')}",
                         inline=True
                     )
@@ -11461,8 +11737,8 @@ async def parse_adm(guild_id, config):
                     if map_link:
 
                         embed.add_field(
-                            name="Kill Location",
-                            value=f"[Open Map](<{map_link}>)",
+                            name="🗺️ Kill Location",
+                            value=f"[📍 Open iZurvive Map]({map_link})",
                             inline=False
                         )
 
@@ -11507,6 +11783,55 @@ async def parse_adm(guild_id, config):
                         value=(
                             f"**{killer}** has now killed **{victim}** "
                             f"**{nemesis_count}** times. This is personal."
+                        ),
+                        inline=False,
+                    )
+
+                # ─── Payback / Revenge detection ────────────────────
+                payback_age = record_kill_for_payback(guild_id, killer, victim)
+                if payback_age is not None:
+                    minutes = max(1, payback_age // 60)
+                    embed.add_field(
+                        name="🔥 PAYBACK SERVED",
+                        value=(
+                            f"**{killer}** got revenge on **{victim}** — "
+                            f"who killed them just **{minutes} min** ago. "
+                            f"Cold dish, served warm."
+                        ),
+                        inline=False,
+                    )
+
+                # ─── Daily kill tracker ─────────────────────────────
+                today_kills = record_daily_kill(guild_id, killer)
+                if today_kills in (3, 5, 10, 15, 20):
+                    embed.add_field(
+                        name="📈 TODAY'S KILLS",
+                        value=f"**{killer}** is now on **{today_kills}** kills today.",
+                        inline=True,
+                    )
+
+                # ─── Manhunt: does this killer cross the threshold? ─
+                manhunt_kills = evaluate_manhunt_trigger(guild_id, killer)
+                if manhunt_kills:
+                    embed.add_field(
+                        name="🎯🚨 MANHUNT — WANTED PLAYER",
+                        value=(
+                            f"**{killer}** has **{manhunt_kills}** kills in the last hour. "
+                            f"Bot has flagged them as **WANTED**. Hunt them down — "
+                            f"the manhunt resolves the moment they die."
+                        ),
+                        inline=False,
+                    )
+
+                # ─── Resolve manhunt if victim was wanted ───────────
+                resolved = resolve_manhunt_on_death(guild_id, victim)
+                if resolved:
+                    embed.add_field(
+                        name="✅ MANHUNT RESOLVED",
+                        value=(
+                            f"**{victim}** was a wanted player with "
+                            f"**{resolved.get('kills', '?')}** kills. "
+                            f"**{killer}** put them down. Server breathes again."
                         ),
                         inline=False,
                     )
@@ -11836,28 +12161,29 @@ async def parse_adm(guild_id, config):
                     if longshot_channel:
 
                         longshot_embed = discord.Embed(
-                            title="NEW SERVER LONGSHOT RECORD" if is_new_record else "LONGSHOT CONFIRMED",
+                            title="🏆🎯 NEW SERVER LONGSHOT RECORD" if is_new_record else "🎯💥 LONGSHOT CONFIRMED",
                             description=(
-                                f"{killer} dropped {victim} from {distance}m."
+                                f"🔭 **{killer}** dropped **{victim}** from "
+                                f"**{distance}m**. Beautiful work."
                             ),
                             color=0xF1C40F
                         )
 
                         longshot_embed.add_field(
-                            name="Distance",
-                            value=f"{distance}m",
+                            name="📏 Distance",
+                            value=f"**{distance}m**",
                             inline=True
                         )
 
                         longshot_embed.add_field(
-                            name="Weapon",
-                            value=weapon,
+                            name="🔫 Weapon",
+                            value=f"`{weapon}`",
                             inline=True
                         )
 
                         longshot_embed.add_field(
-                            name="Victim",
-                            value=victim,
+                            name="🎯 Victim",
+                            value=f"**{victim}**",
                             inline=True
                         )
 
@@ -11868,15 +12194,15 @@ async def parse_adm(guild_id, config):
                             if map_link:
 
                                 longshot_embed.add_field(
-                                    name="Kill Location",
-                                    value=f"[Open Map](<{map_link}>)",
+                                    name="🗺️ Kill Location",
+                                    value=f"[📍 Open iZurvive Map]({map_link})",
                                     inline=False
                                 )
 
                         longshot_embed.set_thumbnail(url=BOT_IMAGE)
 
                         longshot_embed.set_footer(
-                            text=f"Wandering Bot Alpha - Longshot Tracking - Threshold {LONGSHOT_ANNOUNCE_METERS}m"
+                            text=f"Wandering Bot Alpha • 🎯 Longshot Tracking • Threshold {LONGSHOT_ANNOUNCE_METERS}m"
                         )
 
                         longshot_embed.timestamp = event_time
@@ -25592,6 +25918,43 @@ async def recap_loop():
                         news_embed.set_footer(text=f"Wandering Bot Alpha — News • {yesterday}")
                         news_embed.timestamp = datetime.now(UTC)
                         await channel.send(embed=style_embed(news_embed))
+
+                # 🏆 Daily Kill Champion announcement — once per day,
+                # reads from daily_kill_tracker which the kill flow
+                # populates throughout the day.
+                try:
+                    block = daily_kill_tracker.get(str(guild_id)) or {}
+                    if (
+                        block.get("date") == yesterday
+                        and block.get("champion_announced_for_date") != yesterday
+                    ):
+                        top = sorted(
+                            (block.get("kills") or {}).items(),
+                            key=lambda x: x[1], reverse=True
+                        )[:5]
+                        if top:
+                            champion_embed = discord.Embed(
+                                title=f"🏆🔫 DAILY KILL CHAMPION — {yesterday}",
+                                description=(
+                                    f"**{top[0][0]}** is yesterday's killfeed champion with "
+                                    f"**{top[0][1]}** confirmed kills. The leaderboard:"
+                                ),
+                                color=0xF1C40F,
+                            )
+                            medals = ["🥇", "🥈", "🥉", "🎯", "🎯"]
+                            board = "\n".join(
+                                f"{medals[i]} **{name}** — `{count}` kills"
+                                for i, (name, count) in enumerate(top)
+                            )
+                            champion_embed.add_field(name="📊 Top 5", value=board, inline=False)
+                            champion_embed.set_thumbnail(url=BOT_IMAGE)
+                            champion_embed.set_footer(text="Wandering Bot Alpha • 🏆 Daily Kill Champion")
+                            await channel.send(embed=style_embed(champion_embed))
+                            block["champion_announced_for_date"] = yesterday
+                            save_daily_kill_tracker()
+                except Exception as champ_err:
+                    print(f"[CHAMPION] {guild_id} failed: {champ_err}")
+
                 recap_posted[str(guild_id)] = yesterday
                 save_recap_posted()
             except Exception as guild_err:
@@ -26210,6 +26573,8 @@ async def on_ready():
     load_achievements()
     load_nemesis()
     load_alive_streaks()
+    load_daily_kill_tracker()
+    load_manhunts()
     load_daily_challenges()
     load_wandering_emojis()
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
