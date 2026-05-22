@@ -73,6 +73,7 @@ GUILD_CONFIG_FILE = data_path("guild_configs.json")
 GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
+ADM_MAX_EVENT_AGE_HOURS = float(os.getenv("WANDERING_ADM_MAX_EVENT_AGE_HOURS", "3"))
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
@@ -9136,6 +9137,18 @@ async def parse_adm(guild_id, config):
         # "when the bot got around to processing it". Falls back to "now"
         # if the line has no parseable HH:MM:SS prefix.
         event_time = extract_adm_event_time(line) or datetime.now(UTC)
+
+        # Skip stale events. If a previous ADM log gets re-scanned after a
+        # Railway restart (the processed-lines hash cache is only partially
+        # persisted), events from yesterday would otherwise get re-posted
+        # today with a "Yesterday at HH:MM" embed timestamp. Anything older
+        # than ADM_MAX_EVENT_AGE_HOURS is silently dropped from the feeds.
+        try:
+            age_hours = (datetime.now(UTC) - event_time).total_seconds() / 3600
+        except Exception:
+            age_hours = 0
+        if age_hours > ADM_MAX_EVENT_AGE_HOURS:
+            continue
 
         event_type = classify_event(line)
 
