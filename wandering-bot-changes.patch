@@ -1,0 +1,900 @@
+From d0880e9384da468fec987712a097d4379d13a8ad Mon Sep 17 00:00:00 2001
+From: Wandering Bot Maintainer <wandering-bot@emergent.local>
+Date: Fri, 22 May 2026 13:50:09 +0000
+Subject: [PATCH] Fix translation (multi-rule) + add 5 themed PVE campaigns +
+ ticket button
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Translation:
+- Migrate config['translation'] (singleton) -> config['translations'] (list)
+- /translationconfig now ADDS or UPDATES a rule instead of overwriting
+- Multiple rules can fire on the same message (enables bidirectional A<->B)
+- New: /translationlist, /translationremove, /translationclear
+- Legacy single-rule config auto-migrates on first edit
+- 'off' mode with a source_channel removes only matching rules
+
+PVE quests:
+- Add 5 original themed progressive campaigns (44 quests total):
+  * Ashes of Chernarus (8) - abandoned-research lab arc
+  * The Drifter's Ledger (10) - moral-choice / merchant arc
+  * Black Mountain Signal (8) - radio-tower mystery arc
+  * Tide Watchers (8) - coastal lighthouse arc
+  * Iron Convoy (10) - long-haul cargo / vehicle arc
+- All quests share the 'Quest Line' kind so they auto-route to expeditions
+
+PVE ticket flow:
+- Every newly posted PVE quest embed now has a 'Submit Completion' button
+- Clicking it auto-creates a private ticket channel under a
+  '🎟️ PVE Quest Tickets' category, visible only to the player + admins
+- On-interaction listener routes the button by custom_id, persistent
+  across bot restarts (no per-quest View re-registration needed)
+- Admins still approve via /pvecomplete inside the ticket
+---
+ bot.py | 750 ++++++++++++++++++++++++++++++++++++++++++++++++++++-----
+ 1 file changed, 691 insertions(+), 59 deletions(-)
+
+diff --git a/bot.py b/bot.py
+index 416d203..67f279e 100644
+--- a/bot.py
++++ b/bot.py
+@@ -4772,6 +4772,37 @@ async def translate_text(text, target_language="en", source_language="auto"):
+     return result
+ 
+ 
++def _get_translation_rules(config):
++    """Return all configured translation rules for a guild.
++
++    Supports both the new multi-rule shape (`config["translations"] = [ ... ]`)
++    and the legacy single-rule shape (`config["translation"] = { ... }`). The
++    legacy shape is transparently exposed as a single-element list so existing
++    setups keep working until the admin re-runs `/translationconfig`.
++    """
++    rules = config.get("translations")
++    if isinstance(rules, list):
++        return [r for r in rules if isinstance(r, dict)]
++    legacy = config.get("translation")
++    if isinstance(legacy, dict) and legacy.get("enabled"):
++        return [legacy]
++    return []
++
++
++def _rule_matches_channel(rule, channel_id):
++    """A rule fires when no source_channel is set (all channels) or the
++    incoming message channel matches the rule's source_channel_id."""
++    if not rule.get("enabled", True):
++        return False
++    src_id = rule.get("source_channel_id")
++    if not src_id:
++        return True
++    try:
++        return int(src_id) == int(channel_id)
++    except (TypeError, ValueError):
++        return False
++
++
+ async def maybe_translate_message(message):
+ 
+     if not message.guild or not message.content.strip():
+@@ -4786,70 +4817,83 @@ async def maybe_translate_message(message):
+ 
+     guild_id = str(message.guild.id)
+     config = guild_configs.get(guild_id, {})
+-    translation = config.get("translation", {})
++    rules = _get_translation_rules(config)
+ 
+-    if not translation.get("enabled"):
++    if not rules:
+         return
+ 
+-    source_channel_id = translation.get("source_channel_id")
+-    if source_channel_id and int(source_channel_id) != message.channel.id:
+-        return
++    # Run every rule that matches this channel. Multiple rules can fire on
++    # the same message — that is how channel-A↔channel-B bi-directional
++    # translation works (one rule per direction).
++    fired_targets = set()
++    for rule_index, rule in enumerate(rules, start=1):
++        if not _rule_matches_channel(rule, message.channel.id):
++            continue
+ 
+-    target_lang = translation.get("target_language", "en")
+-    src_lang = translation.get("source_language", "auto")
++        target_lang = (rule.get("target_language") or "en").lower().strip()
++        src_lang = (rule.get("source_language") or "auto").lower().strip()
++        mode = (rule.get("mode") or "same").lower().strip()
+ 
+-    print(f"[TRANSLATE] attempting guild={guild_id} channel={message.channel.id} "
+-          f"author={message.author} src={src_lang} target={target_lang} "
+-          f"text={message.content[:80]!r}")
++        print(f"[TRANSLATE] rule#{rule_index} guild={guild_id} "
++              f"channel={message.channel.id} author={message.author} "
++              f"src={src_lang} target={target_lang} mode={mode} "
++              f"text={message.content[:80]!r}")
+ 
+-    translated = await translate_text(
+-        message.content[:900],
+-        target_lang,
+-        src_lang,
+-    )
++        translated = await translate_text(
++            message.content[:900],
++            target_lang,
++            src_lang,
++        )
+ 
+-    if not translated:
+-        print(f"[TRANSLATE] backend returned None — see earlier [TRANSLATE] log for cause")
+-        return
++        if not translated:
++            print(f"[TRANSLATE] rule#{rule_index} backend returned None")
++            continue
+ 
+-    # If the translated text matches the source (case-insensitive +
+-    # punctuation-stripped), the message was likely already in the
+-    # target language — don't post a useless duplicate.
+-    def _norm(s):
+-        return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+-    if _norm(translated) == _norm(message.content):
+-        print(f"[TRANSLATE] skipped — translated == source (already in target lang)")
+-        return
++        # If the translated text matches the source (case-insensitive +
++        # punctuation-stripped), the message was likely already in the
++        # target language — don't post a useless duplicate.
++        def _norm(s):
++            return "".join(ch for ch in (s or "").lower() if ch.isalnum())
++        if _norm(translated) == _norm(message.content):
++            print(f"[TRANSLATE] rule#{rule_index} skipped — already in target lang")
++            continue
+ 
+-    mode = translation.get("mode", "same")
+-    target_channel = message.channel
++        target_channel = message.channel
++        if mode == "channel":
++            target_channel_id = rule.get("target_channel_id")
++            target_channel = bot.get_channel(int(target_channel_id)) if target_channel_id else None
+ 
+-    if mode == "channel":
+-        target_channel_id = translation.get("target_channel_id")
+-        target_channel = bot.get_channel(int(target_channel_id)) if target_channel_id else None
++        if not target_channel:
++            print(f"[TRANSLATE] rule#{rule_index} no target channel resolved — mode={mode}")
++            continue
+ 
+-    if not target_channel:
+-        print(f"[TRANSLATE] no target channel resolved — mode={mode}")
+-        return
++        # Prevent duplicate posts when two rules end up pointing at the
++        # same target channel with the same target language for the same
++        # message (e.g. two overlapping "all channels" rules).
++        target_key = (target_channel.id, target_lang)
++        if target_key in fired_targets:
++            continue
++        fired_targets.add(target_key)
+ 
+-    embed = discord.Embed(
+-        title=f"🌍 Translation → {target_lang.upper()}",
+-        description=translated[:1500],
+-        color=0x1ABC9C
+-    )
+-    embed.add_field(name="From", value=message.author.mention, inline=True)
+-    if mode == "channel":
+-        embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
++        embed = discord.Embed(
++            title=f"🌍 Translation → {target_lang.upper()}",
++            description=translated[:1500],
++            color=0x1ABC9C
++        )
++        embed.add_field(name="From", value=message.author.mention, inline=True)
++        if mode == "channel":
++            embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
+ 
+-    try:
+-        await target_channel.send(embed=style_embed(embed))
+-        print(f"[TRANSLATE] posted to #{getattr(target_channel, 'name', target_channel.id)}")
+-    except discord.Forbidden as forbidden_err:
+-        print(f"[TRANSLATE] FORBIDDEN posting to #{getattr(target_channel, 'name', '?')}: "
+-              f"{forbidden_err}. The bot is missing 'Send Messages' / 'Embed Links' "
+-              f"permission in that channel.")
+-    except Exception as send_err:
+-        print(f"[TRANSLATE] send failed: {send_err}")
++        try:
++            await target_channel.send(embed=style_embed(embed))
++            print(f"[TRANSLATE] rule#{rule_index} posted to "
++                  f"#{getattr(target_channel, 'name', target_channel.id)}")
++        except discord.Forbidden as forbidden_err:
++            print(f"[TRANSLATE] rule#{rule_index} FORBIDDEN posting to "
++                  f"#{getattr(target_channel, 'name', '?')}: {forbidden_err}. "
++                  f"Bot is missing 'Send Messages' / 'Embed Links' in that channel.")
++        except Exception as send_err:
++            print(f"[TRANSLATE] rule#{rule_index} send failed: {send_err}")
+ 
+ 
+ async def apply_chat_reward_punishment_rules(message, lower):
+@@ -13640,6 +13684,232 @@ for idx, seed in enumerate(PVE_GENERATED_QUEST_SEEDS, start=1):
+ 
+ PVE_CHALLENGE_BANK.extend(PVE_CHAIN_QUESTS)
+ 
++# =========================================================
++# NEW THEMED PROGRESSIVE STORY CAMPAIGNS
++# =========================================================
++# Five original story-driven quest lines. Each line is meant to be
++# completed in order — players advance only when an admin marks the
++# previous step done (via the ticket flow). The narrative arcs are
++# all original lore written specifically for this bot.
++#
++# Tone: gritty DayZ-style survival, with quiet menace, moral choices,
++# and a sense that the world keeps moving whether you survive or not.
++
++ASHES_OF_CHERNARUS = [
++    ("Ashes of Chernarus I — The Cold Lab",
++     "Find the burnt-out research outpost marked on the wall of any military medical tent. Post a screenshot of the burnt sign.",
++     "You're not the first to look. Watch the broken windows — that's where the wind tells the truth.",
++     500, "Easy"),
++    ("Ashes of Chernarus II — Fragment of the Ledger",
++     "Recover a single damaged document, blood-stained note, or paper map from the lab ruins and bring photographic proof.",
++     "If the paper is intact, you weren't deep enough. Look under what fell.",
++     800, "Medium"),
++    ("Ashes of Chernarus III — The Signal Beneath",
++     "Power a radio with a working battery near the lab ruins for 5 minutes. Record a clip with timestamp.",
++     "Static is not always empty. Sometimes the static is the message.",
++     1100, "Medium"),
++    ("Ashes of Chernarus IV — Patient Zero's Bed",
++     "Locate a hospital bed with restraints still attached (any med building). Screenshot.",
++     "The leather tells you how long they fought. Don't romanticise it.",
++     900, "Medium"),
++    ("Ashes of Chernarus V — The Quiet Floor",
++     "Survive 10 in-game minutes inside an abandoned medical building at night without firing a shot. Submit clip.",
++     "Loud is dead. Lights off, knife in hand, breathe slow.",
++     1400, "Hard"),
++    ("Ashes of Chernarus VI — The Cure That Wasn't",
++     "Craft or collect a full medical bundle (saline, morphine, tetracycline, vitamins, charcoal, 4× disinfected rags). Photograph laid out on the ground.",
++     "They thought they had it. They didn't. But the kit still saves lives — yours, today.",
++     1800, "Hard"),
++    ("Ashes of Chernarus VII — Burn It Behind You",
++     "Light a campfire on the highest point overlooking the original lab. Photograph the fire with the lab visible in the frame.",
++     "Some things don't deserve to be found again. You're the one who closes the book.",
++     2200, "Hard"),
++    ("Ashes of Chernarus VIII — The Last Researcher",
++     "Bring one survivor (not yourself) to the lab site, take a group photo, and post both gamertags. Coordinate with admin in your ticket.",
++     "The story ends when someone else carries it. Choose who.",
++     3000, "Legendary"),
++]
++
++DRIFTERS_LEDGER = [
++    ("The Drifter's Ledger I — A Stranger's Coat",
++     "Find a jacket or coat on a dead body, take it, and post a screenshot of yourself wearing it at a named landmark.",
++     "Every item on you used to belong to someone. The coat remembers more than you do.",
++     400, "Easy"),
++    ("The Drifter's Ledger II — One Honest Trade",
++     "Trade an item with another player in-game. Both players must submit a screenshot of the exchange in the same ticket.",
++     "A handshake means more out here than coin ever could. Pick someone you don't know.",
++     700, "Easy"),
++    ("The Drifter's Ledger III — The Marked Map",
++     "Draw a route between three towns on paper or in-game map app, screenshot it, and walk it from end to end.",
++     "Roads tell you who used to live here. Walk them slowly.",
++     900, "Medium"),
++    ("The Drifter's Ledger IV — A Debt Repaid",
++     "Find a player you previously fought or wronged and gift them a working firearm with ammo. Both parties confirm.",
++     "Mercy costs you nothing you weren't going to lose anyway.",
++     1300, "Medium"),
++    ("The Drifter's Ledger V — Quiet Mile",
++     "Travel one full named region on foot without engaging combat. Submit a 60-second clip showing your route and lack of fighting.",
++     "Restraint is harder than rage. The road notices.",
++     1100, "Medium"),
++    ("The Drifter's Ledger VI — The Innkeeper's Vow",
++     "Build or claim a small shelter, stock it with one knife, one bandage, one food, one water, and leave it unlocked for any survivor. Post coordinates.",
++     "Generosity is a weapon nobody knows how to defend against.",
++     1700, "Hard"),
++    ("The Drifter's Ledger VII — The Witness",
++     "Catch another player's act of kindness on video or screenshot, post it with their permission, and tag them.",
++     "You can't be the only one writing the ledger. Find others doing the same.",
++     1500, "Hard"),
++    ("The Drifter's Ledger VIII — Three Names",
++     "Submit three gamertags of survivors you trust with your life and write one true sentence about each. Admins verify the sentences with the people named.",
++     "When the wind takes you, the names will be why anyone remembers.",
++     2000, "Hard"),
++    ("The Drifter's Ledger IX — Pass the Coat",
++     "Give the coat from Quest I to a new survivor who has none. Screenshot the moment of the trade.",
++     "The story moves on. Make sure it moves on warmer than it found you.",
++     2400, "Hard"),
++    ("The Drifter's Ledger X — Sign the Ledger",
++     "Choose a permanent in-game spot, build or carve a small marker, and post a final screenshot. This closes your Ledger.",
++     "Every drifter eventually picks a place to stop walking. This one is yours.",
++     3000, "Legendary"),
++]
++
++BLACK_MOUNTAIN_SIGNAL = [
++    ("Black Mountain Signal I — A Voice on Channel 7",
++     "Reach any radio tower visible on the map. Submit a screenshot of the tower base looking up.",
++     "It's not the height. It's what's at the top staring back.",
++     500, "Easy"),
++    ("Black Mountain Signal II — The Climbed Antenna",
++     "Climb to the highest reachable point of a radio tower and screenshot the view. Survive the descent.",
++     "Heights aren't deadly. Stairs are. So is hubris.",
++     800, "Medium"),
++    ("Black Mountain Signal III — Loose Cable",
++     "Find a working radio or transmitter and place it inside a built base or tent for safekeeping. Photograph it set up.",
++     "Equipment is loyalty. Treat it like crew.",
++     1000, "Medium"),
++    ("Black Mountain Signal IV — Triangulate the Echo",
++     "Stand at three different tower sites within 24 in-game hours and submit a screenshot at each. Each must show your in-game time.",
++     "If the signal moves, you have to move faster. The voice doesn't wait.",
++     1500, "Hard"),
++    ("Black Mountain Signal V — The Locked Hut",
++     "Find a small shed, hut, or container at the base of any tower that has been forced open by another player. Photograph the broken lock or door.",
++     "Whoever was here heard the same thing you did. They came for the same reason.",
++     1300, "Hard"),
++    ("Black Mountain Signal VI — Words in the Static",
++     "Write down one sentence you 'heard' in the static (you choose). Carve, paint, sign-post, or otherwise leave it somewhere in-game. Screenshot.",
++     "The mountain doesn't speak. It echoes. What did it echo back of yours?",
++     1800, "Hard"),
++    ("Black Mountain Signal VII — The Other Listener",
++     "Find another player who has also reached a tower and exchange a single item with them without speaking in proximity chat (use text only or no chat). Both submit proof.",
++     "Some conversations are stronger when nobody hears them.",
++     2200, "Hard"),
++    ("Black Mountain Signal VIII — Cut the Wire",
++     "Climb to the top of the original tower from Quest I and place a flare or chemlight at the antenna. Photograph the lit signal.",
++     "You don't silence it. You answer it. Then you walk away.",
++     3000, "Legendary"),
++]
++
++TIDE_WATCHERS = [
++    ("Tide Watchers I — Salt on the Wind",
++     "Reach any coastal location and stand on a pier, dock, or seawall. Screenshot with the open sea behind you.",
++     "The sea didn't end the world. The sea is just where you can hear the world ending more honestly.",
++     400, "Easy"),
++    ("Tide Watchers II — The Lighthouse Path",
++     "Reach any coastal lighthouse and photograph yourself at the base.",
++     "Lighthouses outlive everything. They were designed for nights like the one we live in now.",
++     700, "Easy"),
++    ("Tide Watchers III — Tend the Lamp",
++     "Light a campfire, flare, or chemlight inside a lighthouse and screenshot it burning.",
++     "Light is a promise you make to whoever's still out there in the dark.",
++     1000, "Medium"),
++    ("Tide Watchers IV — The Wreck Below",
++     "Find a beached or sunken boat, vehicle, or aircraft on or near the coast. Photograph.",
++     "Everything that washes up has a story. Most of them you wouldn't want to hear sober.",
++     1100, "Medium"),
++    ("Tide Watchers V — Cold Water Catch",
++     "Catch and cook a fish on the coast within 30 in-game minutes of dusk or dawn. Submit clip with sky visible.",
++     "Fishing at the turn of the day is older than every war we ever started.",
++     1400, "Medium"),
++    ("Tide Watchers VI — Three Beacons",
++     "Visit three different coastal lighthouses or working signal points and screenshot each one. Build a list with coordinates in your ticket.",
++     "Once you've mapped them, you can never forget the coast looked after you.",
++     1900, "Hard"),
++    ("Tide Watchers VII — Shipwright",
++     "Repair a coastal vehicle (boat if available, otherwise a vehicle within 200m of the shore) to a drivable state. Photograph it running.",
++     "Old engines and old prayers — neither one starts on the first try.",
++     2200, "Hard"),
++    ("Tide Watchers VIII — Keeper of the Keys",
++     "Spend one full in-game night inside a coastal lighthouse and survive until sunrise. Submit a clip showing the sunrise from inside.",
++     "The keepers were chosen because they could stand the silence. Now it's your turn.",
++     3000, "Legendary"),
++]
++
++IRON_CONVOY = [
++    ("Iron Convoy I — One Working Wheel",
++     "Find a vehicle wreck and recover one working spark plug, battery, or radiator. Photograph the part in your inventory next to the wreck.",
++     "Everything that drove out here once drove away from something worse.",
++     500, "Easy"),
++    ("Iron Convoy II — The Garage Pile",
++     "Stockpile a full vehicle parts set (spark plug, battery, radiator, headlights, 4× wheels) in one container at a single location. Photograph.",
++     "Mechanics knew this would come. They were never the optimists you thought they were.",
++     1000, "Medium"),
++    ("Iron Convoy III — First Engine Wake",
++     "Repair a vehicle from non-running to running condition. Submit a clip of the engine starting.",
++     "Some sounds come back to the world like apologies. An engine turning over is one of them.",
++     1300, "Medium"),
++    ("Iron Convoy IV — The Co-Driver",
++     "Drive a working vehicle with at least one other player as passenger for one full named region. Both submit clips.",
++     "Cars without passengers are just metal. Two people in a moving car is a country.",
++     1600, "Hard"),
++    ("Iron Convoy V — Fuel Run",
++     "Refuel a vehicle from a jerry can mid-journey at a location at least 1 region from the starting town. Photograph mid-refuel.",
++     "Every full tank is a quiet bet against the road.",
++     1300, "Medium"),
++    ("Iron Convoy VI — The Long Haul",
++     "Deliver a cargo of at least 10 stacked items (any type) from one named town to another, distance ≥ 2 regions. Photograph at departure and arrival.",
++     "Anything that needs to be somewhere else is a job worth doing.",
++     2000, "Hard"),
++    ("Iron Convoy VII — Convoy of Two",
++     "Coordinate with another player so that two repaired vehicles travel together from town A to town B. Both vehicles must arrive intact. Both drivers submit clips.",
++     "Two vehicles can survive what one cannot. The convoy is the difference between leaving and going.",
++     2400, "Hard"),
++    ("Iron Convoy VIII — Roadside Rescue",
++     "Find a player whose vehicle has broken down and give them at least one working replacement part. Both confirm in the ticket.",
++     "On this road, nobody owes you anything. That's exactly why you stop.",
++     2000, "Hard"),
++    ("Iron Convoy IX — The Garage Becomes a Home",
++     "Establish a named, marked garage/base on the map with at least 2 vehicles parked, fuel, and a sign. Coordinate with admin to register it server-wide.",
++     "The first garage on the map is a rumour. The second is a town.",
++     2800, "Hard"),
++    ("Iron Convoy X — Pass the Keys",
++     "Hand over the keys (in-game item or symbolic gear set) of a working vehicle to a new player who has none. Photograph the moment.",
++     "Convoys keep moving because someone, somewhere, gave up the wheel.",
++     3200, "Legendary"),
++]
++
++# Wrap every new campaign step into a PVE_CHALLENGE_BANK entry.
++# All new campaigns live under the "Quest Line" kind, which routes
++# them to the expeditions channel and chains them in order.
++for _campaign_name, _entries in [
++    ("Ashes of Chernarus", ASHES_OF_CHERNARUS),
++    ("The Drifter's Ledger", DRIFTERS_LEDGER),
++    ("Black Mountain Signal", BLACK_MOUNTAIN_SIGNAL),
++    ("Tide Watchers", TIDE_WATCHERS),
++    ("Iron Convoy", IRON_CONVOY),
++]:
++    for _title, _goal, _tips, _reward, _difficulty in _entries:
++        PVE_CHALLENGE_BANK.append({
++            "kind": "Quest Line",
++            "title": _title,
++            "goal": _goal,
++            "reward": f"{_reward} pennies plus admin-chosen story reward.",
++            "tips": _tips,
++            "difficulty": _difficulty,
++            "reward_pennies": _reward,
++            "quest_line": _campaign_name,
++            "target_event": None,
++        })
++
++
+ PVE_INFO_TOPICS = {
+     "loot": (
+         "Loot tip: food and knives first, meds second, weapons third. Police stations, hunting camps, "
+@@ -13898,6 +14168,167 @@ def pve_progress_text(challenge):
+     return f"{leader}: {amount}/{target_count}"
+ 
+ 
++async def get_or_create_pve_ticket_category(guild, config):
++    """Find or create the category that houses PVE quest tickets.
++
++    Stored under `config["channels"]["pve_ticket_category"]` so it survives
++    restarts. Falls back to creating a new category if the stored ID no
++    longer resolves (e.g. admin manually deleted it).
++    """
++    channels = config.setdefault("channels", {})
++    existing_id = channels.get("pve_ticket_category")
++    if existing_id:
++        existing = guild.get_channel(existing_id)
++        if existing and isinstance(existing, discord.CategoryChannel):
++            return existing
++    try:
++        category = await guild.create_category("🎟️ PVE Quest Tickets")
++    except discord.Forbidden:
++        return None
++    except Exception as err:
++        print(f"[PVE TICKET] could not create category: {err}")
++        return None
++    channels["pve_ticket_category"] = category.id
++    save_guild_configs()
++    return category
++
++
++async def open_pve_quest_ticket(interaction, challenge):
++    """Create a private channel for a player to submit proof of a quest
++    completion. Only the player, admins, and the bot can see it.
++
++    Returns the created channel or None on failure (with the interaction
++    already informed)."""
++    guild = interaction.guild
++    member = interaction.user
++    if not guild or not isinstance(member, discord.Member):
++        await interaction.response.send_message(
++            "Tickets can only be opened inside a server.", ephemeral=True
++        )
++        return None
++
++    guild_id = str(guild.id)
++    config = guild_configs.setdefault(guild_id, {
++        "guild_name": guild.name,
++        "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
++        "channels": {}
++    })
++
++    category = await get_or_create_pve_ticket_category(guild, config)
++
++    quest_code = pve_quest_code(challenge)
++    # Slugify display name for the channel name (lower, alnum + hyphen, ≤ 20 chars)
++    member_slug = re.sub(r"[^a-z0-9]+", "-", str(member.display_name).lower()).strip("-")[:20] or "survivor"
++    channel_name = f"🎟️-{quest_code.lower()}-{member_slug}"[:95]
++
++    overwrites = {
++        guild.default_role: discord.PermissionOverwrite(read_messages=False),
++        member: discord.PermissionOverwrite(read_messages=True, send_messages=True, attach_files=True, embed_links=True),
++        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_channels=True, embed_links=True),
++    }
++    # Grant access to anyone with the configured admin roles or the
++    # built-in administrator permission.
++    admin_role_names = {str(r).lower() for r in config.get("admin_roles", DEFAULT_ADMIN_ROLES)}
++    for role in guild.roles:
++        if role.permissions.administrator or role.name.lower() in admin_role_names:
++            overwrites[role] = discord.PermissionOverwrite(
++                read_messages=True, send_messages=True, manage_messages=True, embed_links=True
++            )
++
++    try:
++        ticket_channel = await guild.create_text_channel(
++            channel_name,
++            category=category,
++            overwrites=overwrites,
++            topic=f"PVE quest ticket for {member} | Quest {quest_code} | {challenge.get('title', '')}"
++        )
++    except discord.Forbidden:
++        await interaction.response.send_message(
++            "I don't have permission to create ticket channels. Ask an admin to give me **Manage Channels**.",
++            ephemeral=True
++        )
++        return None
++    except Exception as err:
++        print(f"[PVE TICKET] create_text_channel failed: {err}")
++        await interaction.response.send_message(
++            f"Could not open ticket: `{err}`", ephemeral=True
++        )
++        return None
++
++    intro = discord.Embed(
++        title=f"🎟️ Quest Ticket — {challenge.get('title', 'PVE Quest')}",
++        description=(
++            f"{member.mention} has opened a ticket to submit proof of completion.\n\n"
++            f"**What to do now:**\n"
++            f"1. Upload screenshots, clips, or a written summary of how you completed the quest.\n"
++            f"2. Tag any other survivors who helped.\n"
++            f"3. Wait for an admin to review — they will approve with "
++            f"`/pvecomplete quest_id:{pve_quest_code(challenge)} member:@you`.\n"
++            f"4. Once approved, the channel will be archived/deleted."
++        ),
++        color=0xE67E22
++    )
++    intro.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
++    intro.add_field(name="Type", value=challenge.get("kind", "PVE"), inline=True)
++    intro.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
++    if challenge.get("quest_line"):
++        intro.add_field(name="Quest Line", value=challenge["quest_line"], inline=False)
++    intro.add_field(name="Objective", value=challenge.get("goal", "—"), inline=False)
++    intro.add_field(name="Reward", value=challenge.get("reward", "—"), inline=False)
++    intro.set_footer(text="Wandering Bot Alpha — PVE Ticket System")
++
++    try:
++        await ticket_channel.send(content=f"{member.mention}", embed=style_embed(intro))
++    except Exception as err:
++        print(f"[PVE TICKET] failed to send intro: {err}")
++
++    await interaction.response.send_message(
++        f"Ticket opened: {ticket_channel.mention}. Upload proof there.",
++        ephemeral=True
++    )
++    return ticket_channel
++
++
++class PVEQuestCompletionView(discord.ui.View):
++    """View attached to every newly posted PVE quest. The Submit Completion
++    button opens a private ticket channel for the clicking player so they
++    can submit proof; admins are added automatically.
++
++    `timeout=None` makes the view persistent across bot restarts as long as
++    the bot re-registers it on startup (handled at the end of the file).
++    """
++
++    def __init__(self, quest_code: str):
++        super().__init__(timeout=None)
++        # custom_id encodes the quest code so the bot can find the challenge
++        # when the button is pressed days after the embed was posted.
++        self.add_item(
++            discord.ui.Button(
++                label="Submit Completion",
++                style=discord.ButtonStyle.success,
++                emoji="🎟️",
++                custom_id=f"pve_submit:{quest_code}",
++            )
++        )
++
++
++async def _handle_pve_submit_button(interaction: discord.Interaction, quest_code: str):
++    """Called from the bot's interaction listener when a player clicks the
++    Submit Completion button on a quest embed."""
++    if not interaction.guild:
++        await interaction.response.send_message("Use this inside a server.", ephemeral=True)
++        return
++    guild_id = str(interaction.guild.id)
++    challenge = find_active_pve_quest_by_code(guild_id, quest_code)
++    if not challenge:
++        await interaction.response.send_message(
++            "This quest is no longer active. Wait for a new one to be posted.",
++            ephemeral=True
++        )
++        return
++    await open_pve_quest_ticket(interaction, challenge)
++
++
+ async def post_pve_challenge(guild_id, config, *, manual=False):
+     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+     if not guild:
+@@ -13946,7 +14377,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
+     embed.set_thumbnail(url=BOT_IMAGE)
+     embed.set_footer(text="Wandering Bot Alpha - PVE Mission Board")
+ 
+-    await quest_channel.send(embed=style_embed(embed))
++    await quest_channel.send(embed=style_embed(embed), view=PVEQuestCompletionView(pve_quest_code(challenge)))
+ 
+     themed_channel_key = pve_themed_channel_key(challenge)
+ 
+@@ -13954,7 +14385,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
+         themed_channel = bot.get_channel(channels.get(themed_channel_key))
+         if themed_channel and themed_channel.id != quest_channel.id:
+             themed_embed = discord.Embed.from_dict(embed.to_dict())
+-            await themed_channel.send(embed=style_embed(themed_embed))
++            await themed_channel.send(embed=style_embed(themed_embed), view=PVEQuestCompletionView(pve_quest_code(challenge)))
+ 
+     return True, challenge["title"]
+ 
+@@ -14006,7 +14437,7 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
+     embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
+     embed.set_thumbnail(url=BOT_IMAGE)
+     embed.set_footer(text="Wandering Bot Alpha - Channel PVE Quest Feed")
+-    await channel.send(embed=style_embed(embed))
++    await channel.send(embed=style_embed(embed), view=PVEQuestCompletionView(pve_quest_code(challenge)))
+     return True, challenge["title"]
+ 
+ 
+@@ -18488,15 +18919,71 @@ async def translationconfig(
+             "channels": {}
+         }
+ 
+-    guild_configs[guild_id]["translation"] = {
+-        "enabled": mode != "off",
++    # ── Multi-rule storage ───────────────────────────────────────
++    # Each call to /translationconfig now adds (or replaces) a rule
++    # in `translations` rather than overwriting the whole config.
++    # That makes it possible to set up multiple directions, e.g.
++    #   • Channel A (EN→ES) → Channel B
++    #   • Channel B (ES→EN) → Channel A
++    # at the same time. Older configs that still have the legacy
++    # singleton `translation` dict are migrated on first edit.
++    guild_cfg = guild_configs[guild_id]
++    legacy = guild_cfg.pop("translation", None)
++    rules = guild_cfg.get("translations")
++    if not isinstance(rules, list):
++        rules = []
++        if isinstance(legacy, dict) and legacy.get("enabled"):
++            rules.append(legacy)
++
++    if mode == "off":
++        # `/translationconfig mode:off` with no source_channel clears EVERY
++        # rule. With a source_channel, it only disables matching rules.
++        if source_channel:
++            removed = 0
++            new_rules = []
++            for existing in rules:
++                if existing.get("source_channel_id") == source_channel.id:
++                    removed += 1
++                    continue
++                new_rules.append(existing)
++            rules = new_rules
++            guild_cfg["translations"] = rules
++            save_guild_configs()
++            await interaction.response.send_message(
++                f"Removed {removed} translation rule(s) for {source_channel.mention}.",
++                ephemeral=True
++            )
++        else:
++            guild_cfg["translations"] = []
++            save_guild_configs()
++            await interaction.response.send_message(
++                "All translation rules removed for this server.",
++                ephemeral=True
++            )
++        return
++
++    new_rule = {
++        "enabled": True,
+         "mode": mode,
+         "target_language": target_language.lower().strip(),
+         "source_language": source_language.lower().strip(),
+         "source_channel_id": source_channel.id if source_channel else None,
+-        "target_channel_id": target_channel.id if target_channel else None
++        "target_channel_id": target_channel.id if target_channel else None,
+     }
+ 
++    # Replace an existing rule that targets the same (source_channel,
++    # target_channel, target_language) triple to avoid duplicates, then
++    # append the new rule.
++    def _same_rule(existing):
++        return (
++            existing.get("source_channel_id") == new_rule["source_channel_id"]
++            and existing.get("target_channel_id") == new_rule["target_channel_id"]
++            and (existing.get("target_language") or "").lower() == new_rule["target_language"]
++        )
++    rules = [r for r in rules if not _same_rule(r)]
++    rules.append(new_rule)
++    guild_cfg["translations"] = rules
++
+     save_guild_configs()
+ 
+     # ── Live verification ────────────────────────────────────────
+@@ -18530,11 +19017,15 @@ async def translationconfig(
+             verification = f"⚠️ Live test crashed: `{test_err}`"
+ 
+     embed = discord.Embed(
+-        title="Translation Config Updated",
++        title="Translation Rule Added",
+         description=(
++            "Translation rules **stack** — every call to `/translationconfig` "
++            "adds a new rule rather than replacing your previous setup. "
++            "Use `/translationlist` to see all rules, `/translationremove` to "
++            "delete one, and `/translationclear` to wipe them all.\n\n"
+             "`same` posts translations in the same chat.\n"
+             "`channel` forwards translations into the target channel.\n"
+-            "`off` disables automatic translation."
++            "`off` disables / removes translation rules."
+         ),
+         color=0x1ABC9C
+     )
+@@ -18542,6 +19033,11 @@ async def translationconfig(
+     embed.add_field(name="Source", value=source_channel.mention if source_channel else "All channels", inline=True)
+     embed.add_field(name="Target", value=target_channel.mention if target_channel else "Same channel", inline=True)
+     embed.add_field(name="Language", value=f"{source_language} -> {target_language}", inline=False)
++    embed.add_field(
++        name="Active Rules",
++        value=f"This server now has **{len(rules)}** translation rule(s).",
++        inline=False,
++    )
+     if verification:
+         embed.add_field(name="Live Verification", value=verification, inline=False)
+     embed.add_field(
+@@ -18557,6 +19053,124 @@ async def translationconfig(
+     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+ 
+ 
++@bot.tree.command(name="translationlist", description="Admin: list all configured translation rules for this server")
++async def translationlist(interaction: discord.Interaction):
++    if not has_interaction_admin_power(interaction):
++        await interaction.response.send_message("Admin only.", ephemeral=True)
++        return
++
++    guild_id = str(interaction.guild.id)
++    config = guild_configs.get(guild_id, {})
++    rules = _get_translation_rules(config)
++
++    if not rules:
++        await interaction.response.send_message(
++            "No translation rules configured. Use `/translationconfig` to add one.",
++            ephemeral=True
++        )
++        return
++
++    embed = discord.Embed(
++        title="🌍 Active Translation Rules",
++        description=f"This server has **{len(rules)}** translation rule(s). "
++                    f"Remove one with `/translationremove rule_number:<n>`.",
++        color=0x1ABC9C
++    )
++
++    for index, rule in enumerate(rules, start=1):
++        src_id = rule.get("source_channel_id")
++        tgt_id = rule.get("target_channel_id")
++        src = f"<#{src_id}>" if src_id else "All channels"
++        tgt = f"<#{tgt_id}>" if tgt_id else "Same channel as source"
++        mode = rule.get("mode", "same")
++        src_lang = rule.get("source_language") or "auto"
++        tgt_lang = rule.get("target_language") or "en"
++        enabled = "🟢" if rule.get("enabled", True) else "⚪"
++        embed.add_field(
++            name=f"{enabled} Rule #{index} — {src_lang} → {tgt_lang} ({mode})",
++            value=f"**From:** {src}\n**To:** {tgt}",
++            inline=False,
++        )
++
++    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
++
++
++@bot.tree.command(name="translationremove", description="Admin: remove a specific translation rule by number")
++@app_commands.describe(rule_number="The rule number shown in /translationlist (1, 2, 3, ...)")
++async def translationremove(interaction: discord.Interaction, rule_number: int):
++    if not has_interaction_admin_power(interaction):
++        await interaction.response.send_message("Admin only.", ephemeral=True)
++        return
++
++    guild_id = str(interaction.guild.id)
++    config = guild_configs.setdefault(guild_id, {
++        "guild_name": interaction.guild.name,
++        "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
++        "channels": {}
++    })
++
++    # Migrate legacy single-rule config to list before edit
++    legacy = config.pop("translation", None)
++    rules = config.get("translations")
++    if not isinstance(rules, list):
++        rules = []
++        if isinstance(legacy, dict) and legacy.get("enabled"):
++            rules.append(legacy)
++
++    if not rules:
++        await interaction.response.send_message(
++            "No translation rules to remove. Use `/translationlist` to see them.",
++            ephemeral=True
++        )
++        return
++
++    if rule_number < 1 or rule_number > len(rules):
++        await interaction.response.send_message(
++            f"Rule number must be between 1 and {len(rules)}. Use `/translationlist`.",
++            ephemeral=True
++        )
++        return
++
++    removed = rules.pop(rule_number - 1)
++    config["translations"] = rules
++    save_guild_configs()
++
++    src_id = removed.get("source_channel_id")
++    tgt_id = removed.get("target_channel_id")
++    src = f"<#{src_id}>" if src_id else "All channels"
++    tgt = f"<#{tgt_id}>" if tgt_id else "Same channel"
++    await interaction.response.send_message(
++        f"Removed rule #{rule_number}: {src} → {tgt} "
++        f"({removed.get('source_language', 'auto')} → {removed.get('target_language', 'en')}). "
++        f"{len(rules)} rule(s) remain.",
++        ephemeral=True
++    )
++
++
++@bot.tree.command(name="translationclear", description="Admin: remove ALL translation rules for this server")
++async def translationclear(interaction: discord.Interaction):
++    if not has_interaction_admin_power(interaction):
++        await interaction.response.send_message("Admin only.", ephemeral=True)
++        return
++
++    guild_id = str(interaction.guild.id)
++    config = guild_configs.setdefault(guild_id, {
++        "guild_name": interaction.guild.name,
++        "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
++        "channels": {}
++    })
++    config.pop("translation", None)  # drop legacy
++    cleared = len(_get_translation_rules(config))
++    config["translations"] = []
++    save_guild_configs()
++
++    await interaction.response.send_message(
++        f"Cleared {cleared} translation rule(s). The bot will no longer auto-translate "
++        f"messages until you set up new rules with `/translationconfig`.",
++        ephemeral=True
++    )
++
++
+ @bot.tree.command(name="addreward", description="Admin: reward pennies when a keyword appears in chat")
+ @app_commands.default_permissions(administrator=True)
+ @app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to add")
+@@ -23549,6 +24163,24 @@ SpawnWanderingDeliveries();
+ # READY
+ # =========================================================
+ 
++@bot.event
++async def on_interaction(interaction: discord.Interaction):
++    """Route persistent button clicks (component interactions) by custom_id.
++
++    The PVE quest "Submit Completion" buttons use a `pve_submit:<quest_code>`
++    custom_id so we can re-resolve them even after a bot restart without
++    needing to re-register every per-quest View instance.
++    """
++    try:
++        if interaction.type == discord.InteractionType.component:
++            custom_id = (interaction.data or {}).get("custom_id", "")
++            if custom_id.startswith("pve_submit:"):
++                quest_code = custom_id.split(":", 1)[1]
++                await _handle_pve_submit_button(interaction, quest_code)
++    except Exception as err:
++        print(f"[ON_INTERACTION] handler error: {err}")
++
++
+ @bot.event
+ async def on_ready():
+ 
+-- 
+2.39.5
+
