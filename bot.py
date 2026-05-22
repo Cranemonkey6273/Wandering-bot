@@ -300,6 +300,8 @@ DEFAULT_CHANNEL_NAMES = {
     "pve_info": "📘🌿・pve-info・🌿📘",
     "pve_help": "❔🌿・pve-help・🌿❔",
     "pve_heatmap": "🦌🗺️・pve-heatmap・🗺️🦌",
+    "pve_rewards_public": "🎁🌿・pve-rewards・🌿🎁",
+    "pve_rewards_private": "🔒🎁・pve-rewards-private・🎁🔒",
     "quest_workshop": "🛠️🧠・quest-workshop・🧠🛠️",
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
@@ -350,6 +352,8 @@ CHANNEL_ALIASES = {
     "pve_expeditions": ["pveexpeditions", "expeditions", "exploration", "survivalruns"],
     "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
     "pve_heatmap": ["pveheatmap", "animalheatmap"],
+    "pve_rewards_public": ["pverewards", "questrewards", "rewards"],
+    "pve_rewards_private": ["pverewardsprivate", "rewardlog", "rewardsprivate"],
     "quest_workshop": ["questworkshop", "questshop", "questforge", "aiquestworkshop"],
     "faction_tickets": ["factiontickets", "factionrequests"],
     "faction_staff": ["factionstaff"],
@@ -4606,6 +4610,8 @@ async def ensure_pve_channels(guild, config, force=False):
         "pve_info",
         "pve_help",
         "pve_heatmap",
+        "pve_rewards_public",
+        "pve_rewards_private",
         "quest_workshop"
     ]
 
@@ -4636,8 +4642,9 @@ async def ensure_pve_channels(guild, config, force=False):
         if force:
             set_channel_key_disabled(config, key, False)
 
-        # quest_workshop is admin-only: hide from @everyone, allow admins.
-        is_private = (key == "quest_workshop")
+        # quest_workshop and pve_rewards_private are admin-only.
+        # Hidden from @everyone, allow admins only.
+        is_private = key in ("quest_workshop", "pve_rewards_private")
         overwrites = {}
         if is_private:
             overwrites = {
@@ -4693,7 +4700,9 @@ async def ensure_pve_channels(guild, config, force=False):
         channels[key] = channel.id
 
         # First-time welcome for the quest workshop so admins know what
-        # to type. Sent only on creation, never on re-syncs.
+        # to type. Sent only on creation, never on re-syncs. The public
+        # pve-help guides are seeded separately at the end of
+        # ensure_pve_channels() so existing guilds also get them.
         if is_private and key == "quest_workshop":
             try:
                 welcome = discord.Embed(
@@ -4716,83 +4725,6 @@ async def ensure_pve_channels(guild, config, force=False):
                 await channel.send(embed=welcome)
             except Exception as error:
                 print(f"WORKSHOP WELCOME SEND FAILED: {error}")
-
-            # Also drop a public how-to in the pve-help channel (once per
-            # guild, tracked via config flag) so regular players know the
-            # workshop exists and admins know the syntax.
-            try:
-                if not config.get("pve_help_workshop_seeded"):
-                    pve_help_channel_id = channels.get("pve_help")
-                    if pve_help_channel_id:
-                        pve_help_channel = guild.get_channel(pve_help_channel_id)
-                        if pve_help_channel:
-                            help_embed = discord.Embed(
-                                title="🛠️ How to Set Up & Generate New PVE Quests",
-                                description=(
-                                    "Server admins can now design new PVE quests on demand — no "
-                                    "code edits, no waiting for releases. Two ways to do it:"
-                                ),
-                                color=0x1ABC9C,
-                            )
-                            help_embed.add_field(
-                                name="1. Quick — Slash Commands",
-                                value=(
-                                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
-                                    "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
-                                    "**`/events listcampaigns`** — see saved campaigns.\n"
-                                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
-                                    "**`/events workshopsetup`** — re-create the workshop channel."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="2. Free-Style — The Quest Workshop Channel",
-                                value=(
-                                    "A private admin-only channel called **`#quest-workshop`** has been "
-                                    "auto-created (look in the PVE category). Just **talk to the bot in "
-                                    "plain English** — no slash commands needed. Examples:\n\n"
-                                    "• `make me 12 winter outbreak quests`\n"
-                                    "• `write a 6-part storyline about a missing coastal convoy`\n"
-                                    "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
-                                    "• `post quests every 6 hours for 5 occurrences in story order`\n"
-                                    "• `list my campaigns` / `list my schedules`\n"
-                                    "• `cancel schedule sched-1234...`\n"
-                                    "• `delete campaign camp-1234...`\n\n"
-                                    "The bot interprets your request, generates the quests, schedules "
-                                    "them, and posts them automatically. Storylines post chapter by "
-                                    "chapter in order. All schedules survive Railway restarts."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="3. Where Generated Quests Show Up",
-                                value=(
-                                    "Generated quests join the same rotation that already feeds "
-                                    "`#pve-quests`, `#pve-hunting`, `#pve-fishing`, `#pve-collection`, "
-                                    "`#pve-crafting`, and `#pve-expeditions`. You can also point a "
-                                    "schedule at any one of these channels directly."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="4. Tips for Better Quests",
-                                value=(
-                                    "• Be specific with the theme: *'winter outbreak in coastal towns'* "
-                                    "beats *'winter'*.\n"
-                                    "• Add `as a storyline` for narrative arcs.\n"
-                                    "• Mention difficulty mix if you want one: *'mostly easy with two hard'*.\n"
-                                    "• Mention the target channel and interval together: *'every 8 hours "
-                                    "in pve-hunting'*."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.set_thumbnail(url=BOT_IMAGE)
-                            help_embed.set_footer(text="Wandering Bot Alpha - PVE Quest Setup Guide")
-                            await pve_help_channel.send(embed=style_embed(help_embed))
-                            config["pve_help_workshop_seeded"] = True
-                            save_guild_configs()
-            except Exception as error:
-                print(f"PVE HELP WORKSHOP GUIDE SEND FAILED: {error}")
         return channel
 
     created = {}
@@ -4801,9 +4733,175 @@ async def ensure_pve_channels(guild, config, force=False):
         if channel:
             created[key] = channel
 
+    # Seed pve-help guides ONCE per guild, regardless of whether the
+    # quest_workshop channel was newly-created or already existed. The
+    # individual seed flags (pve_help_workshop_seeded, pve_help_rewards_seeded)
+    # ensure each embed is posted at most once per guild.
+    try:
+        await _seed_pve_help_guides(guild, config, created.get("pve_help") or guild.get_channel(config.get("channels", {}).get("pve_help")))
+    except Exception as error:
+        print(f"PVE HELP SEED ERROR {guild.id}: {error}")
+
     config.setdefault("pve", {"enabled": True, "interval_hours": 12})
     save_guild_configs()
     return created
+
+
+async def _seed_pve_help_guides(guild, config, pve_help_channel):
+    """Post the workshop how-to and the rewards explainer embeds in the
+    pve-help channel exactly once per guild. Idempotent — controlled by
+    pve_help_workshop_seeded and pve_help_rewards_seeded config flags."""
+    if pve_help_channel is None:
+        return
+
+    # 1. Workshop how-to guide.
+    if not config.get("pve_help_workshop_seeded"):
+        try:
+            help_embed = discord.Embed(
+                title="🛠️ How to Set Up & Generate New PVE Quests",
+                description=(
+                    "Server admins can now design new PVE quests on demand — no "
+                    "code edits, no waiting for releases. Two ways to do it:"
+                ),
+                color=0x1ABC9C,
+            )
+            help_embed.add_field(
+                name="1. Quick — Slash Commands",
+                value=(
+                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
+                    "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
+                    "**`/events listcampaigns`** — see saved campaigns.\n"
+                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
+                    "**`/events workshopsetup`** — re-create the workshop channel."
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="2. Free-Style — The Quest Workshop Channel",
+                value=(
+                    "A private admin-only channel called **`#quest-workshop`** has been "
+                    "auto-created (look in the PVE category). Just **talk to the bot in "
+                    "plain English** — no slash commands needed. Examples:\n\n"
+                    "• `make me 12 winter outbreak quests`\n"
+                    "• `write a 6-part storyline about a missing coastal convoy`\n"
+                    "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
+                    "• `post quests every 6 hours for 5 occurrences in story order`\n"
+                    "• `list my campaigns` / `list my schedules`\n"
+                    "• `cancel schedule sched-1234...`\n"
+                    "• `delete campaign camp-1234...`"
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="3. Where Generated Quests Show Up",
+                value=(
+                    "Generated quests join the same rotation that already feeds "
+                    "`#pve-quests`, `#pve-hunting`, `#pve-fishing`, `#pve-collection`, "
+                    "`#pve-crafting`, and `#pve-expeditions`. You can also point a "
+                    "schedule at any one of these channels directly."
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="4. Tips for Better Quests",
+                value=(
+                    "• Be specific with the theme: *'winter outbreak in coastal towns'* "
+                    "beats *'winter'*.\n"
+                    "• Add `as a storyline` for narrative arcs.\n"
+                    "• Mention difficulty mix if you want one: *'mostly easy with two hard'*.\n"
+                    "• Mention the target channel and interval together: *'every 8 hours "
+                    "in pve-hunting'*."
+                ),
+                inline=False,
+            )
+            help_embed.set_thumbnail(url=BOT_IMAGE)
+            help_embed.set_footer(text="Wandering Bot Alpha - PVE Quest Setup Guide")
+            await pve_help_channel.send(embed=style_embed(help_embed))
+            config["pve_help_workshop_seeded"] = True
+            save_guild_configs()
+        except Exception as error:
+            print(f"PVE HELP WORKSHOP GUIDE SEND FAILED: {error}")
+
+    # 2. Rewards explainer.
+    if not config.get("pve_help_rewards_seeded"):
+        try:
+            rewards_embed = discord.Embed(
+                title="🎁 How Quest Rewards Work",
+                description=(
+                    "When an admin marks your quest complete with `/pvecomplete`, "
+                    "the bot **automatically delivers the reward** described on the "
+                    "quest embed. Here's exactly where it goes and what to expect."
+                ),
+                color=0xF1C40F,
+            )
+            rewards_embed.add_field(
+                name="📺 Where Rewards Show Up",
+                value=(
+                    "**`#pve-rewards`** — public win log. Everyone in the server can see "
+                    "who completed which quest and what they've earned. Tags you so you "
+                    "get a Discord ping.\n\n"
+                    "**`#pve-rewards-private`** — admin-only audit log. Staff use this to "
+                    "track every reward delivered. You **cannot** see this channel."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="🔒 Private Rewards Stay Private",
+                value=(
+                    "If your reward contains sensitive info (loot drop coordinates, "
+                    "secret intel, stash locations), the bot **DMs it directly to you**.\n\n"
+                    "The public channel only shows *X earned a private reward* with **no "
+                    "details leaked** — other survivors can't race you to a stash they "
+                    "can't see. Only you and the admins ever see the actual coordinates."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="🎁 Reward Types You Might Earn",
+                value=(
+                    "• **💰 Pennies** — auto-credited to your wallet (`/wallet` to check).\n"
+                    "• **🗺️ Activity Map** — a fresh PNG of the server's live infected & "
+                    "PVP heatmap. Posted publicly for you to use.\n"
+                    "• **📋 Intel Brief** — a text report covering recent longshots, hottest "
+                    "PVP zones, and active bounties. Built from real ADM logs.\n"
+                    "• **📍 Loot Drop Coordinates** — a hand-picked stash location DMed to "
+                    "you privately, with an iZurvive map link. Admin will drop the stash "
+                    "there on the next restart.\n"
+                    "• **🎖️ Achievement Role** — a Discord role on your profile (auto-applied).\n"
+                    "• **🎒 Custom In-Game Reward** — admin will hand-deliver in-game on the "
+                    "next restart cycle (used for any physical loot the bot can't spawn directly)."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="✅ How To Get Paid",
+                value=(
+                    "1. **Pick a quest** — read the embed for objectives, locations, items needed, dangers.\n"
+                    "2. **Complete the steps in-game.** Take screenshots/clips for anything that isn't auto-tracked from ADM logs.\n"
+                    "3. **Link your gamertag** with `/linkgamer` so the bot can pay your wallet.\n"
+                    "4. **Post proof** in the relevant PVE quest channel (or DM staff) with the quest ID (e.g. `PVE-123456`).\n"
+                    "5. **Admin runs** `/pvecomplete quest_id:PVE-123456 member:@you` — the bot then pays the pennies AND delivers the matching reward automatically.\n"
+                    "6. **Check `#pve-rewards`** for public rewards or **your DMs** for private ones. Admins see the audit trail in `#pve-rewards-private`."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="⚠️ One Honest Caveat",
+                value=(
+                    "The bot can't spawn in-game weapons or vehicles directly (console "
+                    "DayZ on Nitrado doesn't expose that). When a quest reward is a "
+                    "physical in-game item, the embed will say *Admin will deliver this "
+                    "in-game on the next restart* — staff will hand it over manually."
+                ),
+                inline=False,
+            )
+            rewards_embed.set_thumbnail(url=BOT_IMAGE)
+            rewards_embed.set_footer(text="Wandering Bot Alpha - PVE Reward Guide")
+            await pve_help_channel.send(embed=style_embed(rewards_embed))
+            config["pve_help_rewards_seeded"] = True
+            save_guild_configs()
+        except Exception as error:
+            print(f"PVE HELP REWARDS GUIDE SEND FAILED: {error}")
 
 
 async def ensure_pve_channels_for_active_guilds():
@@ -6060,6 +6158,14 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     except Exception:
         estimated = None
 
+    reward_type = str(raw.get("reward_type") or "pennies").strip().lower()
+    if reward_type not in {"pennies", "infected_map", "intel_brief", "loot_drop_coords", "role_grant", "custom"}:
+        reward_type = "pennies"
+
+    reward_visibility = str(raw.get("reward_visibility") or "public").strip().lower()
+    if reward_visibility not in {"public", "private"}:
+        reward_visibility = "public"
+
     return {
         "kind": kind,
         "title": title[:120],
@@ -6070,6 +6176,8 @@ def _normalize_ai_quest_entry(raw, campaign_name):
         "items_needed": items_needed,
         "dangers": dangers,
         "reward": reward[:300],
+        "reward_type": reward_type,
+        "reward_visibility": reward_visibility,
         "reward_pennies": reward_pennies,
         "difficulty": difficulty,
         "estimated_minutes": estimated,
@@ -6116,6 +6224,8 @@ async def generate_ai_pve_campaign(theme, count=12):
         "      \"items_needed\": [\"<real DayZ item 1>\", \"<real DayZ item 2>\", \"<real DayZ item 3>\"],\n"
         "      \"dangers\": [\"<specific danger e.g. 'High infected density at NWAF tents'>\", \"<another danger>\"],\n"
         "      \"reward\": \"<one short sentence describing the reward>\",\n"
+        "      \"reward_type\": \"pennies|infected_map|intel_brief|loot_drop_coords|role_grant|custom\",\n"
+        "      \"reward_visibility\": \"public|private\",\n"
         "      \"reward_pennies\": <integer between 200 and 4000 based on difficulty>,\n"
         "      \"difficulty\": \"Easy|Medium|Hard|Legendary\",\n"
         "      \"estimated_minutes\": <int 10-180>,\n"
@@ -6134,8 +6244,16 @@ async def generate_ai_pve_campaign(theme, count=12):
         "- `dangers` must call out at least 2 specific risks: infected aggro hotspots, contaminated zone radiation, dynamic crash sites, weather (rain/cold), territorial wolves/bears, etc.\n"
         "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
         "- If quest is quantity-based, use literal {count} token in `goal`, not a number.\n"
-        "- Reward sentences must be earned and grounded — admin-issued food crates, ammo bundles, NVGs (only for Legendary), medical kits, etc. Never fantasy items.\n"
-        "- Storyline campaigns: if the theme implies a multi-part narrative, write the quests so they unfold in chronological order. The campaign should have a beginning, middle, and end.\n"
+        "- IMPORTANT — Pick `reward_type` from this exact list (these are the ONLY rewards the bot can actually deliver):\n"
+        "    * pennies            — in-bot currency added to player's wallet (always also delivered).\n"
+        "    * infected_map       — bot generates a PNG of the server's real infected/PVP heatmap and delivers it.\n"
+        "    * intel_brief        — bot composes a text intel report from recent server activity.\n"
+        "    * loot_drop_coords   — bot picks a stash location and DMs the coordinates + map link.\n"
+        "    * role_grant         — bot grants a Discord achievement role.\n"
+        "    * custom             — admin-written / hand-issued reward (use this for anything physical/in-game).\n"
+        "  Choose the type that matches what the `reward` text describes. NEVER offer in-game weapons/vehicles/loot spawns directly — use `custom` for those (admin must hand them out).\n"
+        "- `reward_visibility`: use `private` (DM the player) for rewards revealing positions or stash coordinates (loot_drop_coords, secret intel). Use `public` for everything else (pennies, maps, roles, generic intel briefs) so the whole community sees the win.\n"
+        "- `reward` text must match the chosen `reward_type` (e.g. if reward_type=infected_map say 'A live map of current infected hotspots' — not 'a Mosin').\n"
         "- Do NOT include any text outside the JSON object."
     )
 
@@ -6354,7 +6472,9 @@ def workshop_find_campaign(guild_id, campaign_id, theme=None):
 async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, campaign=None):
     """Post a single AI-generated quest as a rich, multi-field embed into
     the named channel. Renders summary, numbered steps, locations, items
-    needed, dangers, reward, and survival tips."""
+    needed, dangers, reward, and survival tips. Also persists the quest
+    to pve_challenges so admins can /pvecomplete it and trigger the
+    correct reward delivery via deliver_quest_reward()."""
     channels = config.setdefault("channels", {})
     target = guild.get_channel(channels.get(channel_key))
     if not target:
@@ -6430,6 +6550,36 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     embed.add_field(name="🎁 Reward", value=quest.get("reward", "Admin-chosen")[:1024], inline=False)
     if quest.get("tips"):
         embed.add_field(name="💡 Survival Tip", value=quest["tips"][:1024], inline=False)
+
+    # Persist as an active PVE challenge so admins can /pvecomplete it
+    # and the reward-delivery system fires automatically.
+    guild_id_str = str(guild.id)
+    quest_record = {
+        "id": f"pve-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}",
+        "kind": kind,
+        "title": title,
+        "summary": quest.get("summary", ""),
+        "goal": goal,
+        "steps": list(quest.get("steps") or []),
+        "locations": list(quest.get("locations") or []),
+        "items_needed": list(quest.get("items_needed") or []),
+        "dangers": list(quest.get("dangers") or []),
+        "reward": quest.get("reward", "Admin-chosen"),
+        "reward_type": quest.get("reward_type", "pennies"),
+        "reward_visibility": quest.get("reward_visibility", "public"),
+        "reward_pennies": int(quest.get("reward_pennies") or pve_reward_for_difficulty(difficulty)),
+        "difficulty": difficulty,
+        "estimated_minutes": quest.get("estimated_minutes"),
+        "tips": quest.get("tips", ""),
+        "quest_line": (campaign or {}).get("name") or quest.get("quest_line"),
+        "channel_key": channel_key,
+        "ai_generated": True,
+        "campaign_id": (campaign or {}).get("id"),
+        "created": str(datetime.now(UTC)),
+        "status": "active",
+    }
+    quest_record["quest_code"] = generate_pve_quest_code()
+    embed.add_field(name="🆔 Quest ID", value=f"`{quest_record['quest_code']}`", inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
 
@@ -6437,7 +6587,354 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         await target.send(embed=style_embed(embed))
     except Exception as error:
         return False, f"Send failed: {error}"
+
+    guild_challenges = pve_challenges.setdefault(guild_id_str, [])
+    guild_challenges.append(quest_record)
+    pve_challenges[guild_id_str] = guild_challenges[-100:]
+    save_pve_challenges()
+
     return True, target.mention
+
+
+# =========================================================
+# QUEST REWARD DELIVERY
+# When /pvecomplete fires, deliver_quest_reward() turns the quest's
+# reward_type into a real artifact (map PNG, intel text, DM coords,
+# role grant) and posts it either to the public rewards channel or
+# privately as a DM + admin log.
+# =========================================================
+
+CHERNARUS_LOOT_DROPS = [
+    ("Stary Sobor military tents", "9090,7820"),
+    ("Vybor military base", "3700,8400"),
+    ("Tisy military base — north fence", "1100,14500"),
+    ("Pavlovo bunker entrance", "2500,5300"),
+    ("Zelenogorsk industrial yard", "2700,5500"),
+    ("Krasnostav airfield ATC", "11900,12300"),
+    ("Berezino police station", "12900,9530"),
+    ("Cherno hospital roof", "6500,2400"),
+    ("NWAF jail block", "4400,10500"),
+    ("Kamensk military base", "6750,14600"),
+    ("Severograd school", "8300,12500"),
+    ("Pustoshka church", "3550,9400"),
+]
+LIVONIA_LOOT_DROPS = [
+    ("Bilogorsk military base", "10100,2200"),
+    ("Lembrava airstrip", "6900,5200"),
+    ("Polesie radar station", "12500,6450"),
+    ("Topolin train depot", "7100,9100"),
+    ("Sitnik village barn", "5400,7100"),
+    ("Branzow railway tunnel", "9700,8600"),
+]
+SAKHAL_LOOT_DROPS = [
+    ("Volcanic ridge cache", "8500,9100"),
+    ("Coastal lighthouse", "3500,2200"),
+    ("Frozen radar base", "12000,12000"),
+]
+
+
+async def _deliver_reward_pennies(guild, config, challenge, member, target_channel, dm_channel):
+    pennies = int(challenge.get("reward_pennies", 0))
+    embed = discord.Embed(
+        title="🎁 Quest Reward — Pennies Paid",
+        description=f"{member.mention} earned **{pennies} pennies** for completing **{challenge.get('title')}**.",
+        color=0xF1C40F,
+    )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+    if target_channel:
+        await target_channel.send(content=member.mention, embed=style_embed(embed))
+
+
+async def _deliver_reward_infected_map(guild, config, challenge, member, target_channel, dm_channel):
+    guild_id = str(guild.id)
+    map_key = server_map_key(guild_id)
+    # Try the real map render first; if not configured, fall back to the
+    # synthetic heatmap renderer that doesn't need a base image.
+    image_path = generate_real_map_heatmap_image(guild_id, "all", map_key, width=900, height=720)
+    if not image_path:
+        image_path = generate_guild_heatmap_image(guild_id, mode="all")
+
+    embed = discord.Embed(
+        title="🗺️ Quest Reward — Infected & Activity Map",
+        description=(
+            f"{member.mention} earned a live activity map of **{map_key.title()}** "
+            f"by completing **{challenge.get('title')}**. Hot zones show recent kills, "
+            f"infected sightings, and contested territory. Plan accordingly."
+        ),
+        color=0xE67E22,
+    )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+
+    if target_channel:
+        if image_path and os.path.exists(image_path):
+            try:
+                file = discord.File(image_path, filename="activity_map.png")
+                embed.set_image(url="attachment://activity_map.png")
+                await target_channel.send(content=member.mention, embed=style_embed(embed), file=file)
+            except Exception as send_error:
+                print(f"INFECTED MAP SEND FAILED: {send_error}")
+                await target_channel.send(content=member.mention, embed=style_embed(embed))
+            finally:
+                try:
+                    os.remove(image_path)
+                except Exception:
+                    pass
+        else:
+            embed.add_field(
+                name="Note",
+                value="Heatmap data is still building. Run `/heatmap` in a few hours for a denser map.",
+                inline=False,
+            )
+            await target_channel.send(content=member.mention, embed=style_embed(embed))
+
+
+async def _deliver_reward_intel_brief(guild, config, challenge, member, target_channel, dm_channel):
+    guild_id = str(guild.id)
+    # Pull the freshest signals the bot already collects.
+    longshot_lines = []
+    for record in (longshot_records.get(guild_id, [])[-3:] or []):
+        longshot_lines.append(
+            f"• {record.get('killer', '?')} dropped {record.get('victim', '?')} from "
+            f"{int(record.get('distance', 0))}m with {record.get('weapon', '?')}."
+        )
+    bounty_lines = []
+    for bounty in (bounties.get(guild_id, [])[-3:] or []):
+        bounty_lines.append(f"• {bounty.get('target', '?')} — {bounty.get('reward', '?')}")
+    heat_top = sorted(
+        heat_counts_for_mode(guild_id, "pvp").items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:5]
+    heat_lines = [f"• {zone}: {count} engagements" for zone, count in heat_top]
+
+    embed = discord.Embed(
+        title="📋 Quest Reward — Server Intel Brief",
+        description=(
+            f"{member.mention} earned a fresh intel briefing for completing "
+            f"**{challenge.get('title')}**. Recon notes below — use them or trade them."
+        ),
+        color=0x3498DB,
+    )
+    if heat_lines:
+        embed.add_field(name="🔥 Hottest PVP Zones", value="\n".join(heat_lines), inline=False)
+    if longshot_lines:
+        embed.add_field(name="🎯 Recent Longshots", value="\n".join(longshot_lines), inline=False)
+    if bounty_lines:
+        embed.add_field(name="💰 Active Bounties", value="\n".join(bounty_lines), inline=False)
+    if not (heat_lines or longshot_lines or bounty_lines):
+        embed.add_field(
+            name="Field Report",
+            value="Server is quiet right now — light contacts, no major engagements logged. Move freely but stay paranoid.",
+            inline=False,
+        )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+    if target_channel:
+        await target_channel.send(content=member.mention, embed=style_embed(embed))
+
+
+async def _deliver_reward_loot_drop_coords(guild, config, challenge, member, target_channel, dm_channel):
+    guild_id = str(guild.id)
+    map_key = server_map_key(guild_id)
+    pool = {
+        "chernarus": CHERNARUS_LOOT_DROPS,
+        "livonia": LIVONIA_LOOT_DROPS,
+        "sakhal": SAKHAL_LOOT_DROPS,
+    }.get(map_key, CHERNARUS_LOOT_DROPS)
+    spot_name, coords = random.choice(pool)
+    map_link = build_izurvive_link(coords, guild_id) or "(map link unavailable)"
+
+    embed = discord.Embed(
+        title="📍 Quest Reward — Loot Drop Coordinates",
+        description=(
+            f"You completed **{challenge.get('title')}**. Coordinates of a hand-picked stash "
+            f"location are below. **Keep this private.** Other survivors who see these coords "
+            f"will race you to the spot."
+        ),
+        color=0x2ECC71,
+    )
+    embed.add_field(name="Stash Location", value=spot_name, inline=False)
+    embed.add_field(name="Coordinates", value=f"`{coords}`", inline=True)
+    embed.add_field(name="Map", value=f"[Open iZurvive]({map_link})", inline=True)
+    embed.add_field(
+        name="Rules",
+        value="The spawn isn't guaranteed — admin will drop a stash there during the next restart cycle.",
+        inline=False,
+    )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards (private)")
+
+    delivered_dm = False
+    if dm_channel:
+        try:
+            await dm_channel.send(content=f"🎁 Private reward from your DayZ server:", embed=style_embed(embed))
+            delivered_dm = True
+        except Exception as dm_error:
+            print(f"DM REWARD FAILED: {dm_error}")
+
+    if target_channel:
+        # Public-channel notice only — no coords leaked.
+        notice = discord.Embed(
+            title="📍 Private Reward Delivered",
+            description=(
+                f"{member.mention} earned a **private loot drop reward** for "
+                f"**{challenge.get('title')}**. Coordinates were sent privately."
+            ),
+            color=0x2ECC71,
+        )
+        notice.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+        try:
+            await target_channel.send(embed=style_embed(notice))
+        except Exception:
+            pass
+
+    return delivered_dm
+
+
+async def _deliver_reward_role_grant(guild, config, challenge, member, target_channel, dm_channel):
+    role_name = (config.get("pve_reward_role")
+                 or challenge.get("reward_role_name")
+                 or "DayZ Quest Veteran")
+    role = discord.utils.get(guild.roles, name=role_name)
+    if not role:
+        try:
+            role = await guild.create_role(
+                name=role_name,
+                colour=discord.Colour(0x9B59B6),
+                reason="PVE quest reward role",
+            )
+        except Exception as role_error:
+            print(f"ROLE CREATE FAILED: {role_error}")
+            role = None
+
+    granted = False
+    if role:
+        try:
+            if role not in member.roles:
+                await member.add_roles(role, reason=f"PVE quest reward: {challenge.get('title')}")
+            granted = True
+        except Exception as add_error:
+            print(f"ROLE GRANT FAILED: {add_error}")
+
+    embed = discord.Embed(
+        title="🎖️ Quest Reward — Role Granted" if granted else "🎖️ Quest Reward — Role (manual)",
+        description=(
+            f"{member.mention} earned the **{role_name}** role for completing "
+            f"**{challenge.get('title')}**." if granted else
+            f"{member.mention} earned the **{role_name}** role but the bot couldn't apply it. "
+            f"An admin should grant it manually."
+        ),
+        color=0x9B59B6,
+    )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards")
+    if target_channel:
+        await target_channel.send(content=member.mention, embed=style_embed(embed))
+
+
+async def _deliver_reward_custom(guild, config, challenge, member, target_channel, dm_channel):
+    embed = discord.Embed(
+        title="🎁 Quest Reward — Hand-Issued",
+        description=(
+            f"{member.mention} completed **{challenge.get('title')}** and earned: "
+            f"_{challenge.get('reward', 'Admin-chosen reward')}_\n\n"
+            f"An admin will deliver this reward in-game on the next server restart "
+            f"or stash drop."
+        ),
+        color=0x95A5A6,
+    )
+    embed.add_field(name="Quest", value=f"`{pve_quest_code(challenge)}`", inline=True)
+    embed.add_field(name="Pennies Paid", value=str(challenge.get("reward_pennies", 0)), inline=True)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - PVE Rewards (admin issues in-game)")
+    if target_channel:
+        await target_channel.send(content=member.mention, embed=style_embed(embed))
+
+
+async def deliver_quest_reward(guild, config, challenge, member):
+    """Deliver whatever reward this completed quest specified.
+
+    Routes to one of six handlers based on `challenge['reward_type']`:
+      pennies | infected_map | intel_brief | loot_drop_coords | role_grant | custom
+
+    Visibility:
+      - public  → posts in the public pve-rewards channel, tags the player.
+      - private → DMs the player, plus a no-detail audit notice in the
+                  public channel and a full copy in the admin-only
+                  pve-rewards-private channel for staff records.
+    """
+    channels = config.setdefault("channels", {})
+    public_channel = guild.get_channel(channels.get("pve_rewards_public"))
+    private_channel = guild.get_channel(channels.get("pve_rewards_private"))
+    if not public_channel:
+        # Auto-create on first use.
+        await ensure_pve_channels(guild, config)
+        public_channel = guild.get_channel(channels.get("pve_rewards_public"))
+        private_channel = guild.get_channel(channels.get("pve_rewards_private"))
+
+    visibility = str(challenge.get("reward_visibility") or "public").strip().lower()
+    reward_type = str(challenge.get("reward_type") or "pennies").strip().lower()
+
+    # Open a DM channel for private rewards.
+    dm_channel = None
+    if visibility == "private":
+        try:
+            dm_channel = member.dm_channel or await member.create_dm()
+        except Exception as dm_error:
+            print(f"DM OPEN FAILED for {member.id}: {dm_error}")
+
+    # For private rewards, the "target_channel" passed to the handler is
+    # the public channel for the no-detail notice (handlers handle DM
+    # themselves when needed). For public rewards, the handler posts the
+    # full embed there.
+    target_channel = public_channel if visibility == "public" else None
+
+    handler_map = {
+        "pennies": _deliver_reward_pennies,
+        "infected_map": _deliver_reward_infected_map,
+        "intel_brief": _deliver_reward_intel_brief,
+        "loot_drop_coords": _deliver_reward_loot_drop_coords,
+        "role_grant": _deliver_reward_role_grant,
+        "custom": _deliver_reward_custom,
+    }
+    handler = handler_map.get(reward_type, _deliver_reward_custom)
+
+    # Run the per-type handler.
+    if visibility == "private":
+        # All private deliveries route through the same channel pair: the
+        # handler decides what (if anything) to post publicly via the
+        # `target_channel` arg below. We still pass `public_channel` so
+        # the handler can drop a no-coords notice for the rest of the
+        # community to celebrate the win.
+        await handler(guild, config, challenge, member, public_channel, dm_channel)
+    else:
+        await handler(guild, config, challenge, member, target_channel, None)
+
+    # Audit log for admins regardless of visibility.
+    if private_channel:
+        try:
+            audit = discord.Embed(
+                title=f"🛡️ Reward Delivered: {challenge.get('title', '?')}",
+                description=(
+                    f"**Player:** {member.mention} (`{member}`)\n"
+                    f"**Quest:** `{pve_quest_code(challenge)}`\n"
+                    f"**Reward Type:** `{reward_type}`\n"
+                    f"**Visibility:** `{visibility}`\n"
+                    f"**Pennies:** {challenge.get('reward_pennies', 0)}\n"
+                    f"**Reward Text:** {challenge.get('reward', '—')}"
+                ),
+                color=0x34495E,
+            )
+            audit.set_footer(text="Wandering Bot Alpha - Reward Audit Log")
+            await private_channel.send(embed=audit)
+        except Exception as audit_error:
+            print(f"REWARD AUDIT FAILED: {audit_error}")
 
 
 async def workshop_execute_action(message, config, action, params):
@@ -15954,6 +16451,19 @@ async def pvecomplete(interaction: discord.Interaction, quest_id: str, member: d
         challenge,
         f"{reward} pennies paid to {member.mention}"
     )
+
+    # Deliver the actual quest reward (map, intel brief, coords, role, etc.)
+    # to the appropriate channel or DM the player. Failures are logged but
+    # never block the /pvecomplete flow.
+    try:
+        await deliver_quest_reward(
+            interaction.guild,
+            guild_configs.get(guild_id, {}),
+            challenge,
+            member,
+        )
+    except Exception as reward_error:
+        print(f"REWARD DELIVERY ERROR {guild_id} {challenge.get('quest_code')}: {reward_error}")
 
     channel_key = challenge.get("channel_key") or pve_themed_channel_key(challenge)
     next_kind = PVE_THEMED_QUEST_KINDS.get(channel_key)
