@@ -94,6 +94,8 @@ FACTIONS_FILE = data_path("factions.json")
 PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
 PVE_AI_CAMPAIGNS_FILE = data_path("pve_ai_campaigns.json")
 PVE_WORKSHOP_SCHEDULES_FILE = data_path("pve_workshop_schedules.json")
+FACTIONS_FILE = data_path("factions.json")
+WAGES_FILE = data_path("wages.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
@@ -486,6 +488,13 @@ BOT_UPDATE_NOTES = [
         "summary": "AI-generated PVE quests now include When To Run hints — time of day (day/dusk/night/dawn), weather (clear/rain/fog/storm/cold/snow), and recommended squad size (solo/duo/trio/squad). These appear as a dedicated field on the quest embed so players know exactly when and how the quest is best tackled.",
         "commands": "Automatic on every AI-generated quest",
         "audience": "Everyone",
+    },
+    {
+        "id": "2026-02-factions-and-wages",
+        "title": "Factions & Wages — Group Tracking + Recurring Payouts",
+        "summary": "🏴 Define factions with their own colour, members, alert channel, and ping role — when a faction member trips a radar zone, the alert routes to the faction's channel and pings the faction's role automatically. 💰 Set recurring wages (daily / weekly / monthly) paid to a user, role, or whole faction — the bot announces every payout in pve-rewards and credits the wallet system on its own.",
+        "commands": "`/server factionadd`, `/server factionaddmember`, `/server factionremovemember`, `/server factionlist`, `/server factiondelete`, `/server wageadd`, `/server wagelist`, `/server wagecancel`",
+        "audience": "Admins",
     },
 ]
 
@@ -7541,6 +7550,85 @@ def guild_workshop_schedules(guild_id):
     return pve_workshop_schedules.setdefault(str(guild_id), [])
 
 
+# =========================================================
+# 🏴 FACTIONS — named groups of players with their own radar pings
+# Per-guild map: { guild_id: { faction_name: {
+#     "name": str,
+#     "color": int (hex),
+#     "members": [str gamertag, ...],
+#     "discord_role_id": int|None,    # all users with this role
+#     "alert_channel_id": int|None,   # override radar alert channel
+#     "mention_role_id": int|None,    # override radar mention role
+#     "created": iso, "created_by": int
+# } } }
+# =========================================================
+factions = {}
+
+
+def load_factions():
+    global factions
+    factions = load_json(FACTIONS_FILE) or {}
+
+
+def save_factions():
+    save_json(FACTIONS_FILE, factions)
+
+
+def guild_factions(guild_id):
+    return factions.setdefault(str(guild_id), {})
+
+
+def find_faction_for_player(guild_id, player_name):
+    """Return the faction dict that `player_name` (a DayZ gamertag) belongs
+    to, or None. Member match is case-insensitive."""
+    if not player_name:
+        return None
+    needle = str(player_name).strip().lower()
+    for faction in (factions.get(str(guild_id)) or {}).values():
+        members = faction.get("members") or []
+        if any(str(m).strip().lower() == needle for m in members):
+            return faction
+    return None
+
+
+# =========================================================
+# 💰 WAGES — recurring auto-payouts to users / roles / factions
+# Per-guild list: { guild_id: [ {
+#     "id": "wage-<ts>-<rand>",
+#     "target_type": "user" | "role" | "faction",
+#     "target_id": str,        # discord user id, role id, or faction name
+#     "target_label": str,     # human-readable for embeds
+#     "amount": int (pennies per payout),
+#     "cadence": "daily" | "weekly" | "monthly",
+#     "next_pay_iso": iso,
+#     "active": bool,
+#     "created": iso, "created_by": int
+# } ] }
+# =========================================================
+wages = {}
+
+
+def load_wages():
+    global wages
+    wages = load_json(WAGES_FILE) or {}
+
+
+def save_wages():
+    save_json(WAGES_FILE, wages)
+
+
+def guild_wages(guild_id):
+    return wages.setdefault(str(guild_id), [])
+
+
+def cadence_to_seconds(cadence):
+    return {
+        "daily": 24 * 3600,
+        "weekly": 7 * 24 * 3600,
+        "monthly": 30 * 24 * 3600,
+    }.get(str(cadence or "").lower(), 7 * 24 * 3600)
+
+
 def stable_line_hash(line):
     return hashlib.sha256(
         line.encode("utf-8", errors="ignore")
@@ -13975,24 +14063,49 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
             continue
 
         RADAR_PINGS[throttle_key] = now_ts
+
+        # 🏴 Faction override: if this player belongs to a faction with
+        # its own alert channel and/or mention role, those take priority
+        # over the per-zone settings. Lets you silently track faction
+        # movements in faction-only channels with faction-specific pings.
+        player_faction = find_faction_for_player(guild_id, player_name)
+
+        zone_channel_id = zone.get("alert_channel_id")
+        if player_faction and player_faction.get("alert_channel_id"):
+            zone_channel_id = player_faction["alert_channel_id"]
+        target_channel = bot.get_channel(int(zone_channel_id)) if zone_channel_id else default_radar_channel
+        if not target_channel:
+            # No place to post — silently skip rather than spam errors.
+            continue
+
         map_link = f"https://dayz.ginfo.gg/{izurvive_map_path(guild_id)}#location={zx};{zy}"
         player_link = build_izurvive_link(coords, guild_id)
-        embed = discord.Embed(
-            title="RADAR ZONE TRIGGERED",
-            description=f"**{player_name}** entered **{zone.get('name', 'Radar Zone')}**.",
-            color=0xE74C3C
-        )
-        embed.add_field(name="Event", value=event_type or "activity", inline=True)
-        embed.add_field(name="Distance From Center", value=f"{distance:.0f}m / {radius:.0f}m", inline=True)
-        embed.add_field(name="Zone Center", value=f"[Open Zone](<{map_link}>)", inline=False)
-        if player_link:
-            embed.add_field(name="Player Location", value=f"[Open Player Location](<{player_link}>)", inline=False)
-        embed.set_thumbnail(url=BOT_IMAGE)
-        embed.set_footer(text="Wandering Bot Alpha - Radar Intelligence")
 
-        # Optional role mention (e.g. a faction role) — sent as message
-        # content so the role actually pings members.
+        embed_color = 0xE74C3C
+        title = "🚨📡 RADAR ZONE TRIGGERED"
+        if player_faction:
+            embed_color = int(player_faction.get("color", 0xE74C3C))
+            title = f"🚨🏴 RADAR — {player_faction.get('name', 'FACTION')} MOVEMENT"
+
+        embed = discord.Embed(
+            title=title,
+            description=f"**{player_name}** entered **{zone.get('name', 'Radar Zone')}**.",
+            color=embed_color
+        )
+        embed.add_field(name="🎯 Event", value=event_type or "activity", inline=True)
+        embed.add_field(name="📏 Distance From Center", value=f"{distance:.0f}m / {radius:.0f}m", inline=True)
+        if player_faction:
+            embed.add_field(name="🏴 Faction", value=f"**{player_faction.get('name', '?')}**", inline=True)
+        embed.add_field(name="🗺️ Zone Center", value=f"[Open Zone]({map_link})", inline=False)
+        if player_link:
+            embed.add_field(name="📍 Player Location", value=f"[Open Player Location]({player_link})", inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha • 📡 Radar Intelligence")
+
+        # Optional role mention — faction's preferred role wins over zone's.
         mention_role_id = zone.get("mention_role_id")
+        if player_faction and player_faction.get("mention_role_id"):
+            mention_role_id = player_faction["mention_role_id"]
         content = None
         allowed_mentions = None
         if mention_role_id:
@@ -16583,6 +16696,118 @@ async def workshop_schedule_loop():
         save_pve_workshop_schedules()
 
 
+@tasks.loop(minutes=10)
+async def wages_payout_loop():
+    """Every 10 minutes, scan every guild's wages and pay any that are due.
+    Pays into the existing wallet system. User wages = direct credit.
+    Role wages = credit each member with that role. Faction wages =
+    credit each linked Discord user (looked up from gamertag→linked_players)
+    plus a direct credit to anyone who has the faction's discord_role."""
+    now = datetime.now(UTC)
+    dirty = False
+    for guild_id, payouts in list(wages.items()):
+        if not isinstance(payouts, list):
+            continue
+        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        if not guild:
+            continue
+        config = guild_configs.get(str(guild_id)) or {}
+
+        for wage in payouts:
+            if not wage.get("active"):
+                continue
+            try:
+                next_pay = datetime.fromisoformat(wage.get("next_pay_iso"))
+            except Exception:
+                continue
+            if now < next_pay:
+                continue
+
+            amount = int(wage.get("amount", 0) or 0)
+            paid_to = []
+            target_type = wage.get("target_type")
+
+            if target_type == "user":
+                user_id = str(wage.get("target_id"))
+                w = wallets.setdefault(user_id, {"name": "", "balance": 0, "daily_transactions": 0})
+                w["balance"] = int(w.get("balance", 0) or 0) + amount
+                paid_to.append(f"<@{user_id}>")
+
+            elif target_type == "role":
+                role_id = int(wage.get("target_id") or 0)
+                role = guild.get_role(role_id) if role_id else None
+                if role:
+                    for member in role.members:
+                        if member.bot:
+                            continue
+                        w = wallets.setdefault(str(member.id), {"name": str(member), "balance": 0, "daily_transactions": 0})
+                        w["balance"] = int(w.get("balance", 0) or 0) + amount
+                        paid_to.append(member.mention)
+
+            elif target_type == "faction":
+                faction_name = wage.get("target_id") or ""
+                faction = (factions.get(str(guild_id)) or {}).get(faction_name) or {}
+                # Pay any Discord user who has the faction's role.
+                role_id = faction.get("discord_role_id")
+                if role_id:
+                    role = guild.get_role(int(role_id))
+                    if role:
+                        for member in role.members:
+                            if member.bot:
+                                continue
+                            w = wallets.setdefault(str(member.id), {"name": str(member), "balance": 0, "daily_transactions": 0})
+                            w["balance"] = int(w.get("balance", 0) or 0) + amount
+                            paid_to.append(member.mention)
+                # Also pay any linked-gamertag member that's listed in the faction.
+                gamertags = {str(m).strip().lower() for m in (faction.get("members") or [])}
+                if gamertags:
+                    for user_id, link in (linked_players or {}).items():
+                        gt = str(link.get("gamertag") or "").strip().lower()
+                        if gt and gt in gamertags:
+                            mention = f"<@{user_id}>"
+                            if mention in paid_to:
+                                continue
+                            w = wallets.setdefault(str(user_id), {"name": gt, "balance": 0, "daily_transactions": 0})
+                            w["balance"] = int(w.get("balance", 0) or 0) + amount
+                            paid_to.append(mention)
+
+            save_wallets()
+
+            # Roll the schedule forward.
+            wage["next_pay_iso"] = (now + timedelta(seconds=cadence_to_seconds(wage.get("cadence", "weekly")))).isoformat()
+            dirty = True
+
+            # Announce in pve-rewards-public if available, else recap target.
+            target_channel = (
+                guild.get_channel(config.get("channels", {}).get("pve_rewards_public"))
+                or _recap_target_channel(str(guild_id))
+            )
+            if target_channel and paid_to:
+                try:
+                    embed = discord.Embed(
+                        title="💰 WAGE PAYOUT",
+                        description=(
+                            f"Auto-payout fired for **{wage.get('target_label', '?')}**.\n"
+                            f"**{amount} pennies** paid to **{len(paid_to)}** survivor(s)."
+                        ),
+                        color=0xF1C40F,
+                    )
+                    embed.add_field(
+                        name="🎁 Recipients",
+                        value=(", ".join(paid_to[:20]) + (f" + {len(paid_to)-20} more" if len(paid_to) > 20 else "")) or "(none)",
+                        inline=False,
+                    )
+                    embed.add_field(name="🔁 Cadence", value=wage.get("cadence", "?").title(), inline=True)
+                    embed.add_field(name="⏭️ Next Payout", value=wage["next_pay_iso"][:16].replace("T", " ") + " UTC", inline=True)
+                    embed.set_footer(text="Wandering Bot Alpha • 💰 Wage System")
+                    await target_channel.send(embed=style_embed(embed))
+                except Exception as send_error:
+                    print(f"[WAGES] Send failed for {guild_id}: {send_error}")
+
+    if dirty:
+        save_wages()
+
+
 @tasks.loop(minutes=60)
 async def pve_pvp_advice_loop():
     now_ts = datetime.now(UTC).timestamp()
@@ -17300,6 +17525,9 @@ async def start_background_tasks():
 
         if not workshop_schedule_loop.is_running():
             workshop_schedule_loop.start()
+
+        if not wages_payout_loop.is_running():
+            wages_payout_loop.start()
 
         if not pve_pvp_advice_loop.is_running():
             pve_pvp_advice_loop.start()
@@ -26114,6 +26342,276 @@ async def slash_server_sendmessage(interaction: discord.Interaction, message: st
         )
 
 
+# =========================================================
+# 🏴 FACTION SLASH COMMANDS (under /server)
+# =========================================================
+
+@server_group.command(name="factionadd", description="Admin: create or update a faction")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    name="Faction name (used as identifier)",
+    color="Hex color e.g. ff0000 (optional)",
+    discord_role="Role assigned to faction members (optional)",
+    alert_channel="Channel where faction radar pings post (optional)",
+    mention_role="Role to ping on faction radar trigger (optional)",
+)
+async def slash_faction_add(
+    interaction: discord.Interaction,
+    name: str,
+    color: str = None,
+    discord_role: discord.Role = None,
+    alert_channel: discord.TextChannel = None,
+    mention_role: discord.Role = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    name = (name or "").strip()
+    if not name:
+        await interaction.response.send_message("Faction name required.", ephemeral=True)
+        return
+    block = guild_factions(interaction.guild.id)
+    existing = block.get(name) or {}
+    color_int = existing.get("color", 0xE74C3C)
+    if color:
+        try:
+            color_int = int(color.lstrip("#"), 16)
+        except Exception:
+            await interaction.response.send_message("Invalid hex color. Use e.g. `ff0000`.", ephemeral=True)
+            return
+    block[name] = {
+        "name": name,
+        "color": color_int,
+        "members": existing.get("members", []),
+        "discord_role_id": discord_role.id if discord_role else existing.get("discord_role_id"),
+        "alert_channel_id": alert_channel.id if alert_channel else existing.get("alert_channel_id"),
+        "mention_role_id": mention_role.id if mention_role else existing.get("mention_role_id"),
+        "created": existing.get("created") or str(datetime.now(UTC)),
+        "created_by": existing.get("created_by") or interaction.user.id,
+    }
+    save_factions()
+    await interaction.response.send_message(
+        f"🏴 Faction **{name}** saved. Use `/server factionaddmember` to add gamertags.",
+        ephemeral=True,
+    )
+
+
+@server_group.command(name="factionaddmember", description="Admin: add a player gamertag to a faction")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(faction="Faction name", gamertag="DayZ in-game gamertag of the player")
+async def slash_faction_add_member(interaction: discord.Interaction, faction: str, gamertag: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    block = guild_factions(interaction.guild.id)
+    if faction not in block:
+        await interaction.response.send_message(
+            f"Faction `{faction}` not found. Create it with `/server factionadd`.",
+            ephemeral=True,
+        )
+        return
+    members = block[faction].setdefault("members", [])
+    gamertag = gamertag.strip()
+    if gamertag and gamertag not in members:
+        members.append(gamertag)
+        save_factions()
+    await interaction.response.send_message(
+        f"✅ **{gamertag}** added to faction **{faction}** ({len(members)} members).",
+        ephemeral=True,
+    )
+
+
+@server_group.command(name="factionremovemember", description="Admin: remove a player from a faction")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(faction="Faction name", gamertag="Gamertag to remove")
+async def slash_faction_remove_member(interaction: discord.Interaction, faction: str, gamertag: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    block = guild_factions(interaction.guild.id)
+    if faction not in block:
+        await interaction.response.send_message(f"Faction `{faction}` not found.", ephemeral=True)
+        return
+    members = block[faction].setdefault("members", [])
+    before = len(members)
+    members[:] = [m for m in members if m.strip().lower() != gamertag.strip().lower()]
+    save_factions()
+    await interaction.response.send_message(
+        f"Removed **{gamertag}** ({before - len(members)} match)." if before != len(members)
+        else f"**{gamertag}** wasn't in **{faction}**.",
+        ephemeral=True,
+    )
+
+
+@server_group.command(name="factionlist", description="List all factions and their settings")
+@app_commands.default_permissions(administrator=True)
+async def slash_faction_list(interaction: discord.Interaction):
+    block = guild_factions(interaction.guild.id)
+    if not block:
+        await interaction.response.send_message(
+            "No factions yet. Use `/server factionadd name:<name>` to create one.",
+            ephemeral=True,
+        )
+        return
+    embed = discord.Embed(title="🏴 Factions", color=0x95A5A6)
+    for f in block.values():
+        ch = f.get("alert_channel_id")
+        rl = f.get("mention_role_id")
+        embed.add_field(
+            name=f.get("name", "?"),
+            value=(
+                f"**Members:** {len(f.get('members', []))}\n"
+                f"**Alert Channel:** {f'<#{ch}>' if ch else '(default radar)'}\n"
+                f"**Ping Role:** {f'<@&{rl}>' if rl else '(none)'}"
+            ),
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@server_group.command(name="factiondelete", description="Admin: delete a faction")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(faction="Faction name")
+async def slash_faction_delete(interaction: discord.Interaction, faction: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    block = guild_factions(interaction.guild.id)
+    if faction not in block:
+        await interaction.response.send_message(f"Faction `{faction}` not found.", ephemeral=True)
+        return
+    del block[faction]
+    save_factions()
+    await interaction.response.send_message(f"🗑️ Faction **{faction}** deleted.", ephemeral=True)
+
+
+# =========================================================
+# 💰 WAGE SLASH COMMANDS (under /server)
+# =========================================================
+
+@server_group.command(name="wageadd", description="Admin: set a recurring wage payout to a user, role, or faction")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    target_type="Pay a user, a role, or a faction",
+    amount="Pennies paid each cycle",
+    cadence="daily, weekly, or monthly",
+    user="Discord user (when target_type=user)",
+    role="Discord role (when target_type=role)",
+    faction="Faction name (when target_type=faction)",
+)
+@app_commands.choices(
+    target_type=[
+        app_commands.Choice(name="user", value="user"),
+        app_commands.Choice(name="role", value="role"),
+        app_commands.Choice(name="faction", value="faction"),
+    ],
+    cadence=[
+        app_commands.Choice(name="daily", value="daily"),
+        app_commands.Choice(name="weekly", value="weekly"),
+        app_commands.Choice(name="monthly", value="monthly"),
+    ],
+)
+async def slash_wage_add(
+    interaction: discord.Interaction,
+    target_type: app_commands.Choice[str],
+    amount: int,
+    cadence: app_commands.Choice[str],
+    user: discord.Member = None,
+    role: discord.Role = None,
+    faction: str = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+        return
+
+    target_id = None
+    target_label = None
+    if target_type.value == "user":
+        if not user:
+            await interaction.response.send_message("Pass `user:` for a user wage.", ephemeral=True)
+            return
+        target_id = str(user.id)
+        target_label = f"{user.mention} (`{user}`)"
+    elif target_type.value == "role":
+        if not role:
+            await interaction.response.send_message("Pass `role:` for a role wage.", ephemeral=True)
+            return
+        target_id = str(role.id)
+        target_label = role.mention
+    else:  # faction
+        if not faction:
+            await interaction.response.send_message("Pass `faction:` (the faction name).", ephemeral=True)
+            return
+        if faction not in guild_factions(interaction.guild.id):
+            await interaction.response.send_message(f"Faction `{faction}` not found.", ephemeral=True)
+            return
+        target_id = faction
+        target_label = f"🏴 {faction}"
+
+    wage_id = f"wage-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}"
+    next_pay = datetime.now(UTC) + timedelta(seconds=cadence_to_seconds(cadence.value))
+    guild_wages(interaction.guild.id).append({
+        "id": wage_id,
+        "target_type": target_type.value,
+        "target_id": target_id,
+        "target_label": target_label,
+        "amount": int(amount),
+        "cadence": cadence.value,
+        "next_pay_iso": next_pay.isoformat(),
+        "active": True,
+        "created": str(datetime.now(UTC)),
+        "created_by": interaction.user.id,
+    })
+    save_wages()
+    await interaction.response.send_message(
+        f"💰 Wage `{wage_id}` set: **{amount} pennies** to {target_label} every **{cadence.value}**. "
+        f"First payout in ~{cadence.value}.",
+        ephemeral=True,
+    )
+
+
+@server_group.command(name="wagelist", description="List active wage payouts")
+@app_commands.default_permissions(administrator=True)
+async def slash_wage_list(interaction: discord.Interaction):
+    payouts = [w for w in guild_wages(interaction.guild.id) if w.get("active")]
+    if not payouts:
+        await interaction.response.send_message("No wages set yet.", ephemeral=True)
+        return
+    embed = discord.Embed(title="💰 Active Wages", color=0xF1C40F)
+    for w in payouts[:20]:
+        next_pay = w.get("next_pay_iso", "?")[:19].replace("T", " ")
+        embed.add_field(
+            name=f"`{w.get('id', '?')}`",
+            value=(
+                f"{w.get('target_label', '?')}\n"
+                f"**{w.get('amount', 0)}** pennies / **{w.get('cadence', '?')}**\n"
+                f"Next: {next_pay} UTC"
+            ),
+            inline=False,
+        )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@server_group.command(name="wagecancel", description="Cancel a wage payout by id")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(wage_id="Wage id from /server wagelist")
+async def slash_wage_cancel(interaction: discord.Interaction, wage_id: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    payouts = guild_wages(interaction.guild.id)
+    for w in payouts:
+        if w.get("id") == wage_id:
+            w["active"] = False
+            save_wages()
+            await interaction.response.send_message(f"🛑 Wage `{wage_id}` cancelled.", ephemeral=True)
+            return
+    await interaction.response.send_message(f"No wage with id `{wage_id}`.", ephemeral=True)
+
+
 bot.tree.add_command(server_group)
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
@@ -26564,6 +27062,8 @@ async def on_ready():
     load_pve_challenges()
     load_pve_ai_campaigns()
     load_pve_workshop_schedules()
+    load_factions()
+    load_wages()
     load_longshot_records()
     load_first_blood()
     load_daily_recap()
