@@ -6507,11 +6507,16 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     description_parts.append(f"**Objective:** {goal}")
     description = "\n\n".join(description_parts)[:4000]
 
+    # Generate the quest code FIRST so we can put it in the title +
+    # first field — must be impossible to miss on mobile.
+    quest_code = generate_pve_quest_code()
+
     embed = discord.Embed(
-        title=f"🧭 {kind.upper()} QUEST: {title}",
+        title=f"🧭 {kind.upper()} QUEST [{quest_code}]: {title}",
         description=description,
         color=0x9B59B6,
     )
+    embed.add_field(name="🆔 Quest ID", value=f"`{quest_code}`", inline=True)
     embed.add_field(name="Difficulty", value=difficulty, inline=True)
     if quest.get("estimated_minutes"):
         embed.add_field(name="Est. Time", value=f"~{quest['estimated_minutes']} min", inline=True)
@@ -6550,6 +6555,11 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     embed.add_field(name="🎁 Reward", value=quest.get("reward", "Admin-chosen")[:1024], inline=False)
     if quest.get("tips"):
         embed.add_field(name="💡 Survival Tip", value=quest["tips"][:1024], inline=False)
+    embed.add_field(
+        name="✅ How To Complete",
+        value=f"Admin runs `/pvecomplete quest_id:{quest_code} member:@you` once the quest is done.",
+        inline=False,
+    )
 
     # Persist as an active PVE challenge so admins can /pvecomplete it
     # and the reward-delivery system fires automatically.
@@ -6577,11 +6587,10 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         "campaign_id": (campaign or {}).get("id"),
         "created": str(datetime.now(UTC)),
         "status": "active",
+        "quest_code": quest_code,
     }
-    quest_record["quest_code"] = generate_pve_quest_code()
-    embed.add_field(name="🆔 Quest ID", value=f"`{quest_record['quest_code']}`", inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
+    embed.set_footer(text=f"Wandering Bot Alpha - AI Quest Workshop - {quest_code}")
 
     try:
         await target.send(embed=style_embed(embed))
@@ -16042,24 +16051,26 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     pve_challenges[str(guild_id)] = guild_challenges[-50:]
     save_pve_challenges()
 
+    quest_code = pve_quest_code(challenge)
+
     embed = discord.Embed(
-        title=f"{challenge['kind'].upper()} QUEST: {challenge['title']}",
+        title=f"{challenge['kind'].upper()} QUEST [{quest_code}]: {challenge['title']}",
         color=0x2ECC71
     )
+    embed.add_field(name="🆔 Quest ID", value=f"`{quest_code}`", inline=True)
     embed.add_field(name="Quest Slot", value=channel.mention, inline=True)
-    embed.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
     embed.add_field(name="Reward", value=challenge["reward"], inline=False)
     embed.add_field(name="Objective", value=challenge["goal"], inline=False)
     embed.add_field(
         name="Completion",
-        value=f"This is the {difficulty} slot. Staff approve it with `/pvecomplete quest_id:{pve_quest_code(challenge)}`, then I post a new {difficulty} quest here.",
+        value=f"This is the {difficulty} slot. Staff approve it with `/pvecomplete quest_id:{quest_code}`, then I post a new {difficulty} quest here.",
         inline=False
     )
     embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Channel PVE Quest Feed")
-    await channel.send(embed=style_embed(embed), view=PVEQuestCompletionView(pve_quest_code(challenge)))
+    embed.set_footer(text=f"Wandering Bot Alpha - Channel PVE Quest Feed - {quest_code}")
+    await channel.send(embed=style_embed(embed), view=PVEQuestCompletionView(quest_code))
     return True, challenge["title"]
 
 
