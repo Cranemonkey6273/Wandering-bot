@@ -4700,7 +4700,9 @@ async def ensure_pve_channels(guild, config, force=False):
         channels[key] = channel.id
 
         # First-time welcome for the quest workshop so admins know what
-        # to type. Sent only on creation, never on re-syncs.
+        # to type. Sent only on creation, never on re-syncs. The public
+        # pve-help guides are seeded separately at the end of
+        # ensure_pve_channels() so existing guilds also get them.
         if is_private and key == "quest_workshop":
             try:
                 welcome = discord.Embed(
@@ -4723,83 +4725,6 @@ async def ensure_pve_channels(guild, config, force=False):
                 await channel.send(embed=welcome)
             except Exception as error:
                 print(f"WORKSHOP WELCOME SEND FAILED: {error}")
-
-            # Also drop a public how-to in the pve-help channel (once per
-            # guild, tracked via config flag) so regular players know the
-            # workshop exists and admins know the syntax.
-            try:
-                if not config.get("pve_help_workshop_seeded"):
-                    pve_help_channel_id = channels.get("pve_help")
-                    if pve_help_channel_id:
-                        pve_help_channel = guild.get_channel(pve_help_channel_id)
-                        if pve_help_channel:
-                            help_embed = discord.Embed(
-                                title="🛠️ How to Set Up & Generate New PVE Quests",
-                                description=(
-                                    "Server admins can now design new PVE quests on demand — no "
-                                    "code edits, no waiting for releases. Two ways to do it:"
-                                ),
-                                color=0x1ABC9C,
-                            )
-                            help_embed.add_field(
-                                name="1. Quick — Slash Commands",
-                                value=(
-                                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
-                                    "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
-                                    "**`/events listcampaigns`** — see saved campaigns.\n"
-                                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
-                                    "**`/events workshopsetup`** — re-create the workshop channel."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="2. Free-Style — The Quest Workshop Channel",
-                                value=(
-                                    "A private admin-only channel called **`#quest-workshop`** has been "
-                                    "auto-created (look in the PVE category). Just **talk to the bot in "
-                                    "plain English** — no slash commands needed. Examples:\n\n"
-                                    "• `make me 12 winter outbreak quests`\n"
-                                    "• `write a 6-part storyline about a missing coastal convoy`\n"
-                                    "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
-                                    "• `post quests every 6 hours for 5 occurrences in story order`\n"
-                                    "• `list my campaigns` / `list my schedules`\n"
-                                    "• `cancel schedule sched-1234...`\n"
-                                    "• `delete campaign camp-1234...`\n\n"
-                                    "The bot interprets your request, generates the quests, schedules "
-                                    "them, and posts them automatically. Storylines post chapter by "
-                                    "chapter in order. All schedules survive Railway restarts."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="3. Where Generated Quests Show Up",
-                                value=(
-                                    "Generated quests join the same rotation that already feeds "
-                                    "`#pve-quests`, `#pve-hunting`, `#pve-fishing`, `#pve-collection`, "
-                                    "`#pve-crafting`, and `#pve-expeditions`. You can also point a "
-                                    "schedule at any one of these channels directly."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.add_field(
-                                name="4. Tips for Better Quests",
-                                value=(
-                                    "• Be specific with the theme: *'winter outbreak in coastal towns'* "
-                                    "beats *'winter'*.\n"
-                                    "• Add `as a storyline` for narrative arcs.\n"
-                                    "• Mention difficulty mix if you want one: *'mostly easy with two hard'*.\n"
-                                    "• Mention the target channel and interval together: *'every 8 hours "
-                                    "in pve-hunting'*."
-                                ),
-                                inline=False,
-                            )
-                            help_embed.set_thumbnail(url=BOT_IMAGE)
-                            help_embed.set_footer(text="Wandering Bot Alpha - PVE Quest Setup Guide")
-                            await pve_help_channel.send(embed=style_embed(help_embed))
-                            config["pve_help_workshop_seeded"] = True
-                            save_guild_configs()
-            except Exception as error:
-                print(f"PVE HELP WORKSHOP GUIDE SEND FAILED: {error}")
         return channel
 
     created = {}
@@ -4808,9 +4733,175 @@ async def ensure_pve_channels(guild, config, force=False):
         if channel:
             created[key] = channel
 
+    # Seed pve-help guides ONCE per guild, regardless of whether the
+    # quest_workshop channel was newly-created or already existed. The
+    # individual seed flags (pve_help_workshop_seeded, pve_help_rewards_seeded)
+    # ensure each embed is posted at most once per guild.
+    try:
+        await _seed_pve_help_guides(guild, config, created.get("pve_help") or guild.get_channel(config.get("channels", {}).get("pve_help")))
+    except Exception as error:
+        print(f"PVE HELP SEED ERROR {guild.id}: {error}")
+
     config.setdefault("pve", {"enabled": True, "interval_hours": 12})
     save_guild_configs()
     return created
+
+
+async def _seed_pve_help_guides(guild, config, pve_help_channel):
+    """Post the workshop how-to and the rewards explainer embeds in the
+    pve-help channel exactly once per guild. Idempotent — controlled by
+    pve_help_workshop_seeded and pve_help_rewards_seeded config flags."""
+    if pve_help_channel is None:
+        return
+
+    # 1. Workshop how-to guide.
+    if not config.get("pve_help_workshop_seeded"):
+        try:
+            help_embed = discord.Embed(
+                title="🛠️ How to Set Up & Generate New PVE Quests",
+                description=(
+                    "Server admins can now design new PVE quests on demand — no "
+                    "code edits, no waiting for releases. Two ways to do it:"
+                ),
+                color=0x1ABC9C,
+            )
+            help_embed.add_field(
+                name="1. Quick — Slash Commands",
+                value=(
+                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
+                    "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
+                    "**`/events listcampaigns`** — see saved campaigns.\n"
+                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
+                    "**`/events workshopsetup`** — re-create the workshop channel."
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="2. Free-Style — The Quest Workshop Channel",
+                value=(
+                    "A private admin-only channel called **`#quest-workshop`** has been "
+                    "auto-created (look in the PVE category). Just **talk to the bot in "
+                    "plain English** — no slash commands needed. Examples:\n\n"
+                    "• `make me 12 winter outbreak quests`\n"
+                    "• `write a 6-part storyline about a missing coastal convoy`\n"
+                    "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
+                    "• `post quests every 6 hours for 5 occurrences in story order`\n"
+                    "• `list my campaigns` / `list my schedules`\n"
+                    "• `cancel schedule sched-1234...`\n"
+                    "• `delete campaign camp-1234...`"
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="3. Where Generated Quests Show Up",
+                value=(
+                    "Generated quests join the same rotation that already feeds "
+                    "`#pve-quests`, `#pve-hunting`, `#pve-fishing`, `#pve-collection`, "
+                    "`#pve-crafting`, and `#pve-expeditions`. You can also point a "
+                    "schedule at any one of these channels directly."
+                ),
+                inline=False,
+            )
+            help_embed.add_field(
+                name="4. Tips for Better Quests",
+                value=(
+                    "• Be specific with the theme: *'winter outbreak in coastal towns'* "
+                    "beats *'winter'*.\n"
+                    "• Add `as a storyline` for narrative arcs.\n"
+                    "• Mention difficulty mix if you want one: *'mostly easy with two hard'*.\n"
+                    "• Mention the target channel and interval together: *'every 8 hours "
+                    "in pve-hunting'*."
+                ),
+                inline=False,
+            )
+            help_embed.set_thumbnail(url=BOT_IMAGE)
+            help_embed.set_footer(text="Wandering Bot Alpha - PVE Quest Setup Guide")
+            await pve_help_channel.send(embed=style_embed(help_embed))
+            config["pve_help_workshop_seeded"] = True
+            save_guild_configs()
+        except Exception as error:
+            print(f"PVE HELP WORKSHOP GUIDE SEND FAILED: {error}")
+
+    # 2. Rewards explainer.
+    if not config.get("pve_help_rewards_seeded"):
+        try:
+            rewards_embed = discord.Embed(
+                title="🎁 How Quest Rewards Work",
+                description=(
+                    "When an admin marks your quest complete with `/pvecomplete`, "
+                    "the bot **automatically delivers the reward** described on the "
+                    "quest embed. Here's exactly where it goes and what to expect."
+                ),
+                color=0xF1C40F,
+            )
+            rewards_embed.add_field(
+                name="📺 Where Rewards Show Up",
+                value=(
+                    "**`#pve-rewards`** — public win log. Everyone in the server can see "
+                    "who completed which quest and what they've earned. Tags you so you "
+                    "get a Discord ping.\n\n"
+                    "**`#pve-rewards-private`** — admin-only audit log. Staff use this to "
+                    "track every reward delivered. You **cannot** see this channel."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="🔒 Private Rewards Stay Private",
+                value=(
+                    "If your reward contains sensitive info (loot drop coordinates, "
+                    "secret intel, stash locations), the bot **DMs it directly to you**.\n\n"
+                    "The public channel only shows *X earned a private reward* with **no "
+                    "details leaked** — other survivors can't race you to a stash they "
+                    "can't see. Only you and the admins ever see the actual coordinates."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="🎁 Reward Types You Might Earn",
+                value=(
+                    "• **💰 Pennies** — auto-credited to your wallet (`/wallet` to check).\n"
+                    "• **🗺️ Activity Map** — a fresh PNG of the server's live infected & "
+                    "PVP heatmap. Posted publicly for you to use.\n"
+                    "• **📋 Intel Brief** — a text report covering recent longshots, hottest "
+                    "PVP zones, and active bounties. Built from real ADM logs.\n"
+                    "• **📍 Loot Drop Coordinates** — a hand-picked stash location DMed to "
+                    "you privately, with an iZurvive map link. Admin will drop the stash "
+                    "there on the next restart.\n"
+                    "• **🎖️ Achievement Role** — a Discord role on your profile (auto-applied).\n"
+                    "• **🎒 Custom In-Game Reward** — admin will hand-deliver in-game on the "
+                    "next restart cycle (used for any physical loot the bot can't spawn directly)."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="✅ How To Get Paid",
+                value=(
+                    "1. **Pick a quest** — read the embed for objectives, locations, items needed, dangers.\n"
+                    "2. **Complete the steps in-game.** Take screenshots/clips for anything that isn't auto-tracked from ADM logs.\n"
+                    "3. **Link your gamertag** with `/linkgamer` so the bot can pay your wallet.\n"
+                    "4. **Post proof** in the relevant PVE quest channel (or DM staff) with the quest ID (e.g. `PVE-123456`).\n"
+                    "5. **Admin runs** `/pvecomplete quest_id:PVE-123456 member:@you` — the bot then pays the pennies AND delivers the matching reward automatically.\n"
+                    "6. **Check `#pve-rewards`** for public rewards or **your DMs** for private ones. Admins see the audit trail in `#pve-rewards-private`."
+                ),
+                inline=False,
+            )
+            rewards_embed.add_field(
+                name="⚠️ One Honest Caveat",
+                value=(
+                    "The bot can't spawn in-game weapons or vehicles directly (console "
+                    "DayZ on Nitrado doesn't expose that). When a quest reward is a "
+                    "physical in-game item, the embed will say *Admin will deliver this "
+                    "in-game on the next restart* — staff will hand it over manually."
+                ),
+                inline=False,
+            )
+            rewards_embed.set_thumbnail(url=BOT_IMAGE)
+            rewards_embed.set_footer(text="Wandering Bot Alpha - PVE Reward Guide")
+            await pve_help_channel.send(embed=style_embed(rewards_embed))
+            config["pve_help_rewards_seeded"] = True
+            save_guild_configs()
+        except Exception as error:
+            print(f"PVE HELP REWARDS GUIDE SEND FAILED: {error}")
 
 
 async def ensure_pve_channels_for_active_guilds():
