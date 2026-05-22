@@ -5857,6 +5857,86 @@ AI_CAMPAIGN_PROVIDER = os.getenv("WANDERING_AI_CAMPAIGN_PROVIDER", "anthropic")
 AI_CAMPAIGN_MODEL = os.getenv("WANDERING_AI_CAMPAIGN_MODEL", "claude-sonnet-4-6")
 AI_CAMPAIGN_TIMEOUT_SECONDS = float(os.getenv("WANDERING_AI_CAMPAIGN_TIMEOUT_SECONDS", "60"))
 
+# When OPENAI_API_KEY is set, the bot uses OpenAI directly (billed via the
+# user's OpenAI platform account) for the workshop and campaigns instead
+# of going through emergentintegrations / EMERGENT_LLM_KEY. Override the
+# model with WANDERING_OPENAI_QUEST_MODEL on Railway.
+OPENAI_QUEST_MODEL = os.getenv("WANDERING_OPENAI_QUEST_MODEL", "gpt-4o-mini")
+OPENAI_QUEST_TIMEOUT_SECONDS = float(os.getenv("WANDERING_OPENAI_QUEST_TIMEOUT_SECONDS", "60"))
+
+
+def _call_openai_chat_sync(system_message, user_message, model=None, timeout=None):
+    """Direct OpenAI Chat Completions call via REST. Sync — wrap in
+    asyncio.to_thread for use from async code. Raises on non-200."""
+    api_url = "https://api.openai.com/v1/chat/completions"
+    payload = {
+        "model": model or OPENAI_QUEST_MODEL,
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.85,
+    }
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    response = requests.post(
+        api_url, json=payload, headers=headers,
+        timeout=timeout or OPENAI_QUEST_TIMEOUT_SECONDS,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"OpenAI {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    choices = data.get("choices") or []
+    if not choices:
+        raise RuntimeError("OpenAI returned no choices")
+    content = (choices[0].get("message") or {}).get("content") or ""
+    return content
+
+
+async def call_quest_llm(system_message, user_message, *, session_hint=""):
+    """Unified LLM call for the quest workshop and campaign generator.
+
+    Routing rules:
+      - If OPENAI_API_KEY is set, call OpenAI directly (billed to the
+        user's OpenAI account). Uses OPENAI_QUEST_MODEL.
+      - Else if EMERGENT_LLM_KEY is set, fall back to emergentintegrations
+        with the configured AI_CAMPAIGN_PROVIDER / AI_CAMPAIGN_MODEL.
+      - Else raise RuntimeError so the caller can show a clear setup hint.
+
+    Returns the raw text response from the model.
+    """
+    if OPENAI_API_KEY:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_call_openai_chat_sync, system_message, user_message),
+            timeout=OPENAI_QUEST_TIMEOUT_SECONDS + 5,
+        )
+
+    if EMERGENT_LLM_KEY:
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
+        except Exception as error:
+            raise RuntimeError(f"emergentintegrations import failed: {error}")
+
+        session_id = f"quest-{hashlib.sha1((session_hint + user_message).encode()).hexdigest()[:12]}"
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=session_id,
+            system_message=system_message,
+        ).with_model(AI_CAMPAIGN_PROVIDER, AI_CAMPAIGN_MODEL)
+
+        return await asyncio.wait_for(
+            chat.send_message(UserMessage(text=user_message)),
+            timeout=AI_CAMPAIGN_TIMEOUT_SECONDS,
+        )
+
+    raise RuntimeError(
+        "No LLM key configured. Set OPENAI_API_KEY (recommended) or "
+        "EMERGENT_LLM_KEY on Railway."
+    )
+
+
 PVE_CAMPAIGN_SYSTEM_PROMPT = (
     "You are a DayZ PVE quest designer for a Discord bot called Wandering Bot Alpha. "
     "You write tight, evocative quest entries that feel earned in a survival sandbox: "
@@ -5963,15 +6043,10 @@ async def generate_ai_pve_campaign(theme, count=12):
     theme = (theme or "").strip()
     if not theme:
         return [], "No theme provided."
-    if not EMERGENT_LLM_KEY:
-        return [], "EMERGENT_LLM_KEY is not configured on this bot."
+    if not OPENAI_API_KEY and not EMERGENT_LLM_KEY:
+        return [], "Set OPENAI_API_KEY (recommended) or EMERGENT_LLM_KEY on Railway."
 
     count = max(4, min(int(count or 12), 40))
-
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as error:
-        return [], f"emergentintegrations import failed: {error}"
 
     prompt = (
         f"Design exactly {count} DayZ PVE quests for a survival server, all themed around: \"{theme}\".\n\n"
@@ -5999,15 +6074,10 @@ async def generate_ai_pve_campaign(theme, count=12):
     )
 
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"pve-campaign-{hashlib.sha1(theme.encode()).hexdigest()[:12]}",
-            system_message=PVE_CAMPAIGN_SYSTEM_PROMPT,
-        ).with_model(AI_CAMPAIGN_PROVIDER, AI_CAMPAIGN_MODEL)
-
-        response = await asyncio.wait_for(
-            chat.send_message(UserMessage(text=prompt)),
-            timeout=AI_CAMPAIGN_TIMEOUT_SECONDS,
+        response = await call_quest_llm(
+            PVE_CAMPAIGN_SYSTEM_PROMPT,
+            prompt,
+            session_hint=f"campaign-{theme}",
         )
     except asyncio.TimeoutError:
         return [], "LLM call timed out."
@@ -6130,17 +6200,10 @@ async def call_workshop_llm(history_pairs, user_message):
     """Send the workshop message to the LLM with a small running history.
     `history_pairs` is a list of (role, text) tuples for context.
     Returns parsed JSON dict or {"action": "chat", "reply": "<error>"}."""
-    if not EMERGENT_LLM_KEY:
-        return {"action": "chat", "reply": "AI quest workshop needs the `EMERGENT_LLM_KEY` Railway env var.", "params": {}}
+    if not OPENAI_API_KEY and not EMERGENT_LLM_KEY:
+        return {"action": "chat", "reply": "AI quest workshop needs `OPENAI_API_KEY` (recommended) or `EMERGENT_LLM_KEY` set on Railway.", "params": {}}
 
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as error:
-        return {"action": "chat", "reply": f"emergentintegrations import failed: {error}", "params": {}}
-
-    # Compose a single user message that bundles recent context. We use a
-    # fresh session per call to avoid the library's chat-history coupling
-    # since we are already passing the recent context in-band.
+    # Compose a single user message that bundles recent context.
     context_lines = []
     for role, text in history_pairs[-6:]:
         prefix = "ADMIN" if role == "user" else "BOT"
@@ -6154,15 +6217,10 @@ async def call_workshop_llm(history_pairs, user_message):
     )
 
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"workshop-{hashlib.sha1(full_prompt.encode()).hexdigest()[:12]}",
-            system_message=QUEST_WORKSHOP_SYSTEM_PROMPT,
-        ).with_model(AI_CAMPAIGN_PROVIDER, AI_CAMPAIGN_MODEL)
-
-        response = await asyncio.wait_for(
-            chat.send_message(UserMessage(text=full_prompt)),
-            timeout=AI_CAMPAIGN_TIMEOUT_SECONDS,
+        response = await call_quest_llm(
+            QUEST_WORKSHOP_SYSTEM_PROMPT,
+            full_prompt,
+            session_hint="workshop",
         )
     except asyncio.TimeoutError:
         return {"action": "chat", "reply": "AI call timed out — try again.", "params": {}}
@@ -22823,9 +22881,9 @@ async def event_generate_quests(interaction: discord.Interaction, theme: str, co
         await interaction.response.send_message("Provide a theme.", ephemeral=True)
         return
 
-    if not EMERGENT_LLM_KEY:
+    if not OPENAI_API_KEY and not EMERGENT_LLM_KEY:
         await interaction.response.send_message(
-            "AI quest generation needs the `EMERGENT_LLM_KEY` Railway env var.",
+            "AI quest generation needs `OPENAI_API_KEY` (recommended) or `EMERGENT_LLM_KEY` set on Railway.",
             ephemeral=True
         )
         return
