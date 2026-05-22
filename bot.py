@@ -96,6 +96,7 @@ PVE_AI_CAMPAIGNS_FILE = data_path("pve_ai_campaigns.json")
 PVE_WORKSHOP_SCHEDULES_FILE = data_path("pve_workshop_schedules.json")
 FACTIONS_FILE = data_path("factions.json")
 WAGES_FILE = data_path("wages.json")
+SEEN_PLAYERS_FILE = data_path("seen_players.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
@@ -495,6 +496,13 @@ BOT_UPDATE_NOTES = [
         "summary": "🏴 Define factions with their own colour, members, alert channel, and ping role — when a faction member trips a radar zone, the alert routes to the faction's channel and pings the faction's role automatically. 💰 Set recurring wages (daily / weekly / monthly) paid to a user, role, or whole faction — the bot announces every payout in pve-rewards and credits the wallet system on its own.",
         "commands": "`/server factionadd`, `/server factionaddmember`, `/server factionremovemember`, `/server factionlist`, `/server factiondelete`, `/server wageadd`, `/server wagelist`, `/server wagecancel`",
         "audience": "Admins",
+    },
+    {
+        "id": "2026-02-flavour-pack",
+        "title": "Flavour Pack: First Blood, Last Words, Killstreaks, New Survivor Welcome",
+        "summary": "Four new automatic moments that make every kill and connect feel cinematic: 🩸 FIRST BLOOD announces the first kill of each new day. 🔥 KILLSTREAK callouts upgrade by tier — TRIPLE KILL, KILL SPREE, UNSTOPPABLE, RAMPAGE, and LEGENDARY (20+). 💀 LAST WORDS auto-generate a 1-2 sentence dramatic final transmission for every kill and suicide via the LLM. 👋 NEW SURVIVOR DETECTED welcomes any gamertag the bot has never seen before and prompts them to /linkgamer. Plus: fixed a Discord rate-limit warning storm at boot by only re-applying admin-channel permissions when they actually differ.",
+        "commands": "(automatic, no commands needed)",
+        "audience": "Everyone",
     },
 ]
 
@@ -1478,7 +1486,27 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Private Suicide Feed")
         embed.timestamp = event_time
-        await channel.send(embed=style_embed(embed))
+        sent_msg = await channel.send(embed=style_embed(embed))
+
+        # 💀 AI Last Words for suicide — fire-and-forget background task.
+        async def _suicide_last_words(target_msg, target_embed, victim_name, suicide_method):
+            words = await generate_last_words(
+                victim_name,
+                cause="took their own life",
+                context=f"Method: {suicide_method}",
+            )
+            if not words:
+                return
+            try:
+                target_embed.add_field(
+                    name="💀 Last Words",
+                    value=f"_\"{words}\"_",
+                    inline=False,
+                )
+                await target_msg.edit(embed=target_embed)
+            except Exception:
+                pass
+        asyncio.create_task(_suicide_last_words(sent_msg, embed, player, method))
         return
 
     if event_type in ["cut", "bleedout", "respawn"]:
@@ -4745,12 +4773,16 @@ async def ensure_pve_channels(guild, config, force=False):
                         await existing.edit(name=name, category=pve_category)
                     except Exception:
                         pass
-                # Re-apply admin-only overwrites every time so the channel
-                # stays locked even if admins added new roles since setup.
+                # Only re-apply admin-only overwrites if they're actually
+                # missing — Discord rate-limits PUT permissions hard, so
+                # blasting all of them on every restart triggers 429s.
                 if is_private:
                     try:
+                        existing_overwrites = existing.overwrites
                         for target, overwrite in overwrites.items():
-                            await existing.set_permissions(target, overwrite=overwrite)
+                            current = existing_overwrites.get(target)
+                            if current != overwrite:
+                                await existing.set_permissions(target, overwrite=overwrite)
                     except Exception:
                         pass
                 return existing
@@ -4767,8 +4799,11 @@ async def ensure_pve_channels(guild, config, force=False):
                         pass
                 if is_private:
                     try:
+                        existing_overwrites = channel.overwrites
                         for target, overwrite in overwrites.items():
-                            await channel.set_permissions(target, overwrite=overwrite)
+                            current = existing_overwrites.get(target)
+                            if current != overwrite:
+                                await channel.set_permissions(target, overwrite=overwrite)
                     except Exception:
                         pass
                 return channel
@@ -7627,6 +7662,80 @@ def cadence_to_seconds(cadence):
         "weekly": 7 * 24 * 3600,
         "monthly": 30 * 24 * 3600,
     }.get(str(cadence or "").lower(), 7 * 24 * 3600)
+
+
+# =========================================================
+# 👋 NEW PLAYER DETECTION
+# Per-guild dict of every gamertag the bot has ever seen, with the
+# first-seen timestamp. Used to fire a welcome embed the very first
+# time a new gamertag appears in any ADM stream.
+# =========================================================
+seen_players = {}  # {guild_id: {gamertag: first_seen_iso}}
+
+
+def load_seen_players():
+    global seen_players
+    seen_players = load_json(SEEN_PLAYERS_FILE) or {}
+
+
+def save_seen_players():
+    save_json(SEEN_PLAYERS_FILE, seen_players)
+
+
+def is_first_time_player(guild_id, gamertag):
+    """Return True if this is the first time we've ever seen this
+    gamertag in this guild. Marks them as seen as a side-effect."""
+    if not gamertag or gamertag == "Unknown":
+        return False
+    gid = str(guild_id)
+    block = seen_players.setdefault(gid, {})
+    cleaned = str(gamertag).strip()
+    # Case-insensitive existence check.
+    for known in block:
+        if known.strip().lower() == cleaned.lower():
+            return False
+    block[cleaned] = datetime.now(UTC).isoformat()
+    save_seen_players()
+    return True
+
+
+# =========================================================
+# 💀 AI LAST WORDS
+# Generate a short dramatic "final transmission" for a player who
+# just died. Used on suicide / bleedout / kill embeds. Fails silently
+# if no LLM key is available — last words are a flavour bonus, not
+# critical functionality.
+# =========================================================
+
+async def generate_last_words(player_name, cause="killed", context=""):
+    """Return a 1-2 sentence dramatic final transmission as if the
+    player wrote it. Returns None if no LLM is configured."""
+    if not OPENAI_API_KEY and not EMERGENT_LLM_KEY:
+        return None
+    if not player_name or player_name == "Unknown":
+        return None
+    system = (
+        "You are a survival horror writer for a DayZ Discord bot. "
+        "You write dramatic 1-2 sentence final transmissions from a survivor "
+        "who has just died. The tone should match DayZ: gritty, reluctant, "
+        "weary, sometimes darkly funny. Never use real-world tragedies. "
+        "Reply with just the transmission, no quotes, no preamble."
+    )
+    prompt = (
+        f"Survivor name: {player_name}\n"
+        f"Cause of death: {cause}\n"
+        f"Context: {context or 'No further details.'}\n\n"
+        f"Write their final 1-2 sentence transmission (under 240 chars total)."
+    )
+    try:
+        response = await asyncio.wait_for(
+            call_quest_llm(system, prompt, session_hint="last-words"),
+            timeout=12,
+        )
+    except Exception:
+        return None
+    text = (str(response or "")).strip().strip('"').strip("'")
+    return text[:240] or None
 
 
 def stable_line_hash(line):
@@ -11128,6 +11237,38 @@ async def parse_adm(guild_id, config):
 
             online_players[guild_id].add(player_name)
             player_online_times[guild_id][player_name] = datetime.now(UTC)
+
+            # 👋 Welcome embed for any gamertag we've never seen before.
+            # Posts in the connect channel right under the connect feed.
+            if is_first_time_player(guild_id, player_name):
+                try:
+                    welcome_embed = discord.Embed(
+                        title="👋✨ NEW SURVIVOR DETECTED",
+                        description=(
+                            f"**{player_name}** just spawned in for the very first time. "
+                            f"Welcome to the apocalypse, survivor."
+                        ),
+                        color=0x1ABC9C,
+                    )
+                    welcome_embed.add_field(
+                        name="🪪 Link Your Account",
+                        value="Run `/linkgamer` so the bot can pay your wallet for kills, quests, and wages.",
+                        inline=False,
+                    )
+                    welcome_embed.add_field(
+                        name="🧭 Where To Start",
+                        value=(
+                            "Check `#pve-help` for quest tips, `#pve-quests` for active "
+                            "objectives, and `#killfeed` for who's hot on the map."
+                        ),
+                        inline=False,
+                    )
+                    welcome_embed.set_thumbnail(url=BOT_IMAGE)
+                    welcome_embed.set_footer(text="Wandering Bot Alpha • 👋 New Survivor")
+                    welcome_embed.timestamp = event_time or datetime.now(UTC)
+                    await connect_channel.send(embed=style_embed(welcome_embed))
+                except Exception as welcome_error:
+                    print(f"[NEW PLAYER] welcome failed for {player_name}: {welcome_error}")
             # ── 🪖 Squad-inbound alert: 5+ connects within 60s ────
             now_ts_conn = (event_time or datetime.now(UTC)).timestamp()
             conn_log = recent_connect_times.setdefault(guild_id, [])
@@ -11977,12 +12118,57 @@ async def parse_adm(guild_id, config):
                 # ─── 🔫 Alive-streak (kills since last death) ────────
                 killer_spree = bump_alive_streak(guild_id, killer, event_time=event_time)
                 ended_spree, best_spree = end_alive_streak(guild_id, victim)
-                if killer_spree >= 5:
-                    embed.add_field(
-                        name="🔫 ON A KILL SPREE",
-                        value=f"**{killer}** is on a **{killer_spree}-kill** spree without dying.",
-                        inline=True,
-                    )
+
+                # Tiered streak callouts — louder titles at higher tiers.
+                streak_tier = None
+                if killer_spree >= 20:
+                    streak_tier = ("👑🔥 LEGENDARY KILLSTREAK", f"**{killer}** is on a **{killer_spree}-kill** rampage. Untouchable.")
+                elif killer_spree >= 15:
+                    streak_tier = ("💥🔥 RAMPAGE", f"**{killer}** is on a **{killer_spree}-kill** streak. Bring out the dogs.")
+                elif killer_spree >= 10:
+                    streak_tier = ("🔥 UNSTOPPABLE", f"**{killer}** is on a **{killer_spree}-kill** streak — somebody stop them.")
+                elif killer_spree >= 5:
+                    streak_tier = ("🔫 ON A KILL SPREE", f"**{killer}** is on a **{killer_spree}-kill** spree without dying.")
+                elif killer_spree == 3:
+                    streak_tier = ("⚡ TRIPLE KILL", f"**{killer}** has dropped **3** survivors without dying.")
+                if streak_tier:
+                    embed.add_field(name=streak_tier[0], value=streak_tier[1], inline=False)
+
+                # ─── 🩸 FIRST BLOOD — first kill of the new day ──────
+                # daily_kill_tracker just got bumped to 1 by record_daily_kill
+                # above. If that bump happened on a *brand-new* day for this
+                # guild (i.e. nobody else had a kill yet today), call it.
+                try:
+                    today = datetime.now(UTC).strftime("%Y-%m-%d")
+                    block = daily_kill_tracker.get(str(guild_id)) or {}
+                    if block.get("date") == today:
+                        kills_today = block.get("kills") or {}
+                        total_today = sum(int(c or 0) for c in kills_today.values())
+                        # First blood = exactly 1 kill recorded today (this one)
+                        # AND we haven't already announced it.
+                        if total_today == 1 and not block.get("first_blood_announced_for") == today:
+                            block["first_blood_announced_for"] = today
+                            save_daily_kill_tracker()
+                            first_blood_embed = discord.Embed(
+                                title="🩸 FIRST BLOOD",
+                                description=(
+                                    f"**{killer}** drew first blood today by dropping **{victim}**. "
+                                    f"The day's killfeed begins."
+                                ),
+                                color=0x8B0000,
+                            )
+                            first_blood_embed.add_field(name="🔫 Weapon", value=f"`{weapon}`", inline=True)
+                            if distance > 0:
+                                first_blood_embed.add_field(name="📏 Distance", value=f"**{distance}m**", inline=True)
+                            first_blood_embed.set_thumbnail(url=BOT_IMAGE)
+                            first_blood_embed.set_footer(text="Wandering Bot Alpha • 🩸 First Blood Tracker")
+                            first_blood_embed.timestamp = event_time or datetime.now(UTC)
+                            try:
+                                await killfeed_channel.send(embed=style_embed(first_blood_embed))
+                            except Exception:
+                                pass
+                except Exception as fb_error:
+                    print(f"[FIRST BLOOD] {guild_id} failed: {fb_error}")
 
                 embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -11995,6 +12181,25 @@ async def parse_adm(guild_id, config):
                 killfeed_message = await killfeed_channel.send(
                     embed=embed
                 )
+                # 💀 AI Last Words — fire-and-forget so we don't block the
+                # killfeed if the LLM is slow. Edits the embed once words
+                # come back. Skips silently if no LLM key configured.
+                async def _post_last_words(target_msg, target_embed, victim_name, killer_name, weapon_name, distance_m):
+                    cause = f"shot dead by {killer_name}"
+                    context = f"Weapon: {weapon_name}. Distance: {distance_m}m."
+                    words = await generate_last_words(victim_name, cause=cause, context=context)
+                    if not words:
+                        return
+                    try:
+                        target_embed.add_field(
+                            name="💀 Last Words",
+                            value=f"_\"{words}\"_",
+                            inline=False,
+                        )
+                        await target_msg.edit(embed=target_embed)
+                    except Exception as lw_err:
+                        print(f"[LAST WORDS] edit failed: {lw_err}")
+                asyncio.create_task(_post_last_words(killfeed_message, embed, victim, killer, weapon, distance))
                 # ─── Killfeed reactions for engagement ──────────────
                 for emoji in ("🔥", "🎯", "💀"):
                     try:
@@ -27064,6 +27269,7 @@ async def on_ready():
     load_pve_workshop_schedules()
     load_factions()
     load_wages()
+    load_seen_players()
     load_longshot_records()
     load_first_blood()
     load_daily_recap()
