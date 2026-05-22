@@ -5861,8 +5861,8 @@ AI_CAMPAIGN_TIMEOUT_SECONDS = float(os.getenv("WANDERING_AI_CAMPAIGN_TIMEOUT_SEC
 # user's OpenAI platform account) for the workshop and campaigns instead
 # of going through emergentintegrations / EMERGENT_LLM_KEY. Override the
 # model with WANDERING_OPENAI_QUEST_MODEL on Railway.
-OPENAI_QUEST_MODEL = os.getenv("WANDERING_OPENAI_QUEST_MODEL", "gpt-4o-mini")
-OPENAI_QUEST_TIMEOUT_SECONDS = float(os.getenv("WANDERING_OPENAI_QUEST_TIMEOUT_SECONDS", "60"))
+OPENAI_QUEST_MODEL = os.getenv("WANDERING_OPENAI_QUEST_MODEL", "gpt-4o")
+OPENAI_QUEST_TIMEOUT_SECONDS = float(os.getenv("WANDERING_OPENAI_QUEST_TIMEOUT_SECONDS", "120"))
 
 
 def _call_openai_chat_sync(system_message, user_message, model=None, timeout=None):
@@ -5876,6 +5876,7 @@ def _call_openai_chat_sync(system_message, user_message, model=None, timeout=Non
             {"role": "user", "content": user_message},
         ],
         "temperature": 0.85,
+        "max_tokens": 8000,
     }
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -5938,9 +5939,17 @@ async def call_quest_llm(system_message, user_message, *, session_hint=""):
 
 
 PVE_CAMPAIGN_SYSTEM_PROMPT = (
-    "You are a DayZ PVE quest designer for a Discord bot called Wandering Bot Alpha. "
-    "You write tight, evocative quest entries that feel earned in a survival sandbox: "
-    "no fantasy elements, no game-breaking rewards, no real-world tragedies. "
+    "You are a senior DayZ PVE quest designer for Wandering Bot Alpha. You write LONG, "
+    "SPECIFIC, location-grounded DayZ missions for the Chernarus and Livonia maps "
+    "(Cherno, Elektro, Berezino, Svetlojarsk, Krasnostav, Tisy, NWAF, NEAF, Stary Sobor, "
+    "Novodmitrovsk, Solnichniy, Topolniki, Pustoshka, Kamensk, Lopatino, Zelenogorsk, "
+    "Vybor, Lembrava, Polana, Sitnik, Topolin, Bilogorsk, Nadbor, Branzow, etc.).\n\n"
+    "Every quest you write must read like a real briefing a server admin would write "
+    "by hand for their players. Quests must be MULTI-STEP, name SPECIFIC LOCATIONS, "
+    "list REAL DAYZ ITEMS, and warn about REAL DANGERS (infected density, military "
+    "loot zones, contaminated zones, dynamic events, weather/temperature, stamina, "
+    "blood/water/food). No fantasy. No magic. No real-world tragedies. No vague "
+    "phrases like 'explore the area' — say WHERE, WHAT, and HOW.\n\n"
     "You ALWAYS reply with strict, valid JSON only — no markdown fences, no commentary."
 )
 
@@ -6002,7 +6011,8 @@ def _coerce_difficulty(raw):
 
 def _normalize_ai_quest_entry(raw, campaign_name):
     """Validate one AI-generated quest dict and coerce it into the schema
-    PVE_CHALLENGE_BANK uses. Returns None if the entry is unusable."""
+    PVE_CHALLENGE_BANK uses (plus the extended workshop fields). Returns
+    None if the entry is unusable."""
     if not isinstance(raw, dict):
         return None
     title = str(raw.get("title") or "").strip()
@@ -6018,19 +6028,52 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     difficulty = _coerce_difficulty(raw.get("difficulty"))
     tips = str(raw.get("tips") or "Move quiet, plan water, and don't fight what you can avoid.").strip()
     reward = str(raw.get("reward") or "Admin-chosen pennies, food, ammo, or medical kit.").strip()
+    summary = str(raw.get("summary") or "").strip()
     reward_pennies = raw.get("reward_pennies")
     try:
         reward_pennies = int(reward_pennies) if reward_pennies is not None else pve_reward_for_difficulty(difficulty)
     except Exception:
         reward_pennies = pve_reward_for_difficulty(difficulty)
+
+    def _coerce_str_list(value, max_items=8, max_len=160):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        out = []
+        for item in value:
+            cleaned = str(item or "").strip()
+            if cleaned:
+                out.append(cleaned[:max_len])
+            if len(out) >= max_items:
+                break
+        return out
+
+    steps = _coerce_str_list(raw.get("steps"), max_items=6, max_len=240)
+    locations = _coerce_str_list(raw.get("locations"), max_items=6, max_len=80)
+    items_needed = _coerce_str_list(raw.get("items_needed"), max_items=8, max_len=80)
+    dangers = _coerce_str_list(raw.get("dangers"), max_items=5, max_len=160)
+
+    estimated = raw.get("estimated_minutes")
+    try:
+        estimated = max(5, min(int(estimated), 240)) if estimated is not None else None
+    except Exception:
+        estimated = None
+
     return {
         "kind": kind,
         "title": title[:120],
-        "goal": goal[:400],
-        "reward": reward[:200],
+        "summary": summary[:600],
+        "goal": goal[:500],
+        "steps": steps,
+        "locations": locations,
+        "items_needed": items_needed,
+        "dangers": dangers,
+        "reward": reward[:300],
         "reward_pennies": reward_pennies,
         "difficulty": difficulty,
-        "tips": tips[:300],
+        "estimated_minutes": estimated,
+        "tips": tips[:600],
         "quest_line": campaign_name,
     }
 
@@ -6049,27 +6092,50 @@ async def generate_ai_pve_campaign(theme, count=12):
     count = max(4, min(int(count or 12), 40))
 
     prompt = (
-        f"Design exactly {count} DayZ PVE quests for a survival server, all themed around: \"{theme}\".\n\n"
+        f"Design exactly {count} richly-detailed DayZ PVE quests for a survival server. "
+        f"Theme: \"{theme}\".\n\n"
+        "Each quest must read like a real briefing — multi-step, location-specific, "
+        "naming real DayZ towns/landmarks, real items, and real dangers.\n\n"
         "Output strict JSON in this exact shape (no markdown, no commentary):\n"
         "{\n"
         f"  \"campaign_name\": \"<a 2-5 word campaign title evocative of the theme>\",\n"
         "  \"quests\": [\n"
         "    {\n"
         "      \"kind\": \"Hunting|Fishing|Collection|Crafting|Repair|Explorer|Survival|Rescue|Zombie Control|Treasure Hunt|Quest Line\",\n"
-        "      \"title\": \"<short evocative quest title, 3-8 words>\",\n"
-        "      \"goal\": \"<one sentence objective. If quantity-based, use the literal token {count} where the number goes.>\",\n"
+        "      \"title\": \"<evocative quest title, 4-9 words>\",\n"
+        "      \"summary\": \"<2-3 sentence story setup. Sets the scene. Why does this quest exist in the world?>\",\n"
+        "      \"goal\": \"<the headline objective in one sentence. If quantity-based, use the literal token {count}.>\",\n"
+        "      \"steps\": [\n"
+        "        \"<concrete step 1 — names the place/item/action>\",\n"
+        "        \"<concrete step 2>\",\n"
+        "        \"<concrete step 3>\",\n"
+        "        \"<concrete step 4 (optional)>\",\n"
+        "        \"<concrete step 5 (optional)>\"\n"
+        "      ],\n"
+        "      \"locations\": [\"<specific named DayZ town/landmark 1>\", \"<specific named DayZ town/landmark 2>\"],\n"
+        "      \"items_needed\": [\"<real DayZ item 1>\", \"<real DayZ item 2>\", \"<real DayZ item 3>\"],\n"
+        "      \"dangers\": [\"<specific danger e.g. 'High infected density at NWAF tents'>\", \"<another danger>\"],\n"
         "      \"reward\": \"<one short sentence describing the reward>\",\n"
+        "      \"reward_pennies\": <integer between 200 and 4000 based on difficulty>,\n"
         "      \"difficulty\": \"Easy|Medium|Hard|Legendary\",\n"
-        "      \"tips\": \"<one short sentence of in-game advice>\"\n"
+        "      \"estimated_minutes\": <int 10-180>,\n"
+        "      \"tips\": \"<2-3 sentences of advanced in-game advice referencing real DayZ mechanics>\"\n"
         "    }\n"
         "  ]\n"
         "}\n\n"
-        "Rules:\n"
-        f"- Quests must feel survival-grounded, no fantasy/magic. Reflect the theme \"{theme}\" in title + flavour.\n"
-        "- Mix difficulties: roughly 40% Easy, 35% Medium, 20% Hard, 5% Legendary.\n"
-        "- Spread the kinds across hunting/collection/exploration/crafting where possible.\n"
-        "- Keep goals concise. If a quest has a count target, use the literal token {count}, not a number.\n"
-        "- Tips should reference real DayZ mechanics (loot tiers, infected aggro, weather, stamina) — never real-world tragedies.\n"
+        "MANDATORY RULES:\n"
+        f"- Every quest must reflect the theme \"{theme}\" in summary AND in step content.\n"
+        "- Mix difficulties: roughly 30% Easy, 35% Medium, 25% Hard, 10% Legendary.\n"
+        "- Spread the kinds across hunting/collection/exploration/crafting/rescue/zombie control/treasure hunt where the theme allows.\n"
+        "- `summary` must be 2-3 full sentences (not a fragment). Set the scene like an admin announcing a real event.\n"
+        "- `steps` must contain 3-5 concrete actions. Each step must name a specific location, item, or measurable action — never 'check the area' or 'find some loot'.\n"
+        "- `locations` must list 1-4 real DayZ Chernarus or Livonia towns/landmarks (e.g. 'Krasnostav airfield', 'Tisy military base', 'Polana train station', 'NWAF ATC tower'). Never invented placenames.\n"
+        "- `items_needed` must list 3-6 actual DayZ items by their in-game name where possible (e.g. 'M4-A1', 'Chemlight', 'Field shovel', 'Splint', 'Sewing kit', 'Saline bag IV', 'Cooking tripod', 'Long stick', 'Rope').\n"
+        "- `dangers` must call out at least 2 specific risks: infected aggro hotspots, contaminated zone radiation, dynamic crash sites, weather (rain/cold), territorial wolves/bears, etc.\n"
+        "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
+        "- If quest is quantity-based, use literal {count} token in `goal`, not a number.\n"
+        "- Reward sentences must be earned and grounded — admin-issued food crates, ammo bundles, NVGs (only for Legendary), medical kits, etc. Never fantasy items.\n"
+        "- Storyline campaigns: if the theme implies a multi-part narrative, write the quests so they unfold in chronological order. The campaign should have a beginning, middle, and end.\n"
         "- Do NOT include any text outside the JSON object."
     )
 
@@ -6286,7 +6352,9 @@ def workshop_find_campaign(guild_id, campaign_id, theme=None):
 
 
 async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, campaign=None):
-    """Post a single AI-generated quest as an embed into the named channel."""
+    """Post a single AI-generated quest as a rich, multi-field embed into
+    the named channel. Renders summary, numbered steps, locations, items
+    needed, dangers, reward, and survival tips."""
     channels = config.setdefault("channels", {})
     target = guild.get_channel(channels.get(channel_key))
     if not target:
@@ -6312,17 +6380,56 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     else:
         goal = goal_template
 
+    summary = quest.get("summary") or ""
+    description_parts = []
+    if summary:
+        description_parts.append(f"_{summary}_")
+    description_parts.append(f"**Objective:** {goal}")
+    description = "\n\n".join(description_parts)[:4000]
+
     embed = discord.Embed(
         title=f"🧭 {kind.upper()} QUEST: {title}",
-        description=goal,
+        description=description,
         color=0x9B59B6,
     )
     embed.add_field(name="Difficulty", value=difficulty, inline=True)
+    if quest.get("estimated_minutes"):
+        embed.add_field(name="Est. Time", value=f"~{quest['estimated_minutes']} min", inline=True)
     if campaign:
         embed.add_field(name="Campaign", value=campaign.get("name", "Custom"), inline=True)
-    embed.add_field(name="Reward", value=quest.get("reward", "Admin-chosen"), inline=False)
+
+    steps = quest.get("steps") or []
+    if steps:
+        numbered = "\n".join(f"**{i+1}.** {step}" for i, step in enumerate(steps[:6]))
+        embed.add_field(name="📋 Step-by-Step", value=numbered[:1024], inline=False)
+
+    locations = quest.get("locations") or []
+    if locations:
+        embed.add_field(
+            name="📍 Locations",
+            value="\n".join(f"• {loc}" for loc in locations[:6])[:1024],
+            inline=True,
+        )
+
+    items_needed = quest.get("items_needed") or []
+    if items_needed:
+        embed.add_field(
+            name="🎒 Bring",
+            value="\n".join(f"• {item}" for item in items_needed[:8])[:1024],
+            inline=True,
+        )
+
+    dangers = quest.get("dangers") or []
+    if dangers:
+        embed.add_field(
+            name="⚠️ Watch Out For",
+            value="\n".join(f"• {d}" for d in dangers[:5])[:1024],
+            inline=False,
+        )
+
+    embed.add_field(name="🎁 Reward", value=quest.get("reward", "Admin-chosen")[:1024], inline=False)
     if quest.get("tips"):
-        embed.add_field(name="Survival Tip", value=quest["tips"], inline=False)
+        embed.add_field(name="💡 Survival Tip", value=quest["tips"][:1024], inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
 
