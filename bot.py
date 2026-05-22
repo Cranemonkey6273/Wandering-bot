@@ -12021,9 +12021,7 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
     player_name = extract_player_name(line)
     now_ts = datetime.now(UTC).timestamp()
     channels = config.get("channels", {})
-    radar_channel = bot.get_channel(channels.get("radar"))
-    if not radar_channel:
-        return
+    default_radar_channel = bot.get_channel(channels.get("radar"))
 
     px, py = point
     for zone in zones:
@@ -12045,6 +12043,15 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
         if now_ts - RADAR_PINGS.get(throttle_key, 0) < int(zone.get("cooldown_seconds", 600)):
             continue
 
+        # Per-zone alert channel takes precedence over the server-wide
+        # radar channel. Used so faction-owned zones can ping the
+        # faction's private channel instead of the public raid feed.
+        zone_channel_id = zone.get("alert_channel_id")
+        target_channel = bot.get_channel(int(zone_channel_id)) if zone_channel_id else default_radar_channel
+        if not target_channel:
+            # No place to post — silently skip rather than spam errors.
+            continue
+
         RADAR_PINGS[throttle_key] = now_ts
         map_link = f"https://dayz.ginfo.gg/{izurvive_map_path(guild_id)}#location={zx};{zy}"
         player_link = build_izurvive_link(coords, guild_id)
@@ -12060,7 +12067,27 @@ async def check_radar_zones_for_adm(guild_id, config, event_type, line):
             embed.add_field(name="Player Location", value=f"[Open Player Location](<{player_link}>)", inline=False)
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Radar Intelligence")
-        await radar_channel.send(embed=style_embed(embed))
+
+        # Optional role mention (e.g. a faction role) — sent as message
+        # content so the role actually pings members.
+        mention_role_id = zone.get("mention_role_id")
+        content = None
+        allowed_mentions = None
+        if mention_role_id:
+            content = f"<@&{int(mention_role_id)}>"
+            allowed_mentions = discord.AllowedMentions(roles=True, users=False, everyone=False)
+
+        try:
+            await target_channel.send(
+                content=content,
+                embed=style_embed(embed),
+                allowed_mentions=allowed_mentions,
+            )
+        except discord.Forbidden:
+            print(f"[RADAR ZONE] FORBIDDEN posting to "
+                  f"#{getattr(target_channel, 'name', target_channel.id)} for zone {zone_id}")
+        except Exception as err:
+            print(f"[RADAR ZONE] send failed for zone {zone_id}: {err}")
 
 
 @bot.command()
@@ -19349,7 +19376,9 @@ async def removerule(interaction: discord.Interaction, rule_number: int):
     x="iZurvive X coordinate",
     y="iZurvive Y coordinate",
     radius="Radius in meters",
-    ignored_gamertags="Optional comma-separated Xbox gamertags that should not trigger this zone"
+    ignored_gamertags="Optional comma-separated Xbox gamertags that should not trigger this zone",
+    alert_channel="Optional: post this zone's alerts in a specific channel (e.g. a faction's channel) instead of the default radar channel.",
+    mention_role="Optional: ping this role (e.g. a faction role) when the zone triggers.",
 )
 async def addradarzone(
     interaction: discord.Interaction,
@@ -19357,7 +19386,9 @@ async def addradarzone(
     x: float,
     y: float,
     radius: int,
-    ignored_gamertags: str = ""
+    ignored_gamertags: str = "",
+    alert_channel: discord.TextChannel = None,
+    mention_role: discord.Role = None,
 ):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -19381,16 +19412,84 @@ async def addradarzone(
         "enabled": True,
         "cooldown_seconds": 600,
         "ignored_gamertags": ignored,
-        "created_by": str(interaction.user.id)
+        "created_by": str(interaction.user.id),
+        "alert_channel_id": alert_channel.id if alert_channel else None,
+        "mention_role_id": mention_role.id if mention_role else None,
     })
     save_guild_configs()
     radar_note = ""
-    if not config.get("channels", {}).get("radar"):
-        radar_note = " Set a radar channel with `/setradarchannel` or alerts have nowhere to post."
+    if not alert_channel and not config.get("channels", {}).get("radar"):
+        radar_note = " Set a default radar channel with `/setradarchannel` or pass `alert_channel:` next time — otherwise this zone has nowhere to post."
     ignore_note = f" Ignoring: `{', '.join(ignored)}`." if ignored else ""
+    channel_note = f" Alerts will post in {alert_channel.mention}." if alert_channel else ""
+    role_note = f" Will ping {mention_role.mention} on trigger." if mention_role else ""
     await interaction.response.send_message(
-        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius.{ignore_note}{radar_note}",
-        ephemeral=True
+        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius."
+        f"{channel_note}{role_note}{ignore_note}{radar_note}",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@bot.tree.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    zone_id="Zone ID from /listradarzones",
+    alert_channel="Channel where this zone's alerts will post (omit to keep the current setting)",
+    mention_role="Role to ping when this zone triggers (omit to keep the current setting)",
+    clear_alert_channel="True = remove the per-zone channel and fall back to the default radar channel",
+    clear_mention_role="True = remove the ping role for this zone",
+)
+async def editradarzone(
+    interaction: discord.Interaction,
+    zone_id: int,
+    alert_channel: discord.TextChannel = None,
+    mention_role: discord.Role = None,
+    clear_alert_channel: bool = False,
+    clear_mention_role: bool = False,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    zones = config.get("radar_zones", [])
+    zone = next((z for z in zones if int(z.get("id", -1)) == int(zone_id)), None)
+    if not zone:
+        await interaction.response.send_message(
+            f"No zone with ID `{zone_id}`. Use `/listradarzones` to see them.",
+            ephemeral=True
+        )
+        return
+
+    changes = []
+    if clear_alert_channel:
+        zone["alert_channel_id"] = None
+        changes.append("cleared alert channel (will use default radar channel)")
+    elif alert_channel:
+        zone["alert_channel_id"] = alert_channel.id
+        changes.append(f"alerts → {alert_channel.mention}")
+
+    if clear_mention_role:
+        zone["mention_role_id"] = None
+        changes.append("cleared ping role")
+    elif mention_role:
+        zone["mention_role_id"] = mention_role.id
+        changes.append(f"pings → {mention_role.mention}")
+
+    if not changes:
+        await interaction.response.send_message(
+            "Nothing to change. Provide `alert_channel`, `mention_role`, or one of the `clear_*` flags.",
+            ephemeral=True
+        )
+        return
+
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"Zone `{zone_id}` ({zone.get('name', '?')}) updated: " + "; ".join(changes),
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
@@ -19412,8 +19511,14 @@ async def listradarzones(interaction: discord.Interaction):
         ignored_text = f" - ignores: {', '.join(ignored[:8])}" if ignored else ""
         if len(ignored) > 8:
             ignored_text += f" +{len(ignored) - 8} more"
+        ch_id = zone.get("alert_channel_id")
+        channel_text = f" - <#{ch_id}>" if ch_id else " - default radar channel"
+        role_id = zone.get("mention_role_id")
+        role_text = f" - pings <@&{role_id}>" if role_id else ""
         lines.append(
-            f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} **{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m{ignored_text}"
+            f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} "
+            f"**{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m"
+            f"{channel_text}{role_text}{ignored_text}"
         )
     embed = discord.Embed(title="RADAR ZONES", description="\n".join(lines), color=0xE74C3C)
     embed.set_thumbnail(url=BOT_IMAGE)
