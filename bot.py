@@ -93,6 +93,7 @@ WANDERING_EMOJIS_FILE = data_path("wandering_emojis.json")
 FACTIONS_FILE = data_path("factions.json")
 PVE_CHALLENGES_FILE = data_path("pve_challenges.json")
 PVE_AI_CAMPAIGNS_FILE = data_path("pve_ai_campaigns.json")
+PVE_WORKSHOP_SCHEDULES_FILE = data_path("pve_workshop_schedules.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
@@ -299,6 +300,7 @@ DEFAULT_CHANNEL_NAMES = {
     "pve_info": "📘🌿・pve-info・🌿📘",
     "pve_help": "❔🌿・pve-help・🌿❔",
     "pve_heatmap": "🦌🗺️・pve-heatmap・🗺️🦌",
+    "quest_workshop": "🛠️🧠・quest-workshop・🧠🛠️",
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
@@ -348,6 +350,7 @@ CHANNEL_ALIASES = {
     "pve_expeditions": ["pveexpeditions", "expeditions", "exploration", "survivalruns"],
     "pve_info": ["pveinfo", "survivalinfo", "huntinginfo"],
     "pve_heatmap": ["pveheatmap", "animalheatmap"],
+    "quest_workshop": ["questworkshop", "questshop", "questforge", "aiquestworkshop"],
     "faction_tickets": ["factiontickets", "factionrequests"],
     "faction_staff": ["factionstaff"],
     "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
@@ -4574,7 +4577,8 @@ async def ensure_pve_channels(guild, config, force=False):
         "pve_expeditions",
         "pve_info",
         "pve_help",
-        "pve_heatmap"
+        "pve_heatmap",
+        "quest_workshop"
     ]
 
     if not force and all(is_channel_key_disabled(config, key) for key in pve_channel_keys):
@@ -4604,6 +4608,17 @@ async def ensure_pve_channels(guild, config, force=False):
         if force:
             set_channel_key_disabled(config, key, False)
 
+        # quest_workshop is admin-only: hide from @everyone, allow admins.
+        is_private = (key == "quest_workshop")
+        overwrites = {}
+        if is_private:
+            overwrites = {
+                guild.default_role: discord.PermissionOverwrite(read_messages=False)
+            }
+            for role in guild.roles:
+                if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
+                    overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
+
         existing_id = channels.get(key)
         if existing_id:
             existing = guild.get_channel(existing_id)
@@ -4613,6 +4628,14 @@ async def ensure_pve_channels(guild, config, force=False):
                 if needs_name or needs_category:
                     try:
                         await existing.edit(name=name, category=pve_category)
+                    except Exception:
+                        pass
+                # Re-apply admin-only overwrites every time so the channel
+                # stays locked even if admins added new roles since setup.
+                if is_private:
+                    try:
+                        for target, overwrite in overwrites.items():
+                            await existing.set_permissions(target, overwrite=overwrite)
                     except Exception:
                         pass
                 return existing
@@ -4627,10 +4650,44 @@ async def ensure_pve_channels(guild, config, force=False):
                         await channel.edit(name=name, category=pve_category)
                     except Exception:
                         pass
+                if is_private:
+                    try:
+                        for target, overwrite in overwrites.items():
+                            await channel.set_permissions(target, overwrite=overwrite)
+                    except Exception:
+                        pass
                 return channel
 
-        channel = await guild.create_text_channel(name, category=pve_category)
+        if is_private:
+            channel = await guild.create_text_channel(name, category=pve_category, overwrites=overwrites)
+        else:
+            channel = await guild.create_text_channel(name, category=pve_category)
         channels[key] = channel.id
+
+        # First-time welcome for the quest workshop so admins know what
+        # to type. Sent only on creation, never on re-syncs.
+        if is_private and key == "quest_workshop":
+            try:
+                welcome = discord.Embed(
+                    title="🛠️ Welcome to the AI Quest Workshop",
+                    description=(
+                        "This is your private admin channel. Talk to me here in plain English "
+                        "and I'll design DayZ PVE quests, full storylines, or recurring schedules.\n\n"
+                        "**Try things like:**\n"
+                        "• `make me 12 winter outbreak quests`\n"
+                        "• `write a 6-part storyline about a missing coastal convoy`\n"
+                        "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
+                        "• `list my campaigns`\n"
+                        "• `cancel schedule sched-1234...`\n\n"
+                        "Type `help` any time to see this again."
+                    ),
+                    color=0x9B59B6,
+                )
+                welcome.set_thumbnail(url=BOT_IMAGE)
+                welcome.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
+                await channel.send(embed=welcome)
+            except Exception as error:
+                print(f"WORKSHOP WELCOME SEND FAILED: {error}")
         return channel
 
     created = {}
@@ -5913,6 +5970,422 @@ def save_ai_campaign_for_guild(guild_id, theme, campaign_name, quests, author_id
     return campaign_id
 
 
+# =========================================================
+# AI QUEST WORKSHOP — admin freestyle channel
+# Admins drop a free-form message into the quest-workshop channel and
+# the bot interprets it via Claude Sonnet, returning a structured
+# action plan (generate / post / schedule / list / delete / chat).
+# Every action is then executed by the Python bot. This gives owners
+# unlimited control without ever editing code or running slash cmds.
+# =========================================================
+
+QUEST_WORKSHOP_SYSTEM_PROMPT = (
+    "You are the AI quest designer for a DayZ Discord bot called Wandering Bot Alpha. "
+    "You sit inside a private admin-only Discord channel. The server owner talks to you in plain "
+    "English (or any language) and you turn their requests into structured actions for the bot. "
+    "You ALWAYS reply with a single valid JSON object — no markdown, no commentary. "
+    "Your reply must follow this shape exactly:\n"
+    "{\n"
+    "  \"action\": \"generate_campaign|post_quest_now|schedule_campaign|list_campaigns|"
+    "list_schedules|cancel_schedule|delete_campaign|chat\",\n"
+    "  \"reply\": \"<short friendly Discord message back to the admin, max 600 chars>\",\n"
+    "  \"params\": { ...action-specific fields... }\n"
+    "}\n\n"
+    "Actions:\n"
+    "- generate_campaign: params { theme:str, count:int (4-40, default 12), story_mode:bool (default false) }\n"
+    "    Use story_mode=true when the admin asks for a multi-part story / questline — quests will then be ordered as a narrative.\n"
+    "- post_quest_now: params { campaign_id:str|null, theme:str|null, target_channel_key:str|null }\n"
+    "    Posts ONE quest immediately. If no campaign_id: pull a random quest matching theme.\n"
+    "- schedule_campaign: params { campaign_id:str, target_channel_key:str|null, interval_hours:int (1-168), occurrences:int|null, story_mode:bool|null }\n"
+    "    Schedules quests from the campaign to be posted on a recurring interval. occurrences=null means unlimited.\n"
+    "- list_campaigns: params {}\n"
+    "- list_schedules: params {}\n"
+    "- cancel_schedule: params { schedule_id:str }\n"
+    "- delete_campaign: params { campaign_id:str }\n"
+    "- chat: params {} — for friendly clarifying questions or chit-chat.\n\n"
+    "Valid target_channel_key values: pve_quests, pve_hunting, pve_collection, pve_fishing, pve_crafting, pve_expeditions. "
+    "Default to pve_quests when unsure.\n\n"
+    "If the admin's request is ambiguous, default to action=chat and ask a short clarifying question. "
+    "Always reply in English unless the admin uses another language. Keep replies concise and survival-flavoured."
+)
+
+
+def workshop_action_help_blurb():
+    return (
+        "Try things like:\n"
+        "• `make me 12 winter outbreak quests`\n"
+        "• `write a 6-part storyline about a missing coastal convoy`\n"
+        "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
+        "• `list my campaigns`\n"
+        "• `cancel schedule sched-...`"
+    )
+
+
+async def call_workshop_llm(history_pairs, user_message):
+    """Send the workshop message to the LLM with a small running history.
+    `history_pairs` is a list of (role, text) tuples for context.
+    Returns parsed JSON dict or {"action": "chat", "reply": "<error>"}."""
+    if not EMERGENT_LLM_KEY:
+        return {"action": "chat", "reply": "AI quest workshop needs the `EMERGENT_LLM_KEY` Railway env var.", "params": {}}
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+    except Exception as error:
+        return {"action": "chat", "reply": f"emergentintegrations import failed: {error}", "params": {}}
+
+    # Compose a single user message that bundles recent context. We use a
+    # fresh session per call to avoid the library's chat-history coupling
+    # since we are already passing the recent context in-band.
+    context_lines = []
+    for role, text in history_pairs[-6:]:
+        prefix = "ADMIN" if role == "user" else "BOT"
+        context_lines.append(f"{prefix}: {text}")
+    context_block = "\n".join(context_lines) if context_lines else "(no prior context)"
+
+    full_prompt = (
+        f"Recent workshop context:\n{context_block}\n\n"
+        f"NEW ADMIN MESSAGE:\n{user_message}\n\n"
+        f"Reply with the single JSON action object now."
+    )
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"workshop-{hashlib.sha1(full_prompt.encode()).hexdigest()[:12]}",
+            system_message=QUEST_WORKSHOP_SYSTEM_PROMPT,
+        ).with_model(AI_CAMPAIGN_PROVIDER, AI_CAMPAIGN_MODEL)
+
+        response = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=full_prompt)),
+            timeout=AI_CAMPAIGN_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return {"action": "chat", "reply": "AI call timed out — try again.", "params": {}}
+    except Exception as error:
+        return {"action": "chat", "reply": f"AI call failed: {error}", "params": {}}
+
+    raw = (str(response or "")).strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, count=1)
+        raw = re.sub(r"\s*```\s*$", "", raw, count=1)
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            return {"action": "chat", "reply": raw[:600] or "I didn't quite catch that.", "params": {}}
+        try:
+            parsed = json.loads(match.group(0))
+        except Exception:
+            return {"action": "chat", "reply": raw[:600] or "I didn't quite catch that.", "params": {}}
+
+    if not isinstance(parsed, dict):
+        return {"action": "chat", "reply": "Bad LLM response shape.", "params": {}}
+    parsed.setdefault("action", "chat")
+    parsed.setdefault("reply", "")
+    parsed.setdefault("params", {})
+    return parsed
+
+
+def workshop_resolve_target_channel_key(raw_key):
+    """Coerce an LLM-supplied target channel key to a real PVE channel key."""
+    if not raw_key:
+        return "pve_quests"
+    cleaned = str(raw_key).strip().lower().replace("-", "_").replace(" ", "_")
+    valid = {
+        "pve_quests", "pve_hunting", "pve_collection", "pve_fishing",
+        "pve_crafting", "pve_expeditions"
+    }
+    if cleaned in valid:
+        return cleaned
+    aliases = {
+        "quests": "pve_quests", "hunting": "pve_hunting", "hunt": "pve_hunting",
+        "collection": "pve_collection", "fishing": "pve_fishing", "fish": "pve_fishing",
+        "crafting": "pve_crafting", "craft": "pve_crafting",
+        "exploration": "pve_expeditions", "expedition": "pve_expeditions",
+        "expeditions": "pve_expeditions",
+    }
+    return aliases.get(cleaned, "pve_quests")
+
+
+def workshop_find_campaign(guild_id, campaign_id, theme=None):
+    """Locate a campaign by id, with a fallback to fuzzy theme search."""
+    gid = str(guild_id)
+    block = pve_ai_campaigns.get(gid, {})
+    if campaign_id and campaign_id in block:
+        return block[campaign_id]
+    if theme:
+        wanted = theme.lower().strip()
+        for camp in block.values():
+            if wanted in str(camp.get("theme", "")).lower() or wanted in str(camp.get("name", "")).lower():
+                return camp
+    return None
+
+
+async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, campaign=None):
+    """Post a single AI-generated quest as an embed into the named channel."""
+    channels = config.setdefault("channels", {})
+    target = guild.get_channel(channels.get(channel_key))
+    if not target:
+        # Auto-create the PVE channel set if missing.
+        await ensure_pve_channels(guild, config)
+        target = guild.get_channel(channels.get(channel_key))
+    if not target:
+        return False, "Target channel missing."
+
+    difficulty = quest.get("difficulty", "Medium")
+    kind = quest.get("kind", "Survival")
+    title = quest.get("title", "Untitled Quest")
+    goal_template = quest.get("goal", "")
+    # Resolve {count} placeholder if present.
+    if "{count}" in goal_template:
+        count_choices = {
+            "Easy": [2, 3, 4, 5],
+            "Medium": [5, 7, 8, 10],
+            "Hard": [10, 12, 15],
+            "Legendary": [15, 20, 25],
+        }.get(difficulty, [3, 5, 7])
+        goal = goal_template.replace("{count}", str(random.choice(count_choices)))
+    else:
+        goal = goal_template
+
+    embed = discord.Embed(
+        title=f"🧭 {kind.upper()} QUEST: {title}",
+        description=goal,
+        color=0x9B59B6,
+    )
+    embed.add_field(name="Difficulty", value=difficulty, inline=True)
+    if campaign:
+        embed.add_field(name="Campaign", value=campaign.get("name", "Custom"), inline=True)
+    embed.add_field(name="Reward", value=quest.get("reward", "Admin-chosen"), inline=False)
+    if quest.get("tips"):
+        embed.add_field(name="Survival Tip", value=quest["tips"], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
+
+    try:
+        await target.send(embed=style_embed(embed))
+    except Exception as error:
+        return False, f"Send failed: {error}"
+    return True, target.mention
+
+
+async def workshop_execute_action(message, config, action, params):
+    """Execute one workshop action and return a string reply for the channel."""
+    guild = message.guild
+    guild_id = str(guild.id)
+    params = params or {}
+
+    if action == "generate_campaign":
+        theme = str(params.get("theme") or "").strip()
+        count = int(params.get("count") or 12)
+        story_mode = bool(params.get("story_mode"))
+        if not theme:
+            return "I need a theme. Try: `make me 10 winter outbreak quests`."
+        prompt_count = max(4, min(count, 40))
+        # Tweak the call: pass story_mode by appending a hint to the theme.
+        effective_theme = f"{theme} (multi-part storyline, ordered narrative)" if story_mode else theme
+        quests, campaign_or_error = await generate_ai_pve_campaign(effective_theme, count=prompt_count)
+        if not quests:
+            return f"⚠️ Generation failed: {campaign_or_error}"
+        campaign_id = save_ai_campaign_for_guild(
+            guild.id, theme=theme, campaign_name=campaign_or_error,
+            quests=quests, author_id=message.author.id,
+        )
+        sample = ", ".join(q.get("title", "?") for q in quests[:3])
+        more = f" + {len(quests) - 3} more" if len(quests) > 3 else ""
+        return (
+            f"✅ Campaign **{campaign_or_error}** saved with {len(quests)} quests.\n"
+            f"`campaign_id`: `{campaign_id}`\n"
+            f"Preview: {sample}{more}\n"
+            f"Tell me when/where to post them, e.g. *post one every 12 hours in pve-expeditions*."
+        )
+
+    if action == "post_quest_now":
+        campaign_id = params.get("campaign_id")
+        theme = params.get("theme")
+        channel_key = workshop_resolve_target_channel_key(params.get("target_channel_key"))
+        campaign = workshop_find_campaign(guild_id, campaign_id, theme=theme)
+        # If no campaign — pull from any AI quest pool, else built-in bank.
+        if campaign:
+            pool = [q for q in campaign.get("quests", []) if isinstance(q, dict)]
+        else:
+            pool = guild_ai_campaign_quests(guild_id) or PVE_CHALLENGE_BANK
+        if not pool:
+            return "No quests available — generate a campaign first."
+        quest = random.choice(pool)
+        ok, info = await workshop_post_one_quest_to_channel(guild, config, channel_key, quest, campaign=campaign)
+        if not ok:
+            return f"⚠️ Post failed: {info}"
+        return f"📜 Posted quest **{quest.get('title', '?')}** in {info}."
+
+    if action == "schedule_campaign":
+        campaign_id = params.get("campaign_id") or ""
+        channel_key = workshop_resolve_target_channel_key(params.get("target_channel_key"))
+        try:
+            interval_hours = max(1, min(int(params.get("interval_hours") or 12), 168))
+        except Exception:
+            interval_hours = 12
+        occurrences_raw = params.get("occurrences")
+        try:
+            occurrences = int(occurrences_raw) if occurrences_raw not in (None, "", "null") else None
+        except Exception:
+            occurrences = None
+        story_mode = bool(params.get("story_mode"))
+
+        campaign = workshop_find_campaign(guild_id, campaign_id, theme=params.get("theme"))
+        if not campaign:
+            return "Couldn't find that campaign. Try `list my campaigns` first."
+
+        sched_id = f"sched-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}"
+        next_run = datetime.now(UTC) + timedelta(seconds=30)  # first post in 30s
+        schedule = {
+            "id": sched_id,
+            "campaign_id": campaign.get("id"),
+            "target_channel_key": channel_key,
+            "interval_hours": interval_hours,
+            "next_run_iso": next_run.isoformat(),
+            "remaining": occurrences,
+            "story_mode": story_mode,
+            "next_index": 0,
+            "created": datetime.now(UTC).isoformat(),
+            "created_by": str(message.author.id),
+            "active": True,
+        }
+        guild_workshop_schedules(guild_id).append(schedule)
+        save_pve_workshop_schedules()
+        occ_text = "unlimited" if occurrences is None else f"{occurrences} occurrence(s)"
+        return (
+            f"⏱️ Schedule **{sched_id}** active. Posting from **{campaign.get('name', '?')}** "
+            f"every **{interval_hours}h** into `{channel_key}` — {occ_text}. "
+            f"First post in 30 seconds."
+        )
+
+    if action == "list_campaigns":
+        block = pve_ai_campaigns.get(guild_id, {})
+        if not block:
+            return "No campaigns yet. Try `generate me 10 quests about a coastal salvage mission`."
+        lines = ["**Campaigns:**"]
+        for camp in sorted(block.values(), key=lambda c: c.get("created", ""), reverse=True)[:10]:
+            lines.append(
+                f"• `{camp.get('id', '?')}` — **{camp.get('name', '?')}** "
+                f"({len(camp.get('quests', []))} quests, theme: _{camp.get('theme', '?')}_)"
+            )
+        return "\n".join(lines)
+
+    if action == "list_schedules":
+        scheds = guild_workshop_schedules(guild_id)
+        active = [s for s in scheds if s.get("active")]
+        if not active:
+            return "No active schedules."
+        lines = ["**Active schedules:**"]
+        for s in active[:10]:
+            lines.append(
+                f"• `{s['id']}` — campaign `{s.get('campaign_id', '?')}` → "
+                f"`{s.get('target_channel_key', '?')}` every **{s.get('interval_hours', '?')}h**, "
+                f"remaining: {s.get('remaining', 'unlimited')}"
+            )
+        return "\n".join(lines)
+
+    if action == "cancel_schedule":
+        sched_id = params.get("schedule_id") or ""
+        scheds = guild_workshop_schedules(guild_id)
+        for s in scheds:
+            if s.get("id") == sched_id:
+                s["active"] = False
+                save_pve_workshop_schedules()
+                return f"🛑 Schedule `{sched_id}` cancelled."
+        return f"No schedule with id `{sched_id}`."
+
+    if action == "delete_campaign":
+        campaign_id = params.get("campaign_id") or ""
+        block = pve_ai_campaigns.get(guild_id, {})
+        if campaign_id in block:
+            removed = block.pop(campaign_id)
+            save_pve_ai_campaigns()
+            return f"🗑️ Deleted campaign **{removed.get('name', campaign_id)}**."
+        return f"No campaign with id `{campaign_id}`."
+
+    # action == "chat" or anything unknown → just echo the LLM's reply.
+    return None
+
+
+async def handle_quest_workshop_message(message):
+    """Entry point called from on_message when an admin posts in the
+    quest-workshop channel. Routes their message through the LLM and
+    executes whichever action it returns."""
+    guild = message.guild
+    if not guild:
+        return
+    config = guild_configs.get(str(guild.id))
+    if not config:
+        return
+
+    # Admin gate — only admins can drive the workshop.
+    member = message.author if isinstance(message.author, discord.Member) else guild.get_member(message.author.id)
+    if member is None or not (
+        member.guild_permissions.administrator
+        or any(role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES) for role in getattr(member, "roles", []))
+    ):
+        try:
+            await message.reply("This channel is for admins only.", mention_author=False, delete_after=8)
+        except Exception:
+            pass
+        return
+
+    text = (message.content or "").strip()
+    if not text:
+        return
+
+    # Help shortcut.
+    if text.lower() in {"help", "?", "/help"}:
+        try:
+            await message.reply(
+                "**🛠️ Quest Workshop**\nTalk to me in plain English. " + workshop_action_help_blurb(),
+                mention_author=False,
+            )
+        except Exception:
+            pass
+        return
+
+    # Show typing while the LLM thinks.
+    try:
+        async with message.channel.typing():
+            history_pairs = [(m.author.bot and "bot" or "user", m.content)
+                             for m in [m async for m in message.channel.history(limit=8, before=message)][::-1]
+                             if m.content]
+            plan = await call_workshop_llm(history_pairs, text)
+    except Exception as error:
+        try:
+            await message.reply(f"Workshop error: {error}", mention_author=False)
+        except Exception:
+            pass
+        return
+
+    action = str(plan.get("action") or "chat").strip().lower()
+    reply_text = str(plan.get("reply") or "").strip()
+    params = plan.get("params") or {}
+
+    # First send the LLM's chatty reply (if any) so the admin always sees
+    # acknowledgment immediately, then execute the action.
+    if reply_text:
+        try:
+            await message.reply(reply_text[:1900], mention_author=False)
+        except Exception:
+            pass
+
+    try:
+        action_result = await workshop_execute_action(message, config, action, params)
+    except Exception as error:
+        action_result = f"⚠️ Action failed: {error}"
+
+    if action_result:
+        try:
+            await message.channel.send(action_result[:1900])
+        except Exception:
+            pass
+
+
 def load_heatmap():
     global territory_heat
     territory_heat = load_json(HEATMAP_FILE)
@@ -6000,6 +6473,39 @@ def guild_ai_campaign_quests(guild_id):
                 continue
             pool.append(quest)
     return pool
+
+
+# AI quest workshop scheduler. Schema:
+#   { guild_id: [
+#         {
+#             "id": "sched-<ts>-<rand>",
+#             "campaign_id": "camp-...",
+#             "target_channel_key": "pve_quests" | "pve_hunting" | ...,
+#             "interval_hours": 12,
+#             "next_run_iso": "2026-02-15T08:00:00+00:00",
+#             "remaining": 5 | None,    # None = unlimited
+#             "story_mode": True,        # If True, post quests in order
+#             "next_index": 0,
+#             "created": "<iso>",
+#             "created_by": "<discord_id>",
+#             "active": True,
+#         }, ...
+#     ]
+#   }
+pve_workshop_schedules = {}
+
+
+def load_pve_workshop_schedules():
+    global pve_workshop_schedules
+    pve_workshop_schedules = load_json(PVE_WORKSHOP_SCHEDULES_FILE) or {}
+
+
+def save_pve_workshop_schedules():
+    save_json(PVE_WORKSHOP_SCHEDULES_FILE, pve_workshop_schedules)
+
+
+def guild_workshop_schedules(guild_id):
+    return pve_workshop_schedules.setdefault(str(guild_id), [])
 
 
 def stable_line_hash(line):
@@ -10849,6 +11355,19 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # Quest workshop: admin-only freestyle AI quest channel. Route this
+    # FIRST and early-return so workshop chatter doesn't run through the
+    # normal swearjar/AI-roast pipeline.
+    if message.guild:
+        wb_config = guild_configs.get(str(message.guild.id), {})
+        wb_channel_id = wb_config.get("channels", {}).get("quest_workshop")
+        if wb_channel_id and message.channel.id == wb_channel_id:
+            try:
+                await handle_quest_workshop_message(message)
+            except Exception as error:
+                print(f"WORKSHOP HANDLER ERROR: {error}")
+            return
+
     lower = message.content.lower()
 
     if await maybe_save_map_image_from_message(message, lower):
@@ -14890,6 +15409,76 @@ async def pve_challenge_loop():
             print(f"PVE CHALLENGE LOOP ERROR {guild_id}: {error}")
 
 
+@tasks.loop(minutes=1)
+async def workshop_schedule_loop():
+    """Fire any AI quest workshop schedules that are due. Runs every minute
+    to keep timing tight even for short interval_hours like 1h."""
+    now = datetime.now(UTC)
+    dirty = False
+    for guild_id, scheds in list(pve_workshop_schedules.items()):
+        if not isinstance(scheds, list):
+            continue
+        config = guild_configs.get(str(guild_id))
+        if not config:
+            continue
+        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        if not guild:
+            continue
+
+        for sched in scheds:
+            if not sched.get("active"):
+                continue
+            try:
+                next_run = datetime.fromisoformat(sched.get("next_run_iso"))
+            except Exception:
+                # Malformed schedule — skip it (do NOT auto-disable so admin can inspect).
+                continue
+            if now < next_run:
+                continue
+
+            campaign = pve_ai_campaigns.get(str(guild_id), {}).get(sched.get("campaign_id", ""))
+            if not campaign:
+                # Campaign was deleted out from under the schedule.
+                sched["active"] = False
+                dirty = True
+                continue
+            quests = [q for q in campaign.get("quests", []) if isinstance(q, dict)]
+            if not quests:
+                sched["active"] = False
+                dirty = True
+                continue
+
+            if sched.get("story_mode"):
+                idx = int(sched.get("next_index", 0)) % len(quests)
+                quest = quests[idx]
+                sched["next_index"] = idx + 1
+            else:
+                quest = random.choice(quests)
+
+            channel_key = sched.get("target_channel_key", "pve_quests")
+            try:
+                await workshop_post_one_quest_to_channel(guild, config, channel_key, quest, campaign=campaign)
+            except Exception as error:
+                print(f"WORKSHOP SCHED POST ERROR {guild_id} {sched.get('id')}: {error}")
+
+            # Roll the schedule forward.
+            interval = max(1, int(sched.get("interval_hours", 12)))
+            sched["next_run_iso"] = (now + timedelta(hours=interval)).isoformat()
+            remaining = sched.get("remaining")
+            if remaining is not None:
+                try:
+                    remaining = int(remaining) - 1
+                except Exception:
+                    remaining = 0
+                sched["remaining"] = remaining
+                if remaining <= 0:
+                    sched["active"] = False
+            dirty = True
+
+    if dirty:
+        save_pve_workshop_schedules()
+
+
 @tasks.loop(minutes=60)
 async def pve_pvp_advice_loop():
     now_ts = datetime.now(UTC).timestamp()
@@ -15591,6 +16180,9 @@ async def start_background_tasks():
 
         if not pve_challenge_loop.is_running():
             pve_challenge_loop.start()
+
+        if not workshop_schedule_loop.is_running():
+            workshop_schedule_loop.start()
 
         if not pve_pvp_advice_loop.is_running():
             pve_pvp_advice_loop.start()
@@ -22260,6 +22852,41 @@ async def event_delete_campaign(interaction: discord.Interaction, campaign_id: s
     )
 
 
+@events_group.command(
+    name="workshopsetup",
+    description="Admin: create the private AI quest-workshop channel for this server"
+)
+@app_commands.default_permissions(administrator=True)
+async def event_workshop_setup(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id,
+        {"guild_name": interaction.guild.name, "channels": {}}
+    )
+    try:
+        await ensure_pve_channels(interaction.guild, config, force=True)
+    except Exception as error:
+        await interaction.followup.send(f"Setup failed: {error}", ephemeral=True)
+        return
+    workshop_id = config.get("channels", {}).get("quest_workshop")
+    workshop = interaction.guild.get_channel(workshop_id) if workshop_id else None
+    if workshop:
+        await interaction.followup.send(
+            f"✅ Quest workshop ready: {workshop.mention}\nType `help` in there to see what you can ask me.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.followup.send(
+            "Tried to create the workshop but couldn't locate it afterwards. "
+            "Check the bot's `Manage Channels` permission and try again.",
+            ephemeral=True,
+        )
+
+
 console_group = app_commands.Group(
     name="console",
     description="Console-safe DayZ object spawner tools"
@@ -24782,6 +25409,7 @@ async def on_ready():
     load_factions()
     load_pve_challenges()
     load_pve_ai_campaigns()
+    load_pve_workshop_schedules()
     load_longshot_records()
     load_first_blood()
     load_daily_recap()
