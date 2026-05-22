@@ -427,6 +427,34 @@ BOT_UPDATE_NOTES = [
         "commands": "`/helpme`, `/setup`, `/ownerbotshowcase`",
         "audience": "Everyone",
     },
+    {
+        "id": "2026-02-translation-mymemory",
+        "title": "Translation Engine Switched to MyMemory",
+        "summary": "The translation backend has moved from LibreTranslate (often offline) to MyMemory, which is free and reliable. Translation rules now also support multiple language pairs per server — point a channel at multiple targets and the bot will fan out the translations.",
+        "commands": "`/translation enable`, `/translation addrule`, `/translation listrules`, `/translation removerule`",
+        "audience": "Admins and bilingual communities",
+    },
+    {
+        "id": "2026-02-adm-age-guard",
+        "title": "No More 'Yesterday's Killfeed' on Restart",
+        "summary": "When the Railway container recycles, the bot used to re-broadcast every kill, raid, and connect from the past 24 hours. It now silently skips any ADM event older than 2 hours so feeds stay clean after a restart. Override with the WANDERING_ADM_EVENT_MAX_AGE env var if you ever need a different threshold.",
+        "commands": "(automatic, no command required)",
+        "audience": "Everyone",
+    },
+    {
+        "id": "2026-02-ai-pve-campaigns",
+        "title": "AI-Generated PVE Quest Campaigns",
+        "summary": "Server admins can generate fresh themed PVE quest campaigns on demand using the universal LLM key. Generated quests join the existing PVE rotation automatically and persist across restarts.",
+        "commands": "`/events generatequests theme:<idea> count:<4-40>`, `/events listcampaigns`, `/events deletecampaign campaign_id:<id>`",
+        "audience": "Admins and PVE players",
+    },
+    {
+        "id": "2026-02-ai-quest-workshop",
+        "title": "AI Quest Workshop — Talk-to-the-Bot Quest Design",
+        "summary": "A new private admin channel called quest-workshop is now auto-created. Type plain English in there ('make me 12 winter outbreak quests', 'write a 6-part storyline about a lost convoy', 'post one in pve-expeditions every 12 hours') and the bot designs, schedules, and posts quests for you. Storylines are posted in order chapter by chapter. Schedules survive restarts.",
+        "commands": "`/events workshopsetup`, plus freestyle chat inside the new quest-workshop channel",
+        "audience": "Admins",
+    },
 ]
 
 SWEAR_REWARD_MIN = 300
@@ -4688,6 +4716,83 @@ async def ensure_pve_channels(guild, config, force=False):
                 await channel.send(embed=welcome)
             except Exception as error:
                 print(f"WORKSHOP WELCOME SEND FAILED: {error}")
+
+            # Also drop a public how-to in the pve-help channel (once per
+            # guild, tracked via config flag) so regular players know the
+            # workshop exists and admins know the syntax.
+            try:
+                if not config.get("pve_help_workshop_seeded"):
+                    pve_help_channel_id = channels.get("pve_help")
+                    if pve_help_channel_id:
+                        pve_help_channel = guild.get_channel(pve_help_channel_id)
+                        if pve_help_channel:
+                            help_embed = discord.Embed(
+                                title="🛠️ How to Set Up & Generate New PVE Quests",
+                                description=(
+                                    "Server admins can now design new PVE quests on demand — no "
+                                    "code edits, no waiting for releases. Two ways to do it:"
+                                ),
+                                color=0x1ABC9C,
+                            )
+                            help_embed.add_field(
+                                name="1. Quick — Slash Commands",
+                                value=(
+                                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
+                                    "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
+                                    "**`/events listcampaigns`** — see saved campaigns.\n"
+                                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
+                                    "**`/events workshopsetup`** — re-create the workshop channel."
+                                ),
+                                inline=False,
+                            )
+                            help_embed.add_field(
+                                name="2. Free-Style — The Quest Workshop Channel",
+                                value=(
+                                    "A private admin-only channel called **`#quest-workshop`** has been "
+                                    "auto-created (look in the PVE category). Just **talk to the bot in "
+                                    "plain English** — no slash commands needed. Examples:\n\n"
+                                    "• `make me 12 winter outbreak quests`\n"
+                                    "• `write a 6-part storyline about a missing coastal convoy`\n"
+                                    "• `post one of those convoy quests in pve-expeditions every 12 hours`\n"
+                                    "• `post quests every 6 hours for 5 occurrences in story order`\n"
+                                    "• `list my campaigns` / `list my schedules`\n"
+                                    "• `cancel schedule sched-1234...`\n"
+                                    "• `delete campaign camp-1234...`\n\n"
+                                    "The bot interprets your request, generates the quests, schedules "
+                                    "them, and posts them automatically. Storylines post chapter by "
+                                    "chapter in order. All schedules survive Railway restarts."
+                                ),
+                                inline=False,
+                            )
+                            help_embed.add_field(
+                                name="3. Where Generated Quests Show Up",
+                                value=(
+                                    "Generated quests join the same rotation that already feeds "
+                                    "`#pve-quests`, `#pve-hunting`, `#pve-fishing`, `#pve-collection`, "
+                                    "`#pve-crafting`, and `#pve-expeditions`. You can also point a "
+                                    "schedule at any one of these channels directly."
+                                ),
+                                inline=False,
+                            )
+                            help_embed.add_field(
+                                name="4. Tips for Better Quests",
+                                value=(
+                                    "• Be specific with the theme: *'winter outbreak in coastal towns'* "
+                                    "beats *'winter'*.\n"
+                                    "• Add `as a storyline` for narrative arcs.\n"
+                                    "• Mention difficulty mix if you want one: *'mostly easy with two hard'*.\n"
+                                    "• Mention the target channel and interval together: *'every 8 hours "
+                                    "in pve-hunting'*."
+                                ),
+                                inline=False,
+                            )
+                            help_embed.set_thumbnail(url=BOT_IMAGE)
+                            help_embed.set_footer(text="Wandering Bot Alpha - PVE Quest Setup Guide")
+                            await pve_help_channel.send(embed=style_embed(help_embed))
+                            config["pve_help_workshop_seeded"] = True
+                            save_guild_configs()
+            except Exception as error:
+                print(f"PVE HELP WORKSHOP GUIDE SEND FAILED: {error}")
         return channel
 
     created = {}
