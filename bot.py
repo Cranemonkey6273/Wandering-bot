@@ -6567,6 +6567,28 @@ PVE_CAMPAIGN_SYSTEM_PROMPT = (
     "loot zones, contaminated zones, dynamic events, weather/temperature, stamina, "
     "blood/water/food). No fantasy. No magic. No real-world tragedies. No vague "
     "phrases like 'explore the area' — say WHERE, WHAT, and HOW.\n\n"
+    "🚫 CRITICAL DAYZ MECHANICS — NEVER ASSIGN A 'REPAIR' OR 'FIX' TASK. 🚫\n"
+    "In vanilla DayZ players cannot meaningfully 'repair', 'fix', 'restore', 'patch up', "
+    "'service', or 'rebuild' world objects, generators, radios, antennas, bunkers, "
+    "buildings, doors, fences, helicopters, planes, boats, bridges, or pre-broken "
+    "vehicles for a quest. NEVER write a quest whose objective is to 'repair X' or "
+    "'fix X' or 'get X working again'. If the theme suggests a broken object, REPHRASE "
+    "the quest as one of these survivor-realistic actions instead:\n"
+    "  • COLLECT & DELIVER — gather specific real DayZ items and drop them at a named "
+    "stash or contact location (e.g. 'collect a spark plug, car battery, radiator, "
+    "and full jerry can and deliver them to the stash behind Green Mountain tower').\n"
+    "  • SCOUT & REPORT — photograph or note details at a named location and post the "
+    "screenshot in the right Discord channel.\n"
+    "  • HUNT — kill a specific number of infected, wolves, bears, or a named target.\n"
+    "  • RESCUE / MEET CONTACT — travel to a named landmark to meet an NPC stand-in, "
+    "or escort/locate a downed survivor's gear.\n"
+    "  • SUPPLY DROP — stash items at a coordinate and screenshot proof.\n"
+    "  • CRAFT — only the genuinely craftable DayZ recipes (improvised knife, fishing "
+    "rod from long stick + rope, fireplace, splint, rag bandages, leather kit, "
+    "improvised bow, etc.). NEVER craft electronics, vehicles, or buildings.\n"
+    "Even if the admin's theme mentions 'broken', 'damaged', 'abandoned', or 'derelict' "
+    "infrastructure, the player's task must always be COLLECT/DELIVER/SCOUT/HUNT — "
+    "the lore can mention the broken thing, but the goal must never be to fix it.\n\n"
     "You ALWAYS reply with strict, valid JSON only — no markdown fences, no commentary."
 )
 
@@ -6592,7 +6614,12 @@ def _coerce_quest_kind(raw_kind):
         "loot": "Collection",
         "craft": "Crafting",
         "crafting": "Crafting",
-        "repair": "Repair",
+        "repair": "Collection",
+        "fix": "Collection",
+        "restore": "Collection",
+        "patch": "Collection",
+        "rebuild": "Collection",
+        "service": "Collection",
         "build": "Crafting",
         "explore": "Explorer",
         "explorer": "Explorer",
@@ -6743,7 +6770,7 @@ async def generate_ai_pve_campaign(theme, count=12):
         f"  \"campaign_name\": \"<a 2-5 word campaign title evocative of the theme>\",\n"
         "  \"quests\": [\n"
         "    {\n"
-        "      \"kind\": \"Hunting|Fishing|Collection|Crafting|Repair|Explorer|Survival|Rescue|Zombie Control|Treasure Hunt|Quest Line\",\n"
+        "      \"kind\": \"Hunting|Fishing|Collection|Crafting|Explorer|Survival|Rescue|Zombie Control|Treasure Hunt|Quest Line\",\n"
         "      \"title\": \"<evocative quest title, 4-9 words>\",\n"
         "      \"summary\": \"<2-3 sentence story setup. Sets the scene. Why does this quest exist in the world?>\",\n"
         "      \"goal\": \"<the headline objective in one sentence. If quantity-based, use the literal token {count}.>\",\n"
@@ -6784,6 +6811,20 @@ async def generate_ai_pve_campaign(theme, count=12):
         "- `recommended_squad`: solo=lone wolf stealth, duo=overwatch + breacher, trio=balanced, squad=4+ for legendary objectives.\n"
         "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
         "- If quest is quantity-based, use literal {count} token in `goal`, not a number.\n"
+        "🚫 ABSOLUTELY FORBIDDEN TASKS (DAYZ MECHANICS) 🚫\n"
+        "- DO NOT use the kind 'Repair'. It is removed from the allowed list. NEVER assign a quest whose `goal` or `steps` ask the player to 'repair', 'fix', 'patch', 'restore', 'service', 'rebuild', 'reassemble', 'reactivate', 'reboot', 'get X working again', or 'bring X back online'. Players cannot do these things in vanilla DayZ on a Nitrado server.\n"
+        "- This includes: repairing generators, radios, antennas, wells, helicopters, planes, boats, broken vehicles, bunkers, doors, fences, base walls, bridges, satellite dishes, military gear, computers, and electronics.\n"
+        "- If the lore mentions broken infrastructure, REWRITE the player's task as one of the allowed actions below. The broken thing can exist in the story — but the player's job is never to fix it.\n"
+        "✅ ALLOWED OBJECTIVE PATTERNS — every quest goal MUST fit one of these:\n"
+        "  1. COLLECT & DELIVER — gather N named real DayZ items and stash/drop them at a named landmark. e.g. 'Collect 1 spark plug, 1 car battery, 1 radiator, and 1 full jerry can; deliver them to the stash crate behind the Green Mountain radio tower; screenshot the open crate.'\n"
+        "  2. HUNT — kill N specific entities (infected, wolves, bears, deer, boars, chickens, or a named PvE target).\n"
+        "  3. SCOUT & REPORT — visit N named landmarks and screenshot specific features (dynamic event smoke, heli crash, contaminated zone signage, military tent layout).\n"
+        "  4. RESCUE / MEET CONTACT — travel to a named landmark to leave/retrieve a 'contact package' (an item stash that represents an NPC handoff). e.g. 'Meet the Green Mountain medic at the stone cross — leave 2 epinephrines and 1 saline bag IV in the wooden crate.'\n"
+        "  5. FISHING — catch N fish at a named lake/river with a real DayZ fishing rod.\n"
+        "  6. CRAFT — only craftable DayZ recipes: improvised knife (stone + stick), fishing rod (long stick + rope + hook), fireplace (sticks + paper/rags), splint (2 sticks + rags), rag bandage, leather backpack/clothing from tanned pelts, improvised bow (long stick + rope), improvised ashwood short bow. NEVER craft electronics, vehicles, buildings, or weapons that aren't in vanilla DayZ.\n"
+        "  7. SURVIVAL CHALLENGE — survive N in-game hours/cycles under a constraint (no cooked food, only foraged water, no firearms, etc.) with screenshot timestamps as proof.\n"
+        "  8. TREASURE HUNT — find a hidden stash at a coordinate revealed via clue chain (admin will set up via custom reward).\n"
+        "- `goal` MUST start with one of these action verbs: Collect, Deliver, Hunt, Kill, Scout, Photograph, Meet, Drop off, Stash, Catch, Cook, Craft (only allowed recipes), Survive, Locate, Retrieve, Escort, Find. NEVER use: repair, fix, restore, service, patch, rebuild, reactivate.\n"
         "- IMPORTANT — Pick `reward_type` from this exact list (these are the ONLY rewards the bot can actually deliver):\n"
         "    * pennies            — in-bot currency added to player's wallet (always also delivered).\n"
         "    * infected_map       — bot generates a PNG of the server's real infected/PVP heatmap and delivers it.\n"
@@ -6904,6 +6945,14 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "- chat: params {} — for friendly clarifying questions or chit-chat.\n\n"
     "Valid target_channel_key values: pve_quests, pve_hunting, pve_collection, pve_fishing, pve_crafting, pve_expeditions. "
     "Default to pve_quests when unsure.\n\n"
+    "🚫 DAYZ MECHANICS GUARD-RAIL — when you choose theme/title text for generate_campaign or post_quest_now, "
+    "NEVER frame the theme as a 'repair', 'fix', 'restore', 'patch up', 'rebuild', or 'get X working again' job. "
+    "DayZ players cannot repair generators, radios, antennas, helicopters, buildings, doors, bunkers, or broken "
+    "vehicles in a quest. If the admin asks for a 'repair' style storyline, REPHRASE the theme so the player's "
+    "job is to COLLECT specific real DayZ items (spark plugs, batteries, radiators, jerry cans, medical supplies) "
+    "and DELIVER them to a named stash/contact, or to SCOUT a location, HUNT targets, or MEET a contact. "
+    "For example, 'repair the Green Mountain radio' becomes 'salvage radio parts and stash them for the Green "
+    "Mountain operator'. Reply in the 'reply' field acknowledging the swap in plain English.\n\n"
     "If the admin's request is ambiguous, default to action=chat and ask a short clarifying question. "
     "Always reply in English unless the admin uses another language. Keep replies concise and survival-flavoured."
 )
@@ -16000,11 +16049,11 @@ PVE_CHALLENGE_BANK = [
         "tips": "Coastal towns are fine early, but inland houses and hunting cabins are usually less picked clean."
     },
     {
-        "kind": "Repair",
-        "title": "Roadside Rescue",
-        "goal": "Find and repair one working vehicle part set: spark plug, battery, radiator, and fuel.",
+        "kind": "Collection",
+        "title": "Roadside Resupply Run",
+        "goal": "Collect a full vehicle-recovery kit — 1 spark plug, 1 car battery, 1 radiator, and 1 full jerry can — and stash them at a named drop point. Screenshot the open stash as proof.",
         "reward": "Admin-chosen vehicle supplies or fuel reward.",
-        "tips": "Industrial sheds, garages, and vehicle wrecks are your best bet."
+        "tips": "Industrial sheds, garages, and vehicle wrecks are your best bet. Tape the jerry can lid shut before transport — sprinting drains fuel."
     },
     {
         "kind": "Explorer",
@@ -16126,7 +16175,7 @@ PVE_GENERATED_QUEST_SEEDS = [
     ("Collection", "Medicine Cabinet", "Collect {count} medical supplies and post proof.", None, 700, "Easy", "Tetra, charcoal, vitamins, saline, morphine, bandages. Hoard responsibly."),
     ("Collection", "Warm Kit", "Collect {count} warm clothing pieces for cold-weather survivors.", None, 650, "Easy", "Gloves are not glamorous, but neither is frostbite."),
     ("Collection", "Builder's Bundle", "Collect {count} building supplies: nails, planks, wire, rope, locks, or tools.", None, 900, "Medium", "Every nail has a destiny. Usually in a wall someone later complains about."),
-    ("Repair", "Garage Goblin", "Find a working vehicle part set and post proof.", None, 1200, "Hard", "Battery, plug, radiator, fuel. Then the car may still betray you."),
+    ("Collection", "Garage Goblin", "Collect a full vehicle-recovery kit (1 battery, 1 spark plug, 1 radiator, 1 full jerry can) and stash them at a named drop point. Screenshot the open stash.", None, 1200, "Hard", "Industrial sheds and vehicle wrecks first. Then run quiet — fuel sloshes louder than you think."),
     ("Rescue", "Good Samaritan", "Escort or resupply another survivor and post proof.", None, 1000, "Medium", "PVE is better when someone else survives because you showed up."),
     ("Treasure Hunt", "Little Mystery", "Find a scenic, hidden, or strange spot and post a screenshot clue.", None, 600, "Easy", "Discovery counts. Not everything needs to bleed."),
     ("Treasure Hunt", "Lost Cache", "Find or create a small hidden cache for another survivor to discover.", None, 1300, "Hard", "Leave a story, not just loot."),
