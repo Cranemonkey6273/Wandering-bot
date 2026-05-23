@@ -28681,6 +28681,182 @@ async def zone_reportchannel(interaction: discord.Interaction, zone_id: str, cha
     await interaction.response.send_message(f"📢 Report channel for `{zone_id}` set to {target}.", ephemeral=True)
 
 
+def _render_zones_on_map(guild_id, map_name="chernarus", width=1024, height=1024):
+    """Render every safe-zone for this guild onto the configured map PNG
+    using Pillow. Circles + polygons. Colour-coded by action:
+       ban     → semi-transparent red
+       manhunt → semi-transparent gold
+       none    → semi-transparent grey
+    Each zone gets a label with its id + name. Returns the path to a
+    fresh PNG on disk, or (None, error_message)."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as err:
+        return None, f"Pillow is not installed: {err}. Add `Pillow` to requirements.txt and redeploy."
+
+    config = guild_configs.get(str(guild_id), {})
+    zones = config.get("safe_zones") or []
+    if not zones:
+        return None, "No zones configured yet. Use `/server zone create-circle` first."
+
+    map_key = normalize_map_image_key(map_name)
+    source = configured_heatmap_image_source(guild_id, map_key)
+    if not source:
+        return None, f"No map image configured for `{map_key}`. Set one with `/heatmapimage`."
+
+    # Pull the base map (URL or local path).
+    base_path = None
+    cleanup_base = False
+    try:
+        if str(source).startswith(("http://", "https://")):
+            resp = requests.get(source, timeout=20)
+            if resp.status_code != 200:
+                return None, f"Map download failed: HTTP {resp.status_code}"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp.write(resp.content)
+            tmp.close()
+            base_path = tmp.name
+            cleanup_base = True
+        else:
+            base_path = source
+
+        base = Image.open(base_path).convert("RGBA").resize((width, height))
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+            font_small = ImageFont.truetype("DejaVuSans.ttf", 12)
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        action_palette = {
+            "ban":     {"fill": (231, 76, 60, 110),  "outline": (231, 76, 60, 230),  "label_bg": (231, 76, 60, 220)},
+            "manhunt": {"fill": (241, 196, 15, 110), "outline": (241, 196, 15, 230), "label_bg": (241, 196, 15, 220)},
+            "none":    {"fill": (149, 165, 166, 90), "outline": (149, 165, 166, 220),"label_bg": (149, 165, 166, 200)},
+        }
+
+        def world_to_pixel(x, y):
+            return map_coords_to_pixel(f"{x},{y}", guild_id=guild_id, width=width, height=height)
+
+        # Render every zone.
+        for zone in zones:
+            if not zone.get("enabled", True):
+                continue
+            palette = action_palette.get((zone.get("action") or "none").lower(), action_palette["none"])
+            shape = zone.get("shape", "circle")
+            label_anchor = None
+
+            if shape == "polygon":
+                verts = zone.get("vertices") or []
+                if len(verts) < 3:
+                    continue
+                pixel_verts = []
+                for vx, vy in verts:
+                    pt = world_to_pixel(vx, vy)
+                    if pt:
+                        pixel_verts.append(pt)
+                if len(pixel_verts) >= 3:
+                    draw.polygon(pixel_verts, fill=palette["fill"], outline=palette["outline"])
+                    # Outline a bit thicker so it's readable on busy maps.
+                    for i in range(len(pixel_verts)):
+                        a = pixel_verts[i]
+                        b = pixel_verts[(i + 1) % len(pixel_verts)]
+                        draw.line([a, b], fill=palette["outline"], width=3)
+                    cx = sum(p[0] for p in pixel_verts) // len(pixel_verts)
+                    cy = sum(p[1] for p in pixel_verts) // len(pixel_verts)
+                    label_anchor = (cx, cy)
+            else:
+                # Circle.
+                world_x = float(zone.get("x", 0))
+                world_y = float(zone.get("y", 0))
+                world_radius = float(zone.get("radius", 100))
+                center = world_to_pixel(world_x, world_y)
+                if not center:
+                    continue
+                # Convert world-radius to pixel-radius via the map ratio.
+                map_w, _ = server_map_size(guild_id)
+                pixel_radius = max(6, int((world_radius / float(map_w)) * width))
+                cx, cy = center
+                draw.ellipse(
+                    (cx - pixel_radius, cy - pixel_radius, cx + pixel_radius, cy + pixel_radius),
+                    fill=palette["fill"],
+                    outline=palette["outline"],
+                    width=3,
+                )
+                label_anchor = (cx, cy)
+
+            # Draw the label pill — zone id + first 18 chars of name.
+            if label_anchor:
+                lcx, lcy = label_anchor
+                label_text = f"{zone.get('id')} · {(zone.get('name') or '')[:18]}"
+                # Pillow modern API uses textbbox; fall back to textsize if missing.
+                try:
+                    bbox = draw.textbbox((0, 0), label_text, font=font_small)
+                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                except Exception:
+                    tw, th = (len(label_text) * 6, 12)
+                pad = 4
+                rect = (lcx - tw // 2 - pad, lcy - th // 2 - pad, lcx + tw // 2 + pad, lcy + th // 2 + pad)
+                draw.rectangle(rect, fill=palette["label_bg"], outline=(0, 0, 0, 220))
+                draw.text((lcx - tw // 2, lcy - th // 2), label_text, fill=(0, 0, 0, 255), font=font_small)
+
+        # Legend top-left.
+        legend = [
+            ("● BAN",     (231, 76, 60, 255)),
+            ("● MANHUNT", (241, 196, 15, 255)),
+            ("● LOG",     (149, 165, 166, 255)),
+        ]
+        lx, ly = 12, 12
+        draw.rectangle((lx - 4, ly - 4, lx + 130, ly + 4 + 22 * len(legend)), fill=(0, 0, 0, 180), outline=(255, 255, 255, 200))
+        for label, color in legend:
+            draw.text((lx, ly), label, fill=color, font=font)
+            ly += 22
+
+        final = Image.alpha_composite(base, overlay)
+        fd, out_path = tempfile.mkstemp(prefix=f"zones_{guild_id}_", suffix=".png")
+        os.close(fd)
+        final.save(out_path, "PNG")
+        return out_path, None
+    except Exception as err:
+        print(f"[ZONE DRAW] render error: {err}")
+        return None, f"Render error: {err}"
+    finally:
+        if cleanup_base and base_path:
+            try:
+                os.remove(base_path)
+            except Exception:
+                pass
+
+
+@zone_group.command(name="draw", description="Render all safe / PvP zones onto your server's map image.")
+@app_commands.describe(map_name="chernarus, livonia, or sakhal — defaults to chernarus")
+async def zone_draw(interaction: discord.Interaction, map_name: str = "chernarus"):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    out_path, error = _render_zones_on_map(str(interaction.guild.id), map_name=map_name)
+    if error:
+        await interaction.followup.send(f"❌ {error}", ephemeral=True)
+        return
+    try:
+        config = guild_configs.get(str(interaction.guild.id), {})
+        zones = config.get("safe_zones") or []
+        embed = discord.Embed(
+            title=f"🗺️ Safe / PvP Zones — {normalize_map_image_key(map_name).title()}",
+            description=f"{len(zones)} zone(s) rendered. Red = auto-ban · Yellow = manhunt · Grey = log-only.",
+            color=0x3498DB,
+        )
+        embed.set_image(url="attachment://zones_map.png")
+        embed.set_footer(text="Wandering Bot Alpha — Zone Cartographer")
+        file = discord.File(out_path, filename="zones_map.png")
+        await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+    finally:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+
+
 # ============================================================================
 # /server gameban … — manual Nitrado ban control (separate from /tempban
 # which only handles Discord bans)
