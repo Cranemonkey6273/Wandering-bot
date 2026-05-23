@@ -11725,29 +11725,15 @@ async def parse_adm(guild_id, config):
         parsed_event_time = extract_adm_event_time(line)
         event_time = parsed_event_time or datetime.now(UTC)
 
-        # AGE GUARD: Railway containers restart at random and wipe the
-        # in-memory processed_lines cache. The on-disk JSON backup may
-        # also be gone (ephemeral disk). When that happens the bot
-        # re-reads the entire .ADM file fresh and would spam Discord
-        # with every event from the past 24 hours. Skip dispatch for
-        # any event older than ADM_EVENT_MAX_AGE_SECONDS — but ONLY
-        # during the cold-start window. After that, the hash dedupe
-        # alone protects against replay, and we must not drop live
-        # events just because the DayZ server logs in a non-UTC
-        # timezone (CEST/CET/EST/etc.), which would make every fresh
-        # HH:MM:SS look "in the future" → rolled back a day → marked
-        # 24h stale → dropped silently. The cold-start window guards
-        # against replay; after that the bot must trust new lines.
-        in_cold_start_window = (
-            (datetime.now(UTC) - BOT_PROCESS_START_TIME).total_seconds()
-            < ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS
-        )
-        if (
-            in_cold_start_window
-            and parsed_event_time is not None
-            and is_adm_event_stale(parsed_event_time)
-        ):
-            continue
+        # NOTE: No age guard. The previous PR #27 age guard was over-engineered
+        # and silently dropped live events on non-UTC Nitrado nodes (parsed
+        # HH:MM:SS in server-local time → anchored to UTC today → looked
+        # in the future → rolled back to yesterday → flagged 24h stale →
+        # dropped). The hash dedupe via `processed_lines` is the ONLY
+        # replay-protection we need: every line is hashed once, persisted
+        # to processed_adm_lines.json, and never dispatched twice. When a
+        # new ADM file rolls in we re-process it fresh, but already-seen
+        # hashes are skipped automatically.
 
         event_type = classify_event(line)
 
@@ -17160,6 +17146,176 @@ async def update_public_quest_posts_with_claim(guild, challenge):
             print(f"[PVE TICKET] update_public_quest_posts edit failed: {err}")
 
 
+def default_items_for_quest(challenge):
+    """Return a sensible structured items_needed kit ({item, qty, spawn_zones})
+    inferred from the quest's kind + title keywords. Used to auto-enrich
+    legacy hardcoded bank quests (PVE_CHALLENGE_BANK) that were written
+    before the structured-items schema existed, so every quest — AI or
+    bank — surfaces a meaty multi-item collection list in its embed.
+
+    Order matters: title-keyword matches win over kind matches so a
+    'Medical Run' Collection quest still gets the medical kit."""
+    if not isinstance(challenge, dict):
+        return []
+    title = str(challenge.get("title") or "").lower()
+    kind = str(challenge.get("kind") or "").lower()
+    goal = str(challenge.get("goal") or "").lower()
+    blob = f"{title} {goal}"
+
+    def kit(*entries):
+        return [{"item": name, "qty": qty, "spawn_zones": list(zones)} for name, qty, *zones in entries]
+
+    # --- Title / goal keyword routing ---
+    if any(w in blob for w in ["medic", "medical", "doctor", "hospital", "outbreak", "viral", "infect", "clinic"]):
+        return kit(
+            ("Bandage", 6, "Residential", "Hospital"),
+            ("Rag", 8, "Residential"),
+            ("Tetracycline Pills", 3, "Hospital", "Police"),
+            ("Charcoal Tablets", 4, "Hospital", "Residential"),
+            ("Saline Bag IV", 2, "Hospital", "Military"),
+            ("Morphine Auto-Injector", 1, "Hospital", "Military"),
+            ("Epinephrine", 2, "Hospital"),
+            ("Disinfectant Spray", 2, "Residential", "Hospital"),
+        )
+    if any(w in blob for w in ["pantry", "food", "feast", "supper", "ration"]):
+        return kit(
+            ("Canned Beans", 5, "Residential"),
+            ("Canned Spaghetti", 4, "Residential"),
+            ("Sardines", 4, "Residential", "Coastal"),
+            ("Powdered Milk", 3, "Residential"),
+            ("Rice", 3, "Residential"),
+            ("Pumpkin", 2, "Farm", "Hunting"),
+            ("Canteen", 1, "Residential", "Hunting"),
+        )
+    if any(w in blob for w in ["builder", "build", "carpenter", "construct", "fence", "base"]):
+        return kit(
+            ("Nail", 30, "Industrial", "Residential"),
+            ("Wooden Plank", 10, "Industrial"),
+            ("Wooden Log", 6, "Forest", "Industrial"),
+            ("Rope", 3, "Residential", "Hunting"),
+            ("Combination Lock", 2, "Industrial"),
+            ("Hammer", 1, "Industrial"),
+            ("Hand Saw", 1, "Industrial"),
+        )
+    if any(w in blob for w in ["tool", "mechanic", "garage", "wrench", "spark", "battery", "fuel", "vehicle", "roadside"]):
+        return kit(
+            ("Spark Plug", 2, "Industrial"),
+            ("Car Battery", 1, "Industrial"),
+            ("Radiator", 1, "Industrial"),
+            ("Glow Plug", 2, "Industrial"),
+            ("Jerry Can (full)", 2, "Industrial", "Residential"),
+            ("Pipe Wrench", 1, "Industrial"),
+            ("Pliers", 1, "Industrial"),
+            ("Duct Tape", 2, "Residential", "Industrial"),
+        )
+    if any(w in blob for w in ["radio", "signal", "transceiver", "antenna", "comm", "broadcast"]):
+        return kit(
+            ("Portable Transceiver", 2, "Military", "Police"),
+            ("Battery 9V", 4, "Residential", "Police"),
+            ("Cassette Tape", 1, "Residential"),
+            ("Duct Tape", 1, "Residential"),
+            ("Electrical Repair Kit", 1, "Industrial", "Military"),
+            ("Headtorch", 1, "Industrial", "Residential"),
+        )
+    if any(w in blob for w in ["hunt", "predator", "wolf", "bear", "deer", "boar"]):
+        return kit(
+            ("Hunting Knife", 1, "Hunting", "Residential"),
+            ("Compound Bow", 1, "Hunting"),
+            ("Mosin 9130", 1, "Hunting", "Military"),
+            ("Mosin Ammo Box", 1, "Hunting", "Military"),
+            ("Steak Knife", 1, "Residential"),
+            ("Cooking Pot", 1, "Residential"),
+            ("Cooking Tripod", 1, "Residential", "Hunting"),
+        )
+    if any(w in blob for w in ["fish", "angler", "lake", "river"]):
+        return kit(
+            ("Improvised Fishing Rod", 1, "Coastal", "Residential"),
+            ("Bone Hook", 5, "Coastal", "Residential"),
+            ("Worm", 4, "Forest", "Farm"),
+            ("Long Wooden Stick", 2, "Forest"),
+            ("Rope", 2, "Residential"),
+            ("Cooking Pot", 1, "Residential"),
+        )
+    if any(w in blob for w in ["military", "tisy", "nwaf", "armory", "soldier", "convoy"]):
+        return kit(
+            ("Plate Carrier Vest", 1, "Military"),
+            ("Ballistic Helmet", 1, "Military"),
+            ("AK-74", 1, "Military"),
+            ("AK-74 Magazine", 3, "Military"),
+            ("Frag Grenade", 2, "Military"),
+            ("Smersh Backpack", 1, "Military"),
+            ("Combat Knife", 1, "Military"),
+        )
+    if any(w in blob for w in ["contraband", "smuggler", "black market", "trade", "courier", "cartel"]):
+        return kit(
+            ("Cigarette Pack", 10, "Residential"),
+            ("Alcohol Tincture", 5, "Hospital", "Residential"),
+            ("Vodka", 4, "Residential"),
+            ("Spirit Bottle", 3, "Residential"),
+            ("Burlap Sack", 2, "Residential"),
+            ("Duct Tape", 2, "Residential"),
+        )
+    if any(w in blob for w in ["scout", "expedition", "explorer", "travel", "loop"]):
+        return kit(
+            ("Compass", 1, "Hunting", "Military"),
+            ("Map (full)", 1, "Residential"),
+            ("Canteen", 1, "Residential", "Hunting"),
+            ("Cooking Pot", 1, "Residential"),
+            ("Matches", 2, "Residential"),
+            ("Roadflare", 2, "Industrial", "Residential"),
+            ("Hunting Backpack", 1, "Hunting"),
+        )
+
+    # --- Fallback by kind (always returns something) ---
+    if kind in {"collection", "scavenge", "loot"}:
+        return kit(
+            ("Canned Beans", 3, "Residential"),
+            ("Bandage", 3, "Residential", "Hospital"),
+            ("Rope", 2, "Residential", "Hunting"),
+            ("Duct Tape", 2, "Residential", "Industrial"),
+            ("Canteen", 1, "Residential"),
+            ("Hunting Knife", 1, "Hunting", "Residential"),
+        )
+    if kind in {"crafting", "craft"}:
+        return kit(
+            ("Long Wooden Stick", 4, "Forest"),
+            ("Rope", 2, "Residential"),
+            ("Rag", 4, "Residential"),
+            ("Bone Hook", 2, "Coastal", "Hunting"),
+            ("Sharpening Stone", 1, "Industrial", "Residential"),
+            ("Improvised Knife", 1, "Forest"),
+        )
+    if kind in {"survival"}:
+        return kit(
+            ("Canteen", 1, "Residential"),
+            ("Matches", 2, "Residential"),
+            ("Cooking Pot", 1, "Residential"),
+            ("Bandage", 4, "Residential", "Hospital"),
+            ("Hunting Knife", 1, "Hunting", "Residential"),
+            ("Sewing Kit", 1, "Residential"),
+        )
+    # Last-ditch fallback so the embed never looks empty.
+    return kit(
+        ("Bandage", 3, "Residential"),
+        ("Rope", 2, "Residential"),
+        ("Duct Tape", 2, "Residential"),
+        ("Canteen", 1, "Residential"),
+    )
+
+
+def enrich_quest_with_defaults(challenge):
+    """If the quest dict has no structured items_needed, inject a sensible
+    default kit so even legacy bank quests look meaty. Idempotent.
+    Returns the (possibly-mutated) challenge dict for chaining."""
+    if not isinstance(challenge, dict):
+        return challenge
+    existing = challenge.get("items_needed") or []
+    has_structured = any(isinstance(it, dict) and (it.get("item") or it.get("name")) for it in existing) if isinstance(existing, list) else False
+    if not has_structured:
+        challenge["items_needed"] = default_items_for_quest(challenge)
+    return challenge
+
+
 async def open_pve_quest_ticket(interaction, challenge):
     """Create a private channel for a player to start a quest. Only the
     player, admins, and the bot can see it. The quest itself becomes
@@ -17250,6 +17406,14 @@ async def open_pve_quest_ticket(interaction, challenge):
         ticket_number=ticket_number,
     )
 
+    # Auto-enrich legacy bank quests with a default items_needed kit so
+    # the player always sees a meaty multi-item briefing inside the ticket.
+    try:
+        enrich_quest_with_defaults(challenge)
+        save_pve_challenges()
+    except Exception:
+        pass
+
     welcome = discord.Embed(
         title=f"Welcome to #{channel_name}!",
         description=(
@@ -17286,8 +17450,50 @@ async def open_pve_quest_ticket(interaction, challenge):
     intro.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
     if challenge.get("quest_line"):
         intro.add_field(name="Quest Line", value=challenge["quest_line"], inline=False)
-    intro.add_field(name="Objective", value=str(challenge.get("goal", "—"))[:1024], inline=False)
-    intro.add_field(name="Reward", value=str(challenge.get("reward", "—"))[:1024], inline=False)
+    intro.add_field(name="🎯 Objective", value=str(challenge.get("goal", "—"))[:1024], inline=False)
+
+    # Surface the FULL items list inside the ticket — this is the player's
+    # private briefing channel, they shouldn't have to hop back to the
+    # public feed to see what they're collecting.
+    items_needed = challenge.get("items_needed") or []
+    if items_needed:
+        rendered_items = []
+        for it in items_needed[:10]:
+            line = format_quest_item_line(it) if isinstance(it, dict) else f"• {str(it)[:80]}"
+            if line:
+                rendered_items.append(line)
+        if rendered_items:
+            intro.add_field(
+                name="📦 Required Items",
+                value="\n".join(rendered_items)[:1024],
+                inline=False,
+            )
+
+    delivery_target = (challenge.get("delivery_target") or "").strip()
+    if delivery_target:
+        intro.add_field(name="📍 Delivery / Drop-off", value=delivery_target[:1024], inline=False)
+
+    rules = challenge.get("rules") or []
+    if rules:
+        intro.add_field(
+            name="📜 Rules",
+            value="\n".join(f"• {r}" for r in rules[:6])[:1024],
+            inline=False,
+        )
+
+    risk_factor = challenge.get("risk_factor") or []
+    if risk_factor:
+        intro.add_field(
+            name="⚠️ Risk Factor",
+            value="\n".join(f"• {r}" for r in risk_factor[:5])[:1024],
+            inline=False,
+        )
+
+    pvp_zone = (challenge.get("pvp_zone") or "").strip()
+    if pvp_zone:
+        intro.add_field(name="⚔️ PvP Zone", value=pvp_zone[:1024], inline=False)
+
+    intro.add_field(name="💰 Reward", value=str(challenge.get("reward", "—"))[:1024], inline=False)
     intro.set_footer(text="Wandering Bot Alpha — PVE Ticket System")
 
     control_view = QuestTicketControlView(
@@ -17512,6 +17718,9 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
         return False, "PVE quest channel missing"
 
     challenge = generate_pve_challenge(guild_id=guild_id)
+    # Auto-enrich legacy bank quests with a structured item kit so the
+    # public embed always shows a meaty multi-item collection list.
+    enrich_quest_with_defaults(challenge)
     guild_challenges = pve_challenges.setdefault(str(guild_id), [])
     guild_challenges.append(challenge)
     pve_challenges[str(guild_id)] = guild_challenges[-25:]
@@ -17525,8 +17734,20 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     embed.add_field(name="Quest ID", value=f"`{pve_quest_code(challenge)}`", inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
     embed.add_field(name="Status", value="Manual Post" if manual else "Auto Generated", inline=False)
-    embed.add_field(name="Objective", value=challenge["goal"], inline=False)
-    embed.add_field(name="Reward", value=challenge["reward"], inline=False)
+    embed.add_field(name="🎯 Objective", value=challenge["goal"], inline=False)
+
+    # 📦 Show the structured items list right under the objective.
+    bank_items = challenge.get("items_needed") or []
+    if bank_items:
+        rendered = []
+        for it in bank_items[:10]:
+            line = format_quest_item_line(it) if isinstance(it, dict) else f"• {str(it)[:80]}"
+            if line:
+                rendered.append(line)
+        if rendered:
+            embed.add_field(name="📦 Required Items", value="\n".join(rendered)[:1024], inline=False)
+
+    embed.add_field(name="💰 Reward", value=challenge["reward"], inline=False)
     if challenge.get("target_event"):
         embed.add_field(
             name="Auto Tracking",
@@ -17535,13 +17756,18 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
         )
     else:
         embed.add_field(
-            name="Completion",
-            value=f"Post proof for staff. Admins approve with `/pvecomplete quest_id:{pve_quest_code(challenge)}`.",
+            name="🎯 How To Start",
+            value=(
+                "Click **🎯 Open Ticket / Start Quest** below — the bot will spin up a "
+                "private channel just for you and the admins. Discuss the quest there, "
+                "submit proof, and rewards drop in your ticket. Admin runs "
+                f"`/pvecomplete quest_id:{pve_quest_code(challenge)} member:@you` once done."
+            ),
             inline=False
         )
     if challenge.get("quest_line"):
         embed.add_field(name="Quest Line", value=challenge["quest_line"], inline=True)
-    embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
+    embed.add_field(name="💡 Survival Tip", value=challenge["tips"], inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - PVE Mission Board")
 
@@ -17587,6 +17813,8 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     challenge = generate_pve_challenge(kind, difficulty, guild_id=guild_id)
     challenge["channel_key"] = channel_key
     challenge["slot_difficulty"] = difficulty
+    # Auto-enrich legacy themed bank quests with a structured item kit.
+    enrich_quest_with_defaults(challenge)
     channel = bot.get_channel(channels.get(channel_key))
     if not channel:
         return False, "PVE channel missing"
@@ -17605,14 +17833,31 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     embed.add_field(name="🆔 Quest ID", value=f"`{quest_code}`", inline=True)
     embed.add_field(name="Quest Slot", value=channel.mention, inline=True)
     embed.add_field(name="Difficulty", value=challenge.get("difficulty", "Medium"), inline=True)
-    embed.add_field(name="Reward", value=challenge["reward"], inline=False)
-    embed.add_field(name="Objective", value=challenge["goal"], inline=False)
+    embed.add_field(name="🎯 Objective", value=challenge["goal"], inline=False)
+
+    # 📦 Always surface a meaty structured item list under the objective.
+    themed_items = challenge.get("items_needed") or []
+    if themed_items:
+        rendered = []
+        for it in themed_items[:10]:
+            line = format_quest_item_line(it) if isinstance(it, dict) else f"• {str(it)[:80]}"
+            if line:
+                rendered.append(line)
+        if rendered:
+            embed.add_field(name="📦 Required Items", value="\n".join(rendered)[:1024], inline=False)
+
+    embed.add_field(name="💰 Reward", value=challenge["reward"], inline=False)
     embed.add_field(
-        name="Completion",
-        value=f"This is the {difficulty} slot. Staff approve it with `/pvecomplete quest_id:{quest_code}`, then I post a new {difficulty} quest here.",
+        name="🎯 How To Start",
+        value=(
+            "Click **🎯 Open Ticket / Start Quest** below — the bot will spin up a "
+            "private channel just for you and the admins. Discuss the quest there, "
+            "submit proof, and rewards drop in your ticket. Admin runs "
+            f"`/pvecomplete quest_id:{quest_code} member:@you` once done."
+        ),
         inline=False
     )
-    embed.add_field(name="Survival Tip", value=challenge["tips"], inline=False)
+    embed.add_field(name="💡 Survival Tip", value=challenge["tips"], inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text=f"Wandering Bot Alpha - Channel PVE Quest Feed - {quest_code}")
     sent_themed_msg = await channel.send(embed=style_embed(embed), view=PVEQuestCompletionView(quest_code))
