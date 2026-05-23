@@ -107,6 +107,17 @@ DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "
 
 guild_configs = {}
 processed_lines = {}
+# Wall-clock UTC time the bot process started. Used by the ADM age guard
+# to ONLY filter "old" events during a short cold-start window — after
+# that, the hash dedupe on its own is sufficient to prevent replay, and
+# the age guard would falsely drop live events when the DayZ server logs
+# in a non-UTC timezone (e.g. CEST/CET/EST Nitrado nodes).
+BOT_PROCESS_START_TIME = datetime.now(UTC)
+# How long after process start the ADM age guard stays active. 90s is
+# enough to filter out yesterday's 250 tail lines on a cold container,
+# but short enough that the first real-world player connect after start
+# always dispatches.
+ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
@@ -6653,6 +6664,76 @@ def _coerce_difficulty(raw):
     }.get(cleaned, "Medium")
 
 
+def _coerce_items_needed(value):
+    """Normalise items_needed to a list of {item, qty, spawn_zones} dicts.
+
+    Accepts both the legacy flat-string format and the new structured
+    dict format. Anything unparseable is dropped silently."""
+    if not value:
+        return []
+    if isinstance(value, (str, dict)):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+
+    out = []
+    for raw_item in value[:10]:
+        if isinstance(raw_item, str):
+            name = raw_item.strip()
+            qty = 1
+            zones = []
+            # Try to peel a leading "2x " or "3× " quantity off the string.
+            m = re.match(r"^\s*(\d{1,2})\s*[x×*]\s+(.+)$", name, flags=re.IGNORECASE)
+            if m:
+                try:
+                    qty = max(1, min(int(m.group(1)), 25))
+                except Exception:
+                    qty = 1
+                name = m.group(2).strip()
+        elif isinstance(raw_item, dict):
+            name = str(raw_item.get("item") or raw_item.get("name") or "").strip()
+            try:
+                qty = max(1, min(int(raw_item.get("qty") or raw_item.get("quantity") or 1), 25))
+            except Exception:
+                qty = 1
+            raw_zones = raw_item.get("spawn_zones") or raw_item.get("zones") or []
+            if isinstance(raw_zones, str):
+                raw_zones = [raw_zones]
+            zones = []
+            for z in raw_zones[:4]:
+                zname = str(z or "").strip()
+                if zname:
+                    zones.append(zname[:40])
+        else:
+            continue
+
+        if not name:
+            continue
+        out.append({
+            "item": name[:80],
+            "qty": qty,
+            "spawn_zones": zones,
+        })
+    return out
+
+
+def format_quest_item_line(item_dict):
+    """Render a single items_needed dict for the embed as e.g.
+    '2x Portable Transceiver  ·  Military, Police'."""
+    if not isinstance(item_dict, dict):
+        return f"• {str(item_dict)[:80]}"
+    name = str(item_dict.get("item") or "").strip()
+    if not name:
+        return ""
+    qty = item_dict.get("qty") or 1
+    zones = item_dict.get("spawn_zones") or []
+    base = f"**{qty}x** {name}" if qty and qty > 0 else name
+    if zones:
+        zone_text = ", ".join(zones[:4])
+        return f"• {base}  ·  _{zone_text}_"
+    return f"• {base}"
+
+
 def _normalize_ai_quest_entry(raw, campaign_name):
     """Validate one AI-generated quest dict and coerce it into the schema
     PVE_CHALLENGE_BANK uses (plus the extended workshop fields). Returns
@@ -6674,10 +6755,18 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     reward = str(raw.get("reward") or "Admin-chosen pennies, food, ammo, or medical kit.").strip()
     summary = str(raw.get("summary") or "").strip()
     reward_pennies = raw.get("reward_pennies")
+    # AI quests are richer / longer than the legacy hardcoded bank quests
+    # so they pay a heavier fallback if the AI forgot to set reward_pennies.
+    ai_fallback_reward = {
+        "Easy": 3000,
+        "Medium": 7000,
+        "Hard": 12000,
+        "Legendary": 20000,
+    }.get(difficulty, 5000)
     try:
-        reward_pennies = int(reward_pennies) if reward_pennies is not None else pve_reward_for_difficulty(difficulty)
+        reward_pennies = int(reward_pennies) if reward_pennies is not None else ai_fallback_reward
     except Exception:
-        reward_pennies = pve_reward_for_difficulty(difficulty)
+        reward_pennies = ai_fallback_reward
 
     def _coerce_str_list(value, max_items=8, max_len=160):
         if value is None:
@@ -6695,8 +6784,19 @@ def _normalize_ai_quest_entry(raw, campaign_name):
 
     steps = _coerce_str_list(raw.get("steps"), max_items=6, max_len=240)
     locations = _coerce_str_list(raw.get("locations"), max_items=6, max_len=80)
-    items_needed = _coerce_str_list(raw.get("items_needed"), max_items=8, max_len=80)
     dangers = _coerce_str_list(raw.get("dangers"), max_items=5, max_len=160)
+
+    # items_needed now accepts BOTH the legacy flat-string format
+    # (["item1", "item2", ...]) AND the new richer structured format
+    # ([{"item": "...", "qty": 2, "spawn_zones": ["Military", "Police"]}, ...]).
+    # We normalise everything to the structured dict shape so the embed
+    # renderer can show quantities and spawn-zone hints consistently.
+    items_needed = _coerce_items_needed(raw.get("items_needed"))
+
+    # NEW richer quest fields. All optional — fall back to empty.
+    delivery_target = str(raw.get("delivery_target") or "").strip()[:200]
+    pvp_zone = str(raw.get("pvp_zone") or "").strip()[:200]
+    rules = _coerce_str_list(raw.get("rules"), max_items=6, max_len=200)
 
     estimated = raw.get("estimated_minutes")
     try:
@@ -6733,6 +6833,9 @@ def _normalize_ai_quest_entry(raw, campaign_name):
         "locations": locations,
         "items_needed": items_needed,
         "dangers": dangers,
+        "delivery_target": delivery_target,
+        "pvp_zone": pvp_zone,
+        "rules": rules,
         "reward": reward[:300],
         "reward_type": reward_type,
         "reward_visibility": reward_visibility,
@@ -6761,10 +6864,12 @@ async def generate_ai_pve_campaign(theme, count=12):
     count = max(4, min(int(count or 12), 40))
 
     prompt = (
-        f"Design exactly {count} richly-detailed DayZ PVE quests for a survival server. "
+        f"Design exactly {count} richly-detailed, MEATY DayZ PVE quests for a survival server. "
         f"Theme: \"{theme}\".\n\n"
-        "Each quest must read like a real briefing — multi-step, location-specific, "
-        "naming real DayZ towns/landmarks, real items, and real dangers.\n\n"
+        "These quests must feel WORTH DOING — not trivial single-item fetch tasks. Every "
+        "quest must demand multiple items in varied quantities, real travel, real risk, "
+        "and a structured delivery to a named contact. Treat each quest like a server "
+        "event a streamer would clip.\n\n"
         "Output strict JSON in this exact shape (no markdown, no commentary):\n"
         "{\n"
         f"  \"campaign_name\": \"<a 2-5 word campaign title evocative of the theme>\",\n"
@@ -6772,58 +6877,114 @@ async def generate_ai_pve_campaign(theme, count=12):
         "    {\n"
         "      \"kind\": \"Hunting|Fishing|Collection|Crafting|Explorer|Survival|Rescue|Zombie Control|Treasure Hunt|Quest Line\",\n"
         "      \"title\": \"<evocative quest title, 4-9 words>\",\n"
-        "      \"summary\": \"<2-3 sentence story setup. Sets the scene. Why does this quest exist in the world?>\",\n"
+        "      \"summary\": \"<3-4 sentence story setup. Sets the scene. Why does this quest exist in the world? Who needs the items and why?>\",\n"
         "      \"goal\": \"<the headline objective in one sentence. If quantity-based, use the literal token {count}.>\",\n"
         "      \"steps\": [\n"
         "        \"<concrete step 1 — names the place/item/action>\",\n"
         "        \"<concrete step 2>\",\n"
         "        \"<concrete step 3>\",\n"
-        "        \"<concrete step 4 (optional)>\",\n"
+        "        \"<concrete step 4>\",\n"
         "        \"<concrete step 5 (optional)>\"\n"
         "      ],\n"
         "      \"locations\": [\"<specific named DayZ town/landmark 1>\", \"<specific named DayZ town/landmark 2>\"],\n"
-        "      \"items_needed\": [\"<real DayZ item 1>\", \"<real DayZ item 2>\", \"<real DayZ item 3>\"],\n"
+        "      \"items_needed\": [\n"
+        "        {\"item\": \"<real vanilla DayZ item name>\", \"qty\": <int 1-15>, \"spawn_zones\": [\"<loot tier zone 1>\", \"<loot tier zone 2>\"]},\n"
+        "        ...\n"
+        "      ],\n"
+        "      \"delivery_target\": \"<named in-world contact + named landmark, e.g. 'The Quartermaster — wooden crate behind Green Mountain antenna'>\",\n"
+        "      \"pvp_zone\": \"<optional one-line PvP rule, e.g. 'PvP allowed at Prison Island ONLY (risk vs reward travel)' — leave empty string if quest is full-PVE>\",\n"
+        "      \"rules\": [\n"
+        "        \"<rule 1, e.g. 'You must carry all items at once during final delivery'>\",\n"
+        "        \"<rule 2, e.g. 'If you die during delivery → restart the collection'>\",\n"
+        "        \"<rule 3, e.g. 'Submit a ticket in #faction-tickets once delivered for the contact frequency'>\"\n"
+        "      ],\n"
         "      \"dangers\": [\"<specific danger e.g. 'High infected density at NWAF tents'>\", \"<another danger>\"],\n"
         "      \"time_of_day\": \"any|day|dusk|night|dawn\",\n"
         "      \"weather\": \"any|clear|rain|fog|storm|cold|snow\",\n"
         "      \"recommended_squad\": \"solo|duo|trio|squad\",\n"
-        "      \"reward\": \"<one short sentence describing the reward>\",\n"
+        "      \"reward\": \"<one short sentence describing the reward — make it feel earned>\",\n"
         "      \"reward_type\": \"pennies|infected_map|intel_brief|loot_drop_coords|role_grant|custom\",\n"
         "      \"reward_visibility\": \"public|private\",\n"
-        "      \"reward_pennies\": <integer between 200 and 4000 based on difficulty>,\n"
+        "      \"reward_pennies\": <integer scaling with difficulty: Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Legendary 18000-25000>,\n"
         "      \"difficulty\": \"Easy|Medium|Hard|Legendary\",\n"
-        "      \"estimated_minutes\": <int 10-180>,\n"
+        "      \"estimated_minutes\": <int 15-240>,\n"
         "      \"tips\": \"<2-3 sentences of advanced in-game advice referencing real DayZ mechanics>\"\n"
         "    }\n"
         "  ]\n"
         "}\n\n"
-        "MANDATORY RULES:\n"
+        "📦 DAYZ ITEM + SPAWN-ZONE KNOWLEDGE (use these REAL vanilla types.xml item names and their actual loot tiers):\n"
+        "▸ MILITARY (Tier 3-4 — NWAF, Tisy, NEAF, military tents, military helicrash, Pavlovo, Myshkino, Kamensk, Lopatino): "
+        "M4-A1, AKM, AK-74, AUG, M16-A2, FAL, SVD, VSS, LAR, SVAL, KA-M, KA-101, M14, Mosin 9130, SKS, CR-527, "
+        "Plate Carrier, Press Vest, NBC Suit, Ballistic Helmet, Tactical Goggles, Field Bag, Hunting Backpack, "
+        "Combat Boots, Smersh Vest, Smersh Backpack, Frag Grenade, M67 Grenade, Flashbang, Smoke Grenade, "
+        "Combat Knife, Bayonet AKM, Bayonet Mosin, M67 Frag Grenade, RGD-5, Plate Carrier Pouches, Improvised Suppressor.\n"
+        "▸ POLICE (Tier 1-2 — police stations in every town: Cherno PD, Elektro PD, Berezino PD, Novodmitrovsk PD): "
+        "Glock 19, CR-75, IJ-70, USG-45, Magnum .357, Magnum Speedloader, MP5K, Police Cap, Police Jacket, "
+        "Police Pants, Bulletproof Vest, Handcuffs, Handcuff Keys, Sirius LR Flashlight, Pepper Spray.\n"
+        "▸ HOSPITAL / MEDICAL (Tier 1-2 — Cherno hospital, Elektro hospital, Severograd clinic, summer camps, hunting camps): "
+        "Saline Bag IV, Saline Bag, IV Start Kit, Epinephrine, Morphine Auto-Injector, Tetracycline Pills, "
+        "Charcoal Tablets, Vitamin Bottle, PainKillers, Anti-Bacterial Wipes, Disinfectant Spray, Disinfectant Alcohol Tincture, "
+        "Bandage, Rag, Splint, Surgical Gloves, Surgeon Scalpel, Defibrillator (military), Blood Test Kit, Blood Bag (empty), "
+        "Blood Bag IV Start, Thermometer, Syringe.\n"
+        "▸ INDUSTRIAL (Tier 1-2 — factories, sheds, train yards, lumber mills, power plants, Solnichny, Pustoshka industrial): "
+        "Pipe Wrench, Hammer, Screwdriver, Pliers, Shovel, Field Shovel, Pickaxe, Hacksaw, Crowbar, Hand Saw, "
+        "Sledgehammer, Lugwrench, Spark Plug, Car Battery, Truck Battery, Radiator, Glow Plug, Headlight (V3S/Sedan/Hatchback/Olga/Gunter/Ada), "
+        "Jerry Can, Canister Plastic, Welding Mask, Welding Torch, Acetylene Torch, Acetylene Tank, Wooden Plank, Nails, Wire, "
+        "Improvised Explosive (rare), Plastic Explosive (rare).\n"
+        "▸ RESIDENTIAL (Tier 0-1 — every house, apartment, garage): "
+        "Kitchen Knife, Steak Knife, Frying Pan, Cooking Pot, Cooking Tripod, Long Wooden Stick, Rope, Burlap Sack, "
+        "Plastic Bottle, Canteen, Water Bottle, Spirit Bottle, Vodka, Whiskey, Disinfectant Alcohol, Matches, Lighter, "
+        "Roadflare, Chemlight (red/green/yellow/blue/white), Flashlight, Battery 9V, Duct Tape, Hunting Knife, "
+        "Improvised Knife, Sharpening Stone, Hunter Boots, Lumberjack Shirt, Working Boots, Jeans, Hiking Boots, Backpack (Taloon/Mountain/Field/Assault/Hunter).\n"
+        "▸ HUNTING / FARM / FOREST (deer stands, hunting cabins, farmsteads, barns, sheds): "
+        "CR-527, Winchester 70, Mosin 9130, Repeater, Crossbow, Compound Bow, Improvised Ashwood Short Bow, "
+        "Hunting Backpack, Camo Net Shelter, Improvised Snare, Pumpkin, Tomato, Bell Pepper, Zucchini, Pumpkin Seed Pack, "
+        "Tomato Seed Pack, Garden Plot, Field Shovel, Hatchet, Wood Axe, Pitchfork, Sickle, Machete, Hunting Knife, Long Stick, Rope.\n"
+        "▸ ELECTRONIC / RADIO (military / police HQ / Green Mountain antenna / Krasnostav ATC / NWAF ATC tower): "
+        "Portable Transceiver (PRC), Improvised Transceiver, Walkie Talkie Headphones, Headtorch, Cassette Tape, "
+        "Battery 9V, Electrical Repair Kit, Spark Plug, Glow Plug.\n"
+        "▸ COASTAL / FISHING (lakes, ponds, rivers, coast): "
+        "Fishing Rod, Improvised Fishing Rod (long stick + rope + hook), Bone Hook, Worm, Pond (water source), "
+        "Boat (rare static), Liferaft (rare).\n"
+        "▸ CONTAMINATED ZONE (NBC suits required — Pavlovo bunker, Rify cargo ship, Tisy bunker): "
+        "NBC Hood, NBC Jacket, NBC Pants, NBC Gloves, NBC Boots, Gas Mask, Gas Mask Filter, Geiger Counter, "
+        "Plate Carrier + assault rifle, contaminated dynamic loot crates.\n\n"
+        "MANDATORY RULES — quests MUST feel worth doing:\n"
         f"- Every quest must reflect the theme \"{theme}\" in summary AND in step content.\n"
-        "- Mix difficulties: roughly 30% Easy, 35% Medium, 25% Hard, 10% Legendary.\n"
+        "- Mix difficulties: roughly 25% Easy, 35% Medium, 30% Hard, 10% Legendary.\n"
         "- Spread the kinds across hunting/collection/exploration/crafting/rescue/zombie control/treasure hunt where the theme allows.\n"
-        "- `summary` must be 2-3 full sentences (not a fragment). Set the scene like an admin announcing a real event.\n"
-        "- `steps` must contain 3-5 concrete actions. Each step must name a specific location, item, or measurable action — never 'check the area' or 'find some loot'.\n"
-        "- `locations` must list 1-4 real DayZ Chernarus or Livonia towns/landmarks (e.g. 'Krasnostav airfield', 'Tisy military base', 'Polana train station', 'NWAF ATC tower'). Never invented placenames.\n"
-        "- `items_needed` must list 3-6 actual DayZ items by their in-game name where possible (e.g. 'M4-A1', 'Chemlight', 'Field shovel', 'Splint', 'Sewing kit', 'Saline bag IV', 'Cooking tripod', 'Long stick', 'Rope').\n"
-        "- `dangers` must call out at least 2 specific risks: infected aggro hotspots, contaminated zone radiation, dynamic crash sites, weather (rain/cold), territorial wolves/bears, etc.\n"
+        "- `summary` must be 3-4 full sentences (not a fragment). Set the scene like an admin announcing a real event. Mention WHO wants the items and WHY they matter.\n"
+        "- `steps` must contain 4-5 concrete actions. Each step must name a specific location, item, or measurable action — never 'check the area' or 'find some loot'.\n"
+        "- `locations` must list 2-4 real DayZ Chernarus or Livonia towns/landmarks (e.g. 'Krasnostav airfield', 'Tisy military base', 'Polana train station', 'NWAF ATC tower', 'Green Mountain antenna', 'Prison Island'). Never invented placenames.\n"
+        "- 🎯 `items_needed` MUST be 4-8 distinct items in STRUCTURED DICT format (NOT flat strings). Each entry must include:\n"
+        "    * `item` — the EXACT real vanilla DayZ types.xml name from the spawn-zone knowledge block above. Never invented items.\n"
+        "    * `qty` — an integer 1-15. Vary the quantities (2x of one thing, 5x of another, 1x of a rare key item).\n"
+        "    * `spawn_zones` — a list of 1-3 actual DayZ loot zones where THAT specific item spawns, picked from the knowledge block above (e.g. 'Military', 'Police', 'Hospital', 'Industrial', 'Residential', 'Hunting Camp', 'NWAF', 'Tisy', 'Green Mountain antenna', 'Cherno hospital'). NEVER tell the player to find a Military-only item at a Residential house.\n"
+        "  Example items_needed entry: {\"item\": \"Portable Transceiver\", \"qty\": 2, \"spawn_zones\": [\"Military\", \"Police\", \"Green Mountain antenna\"]}\n"
+        "  Mix item categories — a strong quest pulls items from 3+ different spawn-zone categories so the player travels.\n"
+        "- 📍 `delivery_target` MUST name a fictional in-world contact (Quartermaster, Communications Officer, Black Market Dealer, The Doctor, The Mechanic, The Operator, The Smuggler, The Ferryman, The Watcher, The Trader) AND a specific named landmark to drop the goods (e.g. 'wooden crate behind Green Mountain antenna', 'red shed at Stary Sobor military tents', 'bunker entrance at Tisy', 'old well at Polana farm'). Always give both.\n"
+        "- ⚔️ `pvp_zone`: if the quest crosses a high-value PVP area, write one short line clarifying where PVP is allowed (e.g. 'PvP allowed at Prison Island ONLY (risk vs reward travel 👀)' or 'PvP allowed at NWAF only — neutral elsewhere'). For a fully-PVE quest set this to an empty string.\n"
+        "- 📜 `rules` MUST be 3-4 short bullet rules — at minimum include: (a) 'You must carry all items at once during final delivery', (b) 'If you die → restart the collection', plus 1-2 quest-specific rules (e.g. 'Submit a ticket in Discord once delivered to receive contact frequency', 'No vehicle deliveries — items must be hand-carried', 'No party-share — each squad member delivers their own kit').\n"
+        "- `dangers` must call out at least 2 specific risks: infected aggro hotspots, contaminated zone radiation, dynamic crash sites, weather (rain/cold), territorial wolves/bears, military helicrash PVP traffic, etc.\n"
         "- `time_of_day`: pick the time when this quest is best/most dramatic. Use 'any' if it doesn't matter. 'night' is great for stealth/zombie quests, 'dawn' for hunts, 'dusk' for ambushes.\n"
         "- `weather`: pick a weather condition that fits the theme. 'fog' for stealth missions, 'storm' for survival challenges, 'clear' for long-range, 'any' if it doesn't matter.\n"
         "- `recommended_squad`: solo=lone wolf stealth, duo=overwatch + breacher, trio=balanced, squad=4+ for legendary objectives.\n"
         "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
+        "- 💰 `reward_pennies` MUST scale with difficulty: Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Legendary 18000-25000. These are MEATY quests — pay them like meaty quests.\n"
         "- If quest is quantity-based, use literal {count} token in `goal`, not a number.\n"
         "🚫 ABSOLUTELY FORBIDDEN TASKS (DAYZ MECHANICS) 🚫\n"
         "- DO NOT use the kind 'Repair'. It is removed from the allowed list. NEVER assign a quest whose `goal` or `steps` ask the player to 'repair', 'fix', 'patch', 'restore', 'service', 'rebuild', 'reassemble', 'reactivate', 'reboot', 'get X working again', or 'bring X back online'. Players cannot do these things in vanilla DayZ on a Nitrado server.\n"
         "- This includes: repairing generators, radios, antennas, wells, helicopters, planes, boats, broken vehicles, bunkers, doors, fences, base walls, bridges, satellite dishes, military gear, computers, and electronics.\n"
-        "- If the lore mentions broken infrastructure, REWRITE the player's task as one of the allowed actions below. The broken thing can exist in the story — but the player's job is never to fix it.\n"
+        "- If the lore mentions broken infrastructure, REWRITE the player's task as COLLECT specific items + DELIVER them to a named contact. The broken thing can exist in the story — but the player's job is never to fix it.\n"
         "✅ ALLOWED OBJECTIVE PATTERNS — every quest goal MUST fit one of these:\n"
-        "  1. COLLECT & DELIVER — gather N named real DayZ items and stash/drop them at a named landmark. e.g. 'Collect 1 spark plug, 1 car battery, 1 radiator, and 1 full jerry can; deliver them to the stash crate behind the Green Mountain radio tower; screenshot the open crate.'\n"
-        "  2. HUNT — kill N specific entities (infected, wolves, bears, deer, boars, chickens, or a named PvE target).\n"
-        "  3. SCOUT & REPORT — visit N named landmarks and screenshot specific features (dynamic event smoke, heli crash, contaminated zone signage, military tent layout).\n"
-        "  4. RESCUE / MEET CONTACT — travel to a named landmark to leave/retrieve a 'contact package' (an item stash that represents an NPC handoff). e.g. 'Meet the Green Mountain medic at the stone cross — leave 2 epinephrines and 1 saline bag IV in the wooden crate.'\n"
-        "  5. FISHING — catch N fish at a named lake/river with a real DayZ fishing rod.\n"
-        "  6. CRAFT — only craftable DayZ recipes: improvised knife (stone + stick), fishing rod (long stick + rope + hook), fireplace (sticks + paper/rags), splint (2 sticks + rags), rag bandage, leather backpack/clothing from tanned pelts, improvised bow (long stick + rope), improvised ashwood short bow. NEVER craft electronics, vehicles, buildings, or weapons that aren't in vanilla DayZ.\n"
-        "  7. SURVIVAL CHALLENGE — survive N in-game hours/cycles under a constraint (no cooked food, only foraged water, no firearms, etc.) with screenshot timestamps as proof.\n"
-        "  8. TREASURE HUNT — find a hidden stash at a coordinate revealed via clue chain (admin will set up via custom reward).\n"
+        "  1. COLLECT & DELIVER (the gold standard) — gather a structured multi-item kit and drop it at the delivery_target. e.g. 'Collect 2x Portable Transceivers, 3x Batteries (any type), 1x Duct Tape, 1x Electrical Repair Kit, and 1x Cassette Tape; deliver them to the Communications Officer at the wooden crate behind Green Mountain antenna.'\n"
+        "  2. HUNT — kill N specific entities (infected, wolves, bears, deer, boars, chickens, or a named PvE target) AND collect drop items.\n"
+        "  3. SCOUT & REPORT — visit N named landmarks and screenshot specific features.\n"
+        "  4. RESCUE / MEET CONTACT — travel to a named landmark to leave/retrieve a contact package.\n"
+        "  5. FISHING — catch N fish at a named lake/river PLUS collect related fishing/cooking items to deliver.\n"
+        "  6. CRAFT — only craftable DayZ recipes (improvised knife, fishing rod, fireplace, splint, rag bandage, leather kit, improvised bow). The deliverable is the crafted item.\n"
+        "  7. SURVIVAL CHALLENGE — survive N in-game hours under a constraint with screenshot timestamps as proof.\n"
+        "  8. TREASURE HUNT — find a hidden stash via clue chain.\n"
         "- `goal` MUST start with one of these action verbs: Collect, Deliver, Hunt, Kill, Scout, Photograph, Meet, Drop off, Stash, Catch, Cook, Craft (only allowed recipes), Survive, Locate, Retrieve, Escort, Find. NEVER use: repair, fix, restore, service, patch, rebuild, reactivate.\n"
         "- IMPORTANT — Pick `reward_type` from this exact list (these are the ONLY rewards the bot can actually deliver):\n"
         "    * pennies            — in-bot currency added to player's wallet (always also delivered).\n"
@@ -7127,11 +7288,21 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
 
     items_needed = quest.get("items_needed") or []
     if items_needed:
-        embed.add_field(
-            name="🎒 Bring",
-            value="\n".join(f"• {item}" for item in items_needed[:8])[:1024],
-            inline=True,
-        )
+        rendered_items = []
+        for it in items_needed[:10]:
+            line = format_quest_item_line(it) if isinstance(it, dict) else f"• {str(it)[:80]}"
+            if line:
+                rendered_items.append(line)
+        if rendered_items:
+            embed.add_field(
+                name="🎯 Collect / Bring",
+                value="\n".join(rendered_items)[:1024],
+                inline=False,
+            )
+
+    delivery_target = (quest.get("delivery_target") or "").strip()
+    if delivery_target:
+        embed.add_field(name="📍 Delivery / Drop-off", value=delivery_target[:1024], inline=False)
 
     # Run conditions: time of day + weather + recommended squad. Only
     # render if at least one is non-default so quests with no special
@@ -7157,6 +7328,18 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
             inline=False,
         )
 
+    pvp_zone = (quest.get("pvp_zone") or "").strip()
+    if pvp_zone:
+        embed.add_field(name="⚔️ PvP Zone", value=pvp_zone[:1024], inline=False)
+
+    rules = quest.get("rules") or []
+    if rules:
+        embed.add_field(
+            name="📜 Rules",
+            value="\n".join(f"• {r}" for r in rules[:6])[:1024],
+            inline=False,
+        )
+
     embed.add_field(name="🎁 Reward", value=quest.get("reward", "Admin-chosen")[:1024], inline=False)
     if quest.get("tips"):
         embed.add_field(name="💡 Survival Tip", value=quest["tips"][:1024], inline=False)
@@ -7179,6 +7362,9 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         "locations": list(quest.get("locations") or []),
         "items_needed": list(quest.get("items_needed") or []),
         "dangers": list(quest.get("dangers") or []),
+        "delivery_target": quest.get("delivery_target", ""),
+        "pvp_zone": quest.get("pvp_zone", ""),
+        "rules": list(quest.get("rules") or []),
         "reward": quest.get("reward", "Admin-chosen"),
         "reward_type": quest.get("reward_type", "pennies"),
         "reward_visibility": quest.get("reward_visibility", "public"),
@@ -11476,9 +11662,23 @@ async def parse_adm(guild_id, config):
         # also be gone (ephemeral disk). When that happens the bot
         # re-reads the entire .ADM file fresh and would spam Discord
         # with every event from the past 24 hours. Skip dispatch for
-        # any event older than ADM_EVENT_MAX_AGE_SECONDS. We still
-        # remembered the hash above so we won't keep re-checking it.
-        if parsed_event_time is not None and is_adm_event_stale(parsed_event_time):
+        # any event older than ADM_EVENT_MAX_AGE_SECONDS — but ONLY
+        # during the cold-start window. After that, the hash dedupe
+        # alone protects against replay, and we must not drop live
+        # events just because the DayZ server logs in a non-UTC
+        # timezone (CEST/CET/EST/etc.), which would make every fresh
+        # HH:MM:SS look "in the future" → rolled back a day → marked
+        # 24h stale → dropped silently. The cold-start window guards
+        # against replay; after that the bot must trust new lines.
+        in_cold_start_window = (
+            (datetime.now(UTC) - BOT_PROCESS_START_TIME).total_seconds()
+            < ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS
+        )
+        if (
+            in_cold_start_window
+            and parsed_event_time is not None
+            and is_adm_event_stale(parsed_event_time)
+        ):
             continue
 
         event_type = classify_event(line)
