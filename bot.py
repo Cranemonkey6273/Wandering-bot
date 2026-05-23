@@ -23800,7 +23800,9 @@ async def addradarzone(
     channel_note = f" Alerts will post in {alert_channel.mention}." if alert_channel else ""
     role_note = f" Will ping {mention_role.mention} on trigger." if mention_role else ""
     await interaction.response.send_message(
-        f"Radar zone `{next_id}` created at `{x}, {y}` with `{radius}m` radius."
+        f"✅ Radar zone created — **🆔 `{next_id}`** at `({x}, {y})` with `{radius}m` radius.\n"
+        f"Use **`{next_id}`** as the `zone_id` for `/tools editradarzone`, `/togglepingradarzone`, "
+        f"`/addradarignore`, `/removeradarzone`."
         f"{channel_note}{role_note}{ignore_note}{radar_note}",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
@@ -23835,11 +23837,22 @@ async def listradarzones(interaction: discord.Interaction):
         role_id = zone.get("mention_role_id")
         role_text = f" - pings <@&{role_id}>" if role_id else ""
         lines.append(
-            f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} "
-            f"**{zone.get('name')}** - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m"
+            f"🆔 **`{zone.get('id')}`** — {'🟢' if zone.get('enabled', True) else '🔴'} "
+            f"**{zone.get('name')}** — ({zone.get('x')}, {zone.get('y')}) · {zone.get('radius')}m"
             f"{channel_text}{role_text}{ignored_text}"
         )
-    embed = discord.Embed(title="RADAR ZONES", description="\n".join(lines), color=0xE74C3C)
+    embed = discord.Embed(
+        title="RADAR ZONES",
+        description=(
+            "Use the **ID** in the leading 🆔 with:\n"
+            "• `/tools editradarzone zone_id:<n>` — change alert channel / ping role\n"
+            "• `/addradarignore zone_id:<n>` — exempt a gamertag\n"
+            "• `/togglepingradarzone zone_id:<n>` — toggle on/off\n"
+            "• `/removeradarzone zone_id:<n>` — delete\n\n"
+            + "\n".join(lines)
+        )[:4000],
+        color=0xE74C3C,
+    )
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
@@ -23881,13 +23894,32 @@ async def radarstatus(interaction: discord.Interaction):
 
     if zones:
         zone_lines = []
-        for zone in zones[:10]:
+        for zone in zones[:15]:
             ignored = radar_zone_ignored_gamertags(zone)
             ignore_text = f", ignores {len(ignored)}" if ignored else ""
             zone_lines.append(
-                f"`{zone.get('id')}` {'on' if zone.get('enabled', True) else 'off'} {zone.get('name')} - {zone.get('x')}, {zone.get('y')} - {zone.get('radius')}m{ignore_text}"
+                f"🆔 **`{zone.get('id')}`** — {'🟢' if zone.get('enabled', True) else '🔴'} "
+                f"**{zone.get('name')}** — ({zone.get('x')}, {zone.get('y')}) · "
+                f"{zone.get('radius')}m{ignore_text}"
             )
-        embed.add_field(name="Zone Preview", value="\n".join(zone_lines), inline=False)
+        embed.add_field(
+            name="Zone Preview",
+            value="\n".join(zone_lines)[:1024],
+            inline=False,
+        )
+        embed.add_field(
+            name="🛠️ Edit a zone",
+            value=(
+                "Each zone is identified by the **🆔 number** shown above (1, 2, 3, …).\n"
+                "Use these commands and pass `zone_id:<that number>`:\n"
+                "• `/tools editradarzone zone_id:1 alert_channel:#raids`\n"
+                "• `/togglepingradarzone zone_id:1`\n"
+                "• `/addradarignore zone_id:1 gamertag:Cranemonkey`\n"
+                "• `/removeradarzone zone_id:1`\n"
+                "Full list with extra detail: `/listradarzones`"
+            ),
+            inline=False,
+        )
 
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
