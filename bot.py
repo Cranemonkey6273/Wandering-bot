@@ -11742,6 +11742,7 @@ async def parse_adm(guild_id, config):
                 ensure_guild_runtime(guild_id)
                 remember_player_location_from_adm(guild_id, line)
                 await check_radar_zones_for_adm(guild_id, config, "position", line)
+                await check_safe_zones_for_adm(guild_id, config, "position", line)
             continue
 
         if event_type == "kill":
@@ -11767,6 +11768,7 @@ async def parse_adm(guild_id, config):
             increase_heat(guild_id, zone, heat_mode, coords)
 
         await check_radar_zones_for_adm(guild_id, config, event_type, line)
+        await check_safe_zones_for_adm(guild_id, config, event_type, line)
         await process_pve_progress_from_adm(guild_id, config, event_type, line)
         await send_special_adm_feed(guild_id, config, event_type, line, event_time=event_time)
 
@@ -13221,6 +13223,11 @@ async def temp_ban_expiry_loop():
         await process_temp_ban_expiries()
     except Exception as error:
         print(f"TEMP BAN LOOP ERROR: {error}")
+    # Auto-remove expired Nitrado banlist entries (PR #41 safe-zone feature).
+    try:
+        await process_nitrado_temp_ban_expiries()
+    except Exception as error:
+        print(f"NITRADO TEMP BAN LOOP ERROR: {error}")
 
 # =========================================================
 # SWEAR JAR
@@ -14782,6 +14789,368 @@ def radar_zone_ignores_player(zone, player_name):
         for gamertag in radar_zone_ignored_gamertags(zone)
     }
     return player_key in ignored_keys
+
+
+# ============================================================================
+# SAFE ZONES / PvP ZONES — rule-based auto-enforcement (PR #41)
+# ----------------------------------------------------------------------------
+# Server owners create geo-fenced zones (circle OR polygon) on the DayZ map.
+# Per zone they pick:
+#   - shape: "circle" {center:[x,y], radius:int}  OR
+#            "polygon" {vertices:[[x,y], ...]}
+#   - trigger_territory: "inside" (rules apply when player IS in zone) or
+#                        "outside" (rules apply when player is NOT in zone)
+#   - triggers: list of action types that fire the rule — any of:
+#                 ["trespass", "kill", "trap", "tent", "build"]
+#   - action: "none" (just log), "manhunt" (kick off bounty), "ban"
+#   - ban_type: "temp" or "perm"
+#   - ban_duration_minutes: temp-ban length (admin-chosen)
+#   - escalate_to_perm_after: N temp bans → perm
+#   - whitelist: list of gamertag strings exempt from the rule
+#   - report_channel_id: Discord channel that receives violation reports
+#
+# Persistence: stored on guild_configs[gid]["safe_zones"] so we reuse the
+# existing save_guild_configs() write path. Per-player offense counts live
+# under guild_configs[gid]["safe_zone_offenses"][zone_id][gamertag_lower].
+#
+# Bans actually push to the DayZ server via the Nitrado banlist.txt over
+# the existing FTP_TLS layer (download_text_file_from_nitrado_ftp +
+# upload_text_file_to_nitrado_ftp).
+# ============================================================================
+
+SAFE_ZONE_TRIGGER_CHOICES = ["trespass", "kill", "trap", "tent", "build"]
+SAFE_ZONE_ACTION_CHOICES = ["none", "manhunt", "ban"]
+NITRADO_BANLIST_FTP_PATH = "/games/{user}/noftp/dayzxb/config/banlist.txt"
+# Per-player offense throttle so the same kill line doesn't double-ban.
+SAFE_ZONE_OFFENSE_DEDUPE_SECONDS = 8
+_safe_zone_offense_dedupe = {}
+
+
+def _point_in_circle(point, center, radius):
+    px, py = point
+    cx, cy = center
+    return ((px - cx) ** 2 + (py - cy) ** 2) ** 0.5 <= float(radius)
+
+
+def _point_in_polygon(point, vertices):
+    """Ray-casting point-in-polygon (handles non-convex polygons too).
+    Treats edges as inclusive so a click on the boundary counts as inside."""
+    if not vertices or len(vertices) < 3:
+        return False
+    x, y = point
+    inside = False
+    n = len(vertices)
+    j = n - 1
+    for i in range(n):
+        xi, yi = vertices[i]
+        xj, yj = vertices[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _point_in_safe_zone(point, zone):
+    if not point:
+        return False
+    shape = zone.get("shape", "circle")
+    if shape == "polygon":
+        verts = [tuple(v) for v in zone.get("vertices") or []]
+        return _point_in_polygon(point, verts)
+    # Default = circle.
+    cx = float(zone.get("x") or zone.get("center", [0, 0])[0])
+    cy = float(zone.get("y") or zone.get("center", [0, 0])[1])
+    return _point_in_circle(point, (cx, cy), zone.get("radius", 100))
+
+
+def _zone_rule_fires(point, zone):
+    """Honour `trigger_territory` — inside means rule fires when player IS
+    in zone; outside means rule fires when player is NOT in zone."""
+    is_inside = _point_in_safe_zone(point, zone)
+    territory = (zone.get("trigger_territory") or "inside").lower()
+    return is_inside if territory == "inside" else not is_inside
+
+
+def _safe_zone_event_matches_trigger(event_type, line, triggers):
+    """Map an ADM event_type+raw line to one of the abstract trigger names
+    so admins can think in 'kill / trap / tent / build / trespass' terms
+    even though ADM uses dozens of finer-grained event names."""
+    if not triggers:
+        return None
+    lowered = (line or "").lower()
+    if "kill" in triggers and event_type == "kill":
+        return "kill"
+    if event_type == "placed":
+        # Distinguish trap / tent / generic build from one ADM event_type.
+        if "trap" in triggers and any(w in lowered for w in ["trap", "snare", "improvisedexplosive", "landmine", "bear_trap", "tripwire"]):
+            return "trap"
+        if "tent" in triggers and any(w in lowered for w in ["tent", "shelter", "improvisedshelter"]):
+            return "tent"
+        if "build" in triggers:
+            return "build"
+    if "build" in triggers and event_type in ("flag_raise", "flag_lower"):
+        return "build"
+    if "trespass" in triggers and event_type == "position":
+        return "trespass"
+    return None
+
+
+def player_is_whitelisted(zone, player_name):
+    if not player_name:
+        return False
+    needle = str(player_name).strip().lower()
+    return any(needle == str(w).strip().lower() for w in (zone.get("whitelist") or []))
+
+
+# ---------- Nitrado banlist FTP push/pull ----------------------------------
+
+def _nitrado_banlist_path(config):
+    nitrado_user = config.get("nitrado_user") or ""
+    if not nitrado_user:
+        return None
+    return NITRADO_BANLIST_FTP_PATH.format(user=nitrado_user)
+
+
+def fetch_nitrado_banlist(config):
+    """Return the current banlist.txt as a list of stripped gamertag lines.
+    Empty list on any FTP error (banlist may not exist yet — that's fine)."""
+    target_path = _nitrado_banlist_path(config)
+    if not target_path:
+        return []
+    try:
+        ok, _msg, content = download_text_file_from_nitrado_ftp(config, target_path)
+    except Exception as err:
+        print(f"[SAFEZONE] banlist fetch error: {err}")
+        return []
+    if not ok or not content:
+        return []
+    lines = []
+    for raw in content.splitlines():
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#"):
+            lines.append(stripped)
+    return lines
+
+
+def push_nitrado_banlist(config, entries):
+    """Write the list back. Each entry is one gamertag per line."""
+    target_path = _nitrado_banlist_path(config)
+    if not target_path:
+        return False, "Nitrado user not configured."
+    payload = "\n".join(dict.fromkeys(e.strip() for e in entries if e and e.strip())) + "\n"
+    try:
+        ok, msg = upload_text_file_to_nitrado(config, target_path, payload)
+        return ok, msg
+    except Exception as err:
+        print(f"[SAFEZONE] banlist push error: {err}")
+        return False, str(err)
+
+
+def add_player_to_nitrado_banlist(config, gamertag):
+    if not gamertag:
+        return False, "Empty gamertag."
+    current = fetch_nitrado_banlist(config)
+    needle = gamertag.strip()
+    if any(line.lower() == needle.lower() for line in current):
+        return True, "Already banned."
+    current.append(needle)
+    return push_nitrado_banlist(config, current)
+
+
+def remove_player_from_nitrado_banlist(config, gamertag):
+    if not gamertag:
+        return False, "Empty gamertag."
+    current = fetch_nitrado_banlist(config)
+    needle = gamertag.strip().lower()
+    kept = [line for line in current if line.lower() != needle]
+    if len(kept) == len(current):
+        return True, "Player was not in banlist."
+    return push_nitrado_banlist(config, kept)
+
+
+# ---------- Auto-enforcement ----------------------------------------------
+
+def _safe_zone_offense_inc(config, zone_id, gamertag):
+    bucket = config.setdefault("safe_zone_offenses", {}).setdefault(str(zone_id), {})
+    key = gamertag.strip().lower()
+    bucket[key] = int(bucket.get(key, 0)) + 1
+    save_guild_configs()
+    return bucket[key]
+
+
+async def _safe_zone_post_report(guild, zone, embed):
+    """Best-effort: post to the zone's dedicated report channel if set,
+    else fall back to the guild's public_shame / admin_log channel, else
+    log to stdout."""
+    channel = None
+    rc_id = zone.get("report_channel_id")
+    if rc_id:
+        channel = guild.get_channel(int(rc_id))
+    if not channel:
+        gconfig = guild_configs.get(str(guild.id), {})
+        fallback_id = gconfig.get("channels", {}).get("public_shame") or gconfig.get("channels", {}).get("admin_log")
+        if fallback_id:
+            channel = guild.get_channel(int(fallback_id))
+    if not channel:
+        print(f"[SAFEZONE] (no report channel) zone={zone.get('name')} embed={embed.title}")
+        return
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as err:
+        print(f"[SAFEZONE] report channel post failed: {err}")
+
+
+async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line):
+    """Push the player onto the Nitrado banlist + schedule auto-unban if
+    temp. Returns (success, ban_label)."""
+    ban_type = (zone.get("ban_type") or "temp").lower()
+    duration_minutes = int(zone.get("ban_duration_minutes") or 1440)
+    escalate_after = int(zone.get("escalate_to_perm_after") or 3)
+
+    # Escalation: if the player has already racked up N temp bans for this
+    # zone, force perm regardless of zone default.
+    offense_count = _safe_zone_offense_inc(config, zone.get("id"), gamertag)
+    forced_perm = offense_count >= escalate_after
+    effective_ban_type = "perm" if (ban_type == "perm" or forced_perm) else "temp"
+
+    ok, msg = add_player_to_nitrado_banlist(config, gamertag)
+    if not ok:
+        print(f"[SAFEZONE] banlist push failed for {gamertag}: {msg}")
+        return False, f"FTP push failed: {msg}"
+
+    if effective_ban_type == "temp":
+        until_ts = datetime.now(UTC).timestamp() + duration_minutes * 60
+        config.setdefault("nitrado_temp_bans", []).append({
+            "gamertag": gamertag,
+            "zone_id": zone.get("id"),
+            "zone_name": zone.get("name"),
+            "trigger": trigger_name,
+            "reason": f"Safe-zone violation: {trigger_name} in {zone.get('name')}",
+            "created_ts": datetime.now(UTC).timestamp(),
+            "until_ts": until_ts,
+            "offense_count": offense_count,
+        })
+        save_guild_configs()
+        return True, f"TEMP ban {format_duration_seconds(duration_minutes * 60)} (offense #{offense_count})"
+
+    # Perm ban: still log it for /server gameban list visibility but no expiry.
+    config.setdefault("nitrado_perm_bans", []).append({
+        "gamertag": gamertag,
+        "zone_id": zone.get("id"),
+        "zone_name": zone.get("name"),
+        "trigger": trigger_name,
+        "reason": f"Safe-zone violation (perm): {trigger_name} in {zone.get('name')}",
+        "created_ts": datetime.now(UTC).timestamp(),
+        "offense_count": offense_count,
+    })
+    save_guild_configs()
+    return True, f"PERM ban (offense #{offense_count})"
+
+
+async def check_safe_zones_for_adm(guild_id, config, event_type, line):
+    """Called by parse_adm on every event. If the event matches a trigger
+    inside (or outside) a safe zone and the player isn't whitelisted, do
+    the configured action (none/manhunt/ban). Best-effort — never raises."""
+    zones = config.get("safe_zones") or []
+    if not zones:
+        return
+
+    coords = extract_adm_coords(line)
+    point = parse_xy_coords(coords)
+    if not point:
+        return
+
+    player_name = extract_player_name(line)
+    if not player_name:
+        return
+
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+
+    for zone in zones:
+        if not zone.get("enabled", True):
+            continue
+        if player_is_whitelisted(zone, player_name):
+            continue
+
+        triggers = zone.get("triggers") or []
+        matched_trigger = _safe_zone_event_matches_trigger(event_type, line, triggers)
+        if not matched_trigger:
+            continue
+        if not _zone_rule_fires(point, zone):
+            continue
+
+        # Dedupe — same player+zone+trigger inside an 8s window only fires once.
+        dedupe_key = f"{guild_id}:{zone.get('id')}:{player_name.lower()}:{matched_trigger}"
+        if now_ts - _safe_zone_offense_dedupe.get(dedupe_key, 0) < SAFE_ZONE_OFFENSE_DEDUPE_SECONDS:
+            continue
+        _safe_zone_offense_dedupe[dedupe_key] = now_ts
+
+        action = (zone.get("action") or "none").lower()
+        territory_text = (zone.get("trigger_territory") or "inside").title()
+        embed = discord.Embed(
+            title=f"🛡️ Safe-Zone Violation — {zone.get('name', 'Unnamed')}",
+            description=(
+                f"**{player_name}** triggered `{matched_trigger}` "
+                f"({territory_text} the zone).\n"
+                f"`{line[:300]}`"
+            ),
+            color=0xE74C3C,
+        )
+        embed.add_field(name="Zone", value=zone.get("name", "?"), inline=True)
+        embed.add_field(name="Action", value=action.upper(), inline=True)
+        embed.add_field(name="Trigger", value=matched_trigger, inline=True)
+
+        if action == "ban":
+            ok, label = await _safe_zone_apply_ban(guild, config, zone, player_name, matched_trigger, line)
+            embed.add_field(name="Result", value=("🔨 " + label) if ok else f"❌ {label}", inline=False)
+        elif action == "manhunt":
+            embed.add_field(name="Result", value="🎯 Manhunt flagged for this player.", inline=False)
+            try:
+                # Reuse the existing manhunt system if it exists.
+                manhunts = config.setdefault("manhunts", {})
+                manhunts[str(player_name).lower()] = {
+                    "target": player_name,
+                    "reason": f"Auto-manhunt: {matched_trigger} in {zone.get('name')}",
+                    "started_ts": now_ts,
+                }
+                save_guild_configs()
+            except Exception:
+                pass
+        else:
+            embed.add_field(name="Result", value="ℹ️ Logged only (action=none).", inline=False)
+
+        await _safe_zone_post_report(guild, zone, embed)
+
+
+async def process_nitrado_temp_ban_expiries():
+    """Sister loop to process_temp_ban_expiries — auto-removes expired
+    Nitrado banlist entries (game server bans, not Discord bans)."""
+    now_ts = datetime.now(UTC).timestamp()
+    for guild_id_str, config in list(guild_configs.items()):
+        temp_bans = config.get("nitrado_temp_bans", [])
+        if not temp_bans:
+            continue
+        remaining = []
+        expired = []
+        for record in temp_bans:
+            if float(record.get("until_ts", 0)) <= now_ts:
+                expired.append(record)
+            else:
+                remaining.append(record)
+        if not expired:
+            continue
+        for record in expired:
+            try:
+                ok, msg = remove_player_from_nitrado_banlist(config, record.get("gamertag", ""))
+                print(f"[SAFEZONE] auto-unban {record.get('gamertag')}: ok={ok} msg={msg}")
+            except Exception as err:
+                print(f"[SAFEZONE] auto-unban error: {err}")
+        config["nitrado_temp_bans"] = remaining
+        save_guild_configs()
 
 
 async def check_radar_zones_for_adm(guild_id, config, event_type, line):
@@ -27965,6 +28334,640 @@ async def slash_wage_cancel(interaction: discord.Interaction, wage_id: str):
             await interaction.response.send_message(f"🛑 Wage `{wage_id}` cancelled.", ephemeral=True)
             return
     await interaction.response.send_message(f"No wage with id `{wage_id}`.", ephemeral=True)
+
+
+# ============================================================================
+# /server zone … — Safe-zone / PvP-zone management (PR #41)
+# ----------------------------------------------------------------------------
+# Nested subcommand group hanging off server_group. Each guild gets up to
+# 100 zones; each zone is circle or polygon, with a triggers list, action,
+# whitelist and dedicated report channel.
+# ============================================================================
+
+zone_group = app_commands.Group(
+    name="zone",
+    description="Safe-zone / PvP-zone rule enforcement",
+    parent=server_group,
+)
+
+
+def _zone_summary_line(zone):
+    shape = zone.get("shape", "circle")
+    if shape == "polygon":
+        verts = zone.get("vertices") or []
+        loc = f"polygon ({len(verts)} pts)"
+    else:
+        loc = f"circle @ ({int(zone.get('x', 0))},{int(zone.get('y', 0))}) r={int(zone.get('radius', 0))}"
+    triggers = ",".join(zone.get("triggers") or []) or "—"
+    action = (zone.get("action") or "none").upper()
+    territory = (zone.get("trigger_territory") or "inside").upper()
+    return f"`{zone.get('id')}` **{zone.get('name', '?')}** — {loc} · {territory} · triggers=[{triggers}] · action={action}"
+
+
+def _next_zone_id(config):
+    n = int(config.get("safe_zone_counter") or 0) + 1
+    config["safe_zone_counter"] = n
+    return f"z{n}"
+
+
+@zone_group.command(name="create-circle", description="Create a circular safe / PvP zone (center + radius).")
+@app_commands.describe(
+    name="Zone name (e.g. 'Trader Safe Zone')",
+    x="Center X coordinate",
+    y="Center Y coordinate",
+    radius="Radius in metres",
+    triggers="Comma list: trespass,kill,trap,tent,build",
+    action="What happens on violation: none / manhunt / ban",
+    territory="inside (default) or outside the zone",
+    ban_minutes="Temp-ban length in minutes (default 1440 = 1 day)",
+    escalate_after="Escalate to perm-ban after N temp bans (default 3)",
+)
+@app_commands.default_permissions(manage_guild=True)
+async def zone_create_circle(
+    interaction: discord.Interaction,
+    name: str,
+    x: int,
+    y: int,
+    radius: int,
+    triggers: str = "kill,build,trespass",
+    action: str = "ban",
+    territory: str = "inside",
+    ban_minutes: int = 1440,
+    escalate_after: int = 3,
+):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server permission.", ephemeral=True)
+        return
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()})
+    zones = config.setdefault("safe_zones", [])
+    if len(zones) >= 100:
+        await interaction.response.send_message("Zone limit (100) reached. Delete one first.", ephemeral=True)
+        return
+    triggers_list = [t.strip().lower() for t in (triggers or "").split(",") if t.strip().lower() in SAFE_ZONE_TRIGGER_CHOICES]
+    action_norm = action.strip().lower()
+    if action_norm not in SAFE_ZONE_ACTION_CHOICES:
+        action_norm = "none"
+    territory_norm = "outside" if territory.strip().lower().startswith("out") else "inside"
+
+    zone = {
+        "id": _next_zone_id(config),
+        "name": name[:60],
+        "shape": "circle",
+        "x": int(x),
+        "y": int(y),
+        "radius": max(1, int(radius)),
+        "trigger_territory": territory_norm,
+        "triggers": triggers_list,
+        "action": action_norm,
+        "ban_type": "temp",
+        "ban_duration_minutes": max(1, int(ban_minutes)),
+        "escalate_to_perm_after": max(1, int(escalate_after)),
+        "whitelist": [],
+        "report_channel_id": None,
+        "enabled": True,
+    }
+    zones.append(zone)
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Created zone `{zone['id']}` **{zone['name']}** — circle ({x},{y}) r={radius}, "
+        f"triggers={triggers_list or '—'}, action={action_norm.upper()}, "
+        f"temp-ban={ban_minutes}m, escalate after {escalate_after}.",
+        ephemeral=True,
+    )
+
+
+@zone_group.command(name="create-polygon", description="Create a polygon safe / PvP zone from x/y pairs.")
+@app_commands.describe(
+    name="Zone name",
+    vertices="x,y pairs separated by ';' — e.g. '4000,5000; 4200,5000; 4200,5300; 4000,5300'",
+    triggers="Comma list: trespass,kill,trap,tent,build",
+    action="What happens on violation: none / manhunt / ban",
+    territory="inside (default) or outside the polygon",
+    ban_minutes="Temp-ban length in minutes",
+    escalate_after="Escalate to perm-ban after N temp bans",
+)
+@app_commands.default_permissions(manage_guild=True)
+async def zone_create_polygon(
+    interaction: discord.Interaction,
+    name: str,
+    vertices: str,
+    triggers: str = "kill,build,trespass",
+    action: str = "ban",
+    territory: str = "inside",
+    ban_minutes: int = 1440,
+    escalate_after: int = 3,
+):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server permission.", ephemeral=True)
+        return
+    # Parse vertices.
+    verts = []
+    for chunk in (vertices or "").split(";"):
+        parts = chunk.strip().split(",")
+        if len(parts) < 2:
+            continue
+        try:
+            verts.append([float(parts[0].strip()), float(parts[1].strip())])
+        except ValueError:
+            continue
+    if len(verts) < 3:
+        await interaction.response.send_message("Polygon needs at least 3 valid x,y pairs.", ephemeral=True)
+        return
+
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()})
+    zones = config.setdefault("safe_zones", [])
+    if len(zones) >= 100:
+        await interaction.response.send_message("Zone limit (100) reached.", ephemeral=True)
+        return
+    triggers_list = [t.strip().lower() for t in (triggers or "").split(",") if t.strip().lower() in SAFE_ZONE_TRIGGER_CHOICES]
+    action_norm = action.strip().lower()
+    if action_norm not in SAFE_ZONE_ACTION_CHOICES:
+        action_norm = "none"
+    territory_norm = "outside" if territory.strip().lower().startswith("out") else "inside"
+
+    zone = {
+        "id": _next_zone_id(config),
+        "name": name[:60],
+        "shape": "polygon",
+        "vertices": verts,
+        "trigger_territory": territory_norm,
+        "triggers": triggers_list,
+        "action": action_norm,
+        "ban_type": "temp",
+        "ban_duration_minutes": max(1, int(ban_minutes)),
+        "escalate_to_perm_after": max(1, int(escalate_after)),
+        "whitelist": [],
+        "report_channel_id": None,
+        "enabled": True,
+    }
+    zones.append(zone)
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Created polygon zone `{zone['id']}` **{zone['name']}** with {len(verts)} vertices, "
+        f"triggers={triggers_list or '—'}, action={action_norm.upper()}.",
+        ephemeral=True,
+    )
+
+
+@zone_group.command(name="list", description="List all safe / PvP zones.")
+async def zone_list(interaction: discord.Interaction):
+    config = guild_configs.get(str(interaction.guild.id), {})
+    zones = config.get("safe_zones") or []
+    if not zones:
+        await interaction.response.send_message("No zones configured. Use `/server zone create-circle` to make one.", ephemeral=True)
+        return
+    lines = [_zone_summary_line(z) for z in zones[:25]]
+    embed = discord.Embed(
+        title=f"🛡️ Safe / PvP Zones ({len(zones)})",
+        description="\n".join(lines)[:4000],
+        color=0x3498DB,
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@zone_group.command(name="show", description="Show full details of one zone.")
+@app_commands.describe(zone_id="Zone id (e.g. z1)")
+async def zone_show(interaction: discord.Interaction, zone_id: str):
+    config = guild_configs.get(str(interaction.guild.id), {})
+    zone = next((z for z in config.get("safe_zones") or [] if str(z.get("id")) == zone_id), None)
+    if not zone:
+        await interaction.response.send_message(f"No zone `{zone_id}`.", ephemeral=True)
+        return
+    embed = discord.Embed(title=f"🛡️ Zone {zone_id} — {zone.get('name')}", color=0x3498DB)
+    embed.add_field(name="Shape", value=zone.get("shape", "circle"), inline=True)
+    embed.add_field(name="Territory", value=(zone.get("trigger_territory") or "inside").title(), inline=True)
+    embed.add_field(name="Enabled", value="✅" if zone.get("enabled", True) else "❌", inline=True)
+    if zone.get("shape") == "polygon":
+        embed.add_field(name="Vertices", value=str(len(zone.get("vertices") or [])) + " points", inline=True)
+    else:
+        embed.add_field(name="Center", value=f"({int(zone.get('x', 0))}, {int(zone.get('y', 0))})", inline=True)
+        embed.add_field(name="Radius", value=str(int(zone.get("radius", 0))), inline=True)
+    embed.add_field(name="Triggers", value=", ".join(zone.get("triggers") or []) or "—", inline=False)
+    embed.add_field(name="Action", value=(zone.get("action") or "none").upper(), inline=True)
+    embed.add_field(name="Ban Type", value=(zone.get("ban_type") or "temp").upper(), inline=True)
+    embed.add_field(name="Temp Duration", value=f"{int(zone.get('ban_duration_minutes', 1440))} min", inline=True)
+    embed.add_field(name="Escalate→Perm", value=f"after {int(zone.get('escalate_to_perm_after', 3))} offenses", inline=True)
+    embed.add_field(name="Whitelist", value=("\n".join(zone.get("whitelist") or []) or "—")[:1024], inline=False)
+    rc_id = zone.get("report_channel_id")
+    embed.add_field(name="Report Channel", value=(interaction.guild.get_channel(int(rc_id)).mention if rc_id and interaction.guild.get_channel(int(rc_id)) else "—"), inline=True)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@zone_group.command(name="delete", description="Delete a zone.")
+@app_commands.describe(zone_id="Zone id")
+@app_commands.default_permissions(manage_guild=True)
+async def zone_delete(interaction: discord.Interaction, zone_id: str):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    zones = config.get("safe_zones") or []
+    kept = [z for z in zones if str(z.get("id")) != zone_id]
+    if len(kept) == len(zones):
+        await interaction.response.send_message(f"No zone `{zone_id}`.", ephemeral=True)
+        return
+    config["safe_zones"] = kept
+    config.get("safe_zone_offenses", {}).pop(zone_id, None)
+    save_guild_configs()
+    await interaction.response.send_message(f"🗑️ Deleted zone `{zone_id}`.", ephemeral=True)
+
+
+@zone_group.command(name="edit", description="Edit a zone's triggers / action / ban duration / territory.")
+@app_commands.describe(
+    zone_id="Zone id",
+    triggers="New comma list (trespass,kill,trap,tent,build) — blank = unchanged",
+    action="none / manhunt / ban — blank = unchanged",
+    territory="inside / outside — blank = unchanged",
+    ban_minutes="New temp-ban duration (minutes) — 0 = unchanged",
+    escalate_after="New escalate-to-perm threshold — 0 = unchanged",
+    enabled="Enable (true) or disable (false) — blank = unchanged",
+)
+@app_commands.default_permissions(manage_guild=True)
+async def zone_edit(
+    interaction: discord.Interaction,
+    zone_id: str,
+    triggers: str = "",
+    action: str = "",
+    territory: str = "",
+    ban_minutes: int = 0,
+    escalate_after: int = 0,
+    enabled: str = "",
+):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    zone = next((z for z in config.get("safe_zones") or [] if str(z.get("id")) == zone_id), None)
+    if not zone:
+        await interaction.response.send_message(f"No zone `{zone_id}`.", ephemeral=True)
+        return
+    changes = []
+    if triggers.strip():
+        new_triggers = [t.strip().lower() for t in triggers.split(",") if t.strip().lower() in SAFE_ZONE_TRIGGER_CHOICES]
+        zone["triggers"] = new_triggers
+        changes.append(f"triggers={new_triggers}")
+    if action.strip():
+        a = action.strip().lower()
+        if a in SAFE_ZONE_ACTION_CHOICES:
+            zone["action"] = a
+            changes.append(f"action={a.upper()}")
+    if territory.strip():
+        zone["trigger_territory"] = "outside" if territory.lower().startswith("out") else "inside"
+        changes.append(f"territory={zone['trigger_territory']}")
+    if ban_minutes > 0:
+        zone["ban_duration_minutes"] = int(ban_minutes)
+        changes.append(f"ban={ban_minutes}m")
+    if escalate_after > 0:
+        zone["escalate_to_perm_after"] = int(escalate_after)
+        changes.append(f"escalate_after={escalate_after}")
+    if enabled.strip():
+        zone["enabled"] = enabled.strip().lower() in ("true", "yes", "on", "1")
+        changes.append(f"enabled={zone['enabled']}")
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✏️ Updated zone `{zone_id}`: {', '.join(changes) or 'no changes'}",
+        ephemeral=True,
+    )
+
+
+@zone_group.command(name="whitelist", description="Add or remove a gamertag from a zone's whitelist.")
+@app_commands.describe(zone_id="Zone id", gamertag="DayZ gamertag exactly as it appears in-game", remove="Set true to remove instead of add")
+@app_commands.default_permissions(manage_guild=True)
+async def zone_whitelist(interaction: discord.Interaction, zone_id: str, gamertag: str, remove: bool = False):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    zone = next((z for z in config.get("safe_zones") or [] if str(z.get("id")) == zone_id), None)
+    if not zone:
+        await interaction.response.send_message(f"No zone `{zone_id}`.", ephemeral=True)
+        return
+    wl = zone.setdefault("whitelist", [])
+    tag = gamertag.strip()
+    if remove:
+        kept = [w for w in wl if w.lower() != tag.lower()]
+        zone["whitelist"] = kept
+        save_guild_configs()
+        await interaction.response.send_message(f"🗑️ Removed `{tag}` from `{zone_id}` whitelist.", ephemeral=True)
+        return
+    if len(wl) >= 200:
+        await interaction.response.send_message("Whitelist limit (200) reached for this zone.", ephemeral=True)
+        return
+    if any(w.lower() == tag.lower() for w in wl):
+        await interaction.response.send_message(f"`{tag}` already whitelisted.", ephemeral=True)
+        return
+    wl.append(tag)
+    save_guild_configs()
+    await interaction.response.send_message(f"✅ Whitelisted `{tag}` on `{zone_id}` ({len(wl)}/200).", ephemeral=True)
+
+
+@zone_group.command(name="reportchannel", description="Set which Discord channel gets violation reports for a zone.")
+@app_commands.describe(zone_id="Zone id", channel="Channel to receive reports (leave blank to clear)")
+@app_commands.default_permissions(manage_guild=True)
+async def zone_reportchannel(interaction: discord.Interaction, zone_id: str, channel: discord.TextChannel = None):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    zone = next((z for z in config.get("safe_zones") or [] if str(z.get("id")) == zone_id), None)
+    if not zone:
+        await interaction.response.send_message(f"No zone `{zone_id}`.", ephemeral=True)
+        return
+    zone["report_channel_id"] = channel.id if channel else None
+    save_guild_configs()
+    target = channel.mention if channel else "_cleared_"
+    await interaction.response.send_message(f"📢 Report channel for `{zone_id}` set to {target}.", ephemeral=True)
+
+
+def _render_zones_on_map(guild_id, map_name="chernarus", width=1024, height=1024):
+    """Render every safe-zone for this guild onto the configured map PNG
+    using Pillow. Circles + polygons. Colour-coded by action:
+       ban     → semi-transparent red
+       manhunt → semi-transparent gold
+       none    → semi-transparent grey
+    Each zone gets a label with its id + name. Returns the path to a
+    fresh PNG on disk, or (None, error_message)."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as err:
+        return None, f"Pillow is not installed: {err}. Add `Pillow` to requirements.txt and redeploy."
+
+    config = guild_configs.get(str(guild_id), {})
+    zones = config.get("safe_zones") or []
+    if not zones:
+        return None, "No zones configured yet. Use `/server zone create-circle` first."
+
+    map_key = normalize_map_image_key(map_name)
+    source = configured_heatmap_image_source(guild_id, map_key)
+    if not source:
+        return None, f"No map image configured for `{map_key}`. Set one with `/heatmapimage`."
+
+    # Pull the base map (URL or local path).
+    base_path = None
+    cleanup_base = False
+    try:
+        if str(source).startswith(("http://", "https://")):
+            resp = requests.get(source, timeout=20)
+            if resp.status_code != 200:
+                return None, f"Map download failed: HTTP {resp.status_code}"
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+            tmp.write(resp.content)
+            tmp.close()
+            base_path = tmp.name
+            cleanup_base = True
+        else:
+            base_path = source
+
+        base = Image.open(base_path).convert("RGBA").resize((width, height))
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 16)
+            font_small = ImageFont.truetype("DejaVuSans.ttf", 12)
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+
+        action_palette = {
+            "ban":     {"fill": (231, 76, 60, 110),  "outline": (231, 76, 60, 230),  "label_bg": (231, 76, 60, 220)},
+            "manhunt": {"fill": (241, 196, 15, 110), "outline": (241, 196, 15, 230), "label_bg": (241, 196, 15, 220)},
+            "none":    {"fill": (149, 165, 166, 90), "outline": (149, 165, 166, 220),"label_bg": (149, 165, 166, 200)},
+        }
+
+        def world_to_pixel(x, y):
+            return map_coords_to_pixel(f"{x},{y}", guild_id=guild_id, width=width, height=height)
+
+        # Render every zone.
+        for zone in zones:
+            if not zone.get("enabled", True):
+                continue
+            palette = action_palette.get((zone.get("action") or "none").lower(), action_palette["none"])
+            shape = zone.get("shape", "circle")
+            label_anchor = None
+
+            if shape == "polygon":
+                verts = zone.get("vertices") or []
+                if len(verts) < 3:
+                    continue
+                pixel_verts = []
+                for vx, vy in verts:
+                    pt = world_to_pixel(vx, vy)
+                    if pt:
+                        pixel_verts.append(pt)
+                if len(pixel_verts) >= 3:
+                    draw.polygon(pixel_verts, fill=palette["fill"], outline=palette["outline"])
+                    # Outline a bit thicker so it's readable on busy maps.
+                    for i in range(len(pixel_verts)):
+                        a = pixel_verts[i]
+                        b = pixel_verts[(i + 1) % len(pixel_verts)]
+                        draw.line([a, b], fill=palette["outline"], width=3)
+                    cx = sum(p[0] for p in pixel_verts) // len(pixel_verts)
+                    cy = sum(p[1] for p in pixel_verts) // len(pixel_verts)
+                    label_anchor = (cx, cy)
+            else:
+                # Circle.
+                world_x = float(zone.get("x", 0))
+                world_y = float(zone.get("y", 0))
+                world_radius = float(zone.get("radius", 100))
+                center = world_to_pixel(world_x, world_y)
+                if not center:
+                    continue
+                # Convert world-radius to pixel-radius via the map ratio.
+                map_w, _ = server_map_size(guild_id)
+                pixel_radius = max(6, int((world_radius / float(map_w)) * width))
+                cx, cy = center
+                draw.ellipse(
+                    (cx - pixel_radius, cy - pixel_radius, cx + pixel_radius, cy + pixel_radius),
+                    fill=palette["fill"],
+                    outline=palette["outline"],
+                    width=3,
+                )
+                label_anchor = (cx, cy)
+
+            # Draw the label pill — zone id + first 18 chars of name.
+            if label_anchor:
+                lcx, lcy = label_anchor
+                label_text = f"{zone.get('id')} · {(zone.get('name') or '')[:18]}"
+                # Pillow modern API uses textbbox; fall back to textsize if missing.
+                try:
+                    bbox = draw.textbbox((0, 0), label_text, font=font_small)
+                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                except Exception:
+                    tw, th = (len(label_text) * 6, 12)
+                pad = 4
+                rect = (lcx - tw // 2 - pad, lcy - th // 2 - pad, lcx + tw // 2 + pad, lcy + th // 2 + pad)
+                draw.rectangle(rect, fill=palette["label_bg"], outline=(0, 0, 0, 220))
+                draw.text((lcx - tw // 2, lcy - th // 2), label_text, fill=(0, 0, 0, 255), font=font_small)
+
+        # Legend top-left.
+        legend = [
+            ("● BAN",     (231, 76, 60, 255)),
+            ("● MANHUNT", (241, 196, 15, 255)),
+            ("● LOG",     (149, 165, 166, 255)),
+        ]
+        lx, ly = 12, 12
+        draw.rectangle((lx - 4, ly - 4, lx + 130, ly + 4 + 22 * len(legend)), fill=(0, 0, 0, 180), outline=(255, 255, 255, 200))
+        for label, color in legend:
+            draw.text((lx, ly), label, fill=color, font=font)
+            ly += 22
+
+        final = Image.alpha_composite(base, overlay)
+        fd, out_path = tempfile.mkstemp(prefix=f"zones_{guild_id}_", suffix=".png")
+        os.close(fd)
+        final.save(out_path, "PNG")
+        return out_path, None
+    except Exception as err:
+        print(f"[ZONE DRAW] render error: {err}")
+        return None, f"Render error: {err}"
+    finally:
+        if cleanup_base and base_path:
+            try:
+                os.remove(base_path)
+            except Exception:
+                pass
+
+
+@zone_group.command(name="draw", description="Render all safe / PvP zones onto your server's map image.")
+@app_commands.describe(map_name="chernarus, livonia, or sakhal — defaults to chernarus")
+async def zone_draw(interaction: discord.Interaction, map_name: str = "chernarus"):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    out_path, error = _render_zones_on_map(str(interaction.guild.id), map_name=map_name)
+    if error:
+        await interaction.followup.send(f"❌ {error}", ephemeral=True)
+        return
+    try:
+        config = guild_configs.get(str(interaction.guild.id), {})
+        zones = config.get("safe_zones") or []
+        embed = discord.Embed(
+            title=f"🗺️ Safe / PvP Zones — {normalize_map_image_key(map_name).title()}",
+            description=f"{len(zones)} zone(s) rendered. Red = auto-ban · Yellow = manhunt · Grey = log-only.",
+            color=0x3498DB,
+        )
+        embed.set_image(url="attachment://zones_map.png")
+        embed.set_footer(text="Wandering Bot Alpha — Zone Cartographer")
+        file = discord.File(out_path, filename="zones_map.png")
+        await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+    finally:
+        try:
+            os.remove(out_path)
+        except Exception:
+            pass
+
+
+# ============================================================================
+# /server gameban … — manual Nitrado ban control (separate from /tempban
+# which only handles Discord bans)
+# ============================================================================
+
+gameban_group = app_commands.Group(
+    name="gameban",
+    description="Manual DayZ-server ban control via Nitrado banlist.txt",
+    parent=server_group,
+)
+
+
+@gameban_group.command(name="add", description="Add a gamertag to the Nitrado banlist (temp or perm).")
+@app_commands.describe(
+    gamertag="DayZ gamertag",
+    minutes="Temp ban duration in minutes (0 = permanent)",
+    reason="Reason (logged in audit)",
+)
+@app_commands.default_permissions(ban_members=True)
+async def gameban_add(interaction: discord.Interaction, gamertag: str, minutes: int = 0, reason: str = "Manual ban"):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("Need Ban Members permission.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    await interaction.response.defer(ephemeral=True)
+    ok, msg = add_player_to_nitrado_banlist(config, gamertag)
+    if not ok:
+        await interaction.followup.send(f"❌ Banlist push failed: `{msg}`", ephemeral=True)
+        return
+    if minutes > 0:
+        until_ts = datetime.now(UTC).timestamp() + minutes * 60
+        config.setdefault("nitrado_temp_bans", []).append({
+            "gamertag": gamertag.strip(),
+            "zone_id": None,
+            "zone_name": "Manual",
+            "trigger": "manual",
+            "reason": reason,
+            "created_ts": datetime.now(UTC).timestamp(),
+            "until_ts": until_ts,
+            "offense_count": 1,
+        })
+        save_guild_configs()
+        await interaction.followup.send(
+            f"🔨 Temp-banned `{gamertag}` for {format_duration_seconds(minutes * 60)}. Reason: {reason}",
+            ephemeral=True,
+        )
+    else:
+        config.setdefault("nitrado_perm_bans", []).append({
+            "gamertag": gamertag.strip(),
+            "zone_id": None,
+            "zone_name": "Manual",
+            "trigger": "manual",
+            "reason": reason,
+            "created_ts": datetime.now(UTC).timestamp(),
+            "offense_count": 1,
+        })
+        save_guild_configs()
+        await interaction.followup.send(
+            f"🔨 PERM-banned `{gamertag}`. Reason: {reason}",
+            ephemeral=True,
+        )
+
+
+@gameban_group.command(name="remove", description="Remove a gamertag from the Nitrado banlist (unban).")
+@app_commands.describe(gamertag="DayZ gamertag")
+@app_commands.default_permissions(ban_members=True)
+async def gameban_remove(interaction: discord.Interaction, gamertag: str):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("Need Ban Members permission.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    await interaction.response.defer(ephemeral=True)
+    ok, msg = remove_player_from_nitrado_banlist(config, gamertag)
+    if not ok:
+        await interaction.followup.send(f"❌ Banlist remove failed: `{msg}`", ephemeral=True)
+        return
+    # Strip any pending records.
+    needle = gamertag.strip().lower()
+    config["nitrado_temp_bans"] = [r for r in config.get("nitrado_temp_bans", []) if r.get("gamertag", "").lower() != needle]
+    config["nitrado_perm_bans"] = [r for r in config.get("nitrado_perm_bans", []) if r.get("gamertag", "").lower() != needle]
+    save_guild_configs()
+    await interaction.followup.send(f"🔓 Unbanned `{gamertag}` from the DayZ server. ({msg})", ephemeral=True)
+
+
+@gameban_group.command(name="list", description="Show all currently-active DayZ-server bans (temp + perm).")
+async def gameban_list(interaction: discord.Interaction):
+    config = guild_configs.get(str(interaction.guild.id), {})
+    temps = config.get("nitrado_temp_bans", [])
+    perms = config.get("nitrado_perm_bans", [])
+    if not temps and not perms:
+        await interaction.response.send_message("No DayZ-server bans active.", ephemeral=True)
+        return
+    lines = []
+    now_ts = datetime.now(UTC).timestamp()
+    for r in temps[:20]:
+        remaining_s = max(0, int(r.get("until_ts", 0) - now_ts))
+        lines.append(
+            f"⏳ `{r.get('gamertag')}` — {format_duration_seconds(remaining_s)} left · "
+            f"{r.get('zone_name', '?')} · {r.get('trigger', '?')} · {r.get('reason', '')[:60]}"
+        )
+    for r in perms[:20]:
+        lines.append(
+            f"🔒 `{r.get('gamertag')}` — PERM · {r.get('zone_name', '?')} · "
+            f"{r.get('trigger', '?')} · {r.get('reason', '')[:60]}"
+        )
+    embed = discord.Embed(
+        title=f"🔨 DayZ-Server Bans ({len(temps)} temp + {len(perms)} perm)",
+        description="\n".join(lines)[:4000],
+        color=0xE74C3C,
+    )
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
 bot.tree.add_command(server_group)
