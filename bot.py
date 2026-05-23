@@ -8812,6 +8812,402 @@ def ping_latest_adm_log(config):
     adm_debug_log(f"LATEST ADM FOUND: {latest.get('path')}")
     return latest
 
+
+# ============================================================================
+# .RPT LIVE EVENT TRACKER (PR #41 follow-up)
+# ----------------------------------------------------------------------------
+# Pulls the freshest DayZ .RPT log from Nitrado, parses dynamic-event spawns
+# (heli crashes, contaminated zones, convoys, infected hordes, vehicles) with
+# world coords, posts/updates a live admin-only embed.
+# Events have lifetimes — when the bot stops seeing an event id in subsequent
+# pulls AND the time since first_seen exceeds default DayZ lifetime, it's
+# marked despawned and removed from the live embed.
+# ============================================================================
+
+RPT_EVENT_TRACKER_FILE = data_path("rpt_event_tracker.json")
+RPT_LOG_NAME_PATTERN = re.compile(r"DayZServer.*\.RPT$", re.IGNORECASE)
+RPT_DEFAULT_EVENT_LIFETIME_SECONDS = 25 * 60
+RPT_EVENT_PREFIXES = (
+    "Land_Wreck_", "StaticHeliCrash", "ContaminatedArea", "EventConvoy",
+    "EventConvoyMilitary", "Static_", "InfectedHorde", "DynamicEvent",
+    "PoliceCar", "CivilianSedan", "Hatchback", "Sedan", "Olga",
+    "Gunter", "Ada", "Sarka", "Truck", "M3S", "Offroad",
+)
+
+rpt_event_tracker = {}
+
+
+def load_rpt_event_tracker():
+    global rpt_event_tracker
+    try:
+        with open(RPT_EVENT_TRACKER_FILE, "r", encoding="utf-8") as fh:
+            rpt_event_tracker = json.load(fh)
+    except FileNotFoundError:
+        rpt_event_tracker = {}
+    except Exception as err:
+        print(f"[RPT TRACKER] load error: {err}")
+        rpt_event_tracker = {}
+
+
+def save_rpt_event_tracker():
+    try:
+        with open(RPT_EVENT_TRACKER_FILE, "w", encoding="utf-8") as fh:
+            json.dump(rpt_event_tracker, fh, indent=2, default=str)
+    except Exception as err:
+        print(f"[RPT TRACKER] save error: {err}")
+
+
+def nitrado_rpt_search_paths(config):
+    nitrado_user = config.get("nitrado_user") or ""
+    if not nitrado_user:
+        return []
+    return [
+        f"/games/{nitrado_user}/noftp/dayzxb/profiles/",
+        f"/games/{nitrado_user}/noftp/dayzxb/config/",
+        f"/games/{nitrado_user}/noftp/dayzxb/",
+    ]
+
+
+def list_rpt_logs(config):
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    if not token or not service_id:
+        return []
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    matching = {}
+    for search_path in nitrado_rpt_search_paths(config):
+        try:
+            response = requests.get(
+                f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list",
+                headers=headers,
+                params={"dir": search_path, "search": "*DayZServer*"},
+                timeout=20,
+            )
+            if response.status_code != 200:
+                continue
+            entries = response.json().get("data", {}).get("entries", [])
+            for entry in entries:
+                if not RPT_LOG_NAME_PATTERN.search(entry.get("name", "")):
+                    continue
+                path = entry.get("path")
+                if path:
+                    matching[path] = entry
+        except Exception as err:
+            print(f"[RPT TRACKER] list_rpt_logs error: {err}")
+    logs = list(matching.values())
+    logs.sort(key=lambda e: e.get("modified_at", ""), reverse=True)
+    return logs
+
+
+def fetch_latest_rpt_content(config):
+    logs = list_rpt_logs(config)
+    if not logs:
+        return None, None, None
+    latest = logs[0]
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    try:
+        dl_resp = requests.get(
+            f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/download",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"file": latest.get("path")},
+            timeout=20,
+        )
+        if dl_resp.status_code != 200:
+            return None, None, None
+        token_url = dl_resp.json().get("data", {}).get("token", {}).get("url")
+        if not token_url:
+            return None, None, None
+        file_resp = requests.get(token_url, timeout=30)
+        text = file_resp.content.decode("utf-8", errors="replace")
+        return latest.get("path"), latest.get("modified_at", ""), text
+    except Exception as err:
+        print(f"[RPT TRACKER] fetch_latest_rpt_content error: {err}")
+        return None, None, None
+
+
+_RPT_COORD_PATTERNS = [
+    re.compile(r"<\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)\s*>"),
+    re.compile(r'pos\s*=\s*"\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*"'),
+    re.compile(r"\[\s*(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)[\s,]+(-?\d+(?:\.\d+)?)\s*\]"),
+]
+
+
+def _extract_rpt_coords(line):
+    for pat in _RPT_COORD_PATTERNS:
+        m = pat.search(line)
+        if m:
+            try:
+                return float(m.group(1)), float(m.group(2)), float(m.group(3))
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _extract_rpt_event_type(line):
+    cleaned = line
+    for prefix in ("Event spawned", "Spawned event", "CE event", "Event ", "Spawn "):
+        if prefix.lower() in cleaned.lower():
+            idx = cleaned.lower().index(prefix.lower())
+            cleaned = cleaned[idx + len(prefix):]
+            break
+    for prefix in RPT_EVENT_PREFIXES:
+        m = re.search(rf"\b({re.escape(prefix)}\w+)", cleaned)
+        if m:
+            return m.group(1)[:80]
+    return None
+
+
+def parse_rpt_for_events(rpt_text):
+    """Returns (restart_markers, events).
+    restart_markers = list of restart banner indexes
+    events = list of {id, type, x, y, z, line_index}"""
+    if not rpt_text:
+        return [], []
+    restart_markers = []
+    events = []
+    seen = set()
+    lines = rpt_text.splitlines()
+    banner_pattern = re.compile(r"={20,}")
+    for i, raw_line in enumerate(lines):
+        if banner_pattern.search(raw_line) and i + 5 < len(lines):
+            window = "\n".join(lines[i:i + 6]).lower()
+            if "dayz" in window or "mission" in window:
+                restart_markers.append(str(i))
+        lowered = raw_line.lower()
+        if not any(t in lowered for t in ("spawn", "event", "ce ", "ce]")):
+            continue
+        coords = _extract_rpt_coords(raw_line)
+        if not coords:
+            continue
+        event_type = _extract_rpt_event_type(raw_line)
+        if not event_type:
+            continue
+        eid = f"{event_type}@{int(coords[0])}_{int(coords[2])}"
+        if eid in seen:
+            continue
+        seen.add(eid)
+        events.append({
+            "id": eid, "type": event_type,
+            "x": coords[0], "y": coords[1], "z": coords[2],
+            "line_index": i,
+        })
+    return restart_markers, events
+
+
+async def get_or_create_rpt_admin_channel(guild, config):
+    channels = config.setdefault("channels", {})
+    existing_id = channels.get("rpt_admin")
+    if existing_id:
+        ch = guild.get_channel(int(existing_id))
+        if ch:
+            return ch
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(read_messages=False),
+        guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True, embed_links=True),
+    }
+    admin_role_names = {str(r).lower() for r in (config.get("admin_roles") or DEFAULT_ADMIN_ROLES)}
+    for role in guild.roles:
+        if role.permissions.administrator or role.name.lower() in admin_role_names:
+            overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
+    try:
+        ch = await guild.create_text_channel(
+            "🔧-server-spawns",
+            overwrites=overwrites,
+            topic="Live RPT event tracker — auto-updated each server restart.",
+        )
+        channels["rpt_admin"] = ch.id
+        save_guild_configs()
+        return ch
+    except Exception as err:
+        print(f"[RPT TRACKER] could not create admin channel: {err}")
+        return None
+
+
+def _rpt_world_link(x, z, guild_id):
+    try:
+        return build_izurvive_link(f"{int(x)},{int(z)}", guild_id=int(guild_id))
+    except Exception:
+        return None
+
+
+def _build_rpt_event_embed(guild_id, state):
+    events = state.get("events", [])
+    now_ts = datetime.now(UTC).timestamp()
+    last_restart = float(state.get("last_restart_ts") or 0)
+    last_restart_text = f"<t:{int(last_restart)}:R>" if last_restart else "—"
+    buckets = {}
+    for ev in events:
+        buckets.setdefault(ev.get("type", "Unknown"), []).append(ev)
+    embed = discord.Embed(
+        title="🔧 LIVE SERVER SPAWN TRACKER",
+        description=(
+            f"Last detected server restart: {last_restart_text}\n"
+            f"Tracking **{len(events)}** active event/vehicle spawn(s) parsed from `.RPT`.\n"
+            f"Entries auto-expire when their DayZ lifetime passes or the next pull no longer sees them."
+        ),
+        color=0xE67E22,
+    )
+    if not events:
+        embed.add_field(name="No active spawns detected", value="The next RPT pull will populate this.", inline=False)
+    else:
+        for kind, evs in sorted(buckets.items()):
+            lines = []
+            for ev in evs[:8]:
+                link = _rpt_world_link(ev["x"], ev["z"], guild_id)
+                age_s = int(now_ts - float(ev.get("first_seen_ts", now_ts)))
+                lifetime = int(ev.get("lifetime_s", RPT_DEFAULT_EVENT_LIFETIME_SECONDS))
+                remaining = max(0, lifetime - age_s)
+                coord_text = f"({int(ev['x'])}, {int(ev['z'])})"
+                if link:
+                    coord_text = f"[{coord_text}]({link})"
+                lines.append(f"• {coord_text} · age {format_duration_seconds(age_s)} · expires in {format_duration_seconds(remaining)}")
+            embed.add_field(name=f"{kind} ({len(evs)})", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text=f"Wandering Bot Alpha — refresh every 5 min · Updated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    return embed
+
+
+async def _post_or_update_rpt_embed(guild, state):
+    channel = guild.get_channel(int(state.get("channel_id", 0)))
+    if not channel:
+        return False
+    embed = _build_rpt_event_embed(guild.id, state)
+    msg_id = state.get("embed_message_id")
+    try:
+        if msg_id:
+            try:
+                msg = await channel.fetch_message(int(msg_id))
+                await msg.edit(embed=style_embed(embed))
+                return True
+            except discord.NotFound:
+                pass
+        msg = await channel.send(embed=style_embed(embed))
+        state["embed_message_id"] = msg.id
+        try:
+            await msg.pin(reason="Live RPT spawn tracker")
+        except Exception:
+            pass
+        return True
+    except Exception as err:
+        print(f"[RPT TRACKER] post/update embed failed: {err}")
+        return False
+
+
+async def _post_rpt_restart_report(guild, state, new_events):
+    channel = guild.get_channel(int(state.get("channel_id", 0)))
+    if not channel:
+        return
+    embed = discord.Embed(
+        title="🛑 SERVER RESTART DETECTED",
+        description=(
+            f"<t:{int(datetime.now(UTC).timestamp())}:F> — fresh mission started.\n"
+            f"**{len(new_events)}** dynamic-event spawns located in the first `.RPT` pull."
+        ),
+        color=0xE74C3C,
+    )
+    if new_events:
+        lines = []
+        for ev in new_events[:10]:
+            link = _rpt_world_link(ev["x"], ev["z"], guild.id)
+            ct = f"({int(ev['x'])}, {int(ev['z'])})"
+            if link:
+                ct = f"[{ct}]({link})"
+            lines.append(f"• **{ev['type']}** at {ct}")
+        embed.add_field(name="First spawns of the cycle", value="\n".join(lines)[:1024], inline=False)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as err:
+        print(f"[RPT TRACKER] restart report failed: {err}")
+
+
+async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
+    state = rpt_event_tracker.setdefault(str(guild_id), {
+        "events": [], "last_restart_ts": 0, "last_rpt_size": 0,
+        "enabled": True, "embed_message_id": None, "channel_id": None,
+        "restart_marker_count": 0,
+    })
+    if not state.get("enabled", True):
+        return "Tracker is disabled for this guild."
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return "Guild not found."
+
+    channel = guild.get_channel(int(state.get("channel_id") or 0))
+    if not channel:
+        channel = await get_or_create_rpt_admin_channel(guild, config)
+        if not channel:
+            return "Could not create the admin channel."
+        state["channel_id"] = channel.id
+
+    path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
+    if not text:
+        return "Could not pull the latest .RPT log over FTP / Nitrado API."
+
+    new_size = len(text)
+    if not force_restart_post and new_size == int(state.get("last_rpt_size") or 0):
+        return "No change in RPT since last pull."
+    state["last_rpt_size"] = new_size
+
+    restart_markers, events = parse_rpt_for_events(text)
+    now_ts = datetime.now(UTC).timestamp()
+
+    saw_new_restart = force_restart_post
+    last_known = int(state.get("restart_marker_count") or 0)
+    if len(restart_markers) > last_known:
+        saw_new_restart = True
+        state["restart_marker_count"] = len(restart_markers)
+        state["last_restart_ts"] = now_ts
+
+    existing_by_id = {e["id"]: e for e in state.get("events", [])}
+    fresh_ids = set()
+    new_events_this_cycle = []
+    for ev in events:
+        fresh_ids.add(ev["id"])
+        if ev["id"] in existing_by_id:
+            existing_by_id[ev["id"]]["last_seen_ts"] = now_ts
+        else:
+            record = {**ev, "first_seen_ts": now_ts, "last_seen_ts": now_ts,
+                      "lifetime_s": RPT_DEFAULT_EVENT_LIFETIME_SECONDS}
+            existing_by_id[ev["id"]] = record
+            new_events_this_cycle.append(record)
+
+    kept = []
+    for record in existing_by_id.values():
+        age = now_ts - float(record.get("first_seen_ts", now_ts))
+        gone_for = now_ts - float(record.get("last_seen_ts", now_ts))
+        if age > float(record.get("lifetime_s", RPT_DEFAULT_EVENT_LIFETIME_SECONDS)):
+            continue
+        if record["id"] not in fresh_ids and gone_for > 30 * 60:
+            continue
+        kept.append(record)
+    state["events"] = kept
+
+    save_rpt_event_tracker()
+    await _post_or_update_rpt_embed(guild, state)
+
+    if saw_new_restart:
+        await _post_rpt_restart_report(guild, state, new_events_this_cycle or kept)
+        save_rpt_event_tracker()
+
+    return f"OK — {len(kept)} live event(s), restart={saw_new_restart}, restarts_total={state.get('restart_marker_count', 0)}"
+
+
+@tasks.loop(minutes=5)
+async def rpt_event_tracker_loop():
+    for guild_id, config in list(guild_configs.items()):
+        try:
+            if not config.get("rpt_tracker_enabled", True):
+                continue
+            if not config.get("nitrado_token") or not config.get("service_id"):
+                continue
+            await refresh_rpt_event_tracker(guild_id, config)
+        except Exception as err:
+            print(f"[RPT TRACKER LOOP] {guild_id} error: {err}")
+
+
+load_rpt_event_tracker()
+
+
 # =========================================================
 # LIVE DASHBOARD SETTINGS
 # =========================================================
@@ -19268,6 +19664,9 @@ async def start_background_tasks():
         if not temp_ban_expiry_loop.is_running():
             temp_ban_expiry_loop.start()
 
+        if not rpt_event_tracker_loop.is_running():
+            rpt_event_tracker_loop.start()
+
         if not recap_loop.is_running():
             recap_loop.start()
 
@@ -28968,6 +29367,100 @@ async def gameban_list(interaction: discord.Interaction):
         color=0xE74C3C,
     )
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+# ============================================================================
+# /server liveevents … — RPT-based live event tracker
+# ============================================================================
+
+liveevents_group = app_commands.Group(
+    name="liveevents",
+    description="Live DayZ event tracker — parses .RPT for spawn coords",
+    parent=server_group,
+)
+
+
+@liveevents_group.command(name="setup", description="Auto-create the private admin channel + start tracking.")
+@app_commands.default_permissions(manage_guild=True)
+async def liveevents_setup(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()})
+    config["rpt_tracker_enabled"] = True
+    save_guild_configs()
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    status = await refresh_rpt_event_tracker(gid, config, force_restart_post=True)
+    channel = interaction.guild.get_channel(int(rpt_event_tracker.get(gid, {}).get("channel_id") or 0))
+    where = channel.mention if channel else "(channel pending — next refresh will create it)"
+    await interaction.followup.send(
+        f"🔧 Live event tracker enabled. Reports posting in {where}.\nFirst refresh: `{status}`",
+        ephemeral=True,
+    )
+
+
+@liveevents_group.command(name="refresh", description="Force a manual .RPT pull right now.")
+@app_commands.default_permissions(manage_guild=True)
+async def liveevents_refresh(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()})
+    status = await refresh_rpt_event_tracker(gid, config)
+    await interaction.followup.send(f"♻️ {status}", ephemeral=True)
+
+
+@liveevents_group.command(name="list", description="List the currently-tracked live spawns.")
+async def liveevents_list(interaction: discord.Interaction):
+    gid = str(interaction.guild.id)
+    state = rpt_event_tracker.get(gid, {})
+    events = state.get("events", [])
+    if not events:
+        await interaction.response.send_message("No live spawns tracked yet. Run `/server liveevents setup`.", ephemeral=True)
+        return
+    embed = _build_rpt_event_embed(interaction.guild.id, state)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@liveevents_group.command(name="toggle", description="Enable or disable the live event tracker.")
+@app_commands.describe(enabled="true / false")
+@app_commands.default_permissions(manage_guild=True)
+async def liveevents_toggle(interaction: discord.Interaction, enabled: bool):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}})
+    config["rpt_tracker_enabled"] = bool(enabled)
+    state = rpt_event_tracker.setdefault(gid, {"events": [], "enabled": True})
+    state["enabled"] = bool(enabled)
+    save_guild_configs()
+    save_rpt_event_tracker()
+    await interaction.response.send_message(
+        f"{'🟢 Enabled' if enabled else '🔴 Disabled'} live event tracker.",
+        ephemeral=True,
+    )
+
+
+@liveevents_group.command(name="channel", description="Move the live tracker to a different channel.")
+@app_commands.describe(channel="Target channel (must be admin-private)")
+@app_commands.default_permissions(manage_guild=True)
+async def liveevents_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    if not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Need Manage Server.", ephemeral=True)
+        return
+    gid = str(interaction.guild.id)
+    config = guild_configs.setdefault(gid, {"channels": {}})
+    config.setdefault("channels", {})["rpt_admin"] = channel.id
+    save_guild_configs()
+    state = rpt_event_tracker.setdefault(gid, {"events": [], "enabled": True})
+    state["channel_id"] = channel.id
+    state["embed_message_id"] = None  # repost the pinned tracker in the new channel
+    save_rpt_event_tracker()
+    await interaction.response.send_message(f"📡 Live tracker channel set to {channel.mention}.", ephemeral=True)
 
 
 bot.tree.add_command(server_group)
