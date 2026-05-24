@@ -15214,7 +15214,89 @@ def radar_zone_ignores_player(zone, player_name):
 # upload_text_file_to_nitrado_ftp).
 # ============================================================================
 
-SAFE_ZONE_TRIGGER_CHOICES = ["trespass", "kill", "trap", "tent", "build"]
+# ============================================================================
+# Full trigger catalog — user-facing trigger names (matching killfeed.xyz
+# dashboard) mapped to ADM event_type + line-keyword filters. Admins pick
+# any subset of these when creating a zone via /server zone create-circle
+# triggers:<csv>.
+# ----------------------------------------------------------------------------
+# Each entry:
+#   key:      slug the admin types
+#   label:    pretty display name
+#   group:    grouping for /server zone triggers help
+#   events:   set of ADM event_types that count
+#   needs:    optional substring(s) required in the raw line (any-of match)
+#   excludes: optional substring(s) that veto the match
+# ============================================================================
+SAFE_ZONE_TRIGGER_CATALOG = {
+    # Movement / login / detection
+    "login":           {"label": "Login",                "group": "Connection", "events": {"connect"}},
+    "logout":          {"label": "Logout",               "group": "Connection", "events": {"disconnect"}},
+    "trespass":        {"label": "Detection (walking)",  "group": "Connection", "events": {"position"}},
+    "detection":       {"label": "Detection (any ADM)",  "group": "Connection", "events": {"position", "connect", "kill", "cut", "placed", "packed", "build", "flag_raise", "flag_lower"}},
+    "detection_outside": {"label": "Detection Outside (use trigger_territory=outside)", "group": "Connection", "events": {"position"}},
+
+    # Combat
+    "kill":                       {"label": "PvP Kill",                          "group": "Combat", "events": {"kill"}},
+    "kill_ignore_bounty":         {"label": "PvP Kill (ignore bounty kills)",    "group": "Combat", "events": {"kill"}, "excludes": ("bounty", "bountied")},
+    "npc_kill":                   {"label": "NPC / AI Kill",                     "group": "Combat", "events": {"kill"},      "needs": ("npc", "ai_npc", "bot ", " bot")},
+    "hit":                        {"label": "Hit / Damage Dealt",                "group": "Combat", "events": {"cut"}},
+    "kill_zone":                  {"label": "Kill on entry (PvP-zone flag)",     "group": "Combat", "events": {"kill"}},
+    "kill_zone_ignore_bounty":    {"label": "Kill-zone (ignore bounty kills)",   "group": "Combat", "events": {"kill"}, "excludes": ("bounty", "bountied")},
+    "hit_zone":                   {"label": "Hit-zone flag",                     "group": "Combat", "events": {"cut"}},
+
+    # Building / Placing / Dismantle / Pack / Fold
+    "build":         {"label": "Built",                       "group": "Build", "events": {"build", "placed"}, "excludes": ("mounted", "unmounted", "bury", "buried", "unbury", "tent", "shelter")},
+    "place":         {"label": "Placed Item",                 "group": "Build", "events": {"placed"}},
+    "dismantle":     {"label": "Dismantled",                  "group": "Build", "events": {"raid"}},
+    "fold":          {"label": "Folded",                      "group": "Build", "events": {"packed"}, "needs": ("fold", "folded")},
+    "pack":          {"label": "Packed",                      "group": "Build", "events": {"packed"}},
+    "tent":          {"label": "Tent / Shelter placed",       "group": "Build", "events": {"placed"}, "needs": ("tent", "shelter", "improvisedshelter")},
+    "trap":          {"label": "Trap / Snare / Mine placed",  "group": "Build", "events": {"placed"}, "needs": ("trap", "snare", "landmine", "tripwire", "improvisedexplosive", "bear_trap")},
+
+    # Flags
+    "flag_raise":    {"label": "Flag Raised",   "group": "Flag", "events": {"flag_raise"}},
+    "flag_lower":    {"label": "Flag Lowered",  "group": "Flag", "events": {"flag_lower"}},
+
+    # Burial / stash
+    "bury":          {"label": "Buried Item",       "group": "Stash", "events": {"placed", "packed"}, "needs": ("bury", "buried", "stash")},
+    "unbury":        {"label": "Unburied Item",     "group": "Stash", "events": {"placed", "packed"}, "needs": ("unbury", "unburied", "dug up")},
+
+    # Vehicles
+    "mount":         {"label": "Vehicle Mounted",   "group": "Vehicle", "events": {"build", "placed"}, "needs": ("mounted",)},
+    "unmount":       {"label": "Vehicle Unmounted", "group": "Vehicle", "events": {"build", "placed"}, "needs": ("unmounted",)},
+    "vehicle_death": {"label": "Death by Vehicle",  "group": "Vehicle", "events": {"vehicle_kill"}},
+
+    # Repair (DayZ never actually logs this — kept for parity with killfeed.xyz)
+    "repair":        {"label": "Repair Attempt (not logged by vanilla DayZ)", "group": "Misc", "events": set()},
+    "emote":         {"label": "Emote (only suicide-emote is logged)",        "group": "Misc", "events": {"suicide"}, "needs": ("emote",)},
+
+    # Death triggers
+    "death_bear":           {"label": "Death by Bear",         "group": "Death", "events": {"cut", "animal_kill", "kill"}, "needs": ("bear",)},
+    "death_wolf":           {"label": "Death by Wolf",         "group": "Death", "events": {"cut", "animal_kill", "kill"}, "needs": ("wolf",)},
+    "death_zombie":         {"label": "Death by Zombie",       "group": "Death", "events": {"zombie_kill"}},
+    "death_explosion":      {"label": "Death by Explosion",    "group": "Death", "events": {"cut", "kill"}, "needs": ("explos", "grenade", "frag", " ied ", "tnt", "c4")},
+    "death_explosion_suicide": {"label": "Suicide via Explosion", "group": "Death", "events": {"suicide"}, "needs": ("explos", "grenade", "frag")},
+    "death_trap":           {"label": "Death by Trap",         "group": "Death", "events": {"cut", "kill"}, "needs": ("trap", "snare", "landmine", "bear_trap")},
+    "death_vehicle":        {"label": "Death by Vehicle",      "group": "Death", "events": {"vehicle_kill"}},
+    "death_bleed_out":      {"label": "Death by Bleed-Out",    "group": "Death", "events": {"bleedout"}},
+    "death_fall":           {"label": "Death by Fall",         "group": "Death", "events": {"cut", "kill"}, "needs": ("fall", "falling", "fell")},
+    "death_fire":           {"label": "Death by Fire",         "group": "Death", "events": {"cut", "kill"}, "needs": ("fire", "fireplace", "burn")},
+    "death_barbed_wire":    {"label": "Death by Barbed Wire",  "group": "Death", "events": {"cut", "kill"}, "needs": ("barbed", "wire")},
+    "death_respawn":        {"label": "Forced Respawn Death",  "group": "Death", "events": {"respawn"}},
+    "death_pvp_respawn":    {"label": "PvP Respawn Death",     "group": "Death", "events": {"respawn"}, "needs": ("pvp", "combat")},
+    "death_suicide":        {"label": "Suicide",               "group": "Death", "events": {"suicide"}},
+    "death_unknown":        {"label": "Death (Unknown cause)", "group": "Death", "events": {"cut"}, "needs": ("died", "dead")},
+
+    # Zone-behaviour flags (not bans on their own — pair with action=ban)
+    "ping_on_detection":    {"label": "Just ping on detection (no ban)", "group": "Zone Flag", "events": {"position"}},
+    "ping_bounties":        {"label": "Ping when a bountied player enters", "group": "Zone Flag", "events": {"position", "connect"}},
+    "active":               {"label": "Zone is active",                  "group": "Zone Flag", "events": set()},
+    "verbose":              {"label": "Verbose logging in report channel", "group": "Zone Flag", "events": set()},
+}
+
+# Back-compat: the legacy short list still works.
+SAFE_ZONE_TRIGGER_CHOICES = list(SAFE_ZONE_TRIGGER_CATALOG.keys())
 SAFE_ZONE_ACTION_CHOICES = ["none", "manhunt", "ban"]
 NITRADO_BANLIST_FTP_PATH = "/games/{user}/noftp/dayzxb/config/banlist.txt"
 # Per-player offense throttle so the same kill line doesn't double-ban.
@@ -15268,26 +15350,31 @@ def _zone_rule_fires(point, zone):
 
 
 def _safe_zone_event_matches_trigger(event_type, line, triggers):
-    """Map an ADM event_type+raw line to one of the abstract trigger names
-    so admins can think in 'kill / trap / tent / build / trespass' terms
-    even though ADM uses dozens of finer-grained event names."""
+    """Catalog-driven match: walk the admin's enabled trigger list and
+    return the first one whose CATALOG entry matches event_type + the
+    raw ADM line. Returns the trigger key or None."""
     if not triggers:
         return None
     lowered = (line or "").lower()
-    if "kill" in triggers and event_type == "kill":
-        return "kill"
-    if event_type == "placed":
-        # Distinguish trap / tent / generic build from one ADM event_type.
-        if "trap" in triggers and any(w in lowered for w in ["trap", "snare", "improvisedexplosive", "landmine", "bear_trap", "tripwire"]):
-            return "trap"
-        if "tent" in triggers and any(w in lowered for w in ["tent", "shelter", "improvisedshelter"]):
-            return "tent"
-        if "build" in triggers:
-            return "build"
-    if "build" in triggers and event_type in ("flag_raise", "flag_lower"):
-        return "build"
-    if "trespass" in triggers and event_type == "position":
-        return "trespass"
+    for trig in triggers:
+        spec = SAFE_ZONE_TRIGGER_CATALOG.get(trig)
+        if not spec:
+            continue
+        if event_type not in spec.get("events", set()):
+            continue
+        needs = spec.get("needs")
+        if needs:
+            if isinstance(needs, str):
+                needs = (needs,)
+            if not any(n.lower() in lowered for n in needs):
+                continue
+        excludes = spec.get("excludes")
+        if excludes:
+            if isinstance(excludes, str):
+                excludes = (excludes,)
+            if any(x.lower() in lowered for x in excludes):
+                continue
+        return trig
     return None
 
 
@@ -29092,6 +29179,29 @@ async def zone_whitelist(interaction: discord.Interaction, zone_id: str, gamerta
     wl.append(tag)
     save_guild_configs()
     await interaction.response.send_message(f"✅ Whitelisted `{tag}` on `{zone_id}` ({len(wl)}/200).", ephemeral=True)
+
+
+@zone_group.command(name="triggers", description="List ALL supported safe-zone trigger names admins can use.")
+async def zone_triggers(interaction: discord.Interaction):
+    grouped = {}
+    for key, spec in SAFE_ZONE_TRIGGER_CATALOG.items():
+        grouped.setdefault(spec.get("group", "Misc"), []).append((key, spec.get("label", key)))
+    pages = []
+    for group_name, entries in grouped.items():
+        body = "\n".join(f"• `{k}` — {label}" for k, label in entries)
+        pages.append(f"**{group_name}**\n{body}")
+    embed = discord.Embed(
+        title=f"🛡️ Safe-Zone Trigger Catalog ({len(SAFE_ZONE_TRIGGER_CATALOG)})",
+        description=(
+            "Pass any comma-separated subset to `/server zone create-circle triggers:` or "
+            "`/server zone edit triggers:`. Example:\n"
+            "`triggers:kill,build,death_explosion,login`\n\n"
+            + "\n\n".join(pages)
+        )[:4000],
+        color=0x3498DB,
+    )
+    embed.set_footer(text="🚫 reminder: vanilla DayZ does NOT log 'repair' attempts — that trigger will never fire.")
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
 @zone_group.command(name="reportchannel", description="Set which Discord channel gets violation reports for a zone.")
