@@ -6600,6 +6600,28 @@ PVE_CAMPAIGN_SYSTEM_PROMPT = (
     "Even if the admin's theme mentions 'broken', 'damaged', 'abandoned', or 'derelict' "
     "infrastructure, the player's task must always be COLLECT/DELIVER/SCOUT/HUNT — "
     "the lore can mention the broken thing, but the goal must never be to fix it.\n\n"
+    "🚫 BANNED STEP VERBS — these don't exist as gameplay in vanilla DayZ and the bot "
+    "will REJECT any quest whose `steps` contain them: 'photograph', 'take a screenshot', "
+    "'search for clues', 'find clues', 'gather intel', 'investigate the evidence', "
+    "'decode', 'decrypt', 'hack', 'interrogate', 'interview', 'question a witness', "
+    "'activate the radio/generator/antenna', 'plant a bug'. Every numbered step must be "
+    "a concrete COLLECT / HUNT / CATCH / CRAFT (vanilla recipes only) / DELIVER action. "
+    "The final step is ALWAYS the drop-off, e.g. 'Deliver all 3 wiring kits to the Black "
+    "Market Trader at Topolin.' Lore/atmosphere fields (story_epigraph, hidden_lore, "
+    "summary) may mention abstract themes — but `steps` must be playable actions only.\n\n"
+    "📦 ITEMS_NEEDED FORMAT — every entry MUST be a JSON object of the form "
+    "`{\"item\": \"<real DayZ types.xml item name>\", \"qty\": <integer >=1>, "
+    "\"spawn_zones\": [\"Military\", \"Police\", ...]}`. NEVER return bare strings. "
+    "ALWAYS include an explicit integer `qty` — even when only one of an item is needed "
+    "(qty:1 is correct, just don't omit the field). For hunting/fishing/crafting quests "
+    "list the trophies / catches / inputs as items_needed too (e.g. {item:'Deer Pelt', "
+    "qty:5} for a hunting run). The total amount the player has to gather/kill/catch "
+    "must be readable straight from items_needed without doing math.\n\n"
+    "📍 DELIVERY_TARGET — if the quest involves dropping items off, set delivery_target "
+    "to a SPECIFIC named contact / trader / stash (e.g. 'Black Market Trader at Topolin', "
+    "'Stash behind Green Mountain tower', 'Coastal Hermit at Solnichniy lighthouse'). "
+    "Never leave it as 'a random location' or 'the engineering station' — be specific. "
+    "If the admin's request mentions a named trader/contact, USE that exact name.\n\n"
     "You ALWAYS reply with strict, valid JSON only — no markdown fences, no commentary."
 )
 
@@ -6738,13 +6760,90 @@ def format_quest_item_line(item_dict):
     name = str(item_dict.get("item") or "").strip()
     if not name:
         return ""
-    qty = item_dict.get("qty") or 1
+    try:
+        qty = int(item_dict.get("qty") or 1)
+    except Exception:
+        qty = 1
+    qty = max(1, qty)
     zones = item_dict.get("spawn_zones") or []
-    base = f"**{qty}x** {name}" if qty and qty > 0 else name
+    # Always render the explicit X-of-X quantity so server owners get an
+    # unambiguous "X amount" list even when qty is 1 (admin requirement).
+    base = f"**{qty}x** {name}"
     if zones:
         zone_text = ", ".join(zones[:4])
         return f"• {base}  ·  _{zone_text}_"
     return f"• {base}"
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Step / objective sanitiser — strips abstract verbs the player can't
+# actually do in vanilla DayZ ("photograph the components", "search for
+# clues", "investigate evidence", "decode the radio frequency",
+# "interrogate the witness", etc) and rewrites them as collect-and-deliver
+# actions. Applied to every AI-generated quest before it's saved or
+# rendered. Lore can still mention these things; only the STEP text is
+# scrubbed because that's what the player reads as their checklist.
+# ────────────────────────────────────────────────────────────────────────
+_BANNED_STEP_VERB_PATTERNS = [
+    re.compile(r"\bphotograph(?:ing)?\b", re.IGNORECASE),
+    re.compile(r"\btake\s+(?:a\s+)?(?:screenshot|photo|picture)s?\b", re.IGNORECASE),
+    re.compile(r"\bsearch(?:\s+\w+)*\s+for\s+clues?\b", re.IGNORECASE),
+    re.compile(r"\bfind\s+(?:the\s+)?clues?\b", re.IGNORECASE),
+    re.compile(r"\bgather\s+(?:the\s+)?(?:clues?|evidence|intel(?:ligence)?|leads?)\b", re.IGNORECASE),
+    re.compile(r"\binvestigate\s+(?:the\s+)?(?:evidence|scene|leads?|clues?)\b", re.IGNORECASE),
+    re.compile(r"\bdecode\b", re.IGNORECASE),
+    re.compile(r"\bdecrypt\b", re.IGNORECASE),
+    re.compile(r"\bhack\b", re.IGNORECASE),
+    re.compile(r"\binterrogate\b", re.IGNORECASE),
+    re.compile(r"\binterview\b", re.IGNORECASE),
+    re.compile(r"\bquestion\s+(?:a\s+)?witness(?:es)?\b", re.IGNORECASE),
+    re.compile(r"\brepair\b", re.IGNORECASE),
+    re.compile(r"\bfix\s+(?:the\s+)?\w+", re.IGNORECASE),
+    re.compile(r"\brestore\b", re.IGNORECASE),
+    re.compile(r"\bpatch\s+up\b", re.IGNORECASE),
+    re.compile(r"\brebuild\b", re.IGNORECASE),
+    re.compile(r"\bactivate\s+(?:the\s+)?(?:radio|generator|antenna|console|terminal)\b", re.IGNORECASE),
+    re.compile(r"\bturn\s+on\s+(?:the\s+)?(?:radio|generator|antenna|console|terminal)\b", re.IGNORECASE),
+    re.compile(r"\bplant\s+(?:a\s+)?bug\b", re.IGNORECASE),
+]
+
+
+def _sanitize_quest_steps(steps):
+    """Drop any step that asks the player to do something vanilla DayZ
+    can't represent (photographing things, searching for clues, etc).
+    Returns a new list — never raises."""
+    if not steps:
+        return []
+    cleaned = []
+    for raw in steps:
+        if not raw:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        # Reject the step entirely if any banned verb pattern hits.
+        banned = any(pattern.search(text) for pattern in _BANNED_STEP_VERB_PATTERNS)
+        if banned:
+            continue
+        cleaned.append(text)
+    return cleaned
+
+
+def _sanitize_quest_goal(goal):
+    """Same scrub for the top-line objective text. If the whole objective
+    is a banned action, we leave a placeholder so the AI prompt notices
+    the structural break and (on next regen) writes a proper collect goal.
+    Returns the original goal if it passes, or a softened collect-style
+    rewrite if a banned verb shows up."""
+    if not goal:
+        return goal
+    text = str(goal)
+    for pattern in _BANNED_STEP_VERB_PATTERNS:
+        if pattern.search(text):
+            # Strip the banned verb chunk and prefix a collect-style verb
+            # so the objective still reads coherently to the player.
+            text = pattern.sub("collect", text)
+    return text
 
 
 def _normalize_ai_quest_entry(raw, campaign_name):
@@ -6798,6 +6897,7 @@ def _normalize_ai_quest_entry(raw, campaign_name):
         return out
 
     steps = _coerce_str_list(raw.get("steps"), max_items=6, max_len=240)
+    steps = _sanitize_quest_steps(steps)
     locations = _coerce_str_list(raw.get("locations"), max_items=6, max_len=80)
     dangers = _coerce_str_list(raw.get("dangers"), max_items=5, max_len=160)
 
@@ -6807,6 +6907,11 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     # We normalise everything to the structured dict shape so the embed
     # renderer can show quantities and spawn-zone hints consistently.
     items_needed = _coerce_items_needed(raw.get("items_needed"))
+
+    # Scrub the top-line objective text too — if the AI snuck in
+    # "photograph the components" the scrubber rewrites it as "collect ..."
+    # so the player checklist matches what's actually possible in-game.
+    safe_goal = _sanitize_quest_goal(goal)
 
     # NEW richer quest fields. All optional — fall back to empty.
     delivery_target = str(raw.get("delivery_target") or "").strip()[:200]
@@ -6849,7 +6954,7 @@ def _normalize_ai_quest_entry(raw, campaign_name):
         "kind": kind,
         "title": title[:120],
         "summary": summary[:600],
-        "goal": goal[:500],
+        "goal": safe_goal[:500],
         "steps": steps,
         "locations": locations,
         "items_needed": items_needed,
@@ -7134,8 +7239,8 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "You ALWAYS reply with a single valid JSON object — no markdown, no commentary. "
     "Your reply must follow this shape exactly:\n"
     "{\n"
-    "  \"action\": \"generate_campaign|post_quest_now|schedule_campaign|list_campaigns|"
-    "list_schedules|cancel_schedule|delete_campaign|chat\",\n"
+    "  \"action\": \"generate_campaign|post_quest_now|edit_posted_quest|schedule_campaign|"
+    "list_campaigns|list_schedules|cancel_schedule|delete_campaign|chat\",\n"
     "  \"reply\": \"<short friendly Discord message back to the admin, max 600 chars>\",\n"
     "  \"params\": { ...action-specific fields... }\n"
     "}\n\n"
@@ -7144,6 +7249,16 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "    Use story_mode=true when the admin asks for a multi-part story / questline — quests will then be ordered as a narrative.\n"
     "- post_quest_now: params { campaign_id:str|null, theme:str|null, target_channel_key:str|null }\n"
     "    Posts ONE quest immediately. If no campaign_id: pull a random quest matching theme.\n"
+    "- edit_posted_quest: params { quest_code:str (e.g. 'PVE-529315'), delivery_target:str|null, "
+    "target_channel_key:str|null, kind:str|null, goal:str|null, items_needed:list|null, "
+    "steps:list|null, title:str|null }\n"
+    "    🔧 Use this WHENEVER the admin references an existing quest by its PVE-XXXXXX ID "
+    "and wants to change ANYTHING about it (drop-off location, channel, kind, items, steps, "
+    "title). The bot will find the existing quest, update the fields you pass, edit the public "
+    "embed in place, and optionally move it to a new channel. Leave a field as null to keep "
+    "its current value. NEVER respond with generate_campaign or post_quest_now when the admin "
+    "is asking you to change an existing PVE-XXXXXX quest — that creates a brand-new quest "
+    "instead of editing theirs, which is exactly what the admin does NOT want.\n"
     "- schedule_campaign: params { campaign_id:str, target_channel_key:str|null, interval_hours:int (1-168), occurrences:int|null, story_mode:bool|null }\n"
     "    Schedules quests from the campaign to be posted on a recurring interval. occurrences=null means unlimited.\n"
     "- list_campaigns: params {}\n"
@@ -7152,7 +7267,17 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "- delete_campaign: params { campaign_id:str }\n"
     "- chat: params {} — for friendly clarifying questions or chit-chat.\n\n"
     "Valid target_channel_key values: pve_quests, pve_hunting, pve_collection, pve_fishing, pve_crafting, pve_expeditions. "
-    "Default to pve_quests when unsure.\n\n"
+    "Default to pve_quests when unsure. If the admin's theme is hunting/fishing/crafting/exploration, route to the matching channel.\n\n"
+    "🆔 PVE-XXXXXX DETECTION — if the admin's message contains a string that looks like "
+    "'PVE-' followed by digits (e.g. PVE-529315, pve-464016, etc.), you MUST use "
+    "action=edit_posted_quest and pass that exact code as params.quest_code. Examples:\n"
+    "  • 'Re-work PVE-529315 to deliver to the Black Market Trader' → edit_posted_quest "
+    "with quest_code='PVE-529315', delivery_target='Black Market Trader'.\n"
+    "  • 'Change PVE-464016 to a hunting quest and post it in pve-hunting' → "
+    "edit_posted_quest with quest_code='PVE-464016', kind='Hunting', target_channel_key='pve_hunting'.\n"
+    "  • 'Update PVE-529315 — drop off should be the Black Market Trader NOT the Black Crow' → "
+    "edit_posted_quest with quest_code='PVE-529315', delivery_target='Black Market Trader'.\n"
+    "Never generate a new quest in these cases.\n\n"
     "🚫 DAYZ MECHANICS GUARD-RAIL — when you choose theme/title text for generate_campaign or post_quest_now, "
     "NEVER frame the theme as a 'repair', 'fix', 'restore', 'patch up', 'rebuild', or 'get X working again' job. "
     "DayZ players cannot repair generators, radios, antennas, helicopters, buildings, doors, bunkers, or broken "
@@ -7166,6 +7291,10 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "use the normal `post_quest_now` action with the original campaign_id and the bot will figure out where to "
     "deliver it. NEVER refuse to post a quest by claiming you cannot reach a ticket channel. Always emit the "
     "structured `post_quest_now` action — the bot's send-layer decides public vs ticket automatically.\n\n"
+    "🚫 NEVER ask the player to 'photograph', 'search for clues', 'investigate evidence', 'decode', "
+    "'decrypt', 'hack', 'interrogate', or 'interview' anything — those don't exist as gameplay actions "
+    "in vanilla DayZ and the bot's step sanitiser will strip them out. Stick to COLLECT / HUNT / "
+    "CATCH / CRAFT (vanilla recipes) / DELIVER actions only.\n\n"
     "If the admin's request is ambiguous, default to action=chat and ask a short clarifying question. "
     "Always reply in English unless the admin uses another language. Keep replies concise and survival-flavoured."
 )
@@ -7919,6 +8048,203 @@ async def deliver_quest_reward(guild, config, challenge, member):
             print(f"REWARD AUDIT FAILED: {audit_error}")
 
 
+async def workshop_edit_posted_quest(message, config, params):
+    """Find an existing posted PVE quest by its PVE-XXXXXX code, update the
+    fields the admin asked to change, edit the public embed in place, and
+    optionally re-post in a different channel. Returns a string reply for
+    the workshop channel."""
+    guild = message.guild
+    guild_id = str(guild.id)
+    params = params or {}
+
+    raw_code = str(params.get("quest_code") or "").strip().upper()
+    if raw_code.isdigit():
+        raw_code = f"PVE-{raw_code}"
+    if not raw_code.startswith("PVE-"):
+        m = re.search(r"PVE[-_ ]?(\d{4,8})", str(params.get("quest_code") or ""), re.IGNORECASE)
+        if m:
+            raw_code = f"PVE-{m.group(1)}"
+    if not raw_code or not raw_code.startswith("PVE-"):
+        return "❌ I need the quest code (e.g. `PVE-529315`) to edit a posted quest."
+
+    # Find the quest in pve_challenges (any status — admins might be
+    # tweaking a quest that was already completed/archived too).
+    quest_record = None
+    for ch in pve_challenges.get(guild_id, []):
+        if pve_quest_code(ch) == raw_code:
+            quest_record = ch
+            break
+    if not quest_record:
+        return f"❌ Couldn't find quest `{raw_code}` in this server's PVE board. Use `list my campaigns` or check the `#pve-quests` history."
+
+    # Track what we actually changed so the reply is informative.
+    changes = []
+
+    new_delivery = params.get("delivery_target")
+    if new_delivery is not None and str(new_delivery).strip():
+        quest_record["delivery_target"] = str(new_delivery).strip()[:200]
+        changes.append(f"📍 delivery → **{quest_record['delivery_target']}**")
+        # Rewrite the final goal sentence so the player's checklist
+        # matches the new drop-off, e.g. "Deliver all items to <X>."
+        existing_goal = str(quest_record.get("goal") or "")
+        # Strip any prior "deliver them to ..." tail and re-stamp it.
+        cleaned_goal = re.sub(
+            r"(?i)\s*(?:and\s+)?deliver(?:\s+(?:them|it|the\s+\w+))?\s+to\s+.+?(?:\.|$)",
+            "", existing_goal,
+        ).rstrip(" .,;")
+        new_goal = f"{cleaned_goal}. Deliver them to {quest_record['delivery_target']}." if cleaned_goal else f"Deliver the items to {quest_record['delivery_target']}."
+        quest_record["goal"] = _sanitize_quest_goal(new_goal[:500])
+
+    new_goal_override = params.get("goal")
+    if new_goal_override is not None and str(new_goal_override).strip():
+        quest_record["goal"] = _sanitize_quest_goal(str(new_goal_override).strip()[:500])
+        changes.append("🎯 goal rewritten")
+
+    new_title = params.get("title")
+    if new_title is not None and str(new_title).strip():
+        quest_record["title"] = str(new_title).strip()[:120]
+        changes.append(f"📜 title → **{quest_record['title']}**")
+
+    new_kind = params.get("kind")
+    if new_kind is not None and str(new_kind).strip():
+        quest_record["kind"] = _coerce_quest_kind(new_kind)
+        changes.append(f"🏷️ kind → **{quest_record['kind']}**")
+
+    new_items = params.get("items_needed")
+    if new_items is not None and isinstance(new_items, list) and new_items:
+        coerced = _coerce_items_needed(new_items)
+        if coerced:
+            quest_record["items_needed"] = coerced
+            preview = ", ".join(f"{i.get('qty', 1)}x {i.get('item')}" for i in coerced[:4])
+            changes.append(f"🎯 items → {preview}")
+
+    new_steps = params.get("steps")
+    if new_steps is not None and isinstance(new_steps, list) and new_steps:
+        safe_steps = _sanitize_quest_steps([str(s) for s in new_steps if s])
+        if safe_steps:
+            quest_record["steps"] = safe_steps
+            changes.append(f"📋 {len(safe_steps)} step(s) rewritten")
+
+    # Channel move — re-post in the new channel and (best-effort) edit the
+    # previous post to point readers at the new location.
+    raw_target_key = params.get("target_channel_key")
+    new_channel_key = workshop_resolve_target_channel_key(raw_target_key) if raw_target_key else None
+    old_channel_key = quest_record.get("channel_key")
+    move_channel = new_channel_key and new_channel_key != old_channel_key
+
+    save_pve_challenges()
+
+    if not changes and not move_channel:
+        return f"ℹ️ Nothing to change on `{raw_code}` — the params you sent were all empty."
+
+    # Try to edit the original Discord embed in place so the same message
+    # in the original channel reflects the new info immediately.
+    edited_in_place = False
+    for ref in list(quest_record.get("post_message_refs") or []):
+        try:
+            ch = guild.get_channel(int(ref.get("channel_id"))) if ref.get("channel_id") else None
+            if not ch:
+                continue
+            msg = await ch.fetch_message(int(ref.get("message_id")))
+            new_embed = _build_quest_embed_from_record(quest_record)
+            if new_embed:
+                await msg.edit(embed=style_embed(new_embed))
+                edited_in_place = True
+        except Exception as edit_err:
+            print(f"[WORKSHOP] edit_in_place failed for {raw_code}: {edit_err}")
+
+    move_note = ""
+    if move_channel:
+        # Repost into the new channel as a fresh message with the updated
+        # embed (so the new channel's regular pings/notifications fire).
+        quest_record["channel_key"] = new_channel_key
+        save_pve_challenges()
+        ok, info = await workshop_post_one_quest_to_channel(
+            guild, config, new_channel_key, quest_record, campaign=None,
+        )
+        if ok:
+            move_note = f"\n🚚 Re-posted in {info} (new channel: `{new_channel_key}`)."
+        else:
+            move_note = f"\n⚠️ Couldn't repost in `{new_channel_key}`: {info}"
+
+    summary = ", ".join(changes) if changes else "channel moved"
+    place_note = " (edited the original post in place)" if edited_in_place else ""
+    return f"✏️ Updated `{raw_code}` — {summary}.{place_note}{move_note}"
+
+
+def _build_quest_embed_from_record(record):
+    """Re-render a saved pve_challenges record back into the same embed
+    layout workshop_post_one_quest_to_channel uses, so the in-place edit
+    looks identical to a freshly-posted quest with the new fields."""
+    if not record:
+        return None
+    quest_code = pve_quest_code(record)
+    kind = record.get("kind", "Survival")
+    title = record.get("title", "Untitled Quest")
+    summary = record.get("summary") or ""
+    goal = record.get("goal") or ""
+    epigraph = (record.get("story_epigraph") or "").strip()
+    description_parts = []
+    if epigraph:
+        description_parts.append(f"> _\u201c{epigraph}\u201d_")
+    if summary:
+        description_parts.append(summary)
+    description_parts.append(f"\U0001F3AF **Objective:** {goal}")
+    embed = discord.Embed(
+        title=f"\U0001F9ED {kind.upper()} QUEST [{quest_code}]: {title}",
+        description="\n\n".join(description_parts)[:4000],
+        color=0x9B59B6,
+    )
+    embed.add_field(name="\U0001F194 Quest ID", value=f"`{quest_code}`", inline=True)
+    embed.add_field(name="Difficulty", value=record.get("difficulty", "Medium"), inline=True)
+    if record.get("estimated_minutes"):
+        embed.add_field(name="Est. Time", value=f"~{record['estimated_minutes']} min", inline=True)
+
+    steps = record.get("steps") or []
+    if steps:
+        numbered = "\n".join(f"**{i+1}.** {step}" for i, step in enumerate(steps[:6]))
+        embed.add_field(name="\U0001F4CB Step-by-Step", value=numbered[:1024], inline=False)
+
+    locations = record.get("locations") or []
+    if locations:
+        embed.add_field(
+            name="\U0001F4CD Locations",
+            value="\n".join(f"\u2022 {loc}" for loc in locations[:6])[:1024],
+            inline=True,
+        )
+
+    items_needed = record.get("items_needed") or []
+    if items_needed:
+        rendered = []
+        for it in items_needed[:10]:
+            line = format_quest_item_line(it) if isinstance(it, dict) else f"\u2022 {str(it)[:80]}"
+            if line:
+                rendered.append(line)
+        if rendered:
+            embed.add_field(
+                name="\U0001F3AF Collect / Bring",
+                value="\n".join(rendered)[:1024],
+                inline=False,
+            )
+
+    delivery_target = (record.get("delivery_target") or "").strip()
+    if delivery_target:
+        embed.add_field(name="\U0001F4CD Delivery / Drop-off", value=delivery_target[:1024], inline=False)
+
+    dangers = record.get("dangers") or []
+    if dangers:
+        embed.add_field(
+            name="\u26A0\uFE0F Watch Out For",
+            value="\n".join(f"\u2022 {d}" for d in dangers[:5])[:1024],
+            inline=False,
+        )
+
+    embed.add_field(name="\U0001F4B0 Reward", value=record.get("reward", "Admin-chosen")[:1024], inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=f"Wandering Bot Alpha - AI Quest Workshop - {quest_code}")
+    return embed
+
+
 async def workshop_execute_action(message, config, action, params):
     """Execute one workshop action and return a string reply for the channel."""
     guild = message.guild
@@ -7967,6 +8293,9 @@ async def workshop_execute_action(message, config, action, params):
         if not ok:
             return f"⚠️ Post failed: {info}"
         return f"📜 Posted quest **{quest.get('title', '?')}** in {info}."
+
+    if action == "edit_posted_quest":
+        return await workshop_edit_posted_quest(message, config, params)
 
     if action == "schedule_campaign":
         campaign_id = params.get("campaign_id") or ""
@@ -8114,6 +8443,58 @@ async def handle_quest_workshop_message(message):
     action = str(plan.get("action") or "chat").strip().lower()
     reply_text = str(plan.get("reply") or "").strip()
     params = plan.get("params") or {}
+
+    # 🛡️ Safety net: if the admin's literal message names an existing
+    # PVE-XXXXXX quest code but the LLM still decided to do anything
+    # OTHER than edit it, force the edit path. Without this the bot keeps
+    # spawning brand-new quests instead of updating the one the admin
+    # explicitly referenced.
+    pve_code_match = re.search(r"PVE[-_ ]?(\d{4,8})", text, re.IGNORECASE)
+    if pve_code_match and action in {"generate_campaign", "post_quest_now", "chat"}:
+        forced_code = f"PVE-{pve_code_match.group(1)}"
+        # Try to find that quest in this guild before overriding — if it
+        # doesn't exist, leave the LLM's plan alone so chat can clarify.
+        gid_local = str(guild.id)
+        exists = any(
+            pve_quest_code(ch) == forced_code
+            for ch in pve_challenges.get(gid_local, [])
+        )
+        if exists:
+            params = dict(params or {})
+            params["quest_code"] = forced_code
+            # Heuristic field extraction from the admin's raw text so the
+            # edit applies even if the LLM forgot to populate params.
+            lower_text = text.lower()
+            if "delivery_target" not in params or not params.get("delivery_target"):
+                for hint, normalised in [
+                    ("black market trader", "Black Market Trader"),
+                    ("blackmarket trader", "Black Market Trader"),
+                    ("black-market trader", "Black Market Trader"),
+                    ("black trader", "Black Market Trader"),
+                    ("trader at solnichniy", "Trader at Solnichniy"),
+                    ("green mountain", "Green Mountain stash"),
+                ]:
+                    if hint in lower_text:
+                        params["delivery_target"] = normalised
+                        break
+            if "target_channel_key" not in params or not params.get("target_channel_key"):
+                if "hunting" in lower_text or "hunter" in lower_text:
+                    params["target_channel_key"] = "pve_hunting"
+                elif "fishing" in lower_text or "fish " in lower_text:
+                    params["target_channel_key"] = "pve_fishing"
+                elif "crafting" in lower_text or "craft " in lower_text:
+                    params["target_channel_key"] = "pve_crafting"
+                elif "expedition" in lower_text or "exploration" in lower_text:
+                    params["target_channel_key"] = "pve_expeditions"
+                elif "collection" in lower_text or "collect " in lower_text:
+                    params["target_channel_key"] = "pve_collection"
+            action = "edit_posted_quest"
+            # Add a tiny human-visible nudge so the admin sees the override.
+            reply_text = (
+                (reply_text + "\n\n" if reply_text else "")
+                + f"_(Forwarded as **edit_posted_quest** for `{forced_code}` — that quest already exists, "
+                  "so I'm updating it in place instead of creating a new one.)_"
+            )
 
     # First send the LLM's chatty reply (if any) so the admin always sees
     # acknowledgment immediately, then execute the action.
