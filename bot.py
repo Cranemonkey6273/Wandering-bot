@@ -6652,15 +6652,28 @@ def _coerce_quest_kind(raw_kind):
 def _coerce_difficulty(raw):
     cleaned = str(raw or "").strip().lower()
     return {
+        "trivial": "Super Easy",
+        "super easy": "Super Easy",
+        "super_easy": "Super Easy",
+        "supereasy": "Super Easy",
+        "starter": "Super Easy",
+        "rookie": "Super Easy",
         "easy": "Easy",
         "medium": "Medium",
         "med": "Medium",
         "normal": "Medium",
         "hard": "Hard",
         "tough": "Hard",
+        "super hard": "Super Hard",
+        "super_hard": "Super Hard",
+        "superhard": "Super Hard",
+        "brutal": "Super Hard",
+        "insane": "Super Hard",
+        "nightmare": "Super Hard",
         "legendary": "Legendary",
         "epic": "Legendary",
         "boss": "Legendary",
+        "mythic": "Legendary",
     }.get(cleaned, "Medium")
 
 
@@ -6758,10 +6771,12 @@ def _normalize_ai_quest_entry(raw, campaign_name):
     # AI quests are richer / longer than the legacy hardcoded bank quests
     # so they pay a heavier fallback if the AI forgot to set reward_pennies.
     ai_fallback_reward = {
+        "Super Easy": 1500,
         "Easy": 3000,
         "Medium": 7000,
         "Hard": 12000,
-        "Legendary": 20000,
+        "Super Hard": 18000,
+        "Legendary": 25000,
     }.get(difficulty, 5000)
     try:
         reward_pennies = int(reward_pennies) if reward_pennies is not None else ai_fallback_reward
@@ -6925,8 +6940,8 @@ async def generate_ai_pve_campaign(theme, count=12):
         "      \"reward\": \"<one short sentence describing the reward — make it feel earned>\",\n"
         "      \"reward_type\": \"pennies|infected_map|intel_brief|loot_drop_coords|role_grant|custom\",\n"
         "      \"reward_visibility\": \"public|private\",\n"
-        "      \"reward_pennies\": <integer scaling with difficulty: Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Legendary 18000-25000>,\n"
-        "      \"difficulty\": \"Easy|Medium|Hard|Legendary\",\n"
+        "      \"reward_pennies\": <integer scaling with difficulty: Super Easy 800-2000, Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Super Hard 18000-25000, Legendary 25000-40000>,\n"
+        "      \"difficulty\": \"Super Easy|Easy|Medium|Hard|Super Hard|Legendary\",\n"
         "      \"estimated_minutes\": <int 15-240>,\n"
         "      \"tips\": \"<2-3 sentences of advanced in-game advice referencing real DayZ mechanics>\"\n"
         "    }\n"
@@ -6971,7 +6986,13 @@ async def generate_ai_pve_campaign(theme, count=12):
         "Plate Carrier + assault rifle, contaminated dynamic loot crates.\n\n"
         "MANDATORY RULES — quests MUST feel worth doing:\n"
         f"- Every quest must reflect the theme \"{theme}\" in summary AND in step content.\n"
-        "- Mix difficulties: roughly 25% Easy, 35% Medium, 30% Hard, 10% Legendary.\n"
+        "- Difficulty mix: when admin asks for 'easy' theme, weight 60% Super Easy + 30% Easy + 10% Medium. When 'hard', weight 50% Super Hard + 35% Hard + 15% Legendary. Otherwise default to: 10% Super Easy, 25% Easy, 30% Medium, 20% Hard, 10% Super Hard, 5% Legendary.\n"
+        "  • Super Easy = 5-15 min, solo, 1-2 named items from 1 zone, no PvP risk, near coast or in safe wilderness.\n"
+        "  • Easy = 15-30 min, solo, 2-3 items from 1-2 zones, low infected density.\n"
+        "  • Medium = 30-60 min, solo or duo, 3-4 items from 2-3 zones, named landmark danger.\n"
+        "  • Hard = 60-120 min, trio or squad, 5-6 items, military zone OR contaminated zone, real PvP exposure.\n"
+        "  • Super Hard = 120-180 min, squad, 6-8 items spanning 4+ zones, multiple military stops, real PvP odds.\n"
+        "  • Legendary = 180-240 min, full squad, 8+ items, contaminated bunker / Tisy / NWAF combined run, escort or convoy element, near-guaranteed PvP.\n"
         "- Spread the kinds across hunting/collection/exploration/crafting/rescue/zombie control/treasure hunt where the theme allows.\n"
         "- `summary` must be 3-4 full sentences (not a fragment). Set the scene like an admin announcing a real event. Mention WHO wants the items and WHY they matter.\n"
         "- `steps` must contain 4-5 concrete actions. Each step must name a specific location, item, or measurable action — never 'check the area' or 'find some loot'.\n"
@@ -6990,7 +7011,7 @@ async def generate_ai_pve_campaign(theme, count=12):
         "- `weather`: pick a weather condition that fits the theme. 'fog' for stealth missions, 'storm' for survival challenges, 'clear' for long-range, 'any' if it doesn't matter.\n"
         "- `recommended_squad`: solo=lone wolf stealth, duo=overwatch + breacher, trio=balanced, squad=4+ for legendary objectives.\n"
         "- `tips` must be 2-3 sentences referencing real DayZ mechanics (stamina, blood regen, splints, fireplace warming, loot tier locations, fence respawns, server restart timing, fishing bait, infected hearing range, character thirst).\n"
-        "- 💰 `reward_pennies` MUST scale with difficulty: Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Legendary 18000-25000. These are MEATY quests — pay them like meaty quests.\n"
+        "- 💰 `reward_pennies` MUST scale with difficulty: Super Easy 800-2000, Easy 2000-5000, Medium 5000-10000, Hard 10000-18000, Super Hard 18000-25000, Legendary 25000-40000. These are MEATY quests — pay them like meaty quests.\n"
         "- ✍️ STORYTELLING (these new fields make quests feel like a Smuggler-style briefing — never skip them):\n"
         "    * `story_epigraph` — ONE short in-character quote (no surrounding quotes; the bot adds them). Sets the tone in one breath.\n"
         "    * `hidden_lore` — 2-4 sentences of in-world rumour. Hint at the unnamed NPC handler or faction. Use a fictional codename (The Operator, The Ferryman, The Quartermaster, The Watcher, Black Crow, Saltline, Ghost Hand, The Pale Doctor) — never copy real-world names or real persons.\n"
@@ -7140,6 +7161,11 @@ QUEST_WORKSHOP_SYSTEM_PROMPT = (
     "and DELIVER them to a named stash/contact, or to SCOUT a location, HUNT targets, or MEET a contact. "
     "For example, 'repair the Green Mountain radio' becomes 'salvage radio parts and stash them for the Green "
     "Mountain operator'. Reply in the 'reply' field acknowledging the swap in plain English.\n\n"
+    "🎟️ TICKET-CHAIN ROUTING — The bot AUTOMATICALLY routes follow-up parts of a campaign into the player's "
+    "private ticket channel once they open a ticket on the first part. You DO NOT need to handle this — just "
+    "use the normal `post_quest_now` action with the original campaign_id and the bot will figure out where to "
+    "deliver it. NEVER refuse to post a quest by claiming you cannot reach a ticket channel. Always emit the "
+    "structured `post_quest_now` action — the bot's send-layer decides public vs ticket automatically.\n\n"
     "If the admin's request is ambiguous, default to action=chat and ask a short clarifying question. "
     "Always reply in English unless the admin uses another language. Keep replies concise and survival-flavoured."
 )
@@ -7250,9 +7276,38 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     the named channel. Renders summary, numbered steps, locations, items
     needed, dangers, reward, and survival tips. Also persists the quest
     to pve_challenges so admins can /pvecomplete it and trigger the
-    correct reward delivery via deliver_quest_reward()."""
+    correct reward delivery via deliver_quest_reward().
+
+    🎟️ TICKET-CHAIN ROUTING: if this quest belongs to a campaign whose
+    earlier quest has already been claimed by a player (i.e. has a bound
+    ticket channel), the post is redirected INTO that ticket channel so
+    only the player + admins see it. This stops anyone else from picking
+    up Part 2/3/4 of a story arc."""
     channels = config.setdefault("channels", {})
-    target = guild.get_channel(channels.get(channel_key))
+
+    # First check if this quest's campaign is already bound to a ticket
+    # channel — if so, override channel_key to route there.
+    routed_to_ticket = False
+    if campaign:
+        bound_ch_id = campaign.get("bound_ticket_channel_id")
+        bound_player_id = campaign.get("bound_player_id")
+        if bound_ch_id:
+            ticket_channel = guild.get_channel(int(bound_ch_id))
+            if ticket_channel:
+                target = ticket_channel
+                routed_to_ticket = True
+            else:
+                # Ticket channel was deleted — release the binding so
+                # future parts go back to the public channel.
+                campaign.pop("bound_ticket_channel_id", None)
+                campaign.pop("bound_player_id", None)
+                save_pve_ai_campaigns()
+                target = guild.get_channel(channels.get(channel_key))
+        else:
+            target = guild.get_channel(channels.get(channel_key))
+    else:
+        target = guild.get_channel(channels.get(channel_key))
+
     if not target:
         # Auto-create the PVE channel set if missing.
         await ensure_pve_channels(guild, config)
@@ -7464,7 +7519,8 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         pass
     save_pve_challenges()
 
-    return True, target.mention
+    suffix = " 🎟️ (routed into the active ticket channel)" if routed_to_ticket else ""
+    return True, f"{target.mention}{suffix}"
 
 
 # =========================================================
@@ -18257,6 +18313,31 @@ async def open_pve_quest_ticket(interaction, challenge):
         ticket_channel_id=ticket_channel.id,
         ticket_number=ticket_number,
     )
+
+    # 🎟️ Campaign chain binding: if this quest belongs to a campaign,
+    # bind the WHOLE campaign to this ticket channel so every
+    # subsequent part of the story posts here, not in public.
+    campaign_id_for_binding = (
+        challenge.get("campaign_id")
+        or challenge.get("ai_campaign_id")
+    )
+    if campaign_id_for_binding:
+        try:
+            gid_str = str(guild.id)
+            campaign_block = pve_ai_campaigns.setdefault(gid_str, {})
+            campaign = campaign_block.get(campaign_id_for_binding)
+            if campaign:
+                # Only bind if no one else has already claimed the
+                # campaign chain (defence against simultaneous tickets
+                # on two different quests of the same campaign).
+                existing_bound = campaign.get("bound_player_id")
+                if not existing_bound or str(existing_bound) == str(member.id):
+                    campaign["bound_ticket_channel_id"] = ticket_channel.id
+                    campaign["bound_player_id"] = member.id
+                    campaign["bound_at"] = datetime.now(UTC).isoformat()
+                    save_pve_ai_campaigns()
+        except Exception as err:
+            print(f"[PVE TICKET] campaign bind failed: {err}")
 
     # Auto-enrich legacy bank quests with a default items_needed kit so
     # the player always sees a meaty multi-item briefing inside the ticket.
