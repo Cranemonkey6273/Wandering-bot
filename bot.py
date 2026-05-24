@@ -7808,9 +7808,27 @@ async def deliver_quest_reward(guild, config, challenge, member):
     visibility = str(challenge.get("reward_visibility") or "public").strip().lower()
     reward_type = str(challenge.get("reward_type") or "pennies").strip().lower()
 
+    # 🎟️ TICKET-CHANNEL ROUTING — if this quest (or its parent campaign)
+    # is bound to a player's private ticket channel, route the FULL
+    # reward embed there. Post a no-detail confirmation in the public
+    # pve-rewards so the community can celebrate the win without seeing
+    # spoilers (live maps, intel coords, loot drops).
+    ticket_channel = None
+    ticket_ch_id = challenge.get("claimed_ticket_channel_id")
+    if not ticket_ch_id:
+        # Fall through to campaign-level binding.
+        camp_id = challenge.get("campaign_id") or challenge.get("ai_campaign_id")
+        if camp_id:
+            camp = pve_ai_campaigns.get(str(guild.id), {}).get(camp_id) or {}
+            ticket_ch_id = camp.get("bound_ticket_channel_id")
+    if ticket_ch_id:
+        candidate = guild.get_channel(int(ticket_ch_id))
+        if candidate:
+            ticket_channel = candidate
+
     # Open a DM channel for private rewards.
     dm_channel = None
-    if visibility == "private":
+    if visibility == "private" and not ticket_channel:
         try:
             dm_channel = member.dm_channel or await member.create_dm()
         except Exception as dm_error:
@@ -7821,6 +7839,13 @@ async def deliver_quest_reward(guild, config, challenge, member):
     # themselves when needed). For public rewards, the handler posts the
     # full embed there.
     target_channel = public_channel if visibility == "public" else None
+
+    # 🎟️ Override: if a ticket channel exists, ALL reward types route
+    # there regardless of visibility — the ticket itself is private
+    # so no separate DM is needed.
+    if ticket_channel:
+        target_channel = ticket_channel
+        visibility = "ticket"  # marker so the audit log shows this
 
     handler_map = {
         "pennies": _deliver_reward_pennies,
@@ -7833,7 +7858,37 @@ async def deliver_quest_reward(guild, config, challenge, member):
     handler = handler_map.get(reward_type, _deliver_reward_custom)
 
     # Run the per-type handler.
-    if visibility == "private":
+    if visibility == "ticket":
+        # Full reward in the private ticket channel; no-detail confirmation
+        # in the public pve-rewards so the community can celebrate.
+        await handler(guild, config, challenge, member, ticket_channel, None)
+        if public_channel:
+            try:
+                pretty_reward_label = {
+                    "pennies": "💰 Pennies",
+                    "infected_map": "🗺️ Live infected map",
+                    "intel_brief": "📰 Intel briefing",
+                    "loot_drop_coords": "📍 Loot drop coordinates",
+                    "role_grant": "🏷️ Achievement role",
+                    "custom": "🎁 Custom admin reward",
+                }.get(reward_type, "🎁 Reward")
+                public_notice = discord.Embed(
+                    title="🏆 QUEST COMPLETE",
+                    description=(
+                        f"{member.mention} completed **{challenge.get('title', '?')}** "
+                        f"and earned **{pretty_reward_label}**.\n"
+                        f"_Full details were delivered privately in their quest ticket._"
+                    ),
+                    color=0xF1C40F,
+                )
+                public_notice.set_footer(text=f"Wandering Bot Alpha — Quest {pve_quest_code(challenge)}")
+                await public_channel.send(
+                    embed=style_embed(public_notice),
+                    allowed_mentions=discord.AllowedMentions(users=[member]),
+                )
+            except Exception as err:
+                print(f"[REWARD] public notice failed: {err}")
+    elif visibility == "private":
         # All private deliveries route through the same channel pair: the
         # handler decides what (if anything) to post publicly via the
         # `target_channel` arg below. We still pass `public_channel` so
@@ -13764,12 +13819,115 @@ async def on_member_join(member):
     await welcome_channel.send(embed=style_embed(embed))
 
 
+WANDERING_MASTER_GUILD_ID = os.environ.get("WANDERING_MASTER_GUILD_ID", "").strip()
+_company_announce_dedupe = {}
+
+
+async def maybe_broadcast_company_announcement(message):
+    """If `message` was posted in the master guild's
+    #wandering-company-announcements (or matches the legacy '📢🎊・UPDATES &
+    NEWS・🎊📢' naming), fan it out to every other guild's
+    company_announcements channel. Best-effort: each delivery failure
+    is logged and skipped. Set WANDERING_MASTER_GUILD_ID env var to
+    enable; otherwise this function silently no-ops."""
+    if not WANDERING_MASTER_GUILD_ID:
+        return
+    if not message.guild or str(message.guild.id) != WANDERING_MASTER_GUILD_ID:
+        return
+
+    # Only broadcast from the configured channel.
+    master_config = guild_configs.get(str(message.guild.id), {})
+    master_channel_id = master_config.get("channels", {}).get("company_announcements")
+    if master_channel_id and message.channel.id != int(master_channel_id):
+        return
+    # Fallback name match if channels-config isn't initialised yet.
+    if not master_channel_id:
+        ch_name_lower = (message.channel.name or "").lower()
+        if "company-announcement" not in ch_name_lower and "updates" not in ch_name_lower:
+            return
+
+    if not message.content and not message.attachments and not message.embeds:
+        return
+
+    # 1-minute dedupe so we don't double-broadcast on Discord edits.
+    now_ts = datetime.now(UTC).timestamp()
+    if now_ts - _company_announce_dedupe.get(message.id, 0) < 60:
+        return
+    _company_announce_dedupe[message.id] = now_ts
+
+    attachments_payload = []
+    for att in message.attachments[:5]:
+        try:
+            attachments_payload.append(await att.to_file())
+        except Exception:
+            pass
+
+    delivered = 0
+    failed = 0
+    for guild in bot.guilds:
+        if str(guild.id) == WANDERING_MASTER_GUILD_ID:
+            continue
+        target_config = guild_configs.get(str(guild.id), {})
+        target_id = target_config.get("channels", {}).get("company_announcements")
+        target_channel = None
+        if target_id:
+            target_channel = guild.get_channel(int(target_id))
+        # Fallback: any channel whose name contains 'company-announcement'.
+        if not target_channel:
+            for ch in guild.text_channels:
+                if "company-announcement" in (ch.name or "").lower():
+                    target_channel = ch
+                    break
+        if not target_channel:
+            failed += 1
+            continue
+
+        outbound = discord.Embed(
+            title="📢 Wandering Bot — Company Announcement",
+            description=message.content[:4000] if message.content else "_(see attachments)_",
+            color=0xE67E22,
+        )
+        outbound.set_footer(text=f"Broadcast from {message.guild.name} by {message.author.display_name}")
+        try:
+            files_clone = []
+            for att in message.attachments[:5]:
+                try:
+                    files_clone.append(await att.to_file())
+                except Exception:
+                    pass
+            await target_channel.send(embed=style_embed(outbound), files=files_clone or None)
+            delivered += 1
+        except Exception as err:
+            failed += 1
+            print(f"[COMPANY ANNOUNCE] {guild.name}: {err}")
+
+    # Acknowledge to the announcer in the master channel.
+    try:
+        await message.add_reaction("📡")
+        if delivered:
+            await message.channel.send(
+                f"📡 Broadcast delivered to **{delivered}** guild(s) (failed {failed}).",
+                delete_after=60,
+            )
+    except Exception:
+        pass
+
+
 @bot.event
 async def on_message(message):
 
     if message.author.bot:
         return
 
+    # 📢 Wandering Bot company-wide announcements: when a human posts in
+    # the MASTER guild's #wandering-company-announcements, mirror that
+    # message into every OTHER guild's #wandering-company-announcements
+    # so news/updates fan out to all servers the bot is in.
+    if message.guild:
+        try:
+            await maybe_broadcast_company_announcement(message)
+        except Exception as error:
+            print(f"COMPANY ANNOUNCE BROADCAST ERROR: {error}")
     # Quest workshop: admin-only freestyle AI quest channel. Route this
     # FIRST and early-return so workshop chatter doesn't run through the
     # normal swearjar/AI-roast pipeline.
@@ -26551,6 +26709,60 @@ async def event_workshop_setup(interaction: discord.Interaction):
         await interaction.followup.send(
             "Tried to create the workshop but couldn't locate it afterwards. "
             "Check the bot's `Manage Channels` permission and try again.",
+            ephemeral=True,
+        )
+
+
+@events_group.command(
+    name="unlockchain",
+    description="Admin: release a quest campaign's ticket lock so another player can pick it up"
+)
+@app_commands.describe(
+    campaign_id="Campaign id (run /events listcampaigns to see them)",
+    quest_id="Optional: single quest id to also release (e.g. PVE-Q-AB12)",
+)
+@app_commands.default_permissions(administrator=True)
+async def event_unlock_chain(interaction: discord.Interaction, campaign_id: str, quest_id: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    gid = str(interaction.guild.id)
+    campaign_block = pve_ai_campaigns.setdefault(gid, {})
+    campaign = campaign_block.get(campaign_id)
+    if not campaign:
+        await interaction.response.send_message(
+            f"No campaign `{campaign_id}`. Run `/events listcampaigns`.", ephemeral=True
+        )
+        return
+
+    released_player = campaign.get("bound_player_id")
+    released_channel = campaign.get("bound_ticket_channel_id")
+    campaign.pop("bound_ticket_channel_id", None)
+    campaign.pop("bound_player_id", None)
+    campaign.pop("bound_at", None)
+    save_pve_ai_campaigns()
+
+    quest_msg = ""
+    if quest_id:
+        normalized = quest_id.strip().upper()
+        challenge = find_active_pve_quest_by_code(gid, normalized)
+        if challenge:
+            release_quest_claim(challenge)
+            quest_msg = f" Also released quest `{normalized}`."
+        else:
+            quest_msg = f" (couldn't find quest `{normalized}`.)"
+
+    if released_player:
+        await interaction.response.send_message(
+            f"🔓 Chain `{campaign_id}` unlocked from <@{released_player}> "
+            f"(was bound to channel <#{released_channel}>)."
+            f" Future parts will post in the public PVE channel.{quest_msg}",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    else:
+        await interaction.response.send_message(
+            f"Chain `{campaign_id}` had no active ticket binding to release.{quest_msg}",
             ephemeral=True,
         )
 
