@@ -13993,15 +13993,12 @@ async def on_message(message):
     if await maybe_handle_owner_natural_language(message, lower, now_ts):
         return
 
-    if not _is_showcase:
-        for keyword, response in AI_RESPONSES.items():
-
-            if keyword in lower:
-
-                guild_id = str(message.guild.id) if message.guild else "global"
-                await message.channel.send(wb_text("ai", apply_owner_voice_to_text(guild_id, response)))
-
-                break
+    # 🔇 Unsolicited keyword-tip replies DISABLED by owner request (PR #44).
+    # Previously: AI_RESPONSES scanned every chat line for words like "shit",
+    # "raid", "loot", "base", "dead" and replied with a 🧠 tip on EVERY hit
+    # with no cooldown — e.g. "🧠 Tactical advice: panicking rarely improves
+    # aim." All other feeds (killfeed, radar, safe zones, quests, swear jar,
+    # @-mention AI chat, RPT events) are untouched.
 
     user_id = str(message.author.id)
 
@@ -14014,20 +14011,11 @@ async def on_message(message):
             "eligible": False
         }
 
-    # low-frequency fun chatter with anti-repeat + anti-spam guards
-    # Suppressed in showcase guilds — showcase behaviour handles proactive messaging
-    if not _is_showcase and now_ts - last_funny_message_time.get(user_id, 0) > 900:
-        import random
-        behavior = owner_behavior_config(str(message.guild.id) if message.guild else "global")
-        fun_chance = max(0.001, min(0.2, float(behavior.get("fun_chatter_chance", 0.04))))
-        if random.random() < fun_chance:
-            idx = random.randrange(len(FUNNY_ROTATION))
-            if idx == last_funny_index.get(user_id, -1):
-                idx = (idx + 1) % len(FUNNY_ROTATION)
-            last_funny_index[user_id] = idx
-            last_funny_message_time[user_id] = now_ts
-            guild_id = str(message.guild.id) if message.guild else "global"
-            await message.channel.send(wb_text("spark", apply_owner_voice_to_text(guild_id, FUNNY_ROTATION[idx])))
+    # 🔇 FUNNY_ROTATION random "🧠 Pro tip / 💡 Tip" chatter DISABLED by owner
+    # request (PR #44). The 4% per-message chance + 15min cooldown still
+    # surfaced unsolicited tips to every speaker; the owner explicitly asked
+    # for these to stop. Mention-based replies + showcase responses below
+    # are kept because they only fire when a human pings the bot directly.
 
     # ── Autonomous showcase handling ─────────────────────
     if message.guild and is_showcase_guild(str(message.guild.id)):
