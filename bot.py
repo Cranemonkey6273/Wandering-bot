@@ -16140,56 +16140,148 @@ def _nitrado_banlist_path(config):
 
 
 def fetch_nitrado_banlist(config):
-    """Return the current banlist.txt as a list of stripped gamertag lines.
-    Empty list on any FTP error (banlist may not exist yet — that's fine)."""
-    target_path = _nitrado_banlist_path(config)
-    if not target_path:
+    """Return the current ban-override.txt as a list of stripped gamertag
+    lines. Reads the sticky `_nitrado_banlist_working_path` first if set,
+    then probes the same mission-dir candidates push_nitrado_banlist uses.
+    Empty list on any error — the file legitimately may not exist yet."""
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if not nitrado_user:
         return []
-    try:
-        ok, _msg, content = download_text_file_from_nitrado_ftp(config, target_path)
-    except Exception as err:
-        print(f"[SAFEZONE] banlist fetch error: {err}")
-        return []
-    if not ok or not content:
-        return []
-    lines = []
-    for raw in content.splitlines():
-        stripped = raw.strip()
-        if stripped and not stripped.startswith("#"):
-            lines.append(stripped)
-    return lines
+
+    candidate_paths = []
+    sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
+    if sticky:
+        candidate_paths.append(sticky)
+    for mission_dir in _nitrado_ban_override_candidate_dirs(config):
+        full = f"{mission_dir}/ban-override.txt"
+        if full != sticky and full not in candidate_paths:
+            candidate_paths.append(full)
+    # Legacy fallback so existing servers with a hand-rolled banlist.txt
+    # still load on first run.
+    legacy = [
+        f"/games/{nitrado_user}/noftp/dayzxb/config/banlist.txt",
+        "/dayzxb/config/banlist.txt",
+    ]
+    for p in legacy:
+        if p != sticky and p not in candidate_paths:
+            candidate_paths.append(p)
+
+    for candidate in candidate_paths:
+        try:
+            ok, _msg, content = download_text_file_from_nitrado(config, candidate)
+        except Exception:
+            continue
+        if not ok or not content:
+            continue
+        lines = []
+        for raw in content.splitlines():
+            stripped = raw.strip()
+            if stripped and not stripped.startswith("#"):
+                lines.append(stripped)
+        # Cache this path so future writes go to the same place.
+        config["_nitrado_banlist_working_path"] = candidate
+        save_guild_configs()
+        return lines
+    return []
+
+
+def _nitrado_ban_override_candidate_dirs(config):
+    """Return the list of mpmissions/<active mission>/ paths to try when
+    writing ban-override.txt. Nitrado DayZ Xbox/PS panels load these from
+    the ACTIVE mission directory — the file must live inside the same
+    mpmissions/<...>/ folder that the server is currently running.
+
+    We try the canonical Chernarus / Livonia / Sakhal mission names first,
+    plus a configured override (`config['active_mission_dir']`) and a
+    legacy /dayzxb/config/banlist.txt as final fallback so an admin can
+    still hand-create one if they want."""
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    explicit = str(config.get("active_mission_dir") or "").strip().strip("/")
+    map_key = str(config.get("server_map") or config.get("map") or "").strip().lower()
+
+    candidates = []
+    if explicit:
+        candidates.append(explicit)
+    # Map-specific best guess first.
+    if "livonia" in map_key or "enoch" in map_key:
+        candidates.append("dayzOffline.enoch")
+    if "sakhal" in map_key:
+        candidates.append("dayzOffline.sakhal")
+    # Generic order.
+    candidates.extend([
+        "dayzOffline.chernarusplus",
+        "dayzOffline.enoch",
+        "dayzOffline.sakhal",
+        "chernarusplus",
+        "enoch",
+        "sakhal",
+    ])
+
+    # Deduplicate while preserving order.
+    seen = set()
+    mission_dirs = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            mission_dirs.append(c)
+
+    # Build full paths. Each mission can live under several FTP roots.
+    prefixes = []
+    if nitrado_user:
+        prefixes.extend([
+            f"/games/{nitrado_user}/noftp/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/ftproot/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/noftp/dayzps/mpmissions",
+        ])
+    prefixes.extend(["/dayzxb/mpmissions", "/dayzps/mpmissions", "/mpmissions"])
+
+    paths = []
+    seen_paths = set()
+    for prefix in prefixes:
+        for mission in mission_dirs:
+            path = f"{prefix}/{mission}"
+            if path not in seen_paths:
+                seen_paths.add(path)
+                paths.append(path)
+    return paths
 
 
 def push_nitrado_banlist(config, entries):
-    """Write the list back. Each entry is one gamertag per line.
+    """Write the banlist back via the Nitrado mission-dir override file
+    `ban-override.txt`.
 
-    On a fresh Nitrado DayZ Xbox server the file
-    `/games/{user}/noftp/dayzxb/config/banlist.txt` doesn't exist yet
-    and any single upload attempt fails with FTP `550 No such file or
-    directory` (the /noftp/ tree isn't reachable from plain FTP either,
-    so the FTP fallback can never save us). To make this self-healing
-    we try a chain of paths Nitrado is known to mirror in the wild —
-    if any one of them sticks we declare success.
-    """
+    Background: DayZ Xbox / PlayStation banlists are managed inside the
+    Nitrado web panel's *Base Settings* page and stored under each
+    mission's `ban-override.txt` (per the official Nitrado / killfeed
+    docs). The old `/dayzxb/config/banlist.txt` path is a legacy console
+    leftover that fresh Nitrado containers don't even create, which is
+    why the user previously hit `550 No such file or directory` on every
+    add. We now sweep every plausible mpmissions/<mission> dir, write
+    the file there, and remember the working path so subsequent bans
+    skip the probe."""
     nitrado_user = str(config.get("nitrado_user") or "").strip()
     if not nitrado_user:
         return False, "Nitrado user not configured."
 
     payload = "\n".join(dict.fromkeys(e.strip() for e in entries if e and e.strip())) + "\n"
 
-    # Ordered candidate paths — most-canonical first. If we successfully
-    # wrote to a particular path on a previous run, try that first so we
-    # don't waste seconds probing every fresh ban.
-    canonical = [
-        f"/games/{nitrado_user}/noftp/dayzxb/config/banlist.txt",
-        f"/games/{nitrado_user}/ftproot/dayzxb/config/banlist.txt",
-        "/dayzxb/config/banlist.txt",
-        "/config/banlist.txt",
-        f"/games/{nitrado_user}/noftp/dayzps/config/banlist.txt",
-        "/dayzps/config/banlist.txt",
-    ]
+    candidate_paths = []
     sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
-    candidate_paths = ([sticky] if sticky else []) + [p for p in canonical if p != sticky]
+    if sticky:
+        candidate_paths.append(sticky)
+    for mission_dir in _nitrado_ban_override_candidate_dirs(config):
+        for filename in ("ban-override.txt",):
+            full = f"{mission_dir}/{filename}"
+            if full != sticky:
+                candidate_paths.append(full)
+    # Legacy fallbacks for ancient servers that still read /config/banlist.txt.
+    legacy = [
+        f"/games/{nitrado_user}/noftp/dayzxb/config/banlist.txt",
+        "/dayzxb/config/banlist.txt",
+    ]
+    for p in legacy:
+        if p != sticky and p not in candidate_paths:
+            candidate_paths.append(p)
 
     errors = []
     for candidate in candidate_paths:
@@ -16198,17 +16290,20 @@ def push_nitrado_banlist(config, entries):
         except Exception as err:
             ok, msg = False, str(err)
         if ok:
-            # Remember the path that worked so next ban skips the slow probe.
             config["_nitrado_banlist_working_path"] = candidate
             save_guild_configs()
             return True, f"{msg} (path={candidate})"
         errors.append(f"`{candidate}` → {msg}")
 
     helpful = (
-        "Banlist file doesn't exist on the Nitrado server yet. "
-        "Quick fix: open the Nitrado web panel → File Browser → "
-        "`/dayzxb/config/` → create an empty file called `banlist.txt`, "
-        "then retry this command. "
+        "Couldn't write any DayZ ban-override file. "
+        "DayZ Xbox/PS banlists live inside the mission's "
+        "`ban-override.txt` under `mpmissions/<your active mission>/`. "
+        "Open the Nitrado web panel → File Browser → `mpmissions/` and "
+        "check which folder your server is actually running (chernarusplus, "
+        "enoch, sakhal, or a custom mission). If it's a custom name, run "
+        "`/server setmission name:<your-mission-folder>` once and the bot "
+        "will target it. "
         "Tried " + str(len(candidate_paths)) + " paths: " + " | ".join(errors[:3])
     )
     print(f"[SAFEZONE] banlist push exhausted all paths:\n  " + "\n  ".join(errors))
@@ -29421,6 +29516,36 @@ async def slash_server_cancelrestarts(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def slash_server_listrestarts(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "listrestarts")
+
+
+@server_group.command(name="setmission", description="Pin the active DayZ mission folder name for banlist writes (e.g. dayzOffline.chernarusplus)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(name="Folder name inside mpmissions/ (case-sensitive). Leave empty to auto-detect.")
+async def slash_server_setmission(interaction: discord.Interaction, name: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    clean = (name or "").strip().strip("/")
+    if not clean:
+        config.pop("active_mission_dir", None)
+        config.pop("_nitrado_banlist_working_path", None)
+        save_guild_configs()
+        await interaction.response.send_message(
+            "✅ Active mission cleared — bot will auto-detect next ban write.",
+            ephemeral=True,
+        )
+        return
+    config["active_mission_dir"] = clean
+    # Reset the sticky path so the next write re-probes with the new mission.
+    config.pop("_nitrado_banlist_working_path", None)
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Active mission pinned to `{clean}`. "
+        f"Banlist writes will now target `mpmissions/{clean}/ban-override.txt`.",
+        ephemeral=True,
+    )
 
 
 @server_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
