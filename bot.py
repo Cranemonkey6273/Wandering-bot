@@ -121,6 +121,11 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
+# Tracks which guilds have already had their last-24h ADM history swept
+# on this process boot. Reset every time the Railway container recycles
+# so a fresh restart re-ingests the previous day's events into the
+# dedupe store (the hash file is the canonical "already broadcast" gate).
+_adm_history_swept = {}
 # Maximum number of recently-seen ADM line hashes to keep per guild.
 # Must be high enough that lines still inside the `lines[-250:]` parse
 # window remain in cache between scans, even on a quiet server where
@@ -968,13 +973,40 @@ CHEAT_SNAP_RULES = [
     {"kills": 4, "span": 7.0, "angle": 40, "distance": 175},
 ]
 
+# ──────────────────────────────────────────────────────────────────────
+# NEW (PR #49): close-cluster multi-kill detector. Catches the OPPOSITE
+# pattern from the snap rules above — same killer drops 3+ victims that
+# are all geographically close to each other (within a tight radius)
+# inside a short minutes-long window. That is the textbook signature of
+# wallhacks / aimbots / room-clearing — multiple people dying in the
+# same building/courtyard without realistic spacing or time between
+# kills. The snap rules above intentionally REQUIRE big inter-victim
+# distance (>=175m) so they never fire on this pattern; we add a
+# dedicated rule that demands SMALL inter-victim distance instead.
+# ──────────────────────────────────────────────────────────────────────
+CHEAT_CLUSTER_RULES = [
+    # 3 kills inside 90s, all victims within a 50m circle of each other.
+    {"kills": 3, "span": 90.0, "max_victim_radius": 50.0},
+    # 4+ kills inside 180s, victims within a 100m circle.
+    {"kills": 4, "span": 180.0, "max_victim_radius": 100.0},
+]
+
 
 def cheat_check_config(config):
     settings = config.setdefault("cheat_check", {})
     settings.setdefault("enabled", True)
     settings.setdefault("auto_ban", False)
     settings.setdefault("clear_chain_on_teleport", True)
-    settings.setdefault("chain_window_seconds", 8)
+    # Bumped from 8s → 200s (PR #49). The legacy snap-kill rules clip
+    # their own span (1.5/4/7s) so they still fire on the same true
+    # snap kills, but the longer chain window now also feeds the new
+    # close-cluster detector which scans up to 3 minutes of recent
+    # kills by the same player.
+    settings.setdefault("chain_window_seconds", 200)
+    # New close-cluster detector tunables — admins can override per guild.
+    settings.setdefault("cluster_window_seconds", 180)
+    settings.setdefault("cluster_min_kills", 3)
+    settings.setdefault("cluster_max_radius", 50)
     return settings
 
 
@@ -1201,6 +1233,86 @@ def build_snap_chain_evidence(guild_id, chain):
     return None
 
 
+def build_cluster_kill_evidence(guild_id, chain, settings):
+    """Close-cluster multi-kill detector (PR #49). Scans the recent kill
+    chain for the largest sub-cluster of victims that fall inside the
+    configured radius of each other AND a configurable time window.
+    Returns evidence dict or None if no rule fires."""
+    if len(chain) < 2:
+        return None
+
+    cluster_window = float(settings.get("cluster_window_seconds", 180) or 180)
+    cluster_min_kills = int(settings.get("cluster_min_kills", 3) or 3)
+    cluster_max_radius = float(settings.get("cluster_max_radius", 50) or 50)
+
+    now_ts = chain[-1]["ts"]
+    candidates = [c for c in chain if now_ts - c["ts"] <= cluster_window]
+    if len(candidates) < cluster_min_kills:
+        return None
+
+    # Greedy cluster — anchor on each victim, walk outward, keep every
+    # other victim that lies within cluster_max_radius of the anchor.
+    best = None
+    for anchor in candidates:
+        anchor_pt = parse_coord_tuple(anchor.get("victim_coords") or anchor.get("coords"))
+        if not anchor_pt:
+            continue
+        members = []
+        for other in candidates:
+            other_pt = parse_coord_tuple(other.get("victim_coords") or other.get("coords"))
+            if not other_pt:
+                continue
+            if coord_distance(anchor_pt, other_pt) <= cluster_max_radius:
+                members.append((other, other_pt))
+        if len(members) < cluster_min_kills:
+            continue
+        # Also test the official 100m / 4-kill rule alongside the configured one.
+        valid = False
+        if len(members) >= cluster_min_kills:
+            valid = True
+        for rule in CHEAT_CLUSTER_RULES:
+            sub = members[-rule["kills"]:]
+            sub_span = sub[-1][0]["ts"] - sub[0][0]["ts"]
+            if (len(sub) >= rule["kills"]
+                    and sub_span <= rule["span"]
+                    and all(coord_distance(anchor_pt, pt) <= rule["max_victim_radius"] for _, pt in sub)):
+                valid = True
+                break
+        if not valid:
+            continue
+        if not best or len(members) > len(best[0]):
+            best = (members, anchor_pt)
+
+    if not best:
+        return None
+
+    members, anchor_pt = best
+    member_entries = [m for m, _ in members]
+    member_points = [pt for _, pt in members]
+    span = float(member_entries[-1]["ts"] - member_entries[0]["ts"])
+    # Effective cluster radius = max distance from anchor among members.
+    victim_radius = max(coord_distance(anchor_pt, pt) for pt in member_points) if member_points else 0
+    centre_label = f"({int(anchor_pt[0])}, {int(anchor_pt[1])})"
+
+    map_lines = []
+    for idx, item in enumerate(member_entries, start=1):
+        coords = item.get("victim_coords") or item.get("coords")
+        map_link = build_izurvive_link(coords, guild_id) if coords else None
+        map_lines.append(
+            f"{idx}. {item.get('victim')} at [map](<{map_link}>)"
+            if map_link else f"{idx}. {item.get('victim')} at `{coords or 'unknown'}`"
+        )
+
+    return {
+        "kills": len(member_entries),
+        "span": span,
+        "victim_radius": victim_radius,
+        "centre_label": centre_label,
+        "entries": member_entries,
+        "map_lines": map_lines,
+    }
+
+
 async def process_cheat_check_from_kill(guild_id, config, kill_details, line):
     settings = cheat_check_config(config)
     if not settings.get("enabled", True):
@@ -1241,9 +1353,9 @@ async def process_cheat_check_from_kill(guild_id, config, kill_details, line):
         "killer_coords": kill_details.get("killer_coords"),
         "victim_coords": kill_details.get("victim_coords") or kill_details.get("coords"),
     })
-    window = float(settings.get("chain_window_seconds", 8) or 8)
+    window = float(settings.get("chain_window_seconds", 200) or 200)
     chain = [item for item in chain if now_ts - item["ts"] <= window]
-    cheat_kill_chains[chain_key] = chain[-6:]
+    cheat_kill_chains[chain_key] = chain[-12:]
 
     for size in [4, 3, 2]:
         if len(chain) < size:
@@ -1267,7 +1379,32 @@ async def process_cheat_check_from_kill(guild_id, config, kill_details, line):
             action_text
         )
         cheat_kill_chains[chain_key] = []
-        break
+        return
+
+    # ── Close-cluster detector (PR #49) ────────────────────────────────
+    # Fires when the same killer drops several victims geographically
+    # clustered together within a minutes-long window. Classic wallhack /
+    # aimbot / room-clearing signature.
+    cluster = build_cluster_kill_evidence(guild_id, chain, settings)
+    if cluster:
+        evidence = (
+            f"`{cluster['kills']}` kills in `{cluster['span']:.1f}s` "
+            f"all clustered inside a `{cluster['victim_radius']:.0f}m` radius.\n"
+            f"Cluster centre: `{cluster['centre_label']}`.\n"
+            + "\n".join(cluster["map_lines"])
+        )
+        await send_cheat_check_alert(
+            guild_id,
+            config,
+            kill_details,
+            "Close-cluster multi-kill detected (possible wallhack / aimbot).",
+            evidence,
+            action_text,
+        )
+        # Don't blow away the whole chain — just drop the clustered
+        # entries so a continued spree keeps re-triggering as evidence.
+        cluster_ts = {entry["ts"] for entry in cluster["entries"]}
+        cheat_kill_chains[chain_key] = [c for c in chain if c["ts"] not in cluster_ts]
 
 
 def parse_duration_to_seconds(duration):
@@ -14006,6 +14143,31 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
     print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
 
+    # 🗓️ First refresh after bot startup → also ingest the previous 24h
+    # of ADM files so we don't miss any kills/events that landed in a
+    # rotated log Nitrado has since closed. After this initial sweep the
+    # 3-min loop keeps tailing only the current latest log. Per-line hash
+    # dedupe in parse_adm guarantees nothing is ever re-broadcast.
+    cold_start = not bool(_adm_history_swept.get(str(guild_id)))
+    if cold_start:
+        try:
+            history_logs = await asyncio.to_thread(list_adm_logs, config, 24)
+        except Exception as err:
+            print(f"[ADM COLD-START] history listing failed: {err}")
+            history_logs = []
+        # Walk oldest → newest so events arrive in chronological order.
+        history_logs = list(reversed(history_logs))
+        if history_logs:
+            print(f"[ADM COLD-START] sweeping last 24h: {len(history_logs)} log(s) for {guild_display_name(guild_id)}")
+        for older in history_logs[:-1]:
+            try:
+                ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older)
+                if ok_dl:
+                    await parse_adm(guild_id, config)
+            except Exception as err:
+                print(f"[ADM COLD-START] sweep error on {older.get('path')}: {err}")
+        _adm_history_swept[str(guild_id)] = True
+
     latest_log = await asyncio.to_thread(
         ping_latest_adm_log,
         config
@@ -15978,38 +16140,174 @@ def _nitrado_banlist_path(config):
 
 
 def fetch_nitrado_banlist(config):
-    """Return the current banlist.txt as a list of stripped gamertag lines.
-    Empty list on any FTP error (banlist may not exist yet — that's fine)."""
-    target_path = _nitrado_banlist_path(config)
-    if not target_path:
+    """Return the current ban-override.txt as a list of stripped gamertag
+    lines. Reads the sticky `_nitrado_banlist_working_path` first if set,
+    then probes the same mission-dir candidates push_nitrado_banlist uses.
+    Empty list on any error — the file legitimately may not exist yet."""
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if not nitrado_user:
         return []
-    try:
-        ok, _msg, content = download_text_file_from_nitrado_ftp(config, target_path)
-    except Exception as err:
-        print(f"[SAFEZONE] banlist fetch error: {err}")
-        return []
-    if not ok or not content:
-        return []
-    lines = []
-    for raw in content.splitlines():
-        stripped = raw.strip()
-        if stripped and not stripped.startswith("#"):
-            lines.append(stripped)
-    return lines
+
+    candidate_paths = []
+    sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
+    if sticky:
+        candidate_paths.append(sticky)
+    for mission_dir in _nitrado_ban_override_candidate_dirs(config):
+        full = f"{mission_dir}/ban-override.txt"
+        if full != sticky and full not in candidate_paths:
+            candidate_paths.append(full)
+    # Legacy fallback so existing servers with a hand-rolled banlist.txt
+    # still load on first run.
+    legacy = [
+        f"/games/{nitrado_user}/noftp/dayzxb/config/banlist.txt",
+        "/dayzxb/config/banlist.txt",
+    ]
+    for p in legacy:
+        if p != sticky and p not in candidate_paths:
+            candidate_paths.append(p)
+
+    for candidate in candidate_paths:
+        try:
+            ok, _msg, content = download_text_file_from_nitrado(config, candidate)
+        except Exception:
+            continue
+        if not ok or not content:
+            continue
+        lines = []
+        for raw in content.splitlines():
+            stripped = raw.strip()
+            if stripped and not stripped.startswith("#"):
+                lines.append(stripped)
+        # Cache this path so future writes go to the same place.
+        config["_nitrado_banlist_working_path"] = candidate
+        save_guild_configs()
+        return lines
+    return []
+
+
+def _nitrado_ban_override_candidate_dirs(config):
+    """Return the list of mpmissions/<active mission>/ paths to try when
+    writing ban-override.txt. Nitrado DayZ Xbox/PS panels load these from
+    the ACTIVE mission directory — the file must live inside the same
+    mpmissions/<...>/ folder that the server is currently running.
+
+    We try the canonical Chernarus / Livonia / Sakhal mission names first,
+    plus a configured override (`config['active_mission_dir']`) and a
+    legacy /dayzxb/config/banlist.txt as final fallback so an admin can
+    still hand-create one if they want."""
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    explicit = str(config.get("active_mission_dir") or "").strip().strip("/")
+    map_key = str(config.get("server_map") or config.get("map") or "").strip().lower()
+
+    candidates = []
+    if explicit:
+        candidates.append(explicit)
+    # Map-specific best guess first.
+    if "livonia" in map_key or "enoch" in map_key:
+        candidates.append("dayzOffline.enoch")
+    if "sakhal" in map_key:
+        candidates.append("dayzOffline.sakhal")
+    # Generic order.
+    candidates.extend([
+        "dayzOffline.chernarusplus",
+        "dayzOffline.enoch",
+        "dayzOffline.sakhal",
+        "chernarusplus",
+        "enoch",
+        "sakhal",
+    ])
+
+    # Deduplicate while preserving order.
+    seen = set()
+    mission_dirs = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            mission_dirs.append(c)
+
+    # Build full paths. Each mission can live under several FTP roots.
+    prefixes = []
+    if nitrado_user:
+        prefixes.extend([
+            f"/games/{nitrado_user}/noftp/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/ftproot/dayzxb/mpmissions",
+            f"/games/{nitrado_user}/noftp/dayzps/mpmissions",
+        ])
+    prefixes.extend(["/dayzxb/mpmissions", "/dayzps/mpmissions", "/mpmissions"])
+
+    paths = []
+    seen_paths = set()
+    for prefix in prefixes:
+        for mission in mission_dirs:
+            path = f"{prefix}/{mission}"
+            if path not in seen_paths:
+                seen_paths.add(path)
+                paths.append(path)
+    return paths
 
 
 def push_nitrado_banlist(config, entries):
-    """Write the list back. Each entry is one gamertag per line."""
-    target_path = _nitrado_banlist_path(config)
-    if not target_path:
+    """Write the banlist back via the Nitrado mission-dir override file
+    `ban-override.txt`.
+
+    Background: DayZ Xbox / PlayStation banlists are managed inside the
+    Nitrado web panel's *Base Settings* page and stored under each
+    mission's `ban-override.txt` (per the official Nitrado / killfeed
+    docs). The old `/dayzxb/config/banlist.txt` path is a legacy console
+    leftover that fresh Nitrado containers don't even create, which is
+    why the user previously hit `550 No such file or directory` on every
+    add. We now sweep every plausible mpmissions/<mission> dir, write
+    the file there, and remember the working path so subsequent bans
+    skip the probe."""
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if not nitrado_user:
         return False, "Nitrado user not configured."
+
     payload = "\n".join(dict.fromkeys(e.strip() for e in entries if e and e.strip())) + "\n"
-    try:
-        ok, msg = upload_text_file_to_nitrado(config, target_path, payload)
-        return ok, msg
-    except Exception as err:
-        print(f"[SAFEZONE] banlist push error: {err}")
-        return False, str(err)
+
+    candidate_paths = []
+    sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
+    if sticky:
+        candidate_paths.append(sticky)
+    for mission_dir in _nitrado_ban_override_candidate_dirs(config):
+        for filename in ("ban-override.txt",):
+            full = f"{mission_dir}/{filename}"
+            if full != sticky:
+                candidate_paths.append(full)
+    # Legacy fallbacks for ancient servers that still read /config/banlist.txt.
+    legacy = [
+        f"/games/{nitrado_user}/noftp/dayzxb/config/banlist.txt",
+        "/dayzxb/config/banlist.txt",
+    ]
+    for p in legacy:
+        if p != sticky and p not in candidate_paths:
+            candidate_paths.append(p)
+
+    errors = []
+    for candidate in candidate_paths:
+        try:
+            ok, msg = upload_text_file_to_nitrado(config, candidate, payload)
+        except Exception as err:
+            ok, msg = False, str(err)
+        if ok:
+            config["_nitrado_banlist_working_path"] = candidate
+            save_guild_configs()
+            return True, f"{msg} (path={candidate})"
+        errors.append(f"`{candidate}` → {msg}")
+
+    helpful = (
+        "Couldn't write any DayZ ban-override file. "
+        "DayZ Xbox/PS banlists live inside the mission's "
+        "`ban-override.txt` under `mpmissions/<your active mission>/`. "
+        "Open the Nitrado web panel → File Browser → `mpmissions/` and "
+        "check which folder your server is actually running (chernarusplus, "
+        "enoch, sakhal, or a custom mission). If it's a custom name, run "
+        "`/server setmission name:<your-mission-folder>` once and the bot "
+        "will target it. "
+        "Tried " + str(len(candidate_paths)) + " paths: " + " | ".join(errors[:3])
+    )
+    print(f"[SAFEZONE] banlist push exhausted all paths:\n  " + "\n  ".join(errors))
+    return False, helpful
 
 
 def add_player_to_nitrado_banlist(config, gamertag):
@@ -29218,6 +29516,36 @@ async def slash_server_cancelrestarts(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def slash_server_listrestarts(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "listrestarts")
+
+
+@server_group.command(name="setmission", description="Pin the active DayZ mission folder name for banlist writes (e.g. dayzOffline.chernarusplus)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(name="Folder name inside mpmissions/ (case-sensitive). Leave empty to auto-detect.")
+async def slash_server_setmission(interaction: discord.Interaction, name: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    clean = (name or "").strip().strip("/")
+    if not clean:
+        config.pop("active_mission_dir", None)
+        config.pop("_nitrado_banlist_working_path", None)
+        save_guild_configs()
+        await interaction.response.send_message(
+            "✅ Active mission cleared — bot will auto-detect next ban write.",
+            ephemeral=True,
+        )
+        return
+    config["active_mission_dir"] = clean
+    # Reset the sticky path so the next write re-probes with the new mission.
+    config.pop("_nitrado_banlist_working_path", None)
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"✅ Active mission pinned to `{clean}`. "
+        f"Banlist writes will now target `mpmissions/{clean}/ban-override.txt`.",
+        ephemeral=True,
+    )
 
 
 @server_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
