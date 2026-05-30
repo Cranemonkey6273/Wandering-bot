@@ -22,6 +22,7 @@ from datetime import datetime, UTC, timedelta
 from collections import OrderedDict
 from discord.ext import commands, tasks
 from discord import app_commands
+from dashboard import configure_dashboard_state_provider, start_dashboard_server
 
 # =========================================================
 # DISCORD
@@ -31128,5 +31129,24 @@ async def on_ready():
 # =========================================================
 # START
 # =========================================================
+
+def dashboard_runtime_snapshot():
+    return {
+        "guild_configs": guild_configs,
+        "player_stats": player_stats,
+        "online_players": {
+            str(guild_id): sorted(str(player) for player in players)
+            for guild_id, players in online_players.items()
+        },
+        "factions": factions,
+        "shop": shop_items,
+        "wallets": wallets,
+        "delivery_queue": delivery_queue,
+    }
+
+
+if str(os.getenv("WANDERING_DASHBOARD_ENABLED", "1")).lower() in {"1", "true", "yes", "on"}:
+    configure_dashboard_state_provider(dashboard_runtime_snapshot)
+    start_dashboard_server()
 
 bot.run(DISCORD_TOKEN)
