@@ -2135,11 +2135,11 @@ def current_auth() -> dict[str, Any] | None:
     if ":" not in cookie:
         return None
     guild_id, signature = cookie.split(":", 1)
+    guild_configs = load_store("guild_configs", {})
     if guild_id == "owner" and OWNER_DASHBOARD_PASSWORD:
         if secrets.compare_digest(signature, owner_session_signature()):
             return {"kind": "owner", "guild_id": None, "guild_ids": owner_admin_guild_ids(guild_configs), "label": "all servers"}
         return None
-    guild_configs = load_store("guild_configs", {})
     config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
     if not isinstance(config, dict):
         return None
