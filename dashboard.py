@@ -79,6 +79,9 @@ DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMI
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
+DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_SECONDS", "300"))
+DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
@@ -636,7 +639,7 @@ PAGE_TEMPLATE = """
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Title <input name="title" value="Server Rules"></label>
@@ -721,7 +724,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'welcome' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'welcome' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
@@ -752,7 +755,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Output channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Limit / max count <input name="limit" type="number" value="10"></label>
@@ -779,7 +782,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label class="full">Role lines <textarea name="roles">Verified | yes | 1234567890
@@ -812,7 +815,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Faction role ID <input name="role_id" placeholder="Discord role id"></label>
             <label>Alert channel
               <select name="alert_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Colour <input name="colour" type="color" value="#8d963e"></label>
@@ -882,7 +885,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="250" data-zone-radius-slider></label>
             <label>Ping / report channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Ping role ID <input name="role_id" placeholder="optional Discord role id"></label>
@@ -1283,7 +1286,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Restart after ban <select name="restart_on_ban"><option value="true">Yes, immediately</option><option value="false">No</option></select></label>
             <label>Notify channel
               <select name="notification_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'public_shame' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'public_shame' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label class="full">Player message / reason <textarea name="reason">You must join this Discord and link your gamertag with /linkgamer to play on this server.</textarea></label>
@@ -1342,7 +1345,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Warning minutes <input name="restart_warning_minutes" value="{{ (server.config.restart_warning_minutes|join(',') if server and server.config.restart_warning_minutes else '30,15,10,5,1') }}"></label>
             <label>Notify channel
               <select name="restart_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <div class="full"><button type="submit">Save Restart Schedule</button> <span class="result muted"></span></div>
@@ -1556,7 +1559,7 @@ Event pings | bell | 1234567890</textarea></label>
         <div class="columns">
           <section><h3>Online</h3><ul>{% for player in server.online[:6] %}<li><span>{{ player }}</span><span>online</span></li>{% else %}<li>No survivors online</li>{% endfor %}</ul></section>
           <section><h3>Leaders</h3><ul>{% for leader in server.leaders[:6] %}<li><span>{{ leader.name }}</span><span>{{ leader.kills }}</span></li>{% else %}<li>No stats yet</li>{% endfor %}</ul></section>
-          <section><h3>Channels</h3><ul>{% for channel in server.channels[:6] %}<li><span>{{ channel.key }}</span><span>{{ channel.id }}</span></li>{% else %}<li>No channels saved</li>{% endfor %}</ul></section>
+          <section><h3>Channels</h3><ul>{% for channel in server.channels[:6] %}<li><span>{{ channel.label }}</span><span>{{ channel.id }}</span></li>{% else %}<li>No channels found</li>{% endfor %}</ul></section>
           <section><h3>Totals</h3><ul><li><span>Kills</span><span>{{ server.totals.kills }}</span></li><li><span>Deaths</span><span>{{ server.totals.deaths }}</span></li><li><span>Safe zones</span><span>{{ server.safe_zones|length }}</span></li><li><span>Factions</span><span>{{ server.factions|length }}</span></li></ul></section>
         </div>
       </article>
@@ -1649,8 +1652,8 @@ Event pings | bell | 1234567890</textarea></label>
         form.elements.role_id.value = button.dataset.role || "";
         form.elements.colour.value = button.dataset.colour || "#8d963e";
         if (form.elements.alert_channel_key && button.dataset.channel) {
-          const option = Array.from(form.elements.alert_channel_key.options).find((item) => item.value === button.dataset.channel);
-          if (option) form.elements.alert_channel_key.value = button.dataset.channel;
+          const option = Array.from(form.elements.alert_channel_key.options).find((item) => item.value === button.dataset.channel || item.dataset.channelId === button.dataset.channel);
+          if (option) form.elements.alert_channel_key.value = option.value;
         }
         form.scrollIntoView({behavior: "smooth", block: "center"});
         form.elements.name.focus();
@@ -2024,10 +2027,100 @@ def local_dashboard_time() -> str:
     return datetime.now(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-def public_channels(channels: Any) -> list[dict[str, str]]:
-    if not isinstance(channels, dict):
+def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
+    if not DISCORD_TOKEN or not guild_id:
         return []
-    return [{"key": str(key), "id": str(value)} for key, value in sorted(channels.items()) if value]
+    now = datetime.now(UTC)
+    cached = DISCORD_CHANNEL_CACHE.get(str(guild_id))
+    if cached and (now - cached[0]).total_seconds() < DISCORD_CHANNEL_CACHE_SECONDS:
+        return cached[1]
+    request = urllib.request.Request(
+        f"https://discord.com/api/v10/guilds/{guild_id}/channels",
+        headers={"Authorization": f"Bot {DISCORD_TOKEN}", "User-Agent": "WanderingBotDashboard/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    channels = []
+    allowed_types = {0, 5, 10, 11, 12, 15}
+    for item in payload:
+        if not isinstance(item, dict) or item.get("type") not in allowed_types:
+            continue
+        channel_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not channel_id or not name:
+            continue
+        channels.append(
+            {
+                "id": channel_id,
+                "name": name,
+                "key": "",
+                "value": channel_id,
+                "label": f"#{name}",
+                "position": safe_int(item.get("position"), 0),
+            }
+        )
+    channels.sort(key=lambda channel: (safe_int(channel.get("position"), 0), channel["name"].lower()))
+    DISCORD_CHANNEL_CACHE[str(guild_id)] = (now, channels)
+    return channels
+
+
+def public_channels(channels: Any, guild_id: str = "") -> list[dict[str, str]]:
+    if not isinstance(channels, dict):
+        channels = {}
+    live_channels = discord_guild_channels(str(guild_id)) if guild_id else []
+    live_by_id = {str(channel["id"]): channel for channel in live_channels}
+    rows = []
+    seen_ids = set()
+    for key, value in sorted(channels.items(), key=lambda item: str(item[0]).lower()):
+        channel_id = str(value).strip()
+        if not channel_id:
+            continue
+        live = live_by_id.get(channel_id, {})
+        name = str(live.get("name") or key).strip()
+        rows.append(
+            {
+                "key": str(key),
+                "id": channel_id,
+                "name": name,
+                "value": str(key),
+                "label": f"#{name} ({key})" if live else f"{key} · {channel_id}",
+                "configured": "true",
+            }
+        )
+        seen_ids.add(channel_id)
+    for live in live_channels:
+        channel_id = str(live.get("id") or "")
+        if channel_id in seen_ids:
+            continue
+        rows.append(
+            {
+                "key": "",
+                "id": channel_id,
+                "name": str(live.get("name") or ""),
+                "value": channel_id,
+                "label": f"#{live.get('name')}",
+                "configured": "false",
+            }
+        )
+    return rows
+
+
+def resolve_channel_selection(config: dict[str, Any], value: Any) -> tuple[str, str]:
+    selection = str(value or "").strip()
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    if selection in channels:
+        return selection, str(channels.get(selection) or "")
+    if selection.isdigit():
+        for key, channel_id in channels.items():
+            if str(channel_id) == selection:
+                return str(key), selection
+        return "", selection
+    return selection, str(channels.get(selection) or "")
 
 
 def is_shop_sellable_item(item_name: Any, category: Any = "") -> bool:
@@ -2585,7 +2678,7 @@ def load_dashboard_state() -> dict[str, Any]:
         server_factions = faction_records_for_guild(factions, guild_id)
         server_wallets = wallet_records_for_guild(wallets, guild_id)
         server_wages = guild_block(wages, guild_id, [])
-        channels = public_channels(config.get("channels", {}))
+        channels = public_channels(config.get("channels", {}), guild_id)
         server_heatmap = heatmap_summary(heatmap, guild_id)
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels)
         totals = {
@@ -3262,9 +3355,7 @@ def api_zone():
     if shape == "boundary" and len(boundary_points) < 3:
         return jsonify({"ok": False, "error": "draw at least 3 boundary points before saving"}), 400
     zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
-    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
-    channel_key = str(payload.get("channel_key") or "")
-    channel_id = channels.get(channel_key)
+    channel_key, channel_id = resolve_channel_selection(config, payload.get("channel_key"))
     role_id = str(payload.get("role_id") or "").strip()
     record = {
         "id": zone_id,
@@ -3277,7 +3368,7 @@ def api_zone():
         "boundary_points": boundary_points,
         "channel_key": channel_key,
         "alert_channel_id": channel_id if zone_type == "radar" else None,
-        "report_channel_id": channel_id if zone_type in {"safe", "pvp"} else None,
+        "report_channel_id": channel_id if zone_type in {"safe", "pvp", "action"} else None,
         "role_id": role_id,
         "mention_role_id": role_id,
         "triggers": csv_list(payload.get("triggers", ["detection", "login"])) if zone_type == "radar" else csv_list(payload.get("triggers", ["kill", "build", "trespass"])),
@@ -3336,13 +3427,15 @@ def api_link_enforcement():
     if not isinstance(guild_configs, dict):
         guild_configs = {}
     config = guild_configs.setdefault(guild_id, {"channels": {}})
+    notification_key, notification_id = resolve_channel_selection(config, payload.get("notification_channel_key") or "public_shame")
     record = {
         "enabled": bool(payload.get("enabled", False)),
         "grace_minutes": max(1, safe_int(payload.get("grace_minutes"), 30)),
         "action": action,
         "temp_ban_minutes": max(1, safe_int(payload.get("temp_ban_minutes"), 60)),
         "restart_on_ban": bool(payload.get("restart_on_ban", True)),
-        "notification_channel_key": str(payload.get("notification_channel_key") or "public_shame"),
+        "notification_channel_key": notification_key,
+        "notification_channel_id": notification_id,
         "reason": str(payload.get("reason") or "Discord membership and gamertag link required.")[:500],
         "updated_at": datetime.now(UTC).isoformat(),
     }
@@ -3415,7 +3508,9 @@ def api_server_control():
                 warnings.append(minute)
         config["restart_warning_minutes"] = warnings or [30, 15, 10, 5, 1]
     if "restart_channel_key" in payload:
-        config["restart_channel_key"] = str(payload.get("restart_channel_key") or "")
+        restart_key, restart_id = resolve_channel_selection(config, payload.get("restart_channel_key"))
+        config["restart_channel_key"] = restart_key
+        config["restart_channel_id"] = restart_id
 
     if "base_damage_state" in payload:
         config["base_damage_state"] = "off" if str(payload.get("base_damage_state")).lower() == "off" else "on"
@@ -3492,13 +3587,18 @@ def api_faction():
         factions = {}
     block = factions.setdefault(guild_id, {})
     faction = block.get(name, {}) if isinstance(block.get(name), dict) else {}
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+    if not isinstance(config, dict):
+        config = {}
+    alert_key, alert_id = resolve_channel_selection(config, payload.get("alert_channel_key") or payload.get("alert_channel_id") or faction.get("alert_channel_key") or faction.get("alert_channel_id"))
     faction.update(
         {
             "name": name,
             "leader_id": str(payload.get("leader_id") or faction.get("leader_id") or ""),
             "role_id": str(payload.get("role_id") or faction.get("role_id") or ""),
-            "alert_channel_id": str(payload.get("alert_channel_id") or faction.get("alert_channel_id") or ""),
-            "alert_channel_key": str(payload.get("alert_channel_key") or faction.get("alert_channel_key") or ""),
+            "alert_channel_id": alert_id,
+            "alert_channel_key": alert_key,
             "colour": str(payload.get("colour") or payload.get("color") or faction.get("colour") or "#8d963e"),
             "members": faction.get("members", []),
             "updated_at": datetime.now(UTC).isoformat(),

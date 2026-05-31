@@ -16593,8 +16593,10 @@ async def _post_link_enforcement_notice(guild, config, title, description, color
         return
     settings = config.get("discord_link_enforcement") or {}
     channel_key = settings.get("notification_channel_key") or "public_shame"
+    channel_id = settings.get("notification_channel_id")
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
-    channel = bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("public_shame")) or bot.get_channel(channels.get("admin_log"))
+    channel = bot.get_channel(int(channel_id)) if str(channel_id or "").isdigit() else None
+    channel = channel or bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("public_shame")) or bot.get_channel(channels.get("admin_log"))
     if not channel:
         print(f"[LINK ENFORCEMENT] {title}: {description}")
         return
