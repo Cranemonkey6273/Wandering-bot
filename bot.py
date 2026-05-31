@@ -31129,4 +31129,23 @@ async def on_ready():
 # START
 # =========================================================
 
+try:
+    from dashboard import configure_dashboard_state_provider, start_dashboard_server
+
+    configure_dashboard_state_provider(
+        lambda: {
+            "guild_configs": guild_configs,
+            "player_stats": player_stats,
+            "online_players": online_players,
+            "shop_items": shop_items,
+            "wallets": wallets,
+            "factions": factions,
+            "wages": wages,
+            "delivery_queue": delivery_queue,
+        }
+    )
+    start_dashboard_server()
+except Exception as error:
+    print(f"[DASHBOARD] Web dashboard failed to start: {error}")
+
 bot.run(DISCORD_TOKEN)
