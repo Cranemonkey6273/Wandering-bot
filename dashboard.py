@@ -13,6 +13,7 @@ import re
 import secrets
 import hashlib
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from threading import Thread
@@ -516,6 +517,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>
       <a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>
       <a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>
+      <a class="tab-link" href="/admin?section=members{{ server_qs }}">Members</a>
       <a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>
       <a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>
       <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
@@ -533,6 +535,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
       <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
+      <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
@@ -903,7 +906,7 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Existing Factions</h3>
           <table class="item-table">
-            <thead><tr><th>Faction</th><th>Members</th><th>Leader</th><th>Role</th><th>Alert channel</th><th>Edit</th></tr></thead>
+            <thead><tr><th>Faction</th><th>Members</th><th>Leader</th><th>Role</th><th>Alert channel</th><th>Actions</th></tr></thead>
             <tbody>
               {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}
               <tr>
@@ -912,7 +915,15 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ faction.leader_id or faction.leader or '-' }}</td>
                 <td>{{ faction.role_id or faction.discord_role_id or '-' }}</td>
                 <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
-                <td><button type="button" data-faction-edit data-name="{{ faction.name or faction_name }}" data-leader="{{ faction.leader_id or faction.leader or '' }}" data-role="{{ faction.role_id or faction.discord_role_id or '' }}" data-channel="{{ faction.alert_channel_key or faction.alert_channel_id or '' }}" data-colour="{{ faction.colour or faction.color or '#8d963e' }}">Edit</button></td>
+                <td>
+                  <button type="button" data-faction-edit data-name="{{ faction.name or faction_name }}" data-leader="{{ faction.leader_id or faction.leader or '' }}" data-role="{{ faction.role_id or faction.discord_role_id or '' }}" data-channel="{{ faction.alert_channel_key or faction.alert_channel_id or '' }}" data-colour="{{ faction.colour or faction.color or '#8d963e' }}">Edit</button>
+                  <form class="admin-form inline-action" data-route="/api/admin/faction-action" data-confirm="Delete faction {{ faction.name or faction_name }} from this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="name" value="{{ faction.name or faction_name }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit">Delete</button> <span class="result muted"></span>
+                  </form>
+                </td>
               </tr>
               {% else %}
               <tr><td colspan="6">No factions found for this server yet.</td></tr>
@@ -1007,7 +1018,7 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Existing Zones</h3>
           <table class="item-table">
-            <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th><th>Actions</th></tr></thead>
             <tbody>
               {% for zone in (server.zones if server else []) %}
               <tr>
@@ -1018,10 +1029,77 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ zone.radius }}m</td>
                 <td>{{ zone.action or 'notify' }}</td>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
-                <td><button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button></td>
+                <td>
+                  <button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button>
+                  <form class="admin-form inline-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
+                    <input class="hidden-field" name="zone_type" value="{{ zone.zone_type }}">
+                    <input class="hidden-field" name="name" value="{{ zone.name }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit">Delete</button> <span class="result muted"></span>
+                  </form>
+                </td>
               </tr>
               {% else %}
               <tr><td colspan="8">No zones saved yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "members" %}
+    <section class="section-panel" id="members">
+      <div class="section-head">
+        <div>
+          <h2>Members</h2>
+          <p class="tool-note">Player and member controls are scoped to this server only. Discord kick/ban needs a linked Discord ID; DayZ bans are queued for the bot/Nitrado workflow.</p>
+        </div>
+        <span class="pill">{{ server.members|length if server else 0 }} members</span>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel full">
+          <h3>Server Members</h3>
+          <table class="item-table">
+            <thead><tr><th>Player</th><th>Discord ID</th><th>Faction</th><th>Online</th><th>Kills</th><th>Deaths</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for member in (server.members if server else []) %}
+              <tr>
+                <td>{{ member.name }}</td>
+                <td>{{ member.discord_id or '-' }}</td>
+                <td>{{ member.faction or '-' }}</td>
+                <td>{{ 'Online' if member.online else 'Offline' }}</td>
+                <td>{{ member.kills }}</td>
+                <td>{{ member.deaths }}</td>
+                <td>
+                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Kick {{ member.name }} from Discord for this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
+                    <input class="hidden-field" name="player_name" value="{{ member.name }}">
+                    <input class="hidden-field" name="action" value="discord_kick">
+                    <button type="submit" {% if not member.discord_id %}disabled{% endif %}>Kick</button> <span class="result muted"></span>
+                  </form>
+                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Ban {{ member.name }} from Discord for this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
+                    <input class="hidden-field" name="player_name" value="{{ member.name }}">
+                    <input class="hidden-field" name="action" value="discord_ban">
+                    <button type="submit" {% if not member.discord_id %}disabled{% endif %}>Discord Ban</button> <span class="result muted"></span>
+                  </form>
+                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Queue a DayZ/Nitrado ban for {{ member.name }} on this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
+                    <input class="hidden-field" name="player_name" value="{{ member.name }}">
+                    <input class="hidden-field" name="action" value="dayz_perm_ban">
+                    <button type="submit">DayZ Ban</button> <span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7">No tracked members or player stats found for this server yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -2004,10 +2082,13 @@ ADMIN_ROUTES = [
     "/api/admin/economy-rule",
     "/api/admin/link-server",
     "/api/admin/zone",
+    "/api/admin/zone-action",
+    "/api/admin/member-action",
     "/api/admin/link-enforcement",
     "/api/admin/on-screen-message",
     "/api/admin/server-control",
     "/api/admin/faction",
+    "/api/admin/faction-action",
     "/api/admin/faction-member",
     "/api/admin/wage",
     "/api/admin/wallet-adjustment",
@@ -2037,12 +2118,28 @@ def write_json_file(filename: str, data: Any) -> None:
         json.dump(data, handle, indent=2, sort_keys=True)
 
 
+def sync_runtime_store(store_name: str, data: Any) -> None:
+    if not CUSTOM_STATE_PROVIDER:
+        return
+    try:
+        state = CUSTOM_STATE_PROVIDER()
+    except Exception:
+        return
+    target = state.get(store_name) if isinstance(state, dict) else None
+    if isinstance(target, dict) and isinstance(data, dict):
+        target.clear()
+        target.update(data)
+    elif isinstance(target, list) and isinstance(data, list):
+        target[:] = data
+
+
 def load_store(name: str, default: Any) -> Any:
     return read_json_file(FILES[name], default)
 
 
 def save_store(name: str, data: Any) -> None:
     write_json_file(FILES[name], data)
+    sync_runtime_store(name, data)
 
 
 def dashboard_password_hash(password: str, salt: str) -> str:
@@ -2322,6 +2419,43 @@ def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
     return channels
 
 
+def discord_member_action(guild_id: str, member_id: str, action: str, reason: str) -> tuple[bool, str]:
+    if not DISCORD_TOKEN:
+        return False, "DISCORD_TOKEN is not configured for dashboard member actions."
+    guild_id = str(guild_id or "").strip()
+    member_id = str(member_id or "").strip()
+    if not guild_id or not member_id:
+        return False, "guild_id and member_id are required."
+    if action == "discord_kick":
+        url = f"https://discord.com/api/v10/guilds/{guild_id}/members/{member_id}"
+        method = "DELETE"
+    elif action == "discord_ban":
+        url = f"https://discord.com/api/v10/guilds/{guild_id}/bans/{member_id}?delete_message_seconds=0"
+        method = "PUT"
+    else:
+        return False, "unsupported Discord member action."
+    headers = {
+        "Authorization": f"Bot {DISCORD_TOKEN}",
+        "User-Agent": "WanderingBotDashboard/1.0",
+        "X-Audit-Log-Reason": urllib.parse.quote(str(reason or "Wandering Bot dashboard action")[:512]),
+    }
+    request = urllib.request.Request(url, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            if 200 <= response.status < 300:
+                return True, "Discord action completed."
+            return False, f"Discord returned HTTP {response.status}."
+    except urllib.error.HTTPError as error:
+        detail = ""
+        try:
+            detail = error.read().decode("utf-8")[:250]
+        except Exception:
+            detail = ""
+        return False, f"Discord returned HTTP {error.code}. {detail}".strip()
+    except (OSError, urllib.error.URLError) as error:
+        return False, f"Discord request failed: {error}"
+
+
 def public_channels(channels: Any, guild_id: str = "") -> list[dict[str, str]]:
     if not isinstance(channels, dict):
         channels = {}
@@ -2528,6 +2662,8 @@ def guild_players(player_stats: Any, guild_id: str) -> list[dict[str, Any]]:
         players.append(
             {
                 "name": str(name),
+                "discord_id": str(stats.get("discord_id") or stats.get("user_id") or stats.get("member_id") or ""),
+                "gamertag": str(stats.get("gamertag") or stats.get("player_name") or name),
                 "kills": safe_int(stats.get("kills")),
                 "deaths": safe_int(stats.get("deaths")),
                 "builds": safe_int(stats.get("builds")),
@@ -2541,6 +2677,49 @@ def guild_players(player_stats: Any, guild_id: str) -> list[dict[str, Any]]:
             }
         )
     return sorted(players, key=lambda item: (-item["kills"], item["deaths"], item["name"].lower()))
+
+
+def faction_name_for_member(factions: dict[str, Any], player_name: str, discord_id: str = "") -> str:
+    player_key = str(player_name or "").strip().lower()
+    discord_key = str(discord_id or "").strip()
+    for faction_name, faction in factions.items():
+        if not isinstance(faction, dict):
+            continue
+        for member in faction.get("members", []) if isinstance(faction.get("members", []), list) else []:
+            if isinstance(member, dict):
+                member_id = str(member.get("user_id") or member.get("discord_id") or member.get("id") or "").strip()
+                member_name = str(member.get("name") or member.get("gamertag") or "").strip().lower()
+            else:
+                member_id = str(member).strip()
+                member_name = str(member).strip().lower()
+            if discord_key and member_id == discord_key:
+                return str(faction.get("name") or faction_name)
+            if player_key and member_name == player_key:
+                return str(faction.get("name") or faction_name)
+    return ""
+
+
+def member_records_for_guild(players: list[dict[str, Any]], online: list[str], factions: dict[str, Any]) -> list[dict[str, Any]]:
+    online_names = {str(name).strip().lower() for name in online}
+    members = []
+    for player in players:
+        name = str(player.get("name") or player.get("gamertag") or "").strip()
+        if not name:
+            continue
+        discord_id = str(player.get("discord_id") or "").strip()
+        members.append(
+            {
+                "name": name,
+                "discord_id": discord_id,
+                "faction": faction_name_for_member(factions, name, discord_id),
+                "online": name.lower() in online_names,
+                "kills": safe_int(player.get("kills")),
+                "deaths": safe_int(player.get("deaths")),
+                "time_online_seconds": safe_int(player.get("time_online_seconds")),
+            }
+        )
+    members.sort(key=lambda item: (not item["online"], item["name"].lower()))
+    return members
 
 
 def format_seconds(seconds: Any) -> str:
@@ -2716,6 +2895,7 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
         categories.setdefault(category, []).append(
             {
                 "name": str(item_name),
+                "category": category,
                 "price": safe_int(data.get("price")),
                 "enabled": bool(data.get("enabled", True)),
                 "daily_limit": safe_int(data.get("daily_limit")),
@@ -3024,6 +3204,7 @@ def load_dashboard_state() -> dict[str, Any]:
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
         server_factions = faction_records_for_guild(factions, guild_id)
+        server_members = member_records_for_guild(players, online, server_factions)
         zones = normalized_zones(config, server_map, server_factions)
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
@@ -3058,6 +3239,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "online": online,
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
+                "members": redact(server_members),
                 "channels": channels,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
@@ -3147,7 +3329,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth, mode)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "server-rules", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
@@ -3787,6 +3969,55 @@ def api_zone():
     return jsonify({"ok": True, "zone": radar_record})
 
 
+@APP.post("/api/admin/zone-action")
+def api_zone_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    action = str(payload.get("action") or "delete").strip().lower()
+    if action != "delete":
+        return jsonify({"ok": False, "error": "unsupported zone action"}), 400
+    zone_id = str(payload.get("zone_id") or payload.get("id") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    zone_type = str(payload.get("zone_type") or payload.get("type") or "").strip().lower()
+    if not zone_id and not name:
+        return jsonify({"ok": False, "error": "zone_id or name is required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    list_names = ["radar_zones", "safe_zones", "zones"]
+    if zone_type == "radar":
+        list_names = ["radar_zones", "safe_zones", "zones"]
+    elif zone_type in {"safe", "pvp"}:
+        list_names = ["safe_zones", "radar_zones", "zones"]
+    deleted = []
+    for list_name in list_names:
+        records = config.get(list_name, [])
+        if not isinstance(records, list):
+            continue
+        kept = []
+        for zone in records:
+            if not isinstance(zone, dict):
+                kept.append(zone)
+                continue
+            current_id = str(zone.get("id") or "").strip()
+            current_name = str(zone.get("name") or zone.get("label") or "").strip()
+            matches = (zone_id and current_id == zone_id) or (name and current_name.lower() == name.lower())
+            if matches:
+                deleted.append(zone)
+            else:
+                kept.append(zone)
+        config[list_name] = kept
+    if not deleted:
+        return jsonify({"ok": False, "error": "zone was not found for this guild"}), 404
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "deleted": deleted, "note": "zone deleted for this guild only"})
+
+
 @APP.post("/api/admin/link-enforcement")
 def api_link_enforcement():
     payload, error = require_admin()
@@ -3983,6 +4214,46 @@ def api_faction():
     return jsonify({"ok": True, "faction": faction})
 
 
+@APP.post("/api/admin/faction-action")
+def api_faction_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    action = str(payload.get("action") or "delete").strip().lower()
+    if action != "delete":
+        return jsonify({"ok": False, "error": "unsupported faction action"}), 400
+    name = str(payload.get("name") or payload.get("faction") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+    factions = load_store("factions", {})
+    if not isinstance(factions, dict):
+        return jsonify({"ok": False, "error": "faction store is unavailable"}), 500
+    deleted = None
+    block = factions.get(guild_id)
+    if isinstance(block, dict):
+        for key in list(block.keys()):
+            faction = block.get(key)
+            faction_name = str(faction.get("name") if isinstance(faction, dict) else key)
+            if str(key).lower() == name.lower() or faction_name.lower() == name.lower():
+                deleted = block.pop(key)
+                break
+    prefix = f"{guild_id}:"
+    for key in list(factions.keys()):
+        if not str(key).startswith(prefix):
+            continue
+        faction = factions.get(key)
+        faction_name = str(faction.get("name") if isinstance(faction, dict) else str(key)[len(prefix):])
+        if faction_name.lower() == name.lower() or str(key)[len(prefix):].lower() == name.lower():
+            deleted = factions.pop(key)
+            break
+    if deleted is None:
+        return jsonify({"ok": False, "error": "faction was not found for this guild"}), 404
+    save_store("factions", factions)
+    return jsonify({"ok": True, "deleted": deleted, "note": "faction deleted for this guild only"})
+
+
 @APP.post("/api/admin/faction-member")
 def api_faction_member():
     payload, error = require_admin()
@@ -4007,6 +4278,49 @@ def api_faction_member():
     faction["updated_at"] = datetime.now(UTC).isoformat()
     save_store("factions", factions)
     return jsonify({"ok": True, "faction": faction})
+
+
+@APP.post("/api/admin/member-action")
+def api_member_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    action = str(payload.get("action") or "").strip().lower()
+    member_id = str(payload.get("member_id") or payload.get("user_id") or "").strip()
+    player_name = str(payload.get("player_name") or payload.get("name") or "").strip()
+    reason = str(payload.get("reason") or "Dashboard member action").strip()
+    if action not in {"discord_kick", "discord_ban", "dayz_temp_ban", "dayz_perm_ban"}:
+        return jsonify({"ok": False, "error": "unsupported member action"}), 400
+    if action in {"discord_kick", "discord_ban"}:
+        ok, message = discord_member_action(guild_id, member_id, action, reason)
+        status = 200 if ok else 400
+        return jsonify({"ok": ok, "message": message}), status
+    if not player_name:
+        return jsonify({"ok": False, "error": "player_name is required for DayZ/Nitrado ban actions"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    actions = config.setdefault("dashboard_member_actions", [])
+    if not isinstance(actions, list):
+        actions = []
+        config["dashboard_member_actions"] = actions
+    record = {
+        "id": max([safe_int(item.get("id"), 0) for item in actions if isinstance(item, dict)] or [0]) + 1,
+        "action": action,
+        "player_name": player_name,
+        "member_id": member_id,
+        "reason": reason,
+        "status": "queued",
+        "created_by": "dashboard",
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    actions.append(record)
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "action": record, "note": "queued for this guild's bot/Nitrado workflow"})
 
 
 @APP.post("/api/owner/guild-action")

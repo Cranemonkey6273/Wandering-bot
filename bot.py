@@ -14442,6 +14442,55 @@ async def temp_ban_expiry_loop():
     except Exception as error:
         print(f"NITRADO TEMP BAN LOOP ERROR: {error}")
 
+
+@tasks.loop(minutes=1)
+async def dashboard_member_action_loop():
+    changed = False
+    for guild_id, config in active_guild_config_items():
+        actions = config.get("dashboard_member_actions", [])
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict) or action.get("status") != "queued":
+                continue
+            action_type = str(action.get("action") or "").lower()
+            player_name = str(action.get("player_name") or "").strip()
+            if action_type not in {"dayz_temp_ban", "dayz_perm_ban"} or not player_name:
+                continue
+            try:
+                ok, message = add_player_to_nitrado_banlist(config, player_name)
+                action["status"] = "done" if ok else "failed"
+                action["result"] = message
+                action["processed_at"] = datetime.now(UTC).isoformat()
+                if ok and action_type == "dayz_temp_ban":
+                    minutes = max(1, int(action.get("minutes") or 1440))
+                    config.setdefault("nitrado_temp_bans", []).append(
+                        {
+                            "gamertag": player_name,
+                            "expires_at": (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat(),
+                            "reason": str(action.get("reason") or "Dashboard temp ban"),
+                            "source": "dashboard",
+                        }
+                    )
+                elif ok and action_type == "dayz_perm_ban":
+                    config.setdefault("nitrado_perm_bans", []).append(
+                        {
+                            "gamertag": player_name,
+                            "reason": str(action.get("reason") or "Dashboard perm ban"),
+                            "source": "dashboard",
+                            "created_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                changed = True
+            except Exception as error:
+                action["status"] = "failed"
+                action["result"] = str(error)
+                action["processed_at"] = datetime.now(UTC).isoformat()
+                changed = True
+                print(f"[DASHBOARD MEMBER ACTION] {guild_id} failed for {player_name}: {error}")
+    if changed:
+        save_guild_configs()
+
 # =========================================================
 # SWEAR JAR
 # =========================================================
@@ -21019,6 +21068,9 @@ async def start_background_tasks():
 
         if not temp_ban_expiry_loop.is_running():
             temp_ban_expiry_loop.start()
+
+        if not dashboard_member_action_loop.is_running():
+            dashboard_member_action_loop.start()
 
         if not rpt_event_tracker_loop.is_running():
             rpt_event_tracker_loop.start()
