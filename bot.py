@@ -17886,7 +17886,7 @@ async def scheduled_restart_loop():
                 if token and service_id:
 
                     try:
-                        if delivery_queue or vehicle_rentals_queue or has_active_scenario_events(config):
+                        if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or has_active_scenario_events(config):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
                                 guild_id,
@@ -21571,6 +21571,23 @@ def save_delivery_queue():
     )
 
 
+def queue_entry_for_guild(entry, guild_id):
+    if not isinstance(entry, dict):
+        return False
+    entry_guild_id = str(entry.get("guild_id") or "").strip()
+    return not entry_guild_id or entry_guild_id == str(guild_id)
+
+
+def queue_entries_for_guild(entries, guild_id):
+    return [entry for entry in entries if queue_entry_for_guild(entry, guild_id)]
+
+
+def remove_uploaded_queue_entries(guild_id):
+    global delivery_queue, vehicle_rentals_queue
+    delivery_queue = [entry for entry in delivery_queue if not queue_entry_for_guild(entry, guild_id)]
+    vehicle_rentals_queue = [entry for entry in vehicle_rentals_queue if not queue_entry_for_guild(entry, guild_id)]
+
+
 DEFAULT_DAILY_TRANSACTION_LIMIT = 5
 VEHICLE_RENTAL_FILE = "vehicle_rentals.json"
 DEFAULT_VEHICLE_RESET_CLASSES = [
@@ -22644,6 +22661,7 @@ def queue_all_vehicle_reset(guild_id, config, requested_by):
     excluded = vehicle_reset_exclusions(config)
 
     reset_entry = {
+        "guild_id": str(guild_id),
         "action": "reset_all_vehicles",
         "player": str(requested_by),
         "discord_id": str(getattr(requested_by, "id", "")),
@@ -22728,6 +22746,13 @@ async def shop(ctx):
 async def buy(ctx, item_name: str, x: str, y: str):
 
     user_id = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+    x_value = parse_dayz_map_number(x)
+    y_value = parse_dayz_map_number(y)
+
+    if x_value is None or y_value is None:
+        await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400`.")
+        return
 
     if item_name not in shop_items:
 
@@ -22787,13 +22812,14 @@ async def buy(ctx, item_name: str, x: str, y: str):
     wallet["daily_transactions"] += 1
 
     delivery_queue.append({
+        "guild_id": guild_id,
         "delivery_type": "item",
         "spawn_ready": False,
         "player": str(ctx.author),
         "discord_id": user_id,
         "item": item_name,
-        "x": x,
-        "y": y,
+        "x": str(x_value),
+        "y": str(y_value),
         "status": "queued",
         "created": str(datetime.now(UTC))
     })
@@ -22801,7 +22827,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
     save_wallets()
     save_delivery_queue()
 
-    map_link = f"https://dayz.ginfo.gg/#location={x};{y}"
+    map_link = build_izurvive_link(f"{x_value},{y_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
 
     embed = discord.Embed(
         title="📦 DELIVERY QUEUED",
@@ -22972,8 +22998,8 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
         f"{guild_id}_deliveries.json"
     )
     output = {
-        "items": delivery_queue,
-        "vehicles": vehicle_rentals_queue,
+        "items": queue_entries_for_guild(delivery_queue, guild_id),
+        "vehicles": queue_entries_for_guild(vehicle_rentals_queue, guild_id),
         "scenario_events": [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config),
         "generated": str(generated_at)
     }
@@ -22988,15 +23014,14 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
         bridge_scenario_events = [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config)
-        xml_file.write(build_delivery_xml(delivery_queue, vehicle_rentals_queue, bridge_scenario_events))
+        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], bridge_scenario_events))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
 
     if upload_success:
         print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
-        delivery_queue.clear()
-        vehicle_rentals_queue.clear()
+        remove_uploaded_queue_entries(guild_id)
         if not console_ce_event_config(config).get("enabled"):
             mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
@@ -23009,6 +23034,13 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
 async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str):
 
     user_id = str(ctx.author.id)
+    guild_id = str(ctx.guild.id)
+    x_value = parse_dayz_map_number(x)
+    y_value = parse_dayz_map_number(y)
+
+    if x_value is None or y_value is None:
+        await ctx.send("Use numeric map coordinates, for example `/tools rentvehicle OffroadHatchback 2 7500 8400`.")
+        return
 
     if vehicle_name not in shop_items:
 
@@ -23040,12 +23072,13 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     wallets[user_id]["balance"] -= rental_price
 
     rental_entry = {
+        "guild_id": guild_id,
         "action": "spawn_vehicle",
         "player": str(ctx.author),
         "discord_id": user_id,
         "vehicle": vehicle_name,
-        "x": x,
-        "y": y,
+        "x": str(x_value),
+        "y": str(y_value),
         "rental_hours": rental_hours,
         "status": "queued",
         "created": str(datetime.now(UTC))
@@ -23056,7 +23089,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     save_wallets()
     save_delivery_queue()
 
-    map_link = f"https://dayz.ginfo.gg/#location={x};{y}"
+    map_link = build_izurvive_link(f"{x_value},{y_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
 
     embed = discord.Embed(
         title="🚗 VEHICLE RENTAL CONFIRMED",
@@ -23097,8 +23130,6 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     await ctx.send(embed=style_embed(embed))
 
     # ================= RENTAL LOG =================
-
-    guild_id = str(ctx.guild.id)
 
     config = guild_configs.get(guild_id, {})
 
@@ -23166,6 +23197,7 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35)
 
     radius = max(5, min(250, int(radius or 35)))
     reset_entry = {
+        "guild_id": str(ctx.guild.id),
         "action": "reset_vehicle",
         "player": str(ctx.author),
         "discord_id": str(ctx.author.id),
@@ -23301,7 +23333,7 @@ async def restart_delivery_processor():
                 now.hour >= restart_offset
                 and ((now.hour - restart_offset) % restart_interval == 0)
             ):
-                if delivery_queue or vehicle_rentals_queue or (has_active_scenario_events(config) and not console_ce_event_config(config).get("enabled")):
+                if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or (has_active_scenario_events(config) and not console_ce_event_config(config).get("enabled")):
                     await asyncio.to_thread(
                         write_and_upload_delivery_xml,
                         guild_id,
@@ -31270,6 +31302,9 @@ async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str,
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(vehicle_name="DayZ vehicle class name", x="Map X", y="Map Y", radius="Delete matching old vehicles within this many meters")
 async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
     await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius)
 @extra_tools_group.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
 @app_commands.default_permissions(administrator=True)
