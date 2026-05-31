@@ -263,6 +263,14 @@ PAGE_TEMPLATE = """
     .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--olive), var(--gold)); }
     .item-table { width: 100%; border-collapse: collapse; }
     .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
+    .item-table button { padding: .35rem .5rem; font-size: .85rem; }
+    .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
+    .zone-map { position: relative; width: 100%; aspect-ratio: 1 / .72; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background: radial-gradient(circle at 35% 30%, rgba(141,150,62,.28), transparent 28%), linear-gradient(135deg, #172314, #070b08 70%); cursor: crosshair; }
+    .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 10% 10%; }
+    .zone-dot { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--gold); background: rgba(213,180,95,.22); border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: .75rem; font-weight: 900; pointer-events: none; }
+    .zone-dot.safe { border-color: #75d89a; background: rgba(117,216,154,.18); }
+    .zone-dot.pvp { border-color: #ed3853; background: rgba(237,56,83,.18); }
+    .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
     .server-switcher { display: grid; gap: .65rem; }
     .server-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
     .server-tab { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem .75rem; background: #070b08; color: var(--muted); }
@@ -499,9 +507,26 @@ PAGE_TEMPLATE = """
                 <option value="level_up">Level up</option>
                 <option value="birthday">Member birthday</option>
                 <option value="stats_refresh">Server stats refresh</option>
+                <option value="player_kill">Player kills another player</option>
+                <option value="player_death">Player dies</option>
+                <option value="zombie_death">Player killed by infected</option>
+                <option value="animal_death">Player killed by animal</option>
+                <option value="longshot">Longshot recorded</option>
+                <option value="flag_raise">Territory flag raised</option>
+                <option value="flag_lower">Territory flag lowered</option>
+                <option value="player_join_server">Player joins DayZ server</option>
+                <option value="player_leave_server">Player leaves DayZ server</option>
+                <option value="chat_keyword">Discord message contains keyword</option>
+                <option value="wallet_change">Wallet balance changes</option>
+                <option value="shop_purchase">Shop purchase queued</option>
+                <option value="quest_complete">PVE quest completed</option>
+                <option value="radar_enter">Player enters radar zone</option>
+                <option value="safe_zone_enter">Player enters safe zone</option>
               </select>
             </label>
             <label>Time / day <input name="schedule_time" placeholder="10:00, Monday 18:00, etc."></label>
+            <label>Player/event filter <input name="event_filter" placeholder="keyword, player name, weapon, zone, any"></label>
+            <label>Minimum value <input name="event_minimum" type="number" value="0" placeholder="distance, kills, amount, etc."></label>
             <label>Interval minutes <input name="interval_minutes" type="number" value="60"></label>
             <label>Timezone <input name="timezone" value="Europe/London"></label>
             <label>Button label <input name="button_label" placeholder="optional link button"></label>
@@ -518,7 +543,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
           </form>
           <div class="stack" style="margin-top:.75rem">
             {% for template in (server.embed_templates if server else []) %}
-            <div class="notification"><strong>{{ template.template_id }}</strong><span>{{ template.title }} -> {{ template.channel_key or 'channel not set' }}</span></div>
+            <div class="notification"><strong>{{ template.template_id }}</strong><span>{{ template.name }} -> {{ template.schedule.type if template.schedule else 'manual' }}</span></div>
             {% else %}
             <p class="muted">No saved embed templates for this server yet.</p>
             {% endfor %}
@@ -663,6 +688,34 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Ping reason <input name="title" value="Radar Ping"></label>
             <label class="full">Staff note <textarea name="body">Use this routing for radar pings, faction territory alerts, and suspicious movement reports.</textarea></label>
             <div class="full"><button type="submit">Save Radar Routing</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel full">
+          <h3>Interactive Zone Builder</h3>
+          <p class="tool-note">Click the map to place the zone center, choose the type, radius, and ping channel, then save. Coordinates are stored in the guild config for safe zones, PVP zones, and radar pings.</p>
+          <form class="admin-form" data-route="/api/admin/zone">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Zone name <input name="name" value="North West Airfield"></label>
+            <label>Zone type
+              <select name="zone_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option><option value="faction">Faction territory</option><option value="custom">Custom marker</option></select>
+            </label>
+            <label>X coordinate <input name="x" type="number" value="7500"></label>
+            <label>Y coordinate <input name="y" type="number" value="7500"></label>
+            <label>Radius meters <input name="radius" type="number" value="250"></label>
+            <label>Ping channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Ping role ID <input name="role_id" placeholder="optional role id"></label>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}">
+              {% for zone in (server.zones if server else []) %}
+              <span class="zone-dot {{ zone.zone_type }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
+              {% endfor %}
+            </div>
+            <div class="full"><button type="submit">Save Zone</button> <span class="result muted"></span></div>
           </form>
         </article>
       </div>
@@ -816,7 +869,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Edit Shop Item</h3>
-          <form class="admin-form" data-route="/api/admin/shop-item">
+          <form class="admin-form" data-route="/api/admin/shop-item" id="shop-edit-form">
             <label>Item name <input name="item_name" value="NailsBox"></label>
             <label>Price <input name="price" type="number" value="100"></label>
             <label>Category
@@ -836,6 +889,30 @@ Event pings | bell | 1234567890</textarea></label>
             <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
           </form>
+        </article>
+        <article class="admin-panel full">
+          <h3>All Shop Items</h3>
+          <div class="shop-toolbar">
+            <label>Search items <input data-shop-search placeholder="type item/category/status"></label>
+            <span class="pill">{{ shop_items|length }} items</span>
+          </div>
+          <table class="item-table">
+            <thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
+            <tbody>
+              {% for item in shop_items %}
+              <tr data-shop-row data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
+                <td>{{ item.name }}</td>
+                <td>{{ item.category }}</td>
+                <td>{{ item.price }}</td>
+                <td>{{ 'On' if item.enabled else 'Off' }}</td>
+                <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
+                <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No shop items available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </article>
         {% for category, items in shop_categories.items() %}
         <article class="admin-panel">
@@ -1004,6 +1081,41 @@ Event pings | bell | 1234567890</textarea></label>
         result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
       });
     });
+    document.querySelectorAll("[data-shop-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const form = document.getElementById("shop-edit-form");
+        if (!form) return;
+        form.elements.item_name.value = button.dataset.item || "";
+        form.elements.price.value = button.dataset.price || 0;
+        form.elements.category.value = button.dataset.category || "General";
+        form.elements.enabled.value = button.dataset.enabled || "true";
+        form.elements.daily_limit.value = button.dataset.limit || 0;
+        form.elements.allowed_role_ids.value = button.dataset.roles || "";
+        form.elements.blocked_user_ids.value = button.dataset.blocked || "";
+        form.scrollIntoView({behavior: "smooth", block: "center"});
+        form.elements.price.focus();
+      });
+    });
+    document.querySelectorAll("[data-shop-search]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const query = input.value.trim().toLowerCase();
+        document.querySelectorAll("[data-shop-row]").forEach((row) => {
+          row.style.display = !query || row.dataset.search.includes(query) ? "" : "none";
+        });
+      });
+    });
+    document.querySelectorAll("[data-zone-map]").forEach((map) => {
+      map.addEventListener("click", (event) => {
+        const form = map.closest("form");
+        if (!form) return;
+        const size = Number(map.dataset.mapSize || 15360);
+        const rect = map.getBoundingClientRect();
+        const x = Math.round(((event.clientX - rect.left) / rect.width) * size);
+        const y = Math.round((1 - ((event.clientY - rect.top) / rect.height)) * size);
+        form.elements.x.value = Math.max(0, Math.min(size, x));
+        form.elements.y.value = Math.max(0, Math.min(size, y));
+      });
+    });
   </script>
 </body>
 </html>
@@ -1017,6 +1129,7 @@ ADMIN_ROUTES = [
     "/api/admin/shop-item",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
+    "/api/admin/zone",
     "/api/admin/faction",
     "/api/admin/faction-member",
     "/api/admin/wage",
@@ -1464,6 +1577,65 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
     return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
 
 
+def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
+    items = []
+    for category_items in shop_category_map(shop).values():
+        items.extend(category_items)
+    return sorted(items, key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
+
+
+def map_size_for(server_map: str) -> int:
+    name = str(server_map or "").strip().lower()
+    if "livonia" in name or name == "enoch":
+        return 12800
+    return 15360
+
+
+def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, Any]]:
+    map_size = map_size_for(server_map)
+    zones = config.get("zones")
+    if not isinstance(zones, list):
+        zones = []
+    if not zones:
+        for zone in list_records(config.get("safe_zones", [])):
+            if isinstance(zone, dict):
+                zone = dict(zone)
+                zone.setdefault("zone_type", "safe")
+                zones.append(zone)
+        for zone in list_records(config.get("radar_zones", [])):
+            if isinstance(zone, dict):
+                zone = dict(zone)
+                zone.setdefault("zone_type", "radar")
+                zones.append(zone)
+    normalized = []
+    for zone in zones:
+        if not isinstance(zone, dict):
+            continue
+        x = max(0, min(map_size, safe_int(zone.get("x") or zone.get("center_x") or zone.get("pos_x"))))
+        y = max(0, min(map_size, safe_int(zone.get("y") or zone.get("center_y") or zone.get("pos_y"))))
+        radius = max(25, safe_int(zone.get("radius") or zone.get("radius_m") or 250))
+        zone_type = str(zone.get("zone_type") or zone.get("type") or "radar").lower()
+        if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
+            zone_type = "custom"
+        normalized.append(
+            {
+                "id": str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}"),
+                "name": str(zone.get("name") or zone.get("label") or "Unnamed zone"),
+                "zone_type": zone_type,
+                "x": x,
+                "y": y,
+                "radius": radius,
+                "channel_key": str(zone.get("channel_key") or ""),
+                "role_id": str(zone.get("role_id") or ""),
+                "enabled": bool(zone.get("enabled", True)),
+                "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
+                "y_percent": round(100 - ((y / map_size) * 100), 2) if map_size else 0,
+                "dot_size": max(14, min(56, int((radius / map_size) * 320))),
+            }
+        )
+    return normalized
+
+
 def heatmap_summary(heatmap: Any, guild_id: str) -> dict[str, Any]:
     raw = guild_block(heatmap, guild_id, {}) if isinstance(heatmap, dict) else {}
     if not isinstance(raw, dict):
@@ -1557,6 +1729,7 @@ def load_dashboard_state() -> dict[str, Any]:
     swear_jar = runtime_state.get("swear_jar") or load_store("swear_jar", {})
     longshot_records = runtime_state.get("longshot_records") or load_store("longshot_records", {})
     shop_categories = shop_category_map(shop)
+    shop_items = flat_shop_items(shop)
 
     if not isinstance(guild_configs, dict):
         guild_configs = {}
@@ -1576,7 +1749,9 @@ def load_dashboard_state() -> dict[str, Any]:
         players = guild_players(player_stats, guild_id)
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
-        safe_zones = config.get("safe_zones") or config.get("radar_zones") or []
+        server_map = str(config.get("server_map") or config.get("map") or "chernarus")
+        zones = normalized_zones(config, server_map)
+        safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
         server_factions = guild_block(factions, guild_id, {})
@@ -1599,13 +1774,15 @@ def load_dashboard_state() -> dict[str, Any]:
                 "guild_id": guild_id,
                 "guild_name": str(config.get("guild_name") or f"Guild {guild_id}"),
                 "active": not bool(config.get("bot_removed")),
-                "map": str(config.get("server_map") or config.get("map") or "chernarus"),
+                "map": server_map,
+                "map_size": map_size_for(server_map),
                 "online": online,
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
                 "channels": channels,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
+                "zones": redact(zones),
                 "dashboard_access": access,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
@@ -1642,6 +1819,7 @@ def load_dashboard_state() -> dict[str, Any]:
         },
         "servers": servers,
         "shop": redact(shop),
+        "shop_items": redact(shop_items),
         "shop_categories": redact(shop_categories),
         "wallets": redact(wallets),
         "delivery_queue": redact(delivery_queue),
@@ -1703,6 +1881,7 @@ def page(mode: str, auth: dict[str, Any]):
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
         summary=state["summary"],
         servers=state["servers"],
+        shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
@@ -1779,6 +1958,13 @@ def normalize_embed_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "time": str(payload.get("schedule_time") or ""),
         "interval_minutes": safe_int(payload.get("interval_minutes"), 0),
         "timezone": str(payload.get("timezone") or "Europe/London"),
+        "event_filter": str(payload.get("event_filter") or ""),
+        "event_minimum": safe_int(payload.get("event_minimum"), 0),
+    }
+    payload["trigger"] = {
+        "type": payload["schedule"]["type"],
+        "filter": payload["schedule"]["event_filter"],
+        "minimum": payload["schedule"]["event_minimum"],
     }
     payload["enabled"] = bool(payload.get("enabled", True))
     return payload
@@ -2021,6 +2207,60 @@ def api_link_server():
     dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)})
+
+
+@APP.post("/api/admin/zone")
+def api_zone():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "zone name is required"}), 400
+    zone_type = str(payload.get("zone_type") or payload.get("type") or "radar").strip().lower()
+    if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
+        return jsonify({"ok": False, "error": "zone_type must be safe, pvp, radar, faction, or custom"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    x = max(0, min(map_size, safe_int(payload.get("x"))))
+    y = max(0, min(map_size, safe_int(payload.get("y"))))
+    radius = max(1, safe_int(payload.get("radius"), 250))
+    zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
+    record = {
+        "id": zone_id,
+        "name": name,
+        "zone_type": zone_type,
+        "x": x,
+        "y": y,
+        "radius": radius,
+        "channel_key": str(payload.get("channel_key") or ""),
+        "role_id": str(payload.get("role_id") or ""),
+        "enabled": bool(payload.get("enabled", True)),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    zones = config.setdefault("zones", [])
+    if not isinstance(zones, list):
+        zones = []
+        config["zones"] = zones
+    replaced = False
+    for index, zone in enumerate(zones):
+        if isinstance(zone, dict) and str(zone.get("id") or zone.get("name")) == zone_id:
+            zones[index] = record
+            replaced = True
+            break
+    if not replaced:
+        zones.append(record)
+    if zone_type == "safe":
+        config["safe_zones"] = [zone for zone in zones if isinstance(zone, dict) and str(zone.get("zone_type")) == "safe"]
+    if zone_type == "radar":
+        config["radar_zones"] = [zone for zone in zones if isinstance(zone, dict) and str(zone.get("zone_type")) == "radar"]
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "zone": record})
 
 
 @APP.post("/api/admin/faction")
