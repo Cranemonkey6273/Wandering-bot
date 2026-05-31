@@ -5,6 +5,7 @@ websockets
 paramiko
 berconpy
 flask
+waitress
 py-cord
 requests
 python-dotenv

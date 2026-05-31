@@ -4171,7 +4171,13 @@ def configure_dashboard_state_provider(provider):
 
 
 def run_dashboard_server():
-    APP.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, use_reloader=False)
+    try:
+        from waitress import serve
+
+        serve(APP, host=DASHBOARD_HOST, port=DASHBOARD_PORT, threads=8)
+    except Exception as error:
+        print(f"[DASHBOARD] Waitress unavailable, falling back to Flask dev server: {error}")
+        APP.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, use_reloader=False)
 
 
 def start_dashboard_server():
