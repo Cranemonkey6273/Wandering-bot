@@ -21226,6 +21226,57 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
     return "General"
 
 
+def is_shop_sellable_item(item_name, category=""):
+    name = str(item_name or "").strip()
+    lower = name.lower()
+    category_lower = str(category or "").lower()
+    if not name:
+        return False
+    blocked_prefixes = (
+        "animal_",
+        "zmb",
+        "land_wreck",
+        "land_wreck_",
+        "land_misc_wreck",
+        "wreck_",
+        "static_",
+    )
+    blocked_fragments = (
+        "wreck",
+        "doors_",
+        "door_",
+        "hood_",
+        "trunk_",
+        "wheel_ruined",
+        "zombie",
+        "infected",
+    )
+    vehicle_classes = (
+        "civilian",
+        "civsedan",
+        "hatchback",
+        "offroadhatchback",
+        "sedan",
+        "truck",
+        "bus",
+        "ada",
+        "olga",
+        "sarka",
+        "gunter",
+        "humvee",
+        "boat",
+    )
+    if lower.startswith(blocked_prefixes):
+        return False
+    if any(fragment in lower for fragment in blocked_fragments):
+        return False
+    if category_lower in {"vehicles", "vehicle", "animals", "infected", "zombies"}:
+        return False
+    if any(lower.startswith(vehicle) for vehicle in vehicle_classes):
+        return False
+    return True
+
+
 def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrite=False):
     types_path = find_types_xml(source_path)
 
@@ -21258,9 +21309,13 @@ def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrit
         if price <= 0:
             price = default_price
 
+        category = guess_shop_category(item_name, xml_category, usage)
+        if not is_shop_sellable_item(item_name, category):
+            continue
+
         item_data = {
             "price": price,
-            "category": guess_shop_category(item_name, xml_category, usage),
+            "category": category,
             "enabled": True
         }
 
@@ -22488,6 +22543,10 @@ async def buy(ctx, item_name: str, x: str, y: str):
     if item_name not in shop_items:
 
         await ctx.send("That item does not exist in the shop.")
+        return
+
+    if not is_shop_sellable_item(item_name, shop_items[item_name].get("category")):
+        await ctx.send("That class is not allowed in the player shop.")
         return
 
     if not shop_items[item_name].get("enabled", True):

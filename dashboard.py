@@ -63,6 +63,8 @@ FILES = {
     "pve_challenges": "pve_challenges.json",
     "pve_ai_campaigns": "pve_ai_campaigns.json",
     "pve_workshop_schedules": "pve_workshop_schedules.json",
+    "swear_jar": "swear_jar.json",
+    "longshot_records": "longshot_records.json",
 }
 
 LOGIN_TEMPLATE = """
@@ -225,6 +227,19 @@ PAGE_TEMPLATE = """
     .leader-name { color: var(--text); font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .metric { color: var(--muted); text-align: right; }
     .metric strong { color: var(--text); display: block; }
+    .discord-board { border-left: 4px solid #f1c40f; border-radius: .45rem; background: #202126; padding: 1rem; }
+    .discord-board h2 { margin-bottom: .35rem; text-transform: uppercase; }
+    .leader-category-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .95rem; margin-top: 1rem; }
+    .lb-card { min-width: 0; }
+    .lb-card h3 { margin-bottom: .45rem; color: #f4f4f5; text-transform: uppercase; font-size: 1rem; }
+    .lb-list { display: grid; gap: .28rem; }
+    .lb-row { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; color: #f4f4f5; font-weight: 800; }
+    .lb-rank { display: inline-grid; place-items: center; min-width: 1.45rem; height: 1.45rem; border-radius: .25rem; background: #3498db; color: white; font-weight: 900; }
+    .lb-rank.gold { background: #f1b82d; color: #17202a; border-radius: 999px; }
+    .lb-rank.silver { background: #b8c2cc; color: #17202a; border-radius: 999px; }
+    .lb-rank.bronze { background: #e67e22; color: #17202a; border-radius: 999px; }
+    .lb-value { display: inline-block; border: 1px solid #3f4255; background: #292b3a; color: #f4f4f5; border-radius: .35rem; padding: .05rem .32rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 500; }
+    .lb-empty { color: #d8d8dc; font-style: italic; }
     .tool-note { color: var(--muted); font-size: .9rem; line-height: 1.45; }
     .option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .option-card { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; background: #070b08; }
@@ -253,7 +268,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
       .metric { text-align: left; }
       nav { display: none; }
     }
@@ -336,25 +351,28 @@ PAGE_TEMPLATE = """
     </section>
 
     <section class="section-panel" id="leaderboards">
-      <div class="section-head">
-        <div>
-          <h2>{{ server.guild_name if server else 'Server' }} Leaderboard</h2>
-          <p class="tool-note">Styled like the bot leaderboard: rank, survivor, kills, deaths, and builds.</p>
+      <div class="discord-board">
+        <h2>{{ server.guild_name if server else 'Server' }} — Server Leaderboard</h2>
+        <p><em>Top 10 per category — dashboard live view.</em></p>
+        <div class="leader-category-grid">
+          {% for board in (server.leaderboards if server else []) %}
+          <article class="lb-card">
+            <h3>{{ board.title }}</h3>
+            <div class="lb-list">
+              {% for row in board.rows %}
+              <div class="lb-row">
+                <span class="lb-rank {{ row.medal }}">{{ loop.index }}</span>
+                <span>{{ row.name }}</span>
+                <span>·</span>
+                <span class="lb-value">{{ row.value }}</span>
+              </div>
+              {% else %}
+              <p class="lb-empty">— no data yet —</p>
+              {% endfor %}
+            </div>
+          </article>
+          {% endfor %}
         </div>
-        <span class="pill">{{ server.map|upper if server else 'NO SERVER' }}</span>
-      </div>
-      <div class="leaderboard">
-        {% for leader in (server.leaders[:10] if server else []) %}
-        <div class="leader-row">
-          <div class="rank">#{{ loop.index }}</div>
-          <div class="leader-name">{{ leader.name }}</div>
-          <div class="metric"><strong>{{ leader.kills }}</strong>Kills</div>
-          <div class="metric"><strong>{{ leader.deaths }}</strong>Deaths</div>
-          <div class="metric"><strong>{{ leader.builds }}</strong>Builds</div>
-        </div>
-        {% else %}
-        <p class="muted">No player stats have been recorded for this server yet.</p>
-        {% endfor %}
       </div>
     </section>
 
@@ -1065,6 +1083,57 @@ def public_channels(channels: Any) -> list[dict[str, str]]:
     return [{"key": str(key), "id": str(value)} for key, value in sorted(channels.items()) if value]
 
 
+def is_shop_sellable_item(item_name: Any, category: Any = "") -> bool:
+    name = str(item_name or "").strip()
+    lower = name.lower()
+    category_lower = str(category or "").lower()
+    if not name:
+        return False
+    blocked_prefixes = (
+        "animal_",
+        "zmb",
+        "land_wreck",
+        "land_wreck_",
+        "land_misc_wreck",
+        "wreck_",
+        "static_",
+    )
+    blocked_fragments = (
+        "wreck",
+        "doors_",
+        "door_",
+        "hood_",
+        "trunk_",
+        "wheel_ruined",
+        "zombie",
+        "infected",
+    )
+    vehicle_classes = (
+        "civilian",
+        "civsedan",
+        "hatchback",
+        "offroadhatchback",
+        "sedan",
+        "truck",
+        "bus",
+        "ada",
+        "olga",
+        "sarka",
+        "gunter",
+        "humvee",
+        "boat",
+    )
+    if lower.startswith(blocked_prefixes):
+        return False
+    if any(fragment in lower for fragment in blocked_fragments):
+        return False
+    if category_lower in {"vehicles", "vehicle", "animals", "infected", "zombies"}:
+        return False
+    if any(lower.startswith(vehicle) for vehicle in vehicle_classes):
+        return False
+    return True
+
+
 def redact(value: Any) -> Any:
     if isinstance(value, dict):
         cleaned = {}
@@ -1095,9 +1164,115 @@ def guild_players(player_stats: Any, guild_id: str) -> list[dict[str, Any]]:
                 "kills": safe_int(stats.get("kills")),
                 "deaths": safe_int(stats.get("deaths")),
                 "builds": safe_int(stats.get("builds")),
+                "time_online_seconds": safe_int(stats.get("time_online_seconds")),
+                "multikill_best": safe_int(stats.get("multikill_best")),
+                "kill_streak": safe_int(stats.get("best_spree") or stats.get("kill_streak")),
+                "longest_shot_distance": safe_int(stats.get("longest_shot_distance")),
+                "flags_raised": safe_int(stats.get("flags_raised")),
+                "animal_deaths": safe_int(stats.get("animal_deaths")),
+                "zombie_deaths": safe_int(stats.get("zombie_deaths")),
             }
         )
     return sorted(players, key=lambda item: (-item["kills"], item["deaths"], item["name"].lower()))
+
+
+def format_seconds(seconds: Any) -> str:
+    total = safe_int(seconds)
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    if hours:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
+
+
+def medal_class(index: int) -> str:
+    return {1: "gold", 2: "silver", 3: "bronze"}.get(index, "")
+
+
+def stat_board(title: str, players: list[dict[str, Any]], key: str, suffix: str, limit: int = 10) -> dict[str, Any]:
+    rows = [player for player in players if safe_int(player.get(key)) > 0]
+    rows.sort(key=lambda item: (-safe_int(item.get(key)), str(item.get("name", "")).lower()))
+    return {
+        "title": title,
+        "rows": [
+            {"name": row["name"], "value": f"{safe_int(row.get(key))} {suffix}".strip(), "medal": medal_class(index)}
+            for index, row in enumerate(rows[:limit], start=1)
+        ],
+    }
+
+
+def time_board(players: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [player for player in players if safe_int(player.get("time_online_seconds")) > 0]
+    rows.sort(key=lambda item: (-safe_int(item.get("time_online_seconds")), str(item.get("name", "")).lower()))
+    return {
+        "title": "⏱️ Most Time Played",
+        "rows": [
+            {"name": row["name"], "value": format_seconds(row.get("time_online_seconds")), "medal": medal_class(index)}
+            for index, row in enumerate(rows[:10], start=1)
+        ],
+    }
+
+
+def longshot_board(players: list[dict[str, Any]], longshot_records: Any, guild_id: str) -> dict[str, Any]:
+    best: dict[str, int] = {}
+    for player in players:
+        distance = safe_int(player.get("longest_shot_distance"))
+        if distance > 0:
+            best[player["name"]] = max(best.get(player["name"], 0), distance)
+    records = guild_block(longshot_records, guild_id, [])
+    for record in list_records(records):
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("killer") or record.get("player") or "Unknown")
+        distance = safe_int(record.get("distance") or record.get("meters"))
+        if distance > 0:
+            best[name] = max(best.get(name, 0), distance)
+    rows = sorted(best.items(), key=lambda item: (-item[1], item[0].lower()))[:10]
+    return {
+        "title": "🎯 Longest Shot",
+        "rows": [
+            {"name": name, "value": f"{distance}m", "medal": medal_class(index)}
+            for index, (name, distance) in enumerate(rows, start=1)
+        ],
+    }
+
+
+def swear_board(swear_jar: Any, players: list[dict[str, Any]]) -> dict[str, Any]:
+    known_names = {str(player.get("discord_id", "")): player["name"] for player in players if player.get("discord_id")}
+    rows = []
+    if isinstance(swear_jar, dict):
+        for key, entry in swear_jar.items():
+            if isinstance(entry, dict):
+                count = safe_int(entry.get("count") or entry.get("swears") or entry.get("total"))
+                name = str(entry.get("name") or known_names.get(str(key)) or key)
+            else:
+                count = safe_int(entry)
+                name = str(known_names.get(str(key)) or key)
+            if count > 0:
+                rows.append({"name": name, "count": count})
+    rows.sort(key=lambda item: (-item["count"], item["name"].lower()))
+    return {
+        "title": "🤬 Most Swearing",
+        "rows": [
+            {"name": row["name"], "value": f"{row['count']} swears", "medal": medal_class(index)}
+            for index, row in enumerate(rows[:10], start=1)
+        ],
+    }
+
+
+def leaderboard_categories(players: list[dict[str, Any]], swear_jar: Any, longshot_records: Any, guild_id: str) -> list[dict[str, Any]]:
+    return [
+        stat_board("☠️ Most Kills", players, "kills", "kills"),
+        stat_board("💀 Most Deaths", players, "deaths", "deaths"),
+        time_board(players),
+        stat_board("🔨 Most Built", players, "builds", "parts"),
+        stat_board("🔫 Highest Kill Streak", players, "kill_streak", "kills w/o dying"),
+        longshot_board(players, longshot_records, guild_id),
+        swear_board(swear_jar, players),
+        stat_board("🚩 Most Flags Raised", players, "flags_raised", "flags"),
+        stat_board("🐺 Most Deaths By Animal", players, "animal_deaths", "deaths"),
+        stat_board("🧟 Most Deaths By Zombies", players, "zombie_deaths", "deaths"),
+    ]
 
 
 def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
@@ -1160,6 +1335,8 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
         if not isinstance(data, dict):
             data = {}
         category = str(data.get("category") or "General")
+        if not is_shop_sellable_item(item_name, category):
+            continue
         categories.setdefault(category, []).append(
             {
                 "name": str(item_name),
@@ -1263,6 +1440,8 @@ def load_dashboard_state() -> dict[str, Any]:
     pve_challenges = runtime_state.get("pve_challenges") or load_store("pve_challenges", {})
     pve_ai_campaigns = runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})
     pve_workshop_schedules = runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})
+    swear_jar = runtime_state.get("swear_jar") or load_store("swear_jar", {})
+    longshot_records = runtime_state.get("longshot_records") or load_store("longshot_records", {})
     shop_categories = shop_category_map(shop)
 
     if not isinstance(guild_configs, dict):
@@ -1309,6 +1488,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "map": str(config.get("server_map") or config.get("map") or "chernarus"),
                 "online": online,
                 "leaders": players,
+                "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
                 "channels": channels,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
@@ -1554,6 +1734,8 @@ def api_shop_item():
     item_name = str(payload.get("item_name") or payload.get("name") or "").strip()
     if not item_name:
         return jsonify({"ok": False, "error": "item_name is required"}), 400
+    if not is_shop_sellable_item(item_name, payload.get("category")):
+        return jsonify({"ok": False, "error": "that class is not a shop item"}), 400
     shop = load_store("shop", {})
     if not isinstance(shop, dict):
         shop = {}
