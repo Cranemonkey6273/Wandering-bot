@@ -38,27 +38,27 @@ PAGE_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="refresh" content="{{ refresh_seconds }}">
-  <title>Wandering Bot Control Deck</title>
+  <title>Wandering Bot Features</title>
   <style>
     :root {
       color-scheme: dark;
-      --void: #050912;
-      --ink: #0b1423;
-      --navy: #111d31;
-      --card: #182641;
-      --card-soft: #213554;
-      --field: #0f1a2c;
-      --field-2: #15233a;
-      --line: rgba(180, 204, 255, .12);
-      --text: #edf5ff;
-      --muted: #a9bbd5;
-      --dim: #70839f;
-      --brand: #7154ff;
-      --brand-2: #9a7cff;
-      --cyan: #44d7ff;
-      --green: #45df9a;
-      --red: #ee2238;
-      --gold: #f5c85c;
+      --void: #040504;
+      --ink: #080a08;
+      --navy: #11160f;
+      --card: #171d13;
+      --card-soft: #222a18;
+      --field: #090d0a;
+      --field-2: #151b12;
+      --line: rgba(175, 174, 95, .26);
+      --text: #f0eadb;
+      --muted: #c9c1a9;
+      --dim: #8f8a65;
+      --brand: #7f8737;
+      --brand-2: #b8b56a;
+      --cream: #efe6d2;
+      --green: #99a044;
+      --red: #f0233f;
+      --gold: #c9a34d;
       --radius: 1.35rem;
     }
     * { box-sizing: border-box; }
@@ -68,12 +68,12 @@ PAGE_TEMPLATE = """
       min-height: 100vh;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
-        radial-gradient(circle at 7% -8%, rgba(113, 84, 255, .38), transparent 23rem),
-        radial-gradient(circle at 105% 8%, rgba(68, 215, 255, .14), transparent 22rem),
-        linear-gradient(180deg, #0a1220 0%, var(--void) 100%);
+        radial-gradient(circle at 8% -10%, rgba(127, 135, 55, .35), transparent 24rem),
+        radial-gradient(circle at 100% 8%, rgba(201, 163, 77, .11), transparent 22rem),
+        linear-gradient(180deg, #0d110c 0%, var(--void) 100%);
       color: var(--text);
     }
-    a { color: var(--cyan); text-decoration: none; }
+    a { color: var(--brand-2); text-decoration: none; }
     h1, h2, h3, p { margin-top: 0; }
     .topbar {
       position: sticky;
@@ -84,19 +84,19 @@ PAGE_TEMPLATE = """
       justify-content: space-between;
       gap: 1rem;
       padding: .85rem clamp(1rem, 4vw, 2rem);
-      background: rgba(12, 22, 38, .88);
-      border-bottom: 1px solid var(--line);
+      background: rgba(5, 7, 5, .9);
+      border-bottom: 1px solid rgba(127, 135, 55, .35);
       backdrop-filter: blur(18px);
     }
     .brand { display: flex; align-items: center; gap: .8rem; min-width: 0; }
     .brand img {
-      width: 2.25rem;
-      height: 2.25rem;
-      border-radius: .8rem;
+      width: 3.15rem;
+      height: 3.15rem;
+      border-radius: .95rem;
       object-fit: cover;
-      box-shadow: 0 0 0 1px rgba(255,255,255,.18), 0 0 1.5rem rgba(113,84,255,.4);
+      box-shadow: 0 0 0 1px rgba(239,230,210,.3), 0 0 1.4rem rgba(127,135,55,.45);
     }
-    .brand strong { display: block; font-size: .98rem; letter-spacing: .02em; }
+    .brand strong { display: block; font-size: 1.05rem; letter-spacing: .06em; text-transform: uppercase; color: var(--cream); }
     .brand span { display: block; color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hamburger { display: grid; gap: .28rem; padding: .55rem; border: 1px solid var(--line); border-radius: .8rem; background: var(--field); }
     .hamburger i { display: block; width: 1.35rem; height: .13rem; border-radius: 1rem; background: var(--text); }
@@ -110,7 +110,10 @@ PAGE_TEMPLATE = """
     }
     .sidebar, .hero, .card, .zone-card, .server-card {
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.015)), var(--navy);
+      background:
+        linear-gradient(180deg, rgba(239,230,210,.055), rgba(239,230,210,.015)),
+        linear-gradient(135deg, rgba(127,135,55,.08), transparent 55%),
+        var(--navy);
       border-radius: var(--radius);
       box-shadow: 0 1.25rem 3rem rgba(0, 0, 0, .34);
     }
@@ -118,31 +121,35 @@ PAGE_TEMPLATE = """
     .nav-title { color: var(--dim); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; padding: .55rem .7rem; }
     .nav-link { display: flex; justify-content: space-between; gap: .6rem; padding: .72rem .78rem; border-radius: .9rem; color: var(--muted); }
     .nav-link strong { color: var(--text); font-weight: 700; }
-    .nav-link.active, .nav-link:hover { background: rgba(113, 84, 255, .16); color: var(--text); }
-    .badge { color: var(--text); background: var(--brand); border-radius: 999px; padding: .12rem .45rem; font-size: .7rem; font-weight: 800; }
+    .nav-link.active, .nav-link:hover { background: rgba(127, 135, 55, .24); color: var(--cream); }
+    .badge { color: #080a08; background: var(--brand-2); border-radius: 999px; padding: .12rem .45rem; font-size: .7rem; font-weight: 900; }
     main { display: grid; gap: 1.1rem; min-width: 0; }
-    .hero { padding: clamp(1.1rem, 4vw, 1.8rem); overflow: hidden; position: relative; }
-    .hero:after { content: ""; position: absolute; inset: auto -8rem -10rem auto; width: 24rem; height: 24rem; background: radial-gradient(circle, rgba(113,84,255,.35), transparent 65%); pointer-events: none; }
-    .eyebrow { color: var(--brand-2); font-size: .78rem; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
-    h1 { margin: .25rem 0 .5rem; font-size: clamp(1.8rem, 5vw, 4rem); line-height: .98; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, 16rem); gap: 1rem; align-items: center; padding: clamp(1.1rem, 4vw, 2rem); overflow: hidden; position: relative; }
+    .hero:before { content: ""; position: absolute; inset: 0; opacity: .12; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 3rem 3rem; pointer-events: none; }
+    .hero:after { content: ""; position: absolute; inset: auto -8rem -10rem auto; width: 24rem; height: 24rem; background: radial-gradient(circle, rgba(127,135,55,.35), transparent 65%); pointer-events: none; }
+    .hero-copy, .hero-mark { position: relative; z-index: 1; }
+    .hero-mark { display: grid; place-items: center; min-height: 13rem; border-left: 1px solid var(--line); }
+    .hero-mark img { width: min(13rem, 62vw); aspect-ratio: 1; object-fit: cover; border-radius: 50%; border: 2px solid rgba(184,181,106,.6); box-shadow: 0 0 0 .45rem rgba(0,0,0,.28), 0 1rem 3rem rgba(0,0,0,.55); }
+    .eyebrow { color: var(--brand-2); font-size: .78rem; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { margin: .25rem 0 .5rem; color: var(--cream); font-size: clamp(1.8rem, 5vw, 4.35rem); line-height: .92; letter-spacing: .025em; text-transform: uppercase; text-shadow: 0 .2rem 0 rgba(0,0,0,.55); }
     .sub { color: var(--muted); max-width: 68rem; line-height: 1.6; }
     .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; }
-    .stat-card { padding: 1rem; border-radius: 1.1rem; background: rgba(15, 26, 44, .72); border: 1px solid var(--line); }
+    .stat-card { padding: 1rem; border-radius: 1.1rem; background: rgba(9, 13, 10, .78); border: 1px solid var(--line); }
     .stat-card span { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
-    .stat-card strong { display: block; margin-top: .25rem; font-size: 1.75rem; }
+    .stat-card strong { display: block; margin-top: .25rem; color: var(--brand-2); font-size: 1.75rem; }
     .module-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .9rem; }
     .card { padding: 1rem; }
     .card h3, .zone-card h2, .server-card h2 { margin-bottom: .35rem; }
     .card p { color: var(--muted); line-height: 1.5; font-size: .93rem; }
     .status { display: inline-flex; align-items: center; gap: .35rem; margin-top: .45rem; padding: .28rem .55rem; border-radius: 999px; background: var(--field); color: var(--muted); font-size: .78rem; border: 1px solid var(--line); }
-    .status.good { color: #d8ffed; background: rgba(69, 223, 154, .14); }
+    .status.good { color: var(--cream); background: rgba(127, 135, 55, .22); }
     .status.locked { color: #ffe5ec; background: rgba(238, 34, 56, .13); }
     .server-list { display: grid; gap: .9rem; }
     .server-card { padding: 1rem; }
     .server-head { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; }
     .pill-row { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .65rem; }
     .pill { padding: .32rem .55rem; border-radius: 999px; background: var(--field); color: var(--muted); font-size: .78rem; border: 1px solid var(--line); }
-    .pill.good { color: #dbfff0; background: rgba(69,223,154,.14); }
+    .pill.good { color: var(--cream); background: rgba(127,135,55,.2); }
     .pill.warn { color: #fff1ce; background: rgba(245,200,92,.14); }
     .pill.bad { color: #ffe1e5; background: rgba(238,34,56,.14); }
     .server-body { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-top: 1rem; }
@@ -158,7 +165,7 @@ PAGE_TEMPLATE = """
     .help { display: inline-flex; justify-content: center; align-items: center; width: 1rem; height: 1rem; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font-size: .7rem; }
     input, select, textarea {
       width: 100%;
-      border: 1px solid rgba(180, 204, 255, .09);
+      border: 1px solid rgba(175, 174, 95, .18);
       border-radius: .75rem;
       background: var(--field);
       color: var(--text);
@@ -170,16 +177,16 @@ PAGE_TEMPLATE = """
     .checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem .7rem; }
     .check { display: flex; align-items: flex-start; gap: .5rem; color: var(--muted); font-size: .86rem; }
     .check input { width: 1rem; height: 1rem; accent-color: var(--brand); margin-top: .15rem; }
-    .chips { display: flex; flex-wrap: wrap; gap: .42rem; padding: .65rem; background: var(--field); border-radius: .8rem; border: 1px solid rgba(180, 204, 255, .09); }
+    .chips { display: flex; flex-wrap: wrap; gap: .42rem; padding: .65rem; background: var(--field); border-radius: .8rem; border: 1px solid rgba(175, 174, 95, .18); }
     .chip { background: var(--field-2); color: var(--muted); padding: .38rem .52rem; border-radius: .45rem; font-size: .82rem; }
     .chip:after { content: " ×"; color: var(--text); }
     .actions { display: flex; flex-wrap: wrap; gap: .7rem; margin-top: .9rem; }
     .btn { border: 0; border-radius: .85rem; color: var(--text); font-weight: 900; padding: .78rem 1rem; background: var(--field-2); }
-    .btn.primary { background: linear-gradient(135deg, var(--brand), #482ee8); box-shadow: 0 .65rem 1.4rem rgba(113,84,255,.28); }
+    .btn.primary { color: #080a08; background: linear-gradient(135deg, var(--brand-2), var(--brand)); box-shadow: 0 .65rem 1.4rem rgba(127,135,55,.25); }
     .btn.ghost { border: 1px solid var(--line); }
-    .map-preview { min-height: 100%; border-radius: 1rem; padding: 1rem; background: linear-gradient(135deg, rgba(68,215,255,.1), rgba(113,84,255,.1)), var(--field); border: 1px solid var(--line); position: relative; overflow: hidden; }
+    .map-preview { min-height: 100%; border-radius: 1rem; padding: 1rem; background: linear-gradient(135deg, rgba(127,135,55,.14), rgba(201,163,77,.08)), var(--field); border: 1px solid var(--line); position: relative; overflow: hidden; }
     .map-preview:before { content: ""; position: absolute; inset: 1rem; opacity: .18; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 2rem 2rem; }
-    .zone-dot { position: absolute; width: 8rem; height: 8rem; border: 2px solid var(--red); background: rgba(238,34,56,.12); border-radius: 43% 57% 47% 53%; left: 31%; top: 35%; box-shadow: 0 0 2rem rgba(238,34,56,.18); }
+    .zone-dot { position: absolute; width: 8rem; height: 8rem; border: 2px solid var(--red); background: rgba(240,35,63,.11); border-radius: 43% 57% 47% 53%; left: 31%; top: 35%; box-shadow: 0 0 2rem rgba(240,35,63,.18); }
     .map-preview strong, .map-preview span { position: relative; z-index: 1; display: block; }
     .map-preview span { color: var(--muted); margin-top: .35rem; }
     footer { max-width: 1480px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 2rem; color: var(--muted); }
@@ -188,6 +195,8 @@ PAGE_TEMPLATE = """
       .shell { grid-template-columns: 1fr; }
       .sidebar { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .nav-title { grid-column: 1 / -1; }
+      .hero { grid-template-columns: 1fr; }
+      .hero-mark { border-left: 0; border-top: 1px solid var(--line); padding-top: 1rem; }
       .stats, .server-body, .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .zone-layout { grid-template-columns: 1fr; }
     }
@@ -207,14 +216,14 @@ PAGE_TEMPLATE = """
   <header class="topbar">
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
-      <div><strong>Wandering Bot</strong><span>DayZ community control deck</span></div>
+      <div><strong>Wandering Bot Features</strong><span>Monitor. Alert. Protect. Automate.</span></div>
     </div>
     <div class="hamburger" aria-hidden="true"><i></i><i></i><i></i></div>
   </header>
 
   <div class="shell">
     <aside class="sidebar" aria-label="Dashboard modules">
-      <div class="nav-title">Control modules</div>
+      <div class="nav-title">Bot feature modules</div>
       <a class="nav-link active" href="#overview"><strong>Overview</strong><span>Live</span></a>
       <a class="nav-link" href="#radar"><strong>Radar Zones</strong><span class="badge">{{ summary.radar_zones }}</span></a>
       <a class="nav-link" href="#economy"><strong>Economy & Shop</strong><span>{{ summary.shop_items }}</span></a>
@@ -225,9 +234,12 @@ PAGE_TEMPLATE = """
 
     <main>
       <section class="hero" id="overview">
-        <div class="eyebrow">Private alpha dashboard</div>
-        <h1>Server tools, radar zones, factions and economy in one place.</h1>
-        <p class="sub">A Wandering Bot styled control surface inspired by DayZ admin panels, not a copy of them. This version keeps secrets filtered, shows live bot data, and lays out the management modules that can be connected to Discord OAuth/subscription gates next.</p>
+        <div class="hero-copy">
+          <div class="eyebrow">Wandering Bot features dashboard</div>
+          <h1>Monitor. Alert. Protect. Automate.</h1>
+          <p class="sub">A feature control panel for Wandering Bot using the bot's black, cream and survivor-green DayZ branding. This screen shows the modules your servers will manage: radar zones, economy, factions, embeds, live status, alerts, automation and backups.</p>
+        </div>
+        <div class="hero-mark"><img src="/brand-image" alt="Wandering Bot survivor logo"></div>
       </section>
 
       <section class="stats" aria-label="Summary">
@@ -247,14 +259,14 @@ PAGE_TEMPLATE = """
       </section>
 
       <section class="zone-card" id="radar">
-        <h2>Polygon radar zone builder</h2>
-        <p class="sub">Mobile-first radar-zone controls using Wandering Bot colours and branding. Until Discord OAuth write protection is added, this screen is a safe management scaffold backed by the read-only API.</p>
+        <h2>Radar zone feature builder</h2>
+        <p class="sub">Radar-zone controls styled around the Wandering Bot survivor artwork and olive/cream palette. Until Discord OAuth write protection is added, this screen is a safe management scaffold backed by the read-only API.</p>
         <div class="zone-layout">
           <form>
             <div class="field"><label>Server <span class="help">?</span></label><select><option>{{ servers[0].guild_name if servers else 'No server configured' }}</option></select></div>
             <div class="field"><label>Zone name <span class="help">?</span></label><input value="{{ servers[0].example_zone.name if servers and servers[0].example_zone else 'Prison Island Ping' }}"></div>
             <div class="field"><label>Alert channel <span class="help">?</span></label><select><option>{{ servers[0].channels[0].key if servers and servers[0].channels else 'Choose channel' }}</option></select></div>
-            <div class="field"><label>Zone colour <span class="help">?</span></label><input type="color" value="{{ servers[0].example_zone.colour if servers and servers[0].example_zone else '#ee2238' }}"></div>
+            <div class="field"><label>Zone colour <span class="help">?</span></label><input type="color" value="{{ servers[0].example_zone.colour if servers and servers[0].example_zone else '#7f8737' }}"></div>
             <div class="field"><label>Allowed / ignored events <span class="help">?</span></label>
               <div class="checks">
                 {% for event in radar_events %}
@@ -303,7 +315,7 @@ PAGE_TEMPLATE = """
   </div>
 
   <footer>
-    JSON API: <a href="/api/summary"><code>/api/summary</code></a>. Health check: <a href="/healthz"><code>/healthz</code></a>. Secrets are filtered before rendering.
+    Wandering Bot feature data: <a href="/api/summary"><code>/api/summary</code></a>. Health check: <a href="/healthz"><code>/healthz</code></a>. Secrets are filtered before rendering.
   </footer>
 </body>
 </html>

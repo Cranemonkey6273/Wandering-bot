@@ -1,10 +1,10 @@
 # Wandering-bot
 
-Wandering Bot is a multi-guild Discord bot for DayZ communities. It reads ADM activity, manages Discord feeds, tracks player stats, powers economy/faction tooling, and ships with a Wandering-branded web control deck.
+Wandering Bot is a multi-guild Discord bot for DayZ communities. It reads ADM activity, manages Discord feeds, tracks player stats, powers economy/faction tooling, and ships with a Wandering Bot feature dashboard.
 
 ## Web dashboard
 
-The dashboard runs from the same JSON data files that the Discord bot writes. It now uses a mobile-first DayZ control-panel style with Wandering Bot branding, the local `wanderingbot.png` image, dark navy panels, purple accents, and module sections for:
+The dashboard runs from the same JSON data files that the Discord bot writes. It now uses a mobile-first Wandering Bot feature-panel style with the local `wanderingbot.png` survivor image, black/cream/survivor-green branding, gritty DayZ-inspired panels, and module sections for:
 
 - server overview and setup status
 - live online survivors and leaderboards
