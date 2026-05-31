@@ -1353,12 +1353,38 @@ Event pings | bell | 1234567890</textarea></label>
           <form class="admin-form" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Base damage <select name="base_damage_state"><option value="on">On</option><option value="off">Off</option></select></label>
-            <label>Container damage <select name="container_damage_state"><option value="on">On</option><option value="off">Off</option></select></label>
-            <label>Vehicle reset schedule <select name="vehicle_reset_schedule_enabled"><option value="false">Off</option><option value="true">On</option></select></label>
-            <label>Vehicle reset method <select name="vehicle_reset_method"><option value="economy_xml">Economy XML full wipe</option><option value="bridge">Bridge radius delete</option></select></label>
-            <label>Run every restarts <input name="vehicle_reset_restarts" type="number" min="1" max="365" value="{{ (server.config.vehicle_reset_restarts if server else 7) or 7 }}"></label>
-            <div class="full embed-preview"><strong>Important</strong><span>Economy XML vehicle resets are staged for the bot workflow so vehicles init can be restored safely after the wipe cycle.</span></div>
+            {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
+            {% set vr_first_date = (vr.first_date or server.config.vehicle_reset_first_date or '') if server else '' %}
+            {% set vr_time = (vr.time or server.config.vehicle_reset_time or '04:00') if server else '04:00' %}
+            {% set vr_timezone = (vr.timezone or server.config.vehicle_reset_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
+            {% set vr_interval_value = (vr.interval_value or server.config.vehicle_reset_interval_value or 7) if server else 7 %}
+            {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
+            {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
+            {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
+            <label>Base damage <select name="base_damage_state"><option value="on" {% if not server or server.config.base_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.base_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Container damage <select name="container_damage_state"><option value="on" {% if not server or server.config.container_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.container_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Vehicle reset schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not server or not server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>Off</option><option value="true" {% if server and server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>On</option></select></label>
+            <label>Vehicle reset method <select name="vehicle_reset_method"><option value="economy_xml" {% if not server or server.config.vehicle_reset_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if server and server.config.vehicle_reset_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
+            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
+            <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
+            <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
+            <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
+            <label>Repeat unit
+              <select name="vehicle_reset_interval_unit">
+                <option value="hours" {% if vr_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
+                <option value="days" {% if vr_interval_unit == 'days' %}selected{% endif %}>Days</option>
+                <option value="weeks" {% if vr_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
+              </select>
+            </label>
+            <label>Preferred weekday
+              <select name="vehicle_reset_day_of_week">
+                <option value="">Use first date</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
+            <div class="full embed-preview"><strong>Important</strong><span>Economy XML vehicle resets are staged for the bot workflow so vehicles init can be restored safely after the wipe cycle. The schedule is saved per server and can repeat hourly, daily, weekly, or monthly.</span></div>
             <div class="full"><button type="submit">Save Server Control</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -1970,6 +1996,22 @@ def safe_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def safe_date(value: Any) -> str:
+    text = str(value or "").strip()
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return ""
+
+
+def safe_time(value: Any, default: str = "04:00") -> str:
+    text = str(value or default).strip()
+    try:
+        return datetime.strptime(text, "%H:%M").strftime("%H:%M")
+    except ValueError:
+        return default
 
 
 def csv_list(value: Any) -> list[str]:
@@ -3386,6 +3428,49 @@ def api_server_control():
         config["vehicle_reset_method"] = method if method in {"economy_xml", "bridge"} else "economy_xml"
     if "vehicle_reset_restarts" in payload:
         config["vehicle_reset_restarts"] = max(1, min(365, safe_int(payload.get("vehicle_reset_restarts"), 7)))
+    vehicle_schedule_keys = {
+        "vehicle_reset_first_date",
+        "vehicle_reset_time",
+        "vehicle_reset_timezone",
+        "vehicle_reset_interval_value",
+        "vehicle_reset_interval_unit",
+        "vehicle_reset_day_of_week",
+        "vehicle_reset_day_of_month",
+    }
+    if vehicle_schedule_keys.intersection(payload.keys()):
+        interval_unit = str(payload.get("vehicle_reset_interval_unit") or config.get("vehicle_reset_interval_unit") or "days").strip().lower()
+        if interval_unit not in {"hours", "days", "weeks", "months"}:
+            interval_unit = "days"
+        interval_value = max(1, min(999, safe_int(payload.get("vehicle_reset_interval_value"), safe_int(config.get("vehicle_reset_interval_value"), 7))))
+        first_date = safe_date(payload.get("vehicle_reset_first_date") or config.get("vehicle_reset_first_date"))
+        reset_time = safe_time(payload.get("vehicle_reset_time") or config.get("vehicle_reset_time") or "04:00")
+        timezone = str(payload.get("vehicle_reset_timezone") or config.get("vehicle_reset_timezone") or "Europe/Dublin").strip()[:80]
+        day_of_week = str(payload.get("vehicle_reset_day_of_week") or "").strip().lower()
+        if day_of_week not in {"", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}:
+            day_of_week = ""
+        day_of_month = safe_int(payload.get("vehicle_reset_day_of_month"), 0)
+        day_of_month = day_of_month if 1 <= day_of_month <= 31 else 0
+        schedule = {
+            "enabled": safe_bool(payload.get("vehicle_reset_schedule_enabled"), bool(config.get("vehicle_reset_schedule_enabled", False))),
+            "method": str(config.get("vehicle_reset_method") or "economy_xml"),
+            "first_date": first_date,
+            "time": reset_time,
+            "timezone": timezone,
+            "interval_value": interval_value,
+            "interval_unit": interval_unit,
+            "day_of_week": day_of_week,
+            "day_of_month": day_of_month,
+            "next_run_local": f"{first_date}T{reset_time}:00" if first_date else "",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        config["vehicle_reset_schedule"] = schedule
+        config["vehicle_reset_first_date"] = first_date
+        config["vehicle_reset_time"] = reset_time
+        config["vehicle_reset_timezone"] = timezone
+        config["vehicle_reset_interval_value"] = interval_value
+        config["vehicle_reset_interval_unit"] = interval_unit
+        config["vehicle_reset_day_of_week"] = day_of_week
+        config["vehicle_reset_day_of_month"] = day_of_month
 
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)

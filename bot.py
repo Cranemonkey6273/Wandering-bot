@@ -23,6 +23,7 @@ from datetime import datetime, UTC, timedelta
 from collections import OrderedDict
 from discord.ext import commands, tasks
 from discord import app_commands
+from zoneinfo import ZoneInfo
 
 # =========================================================
 # DISCORD
@@ -17921,6 +17922,10 @@ async def scheduled_restart_loop():
                 if token and service_id:
 
                     try:
+                        queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
+                        if queued_reset:
+                            print(f"SCHEDULED VEHICLE RESET QUEUED BEFORE RESTART {guild_id}: {queued_reset.get('id')}")
+
                         if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or has_active_scenario_events(config):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
@@ -22764,6 +22769,145 @@ def queue_all_vehicle_reset(guild_id, config, requested_by):
     return reset_entry
 
 
+def _parse_schedule_datetime(value):
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _vehicle_reset_schedule_timezone(schedule):
+    try:
+        return ZoneInfo(str(schedule.get("timezone") or "Europe/Dublin"))
+    except Exception:
+        return UTC
+
+
+def _add_months(value, months):
+    month = value.month - 1 + max(1, int(months or 1))
+    year = value.year + month // 12
+    month = month % 12 + 1
+    days_in_month = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    day = min(value.day, days_in_month[month - 1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def _advance_vehicle_reset_schedule(schedule, now_utc):
+    interval_value = max(1, int(schedule.get("interval_value") or 1))
+    interval_unit = str(schedule.get("interval_unit") or "days").lower()
+    next_run = _parse_schedule_datetime(schedule.get("next_run_utc"))
+    if not next_run:
+        return None
+
+    local_tz = _vehicle_reset_schedule_timezone(schedule)
+    candidate = next_run.astimezone(local_tz)
+    for _ in range(1200):
+        if interval_unit == "hours":
+            candidate += timedelta(hours=interval_value)
+        elif interval_unit == "weeks":
+            candidate += timedelta(weeks=interval_value)
+        elif interval_unit == "months":
+            candidate = _add_months(candidate, interval_value)
+        else:
+            candidate += timedelta(days=interval_value)
+        next_utc = candidate.astimezone(UTC)
+        if next_utc > now_utc:
+            schedule["next_run_local"] = candidate.isoformat(timespec="minutes")
+            schedule["next_run_utc"] = next_utc.isoformat()
+            return next_utc
+    return None
+
+
+def _ensure_vehicle_reset_next_run(schedule, now_utc):
+    existing = _parse_schedule_datetime(schedule.get("next_run_utc"))
+    if existing:
+        return existing
+
+    first_date = str(schedule.get("first_date") or "").strip()
+    reset_time = str(schedule.get("time") or "04:00").strip()
+    try:
+        hour_text, minute_text = reset_time.split(":", 1)
+        hour = max(0, min(23, int(hour_text)))
+        minute = max(0, min(59, int(minute_text)))
+    except Exception:
+        hour = 4
+        minute = 0
+
+    local_tz = _vehicle_reset_schedule_timezone(schedule)
+    if first_date:
+        try:
+            base_date = datetime.strptime(first_date, "%Y-%m-%d").date()
+        except Exception:
+            base_date = now_utc.astimezone(local_tz).date()
+    else:
+        base_date = now_utc.astimezone(local_tz).date()
+
+    candidate = datetime(base_date.year, base_date.month, base_date.day, hour, minute, tzinfo=local_tz)
+    if not first_date and candidate.astimezone(UTC) <= now_utc:
+        schedule["next_run_utc"] = candidate.astimezone(UTC).isoformat()
+        _advance_vehicle_reset_schedule(schedule, now_utc)
+        return _parse_schedule_datetime(schedule.get("next_run_utc"))
+
+    schedule["next_run_local"] = candidate.isoformat(timespec="minutes")
+    schedule["next_run_utc"] = candidate.astimezone(UTC).isoformat()
+    return candidate.astimezone(UTC)
+
+
+def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
+    if not config.get("vehicle_reset_schedule_enabled", False):
+        return None
+
+    schedule = config.setdefault("vehicle_reset_schedule", {})
+    if not isinstance(schedule, dict):
+        schedule = {}
+        config["vehicle_reset_schedule"] = schedule
+    schedule.setdefault("enabled", bool(config.get("vehicle_reset_schedule_enabled", False)))
+    schedule.setdefault("method", config.get("vehicle_reset_method", "economy_xml"))
+    schedule.setdefault("first_date", config.get("vehicle_reset_first_date", ""))
+    schedule.setdefault("time", config.get("vehicle_reset_time", "04:00"))
+    schedule.setdefault("timezone", config.get("vehicle_reset_timezone", "Europe/Dublin"))
+    schedule.setdefault("interval_value", config.get("vehicle_reset_interval_value", 7))
+    schedule.setdefault("interval_unit", config.get("vehicle_reset_interval_unit", "days"))
+    if not schedule.get("enabled", True):
+        return None
+
+    next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
+    if not next_run or now_utc < next_run:
+        return None
+
+    map_width, map_height = server_map_size(guild_id)
+    event_id = next_scenario_event_id(config)
+    event = {
+        "id": event_id,
+        "name": f"Scheduled vehicle reset #{event_id}",
+        "event_type": "vehicle_reset_all",
+        "location": "Dashboard vehicle reset schedule",
+        "x": map_width / 2,
+        "y": 0,
+        "z": map_height / 2,
+        "class_name": "ALL_VEHICLES",
+        "reset_method": str(schedule.get("method") or config.get("vehicle_reset_method") or "economy_xml"),
+        "radius": int(max(map_width, map_height) * 1.5),
+        "exclude": vehicle_reset_exclusions(config),
+        "permanent": False,
+        "remaining_restarts": 1,
+        "enabled": True,
+        "status": "Scheduled vehicle reset queued",
+        "created_by": "dashboard_vehicle_reset_schedule",
+        "created_at": now_utc.isoformat(),
+    }
+    scenario_events_for_config(config).append(event)
+    schedule["last_queued_at"] = now_utc.isoformat()
+    _advance_vehicle_reset_schedule(schedule, now_utc)
+    save_guild_configs()
+    return event
+
+
 # =========================================================
 # BASIC SHOP COMMANDS
 # =========================================================
@@ -23384,6 +23528,10 @@ async def restart_delivery_processor():
     for guild_id, config in active_guild_config_items():
 
         try:
+
+            queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
+            if queued_reset:
+                print(f"SCHEDULED VEHICLE RESET QUEUED {guild_id}: {queued_reset.get('id')}")
 
             restart_interval = config.get(
                 "restart_interval_hours",
