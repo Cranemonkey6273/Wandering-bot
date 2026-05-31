@@ -536,7 +536,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
-      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules, damage toggles, and vehicle reset settings.</span></a>
+      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
@@ -1163,6 +1163,41 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Queue Vehicle Reset</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Economy XML full wipe changes vehicles init to 0 for the wipe cycle, then restores it to 1. The server must restart for DayZ file changes to take effect.</p>
+          <hr>
+          <h4>Timed Vehicle Reset</h4>
+          <form class="admin-form" data-route="/api/admin/server-control">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
+            {% set vr_first_date = (vr.first_date or server.config.vehicle_reset_first_date or '') if server else '' %}
+            {% set vr_time = (vr.time or server.config.vehicle_reset_time or '04:00') if server else '04:00' %}
+            {% set vr_timezone = (vr.timezone or server.config.vehicle_reset_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
+            {% set vr_interval_value = (vr.interval_value or server.config.vehicle_reset_interval_value or 7) if server else 7 %}
+            {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
+            {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
+            {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
+            <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not server or not server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>Off</option><option value="true" {% if server and server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>On</option></select></label>
+            <label>Method <select name="vehicle_reset_method"><option value="economy_xml" {% if not server or server.config.vehicle_reset_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if server and server.config.vehicle_reset_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
+            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
+            <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
+            <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
+            <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
+            <label>Repeat unit
+              <select name="vehicle_reset_interval_unit">
+                <option value="hours" {% if vr_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
+                <option value="days" {% if vr_interval_unit == 'days' %}selected{% endif %}>Days</option>
+                <option value="weeks" {% if vr_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
+              </select>
+            </label>
+            <label>Preferred weekday
+              <select name="vehicle_reset_day_of_week">
+                <option value="">Use first date</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
+            <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
+          </form>
         </article>
         <article class="admin-panel full">
           <h3>Queued Scenario Events</h3>
@@ -1327,10 +1362,15 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel">
           <h3>{{ category }}</h3>
           <table class="item-table">
-            <thead><tr><th>Item</th><th>Price</th><th>Status</th></tr></thead>
+            <thead><tr><th>Item</th><th>Price</th><th>Status</th><th>Edit</th></tr></thead>
             <tbody>
-              {% for item in items[:12] %}
-              <tr><td>{{ item.name }}</td><td>{{ item.price }}</td><td>{{ 'On' if item.enabled else 'Off' }}</td></tr>
+              {% for item in items %}
+              <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.price }}</td>
+                <td>{{ 'On' if item.enabled else 'Off' }}</td>
+                <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
+              </tr>
               {% endfor %}
             </tbody>
           </table>
@@ -1414,7 +1454,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="section-head">
         <div>
           <h2>Server Control</h2>
-          <p class="tool-note">Restart timing, damage settings, and vehicle resets are separate controls for this server only. File and gameplay changes need a server restart before DayZ applies them.</p>
+          <p class="tool-note">Restart timing and damage settings are separate controls for this server only. Vehicle resets live in PVE & Workshop. File and gameplay changes need a server restart before DayZ applies them.</p>
         </div>
       </div>
       <div class="panel-grid">
@@ -1444,44 +1484,6 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Container damage <select name="container_damage_state"><option value="on" {% if not server or server.config.container_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.container_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
             <div class="full embed-preview"><strong>Damage Only</strong><span>These toggles are saved separately from vehicle resets so changing raid damage will not change the reset schedule.</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
-          </form>
-        </article>
-        <article class="admin-panel">
-          <h3>Vehicle Reset Schedule</h3>
-          <form class="admin-form" data-route="/api/admin/server-control">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
-            {% set vr_first_date = (vr.first_date or server.config.vehicle_reset_first_date or '') if server else '' %}
-            {% set vr_time = (vr.time or server.config.vehicle_reset_time or '04:00') if server else '04:00' %}
-            {% set vr_timezone = (vr.timezone or server.config.vehicle_reset_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
-            {% set vr_interval_value = (vr.interval_value or server.config.vehicle_reset_interval_value or 7) if server else 7 %}
-            {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
-            {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
-            {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
-            <label>Vehicle reset schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not server or not server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>Off</option><option value="true" {% if server and server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>On</option></select></label>
-            <label>Vehicle reset method <select name="vehicle_reset_method"><option value="economy_xml" {% if not server or server.config.vehicle_reset_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if server and server.config.vehicle_reset_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
-            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
-            <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
-            <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
-            <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
-            <label>Repeat unit
-              <select name="vehicle_reset_interval_unit">
-                <option value="hours" {% if vr_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
-                <option value="days" {% if vr_interval_unit == 'days' %}selected{% endif %}>Days</option>
-                <option value="weeks" {% if vr_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
-                <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
-              </select>
-            </label>
-            <label>Preferred weekday
-              <select name="vehicle_reset_day_of_week">
-                <option value="">Use first date</option>
-                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Important</strong><span>Economy XML vehicle resets are staged for the bot workflow so vehicles init can be restored safely after the wipe cycle. The schedule is saved per server and can repeat hourly, daily, weekly, or monthly.</span></div>
-            <div class="full"><button type="submit">Save Vehicle Reset</button> <span class="result muted"></span></div>
           </form>
         </article>
       </div>
