@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import hashlib
 import urllib.error
@@ -384,18 +385,19 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to set X/Y"; position: absolute; right: .75rem; bottom: .65rem; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-dot { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--gold); background: rgba(213,180,95,.22); border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: .75rem; font-weight: 900; pointer-events: none; }
-    .zone-dot.safe { border-color: #75d89a; background: rgba(117,216,154,.18); }
-    .zone-dot.pvp { border-color: #ed3853; background: rgba(237,56,83,.18); }
-    .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
-    .zone-dot.action { border-color: #ff9f43; background: rgba(255,159,67,.2); }
+    .zone-dot { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 26%, transparent); border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: .75rem; font-weight: 900; pointer-events: none; box-shadow: 0 0 0 2px rgba(5,8,6,.3), 0 0 18px color-mix(in srgb, var(--zone-colour, var(--gold)) 42%, transparent); }
+    .zone-dot.safe { --zone-colour: #75d89a; }
+    .zone-dot.pvp { --zone-colour: #ed3853; }
+    .zone-dot.radar { --zone-colour: #d5b45f; }
+    .zone-dot.action { --zone-colour: #ff9f43; }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
-    .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--accent); border-radius: 50%; background: rgba(213,180,95,.12); pointer-events: none; z-index: 1; }
+    .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--accent)); border-radius: 50%; background: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); pointer-events: none; z-index: 1; }
     .zone-boundary-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
-    .zone-boundary-layer polygon { fill: rgba(213,180,95,.16); stroke: var(--accent); stroke-width: 2.5; }
-    .zone-boundary-layer polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 7 5; }
-    .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); pointer-events: none; z-index: 2; }
+    .zone-boundary-layer polygon { fill: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); stroke: var(--zone-colour, var(--accent)); stroke-width: 2.5; }
+    .zone-boundary-layer polyline { fill: none; stroke: var(--zone-colour, var(--accent)); stroke-width: 2.5; stroke-dasharray: 7 5; }
+    .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 2; }
+    .zone-swatch { display: inline-block; width: .85rem; height: .85rem; border-radius: 50%; border: 1px solid rgba(255,255,255,.55); background: var(--zone-colour, var(--gold)); vertical-align: middle; margin-right: .35rem; }
     .map-missing { position: absolute; left: .75rem; top: .75rem; z-index: 2; max-width: min(34rem, calc(100% - 1.5rem)); border: 1px solid rgba(237,56,83,.4); border-radius: .45rem; background: rgba(5,8,6,.84); color: #ffd8df; padding: .55rem .7rem; font-size: .9rem; }
     .trial-notice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid rgba(213,180,95,.45); border-radius: .5rem; padding: .7rem .85rem; background: rgba(213,180,95,.13); color: var(--text); }
     .trial-notice span { color: var(--muted); }
@@ -889,6 +891,13 @@ Event pings | bell | 1234567890</textarea></label>
               </select>
             </label>
             <label>Ping role ID <input name="role_id" placeholder="optional Discord role id"></label>
+            <label>Faction colour source
+              <select name="faction_name">
+                <option value="">No faction colour</option>
+                {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}<option value="{{ faction.name or faction_name }}" data-faction-colour="{{ faction.colour or faction.color or '#8d963e' }}">{{ faction.name or faction_name }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Zone colour <input name="colour" type="color" value="#d5b45f" data-zone-colour></label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Action on violation
               <select name="action"><option value="none">Notify only</option><option value="manhunt">Start manhunt</option><option value="ban">Ban through Nitrado</option></select>
@@ -919,9 +928,9 @@ Event pings | bell | 1234567890</textarea></label>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% for zone in (server.zones if server else []) %}
               {% if zone.shape == "boundary" and zone.points_percent %}
-              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none"><polygon points="{{ zone.points_percent }}"></polygon></svg>
+              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% else %}
-              <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
+              <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="--zone-colour: {{ zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
               {% endif %}
               {% endfor %}
             </div>
@@ -935,7 +944,7 @@ Event pings | bell | 1234567890</textarea></label>
             <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th></tr></thead>
             <tbody>
               {% for zone in (server.zones if server else []) %}
-              <tr><td>{{ loop.index }}</td><td>{{ zone.name }}</td><td>{{ zone.zone_type }}</td><td>{{ zone.x }}, {{ zone.y }}</td><td>{{ zone.radius }}m</td><td>{{ zone.action or 'notify' }}</td><td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td></tr>
+              <tr><td>{{ loop.index }}</td><td><span class="zone-swatch" style="--zone-colour: {{ zone.colour }};"></span>{{ zone.name }}</td><td>{{ zone.zone_type }}</td><td>{{ zone.x }}, {{ zone.y }}</td><td>{{ zone.radius }}m</td><td>{{ zone.action or 'notify' }}</td><td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td></tr>
               {% else %}
               <tr><td colspan="7">No zones saved yet.</td></tr>
               {% endfor %}
@@ -1688,6 +1697,14 @@ Event pings | bell | 1234567890</textarea></label>
       const boundaryCount = form.querySelector("[data-boundary-count]");
       const boundaryField = form.querySelector("[data-boundary-points]");
       const boundaryLayer = form.querySelector("[data-boundary-layer]");
+      const colourInput = form.querySelector("[data-zone-colour]");
+      const factionSelect = form.elements.faction_name;
+
+      function syncZoneColour(colour) {
+        const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : "#d5b45f";
+        map.style.setProperty("--zone-colour", value);
+        if (colourInput) colourInput.value = value;
+      }
 
       function syncRadius(value) {
         const radius = Math.max(10, Number(value || 250));
@@ -1712,6 +1729,7 @@ Event pings | bell | 1234567890</textarea></label>
         circle.style.height = `${Math.max(12, width)}px`;
         circle.style.left = cursor.style.left;
         circle.style.top = cursor.style.top;
+        circle.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
         circle.style.display = shapeSelect && shapeSelect.value === "boundary" ? "none" : "";
       }
 
@@ -1725,6 +1743,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (boundaryPoints.length > 1) {
           const node = document.createElementNS("http://www.w3.org/2000/svg", boundaryPoints.length > 2 ? "polygon" : "polyline");
           node.setAttribute("points", percentPoints);
+          node.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
           boundaryLayer.appendChild(node);
         }
         boundaryPoints.forEach((point) => {
@@ -1732,9 +1751,24 @@ Event pings | bell | 1234567890</textarea></label>
           marker.className = "zone-boundary-point";
           marker.style.left = `${point.xPercent}%`;
           marker.style.top = `${point.yPercent}%`;
+          marker.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
           map.appendChild(marker);
         });
       }
+
+      if (colourInput) colourInput.addEventListener("input", () => {
+        syncZoneColour(colourInput.value);
+        renderCirclePreview();
+        renderBoundary();
+      });
+      if (factionSelect && colourInput) factionSelect.addEventListener("change", () => {
+        const option = factionSelect.selectedOptions[0];
+        if (option && option.dataset.factionColour) {
+          syncZoneColour(option.dataset.factionColour);
+          renderCirclePreview();
+          renderBoundary();
+        }
+      });
 
       if (radiusInput) radiusInput.addEventListener("input", () => syncRadius(radiusInput.value));
       if (radiusSlider) radiusSlider.addEventListener("input", () => syncRadius(radiusSlider.value));
@@ -1781,6 +1815,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
       });
       syncRadius(radiusInput ? radiusInput.value : 250);
+      syncZoneColour(colourInput ? colourInput.value : "#d5b45f");
     });
     document.querySelectorAll("[data-plan-notice]").forEach((notice) => {
       const today = new Date().toISOString().slice(0, 10);
@@ -2015,6 +2050,13 @@ def safe_time(value: Any, default: str = "04:00") -> str:
         return datetime.strptime(text, "%H:%M").strftime("%H:%M")
     except ValueError:
         return default
+
+
+def safe_colour(value: Any, default: str = "#d5b45f") -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", text):
+        return text.lower()
+    return default
 
 
 def csv_list(value: Any) -> list[str]:
@@ -2481,7 +2523,7 @@ def map_image_available_for(server_map: str) -> bool:
     return os.path.exists(map_image_file_for(server_map)) or bool(DEFAULT_MAP_IMAGE_SOURCES.get(key))
 
 
-def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, Any]]:
+def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     map_size = map_size_for(server_map)
     zones = []
     for zone in list_records(config.get("zones", [])):
@@ -2523,6 +2565,31 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
         zone_type = str(zone.get("zone_type") or zone.get("type") or "radar").lower()
         if zone_type not in {"safe", "pvp", "radar", "action", "faction", "custom"}:
             zone_type = "custom"
+        faction_name = str(zone.get("faction_name") or zone.get("faction") or "").strip()
+        faction_colour = ""
+        if faction_name and isinstance(factions, dict):
+            faction = factions.get(faction_name) or factions.get(faction_name.lower())
+            if not faction:
+                faction = next(
+                    (
+                        item
+                        for key, item in factions.items()
+                        if str(key).lower() == faction_name.lower()
+                        or str(item.get("name", "") if isinstance(item, dict) else "").lower() == faction_name.lower()
+                    ),
+                    {},
+                )
+            if isinstance(faction, dict):
+                faction_colour = str(faction.get("colour") or faction.get("color") or "")
+        fallback_colours = {
+            "safe": "#75d89a",
+            "pvp": "#ed3853",
+            "radar": "#d5b45f",
+            "action": "#ff9f43",
+            "faction": "#8d963e",
+            "custom": "#d5b45f",
+        }
+        colour = safe_colour(zone.get("colour") or zone.get("color") or faction_colour, fallback_colours.get(zone_type, "#d5b45f"))
         zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
         dedupe_key = (zone_type, zone_id, x, y, radius)
         if dedupe_key in seen:
@@ -2533,6 +2600,8 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
                 "id": zone_id,
                 "name": str(zone.get("name") or zone.get("label") or "Unnamed zone"),
                 "zone_type": zone_type,
+                "colour": colour,
+                "faction_name": faction_name,
                 "x": x,
                 "y": y,
                 "radius": radius,
@@ -2668,14 +2737,14 @@ def load_dashboard_state() -> dict[str, Any]:
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
-        zones = normalized_zones(config, server_map)
+        server_factions = faction_records_for_guild(factions, guild_id)
+        zones = normalized_zones(config, server_map, server_factions)
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
         server_shop = shop_for_guild(shop, guild_id)
         server_shop_categories = shop_category_map(server_shop)
         server_shop_items = flat_shop_items(server_shop)
-        server_factions = faction_records_for_guild(factions, guild_id)
         server_wallets = wallet_records_for_guild(wallets, guild_id)
         server_wages = guild_block(wages, guild_id, [])
         channels = public_channels(config.get("channels", {}), guild_id)
@@ -3357,10 +3426,14 @@ def api_zone():
     zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
     channel_key, channel_id = resolve_channel_selection(config, payload.get("channel_key"))
     role_id = str(payload.get("role_id") or "").strip()
+    faction_name = str(payload.get("faction_name") or payload.get("faction") or "").strip()
+    colour = safe_colour(payload.get("colour") or payload.get("color"))
     record = {
         "id": zone_id,
         "name": name,
         "zone_type": zone_type,
+        "colour": colour,
+        "faction_name": faction_name,
         "x": x,
         "y": y,
         "radius": radius,
