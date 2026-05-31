@@ -11,6 +11,8 @@ import json
 import os
 import secrets
 import hashlib
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from threading import Thread
 from typing import Any
@@ -31,6 +33,16 @@ MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
 }
+DEFAULT_MAP_IMAGE_SOURCES = {
+    "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_URL", "https://i.redd.it/a2mn8bzx93gd1.jpeg"),
+    "livonia": os.getenv("WANDERING_LIVONIA_MAP_URL", "https://i.imgur.com/nzEp9wF.jpeg"),
+}
+BUILD_COMMIT = (
+    os.getenv("RAILWAY_GIT_COMMIT_SHA")
+    or os.getenv("GIT_COMMIT_SHA")
+    or os.getenv("SOURCE_VERSION")
+    or ""
+)
 SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack", "count": 3, "radius": 90},
     "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack", "count": 6, "radius": 120},
@@ -351,7 +363,9 @@ PAGE_TEMPLATE = """
     .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
     input[type="color"] { min-height: 2.8rem; padding: .25rem; cursor: pointer; }
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
-    .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
+    .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
+    .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
+    .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -371,6 +385,7 @@ PAGE_TEMPLATE = """
     .zone-dot.safe { border-color: #75d89a; background: rgba(117,216,154,.18); }
     .zone-dot.pvp { border-color: #ed3853; background: rgba(237,56,83,.18); }
     .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
+    .zone-dot.action { border-color: #ff9f43; background: rgba(255,159,67,.2); }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
     .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--accent); border-radius: 50%; background: rgba(213,180,95,.12); pointer-events: none; z-index: 1; }
@@ -856,7 +871,7 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Zone name <input name="name" value="North West Airfield"></label>
             <label>Zone type
-              <select name="zone_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option><option value="faction">Faction territory</option><option value="custom">Custom marker</option></select>
+              <select name="zone_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option><option value="action">Ban / action zone</option><option value="faction">Faction territory</option><option value="custom">Custom marker</option></select>
             </label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Y coordinate <input name="y" type="number" value="7500"></label>
@@ -1065,12 +1080,22 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Queued Scenario Events</h3>
           <table class="item-table">
-            <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th></tr></thead>
+            <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
-              <tr><td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}</td></tr>
+              <tr>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}</td>
+                <td>
+                  <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="event_id" value="{{ event.id }}">
+                    <select name="action"><option value="approve">Approve</option><option value="pause">Pause</option><option value="cancel">Cancel</option><option value="delete">Delete</option></select>
+                    <button type="submit">Apply</button><span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
               {% else %}
-              <tr><td colspan="7">No scenario events queued.</td></tr>
+              <tr><td colspan="8">No scenario events queued.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -1185,13 +1210,19 @@ Event pings | bell | 1234567890</textarea></label>
           <h3>All Shop Items</h3>
           <div class="shop-toolbar">
             <label>Search items <input data-shop-search placeholder="type item/category/status"></label>
+            <label>Category
+              <select data-shop-category>
+                <option value="">All categories</option>
+                {% for category in (server.shop_categories.keys() if server else []) %}<option value="{{ category|lower }}">{{ category }}</option>{% endfor %}
+              </select>
+            </label>
             <span class="pill">{{ server.shop_items|length if server else 0 }} items</span>
           </div>
           <table class="item-table">
             <thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
             <tbody>
               {% for item in (server.shop_items if server else []) %}
-              <tr data-shop-row data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
+              <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
                 <td>{{ item.name }}</td>
                 <td>{{ item.category }}</td>
                 <td>{{ item.price }}</td>
@@ -1537,7 +1568,7 @@ Event pings | bell | 1234567890</textarea></label>
             delete payload[box.name];
           });
         }
-        result.textContent = "Saving...";
+        if (result) result.textContent = "Saving...";
         const token = new URLSearchParams(window.location.search).get("token");
         const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
         const response = await fetch(route, {
@@ -1547,7 +1578,8 @@ Event pings | bell | 1234567890</textarea></label>
         });
         let body = {};
         try { body = await response.json(); } catch (error) {}
-        result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
+        if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
+        if (response.ok && form.classList.contains("inline-action")) window.location.reload();
       });
     });
     document.querySelectorAll("[data-shop-edit]").forEach((button) => {
@@ -1566,12 +1598,21 @@ Event pings | bell | 1234567890</textarea></label>
       });
     });
     document.querySelectorAll("[data-shop-search]").forEach((input) => {
-      input.addEventListener("input", () => {
+      const section = input.closest("section") || document;
+      const category = section.querySelector("[data-shop-category]");
+      function filterShop() {
         const query = input.value.trim().toLowerCase();
-        document.querySelectorAll("[data-shop-row]").forEach((row) => {
-          row.style.display = !query || row.dataset.search.includes(query) ? "" : "none";
+        const categoryValue = category ? category.value.trim().toLowerCase() : "";
+        section.querySelectorAll("[data-shop-row]").forEach((row) => {
+          const matchesText = !query || row.dataset.search.includes(query);
+          const matchesCategory = !categoryValue || row.dataset.category === categoryValue;
+          row.style.display = matchesText && matchesCategory ? "" : "none";
         });
+      }
+      input.addEventListener("input", () => {
+        filterShop();
       });
+      category?.addEventListener("change", filterShop);
     });
     document.querySelectorAll("[data-faction-edit]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1748,6 +1789,7 @@ ADMIN_ROUTES = [
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/scenario-event",
+    "/api/admin/scenario-event-action",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
     "/api/admin/zone",
@@ -2299,6 +2341,11 @@ def map_image_file_for(server_map: str) -> str:
     return MAP_IMAGE_FILES.get(map_key_for(server_map), MAP_IMAGE_FILES["chernarus"])
 
 
+def map_image_available_for(server_map: str) -> bool:
+    key = map_key_for(server_map)
+    return os.path.exists(map_image_file_for(server_map)) or bool(DEFAULT_MAP_IMAGE_SOURCES.get(key))
+
+
 def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, Any]]:
     map_size = map_size_for(server_map)
     zones = []
@@ -2339,7 +2386,7 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
             for point in boundary_points
         )
         zone_type = str(zone.get("zone_type") or zone.get("type") or "radar").lower()
-        if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
+        if zone_type not in {"safe", "pvp", "radar", "action", "faction", "custom"}:
             zone_type = "custom"
         zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
         dedupe_key = (zone_type, zone_id, x, y, radius)
@@ -2517,7 +2564,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "map": server_map,
                 "map_key": map_key_for(server_map),
                 "map_size": map_size_for(server_map),
-                "map_image_available": os.path.exists(map_image_file_for(server_map)),
+                "map_image_available": map_image_available_for(server_map),
                 "online": online,
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
@@ -2722,7 +2769,7 @@ def normalize_embed_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 @APP.get("/healthz")
 def healthz():
-    return jsonify({"ok": True, "generated_at": datetime.now(UTC).isoformat()})
+    return jsonify({"ok": True, "generated_at": datetime.now(UTC).isoformat(), "build_commit": BUILD_COMMIT})
 
 
 @APP.get("/brand-image")
@@ -2738,6 +2785,15 @@ def map_image(map_key: str):
     path = MAP_IMAGE_FILES.get(key, "")
     if path and os.path.exists(path):
         return send_file(path)
+    source = DEFAULT_MAP_IMAGE_SOURCES.get(key)
+    if source:
+        try:
+            with urllib.request.urlopen(source, timeout=8) as response:
+                image_bytes = response.read()
+                content_type = response.headers.get("content-type") or "image/jpeg"
+        except (urllib.error.URLError, OSError):
+            return redirect(source)
+        return APP.response_class(image_bytes, mimetype=content_type)
     return ("", 404)
 
 
@@ -2998,6 +3054,49 @@ def api_scenario_event():
     return jsonify({"ok": True, "event": event, "note": "queued for bot restart/event processing"})
 
 
+@APP.post("/api/admin/scenario-event-action")
+def api_scenario_event_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    event_id = safe_int(payload.get("event_id") or payload.get("id"), 0)
+    action = str(payload.get("action") or "approve").strip().lower()
+    if action not in {"approve", "pause", "cancel", "delete"}:
+        return jsonify({"ok": False, "error": "action must be approve, pause, cancel, or delete"}), 400
+    if event_id <= 0:
+        return jsonify({"ok": False, "error": "event_id is required"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    events = config.get("scenario_events", [])
+    if not isinstance(events, list):
+        events = []
+        config["scenario_events"] = events
+
+    for index, event in enumerate(events):
+        if not isinstance(event, dict) or safe_int(event.get("id"), 0) != event_id:
+            continue
+        if action == "delete":
+            removed = events.pop(index)
+            save_store("guild_configs", guild_configs)
+            return jsonify({"ok": True, "deleted": removed})
+        event["enabled"] = action in {"approve"}
+        event["status"] = {
+            "approve": "Accepted / waiting for restart",
+            "pause": "Paused by dashboard",
+            "cancel": "Cancelled by dashboard",
+        }[action]
+        event["updated_at"] = datetime.now(UTC).isoformat()
+        save_store("guild_configs", guild_configs)
+        return jsonify({"ok": True, "event": event})
+
+    return jsonify({"ok": False, "error": "scenario event not found for this guild"}), 404
+
+
 @APP.post("/api/admin/economy-rule")
 def api_economy_rule():
     payload, error = require_admin()
@@ -3088,8 +3187,8 @@ def api_zone():
     if not name:
         return jsonify({"ok": False, "error": "zone name is required"}), 400
     zone_type = str(payload.get("zone_type") or payload.get("type") or "radar").strip().lower()
-    if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
-        return jsonify({"ok": False, "error": "zone_type must be safe, pvp, radar, faction, or custom"}), 400
+    if zone_type not in {"safe", "pvp", "radar", "action", "faction", "custom"}:
+        return jsonify({"ok": False, "error": "zone_type must be safe, pvp, radar, action, faction, or custom"}), 400
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
