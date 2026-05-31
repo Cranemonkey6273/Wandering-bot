@@ -21093,6 +21093,90 @@ def build_online_dashboard_embed(guild_id, reason=""):
     return embed
 
 
+def build_online_dashboard_embed(guild_id, reason=""):
+    ensure_guild_runtime(guild_id)
+    guild_online = sorted(online_players[guild_id])
+    online_count = len(guild_online)
+    guild_name = str(guild_configs.get(str(guild_id), {}).get("guild_name") or guild_display_name(guild_id))
+    now = datetime.now(UTC)
+
+    if online_count >= 20:
+        colour = 0xE67E22
+        mood = "High Pop"
+        pulse = "██████████"
+    elif online_count >= 10:
+        colour = 0xF1C40F
+        mood = "Busy"
+        pulse = "███████░░░"
+    elif online_count > 0:
+        colour = 0x2ECC71
+        mood = "Active"
+        pulse = "████░░░░░░"
+    else:
+        colour = 0x5865F2
+        mood = "Quiet"
+        pulse = "░░░░░░░░░░"
+
+    embed = discord.Embed(
+        title="LIVE SURVIVOR BOARD",
+        description=(
+            f"**{guild_name}**\n"
+            f"`{pulse}`  **{online_count} survivor{'s' if online_count != 1 else ''} online**\n"
+            f"Status: **{mood}**"
+        ),
+        color=colour,
+    )
+    embed.add_field(name="Server", value=guild_name[:1024], inline=True)
+    embed.add_field(name="Online", value=f"**{online_count}**", inline=True)
+    embed.add_field(name="Last Change", value=str(reason or "Safety refresh")[:1024], inline=True)
+
+    if guild_online:
+        shown = guild_online[:24]
+        midpoint = (len(shown) + 1) // 2
+        left = shown[:midpoint]
+        right = shown[midpoint:]
+        embed.add_field(
+            name="Survivors",
+            value="\n".join(f"`{index + 1:02}` {player}" for index, player in enumerate(left))[:1024],
+            inline=True,
+        )
+        if right:
+            embed.add_field(
+                name="Survivors",
+                value="\n".join(f"`{index + midpoint + 1:02}` {player}" for index, player in enumerate(right))[:1024],
+                inline=True,
+            )
+        if online_count > len(shown):
+            embed.add_field(
+                name="More Online",
+                value=f"`{online_count - len(shown)}` more survivor(s) are online. Use `/online` for the full roster.",
+                inline=False,
+            )
+    else:
+        embed.add_field(
+            name="No Survivors Online",
+            value="The server is quiet. The board will update the moment someone connects.",
+            inline=False,
+        )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - one live message, updated on join/leave")
+    embed.timestamp = now
+    return embed
+
+
+def build_online_dashboard_view(guild_id, config):
+    view = discord.ui.View(timeout=None)
+    view.add_item(
+        discord.ui.Button(
+            label="Open Dashboard",
+            style=discord.ButtonStyle.link,
+            url=f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/admin?guild_id={guild_id}",
+        )
+    )
+    return view
+
+
 async def find_existing_online_dashboard_message(channel):
     try:
         async for old_msg in channel.history(limit=20):
@@ -21118,6 +21202,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
         return
 
     embed = build_online_dashboard_embed(guild_id, reason)
+    view = build_online_dashboard_view(guild_id, config)
     message_id = last_online_message_ids.get(guild_id) or config.get("online_dashboard_message_id")
     message = None
 
@@ -21132,7 +21217,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
 
     if message is not None:
         try:
-            await message.edit(embed=embed)
+            await message.edit(embed=embed, view=view)
             last_online_message_ids[guild_id] = message.id
             config["online_dashboard_message_id"] = message.id
             last_online_dashboard_snapshots[guild_id] = snapshot
@@ -21142,7 +21227,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
             pass
 
     await purge_self_dashboard_messages(online_channel, limit=10)
-    sent_message = await online_channel.send(embed=embed)
+    sent_message = await online_channel.send(embed=embed, view=view)
     last_online_message_ids[guild_id] = sent_message.id
     config["online_dashboard_message_id"] = sent_message.id
     last_online_dashboard_snapshots[guild_id] = snapshot
