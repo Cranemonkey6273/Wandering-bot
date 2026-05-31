@@ -1208,7 +1208,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
             <label>Y height <input name="y" type="number" value="0"></label>
-            <label>How many animals / crates / infected <input name="count" type="number" value="1"></label>
+            <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
             <label>Loot preset
@@ -1219,7 +1219,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Guard class <input name="guard_class" value="ZmbM_SoldierNormal" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="0"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
-            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. The bot will apply this on the next restart/upload cycle, or immediately where the event workflow supports it.</span></div>
+            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Dashboard events upload through the DayZ bridge delivery XML and do not depend on normal bear, animal, or infected event totals. Counts are capped at 250 per event for server safety.</span></div>
             <div class="full"><button type="submit">Queue Event</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. They apply through the bot's CE XML or bridge workflow at restart/upload time.</p>
