@@ -11,10 +11,10 @@ import json
 import os
 import secrets
 import hashlib
-import re
 from datetime import UTC, datetime
 from threading import Thread
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, make_response, redirect, render_template_string, request, send_file
 
@@ -33,10 +33,35 @@ DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS",
 ADMIN_TOKEN = os.getenv("WANDERING_DASHBOARD_ADMIN_TOKEN", "")
 DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
+DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
+FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
 
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
 CUSTOM_STATE_PROVIDER = None
+
+
+@APP.before_request
+def enforce_https():
+    if not FORCE_HTTPS:
+        return None
+    host = request.host.split(":", 1)[0].lower()
+    if host in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        return None
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", request.scheme)
+    if forwarded_proto == "http":
+        return redirect(request.url.replace("http://", "https://", 1), code=301)
+    return None
+
+
+@APP.after_request
+def add_security_headers(response):
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+    return response
 
 SECRET_KEYS = {
     "token",
@@ -134,6 +159,10 @@ PAGE_TEMPLATE = """
     body[data-theme="amber"] { --bg: #120d06; --panel: #241b10; --panel-2: #342514; --panel-3: #1a130b; --line: rgba(225, 178, 94, .36); --text: #fff1d8; --muted: #dec8a4; --olive: #a47d3a; --gold: #e3b65f; --accent: #e3b65f; }
     body[data-theme="steel"] { --bg: #071014; --panel: #142027; --panel-2: #1f3038; --panel-3: #0d171c; --line: rgba(134, 191, 210, .34); --text: #edf7fb; --muted: #b9ced6; --olive: #5b8ea0; --gold: #79c7dd; --accent: #79c7dd; }
     body[data-theme="highland"] { --bg: #0f0d0b; --panel: #211d18; --panel-2: #302a21; --panel-3: #17130f; --line: rgba(198, 169, 121, .35); --text: #f8eddd; --muted: #d4c0a4; --olive: #8b7652; --gold: #d9b779; --accent: #d9b779; }
+    body[data-theme="daylight"] { color-scheme: light; --bg: #e9edde; --panel: #fbfff5; --panel-2: #dfe8ce; --panel-3: #f4f8eb; --line: rgba(74, 98, 55, .32); --text: #182013; --muted: #4e6044; --dim: #6f7d65; --olive: #718948; --gold: #9f7c2c; --accent: #6f8f3f; }
+    body[data-theme="sandstorm"] { color-scheme: light; --bg: #efe3c9; --panel: #fff7e7; --panel-2: #e6d0a3; --panel-3: #f6eddc; --line: rgba(121, 87, 43, .34); --text: #261b0f; --muted: #6b5132; --dim: #8d7652; --olive: #8d7b39; --gold: #b77c2c; --accent: #b77c2c; }
+    body[data-theme="midnight"] { --bg: #05070d; --panel: #121726; --panel-2: #202940; --panel-3: #0b1020; --line: rgba(130, 153, 216, .34); --text: #f3f7ff; --muted: #bec8e4; --olive: #6878b8; --gold: #94b4ff; --accent: #94b4ff; }
+    body[data-theme="bloodmoon"] { --bg: #100607; --panel: #241012; --panel-2: #38191a; --panel-3: #180a0c; --line: rgba(226, 92, 92, .34); --text: #fff0ed; --muted: #dfb7b2; --olive: #a94444; --gold: #ffb45d; --accent: #ff866d; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -168,6 +197,10 @@ PAGE_TEMPLATE = """
     .theme-picker button[data-theme-choice="amber"] { background: linear-gradient(135deg, #a47d3a 0 50%, #e3b65f 50%); }
     .theme-picker button[data-theme-choice="steel"] { background: linear-gradient(135deg, #5b8ea0 0 50%, #79c7dd 50%); }
     .theme-picker button[data-theme-choice="highland"] { background: linear-gradient(135deg, #8b7652 0 50%, #d9b779 50%); }
+    .theme-picker button[data-theme-choice="daylight"] { background: linear-gradient(135deg, #fbfff5 0 50%, #718948 50%); }
+    .theme-picker button[data-theme-choice="sandstorm"] { background: linear-gradient(135deg, #fff7e7 0 50%, #b77c2c 50%); }
+    .theme-picker button[data-theme-choice="midnight"] { background: linear-gradient(135deg, #121726 0 50%, #94b4ff 50%); }
+    .theme-picker button[data-theme-choice="bloodmoon"] { background: linear-gradient(135deg, #38191a 0 50%, #ff866d 50%); }
     .theme-picker button.active { box-shadow: 0 0 0 2px var(--text); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
     nav a, button, .button, .tab-link {
@@ -215,6 +248,8 @@ PAGE_TEMPLATE = """
       color: var(--text);
       padding: .65rem .75rem;
     }
+    body[data-theme="daylight"] input, body[data-theme="daylight"] textarea, body[data-theme="daylight"] select,
+    body[data-theme="sandstorm"] input, body[data-theme="sandstorm"] textarea, body[data-theme="sandstorm"] select { background: #fffdf4; color: var(--text); }
     textarea { min-height: 7rem; resize: vertical; }
     input[readonly] { color: var(--gold); background: rgba(213, 180, 95, .08); cursor: default; }
     .full { grid-column: 1 / -1; }
@@ -281,6 +316,8 @@ PAGE_TEMPLATE = """
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+    .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
     .zone-map { position: relative; width: 100%; min-height: 34rem; aspect-ratio: 1 / .62; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background:
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
@@ -296,6 +333,13 @@ PAGE_TEMPLATE = """
     .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
+    .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--accent); border-radius: 50%; background: rgba(213,180,95,.12); pointer-events: none; z-index: 1; }
+    .zone-boundary-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .zone-boundary-layer polygon { fill: rgba(213,180,95,.16); stroke: var(--accent); stroke-width: 2.5; }
+    .zone-boundary-layer polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 7 5; }
+    .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); pointer-events: none; z-index: 2; }
+    .trial-notice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid rgba(213,180,95,.45); border-radius: .5rem; padding: .7rem .85rem; background: rgba(213,180,95,.13); color: var(--text); }
+    .trial-notice span { color: var(--muted); }
     .map-readout { margin-top: .4rem; color: var(--gold); font-size: .9rem; }
     .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
     .help-card { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #070b08; }
@@ -309,7 +353,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid { grid-template-columns: 1fr; }
       .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
       nav { display: none; }
@@ -337,6 +381,10 @@ PAGE_TEMPLATE = """
       <button type="button" data-theme-choice="amber" title="Amber"></button>
       <button type="button" data-theme-choice="steel" title="Steel"></button>
       <button type="button" data-theme-choice="highland" title="Highland"></button>
+      <button type="button" data-theme-choice="daylight" title="Daylight"></button>
+      <button type="button" data-theme-choice="sandstorm" title="Sandstorm"></button>
+      <button type="button" data-theme-choice="midnight" title="Midnight"></button>
+      <button type="button" data-theme-choice="bloodmoon" title="Blood Moon"></button>
     </div>
   </header>
   <main>
@@ -355,6 +403,13 @@ PAGE_TEMPLATE = """
       </div>
       <img src="/brand-image" alt="Wandering Bot mark">
     </section>
+
+    {% if server and server.dashboard_access.plan_status == "trial" and server.dashboard_access.trial_notice_enabled %}
+    <section class="trial-notice" data-plan-notice data-plan-key="{{ server.guild_id }}-trial">
+      <div><strong>Trial dashboard</strong> <span>{% if server.dashboard_access.trial_ends_at %}Trial ends {{ server.dashboard_access.trial_ends_at }}.{% else %}This server is currently running as a trial.{% endif %}</span></div>
+      <button type="button" data-dismiss-plan-notice>Dismiss today</button>
+    </section>
+    {% endif %}
 
     <section class="stats">
       <div class="stat"><span>Server</span><strong>{{ server.map|upper if server else summary.guilds }}</strong></div>
@@ -571,7 +626,7 @@ PAGE_TEMPLATE = """
             <label>Player/event filter <input name="event_filter" placeholder="keyword, player name, weapon, zone, any"></label>
             <label>Minimum value <input name="event_minimum" type="number" value="0" placeholder="distance, kills, amount, etc."></label>
             <label>Interval minutes <input name="interval_minutes" type="number" value="60"></label>
-            <label>Timezone <input name="timezone" value="Europe/London"></label>
+            <label>Timezone <input name="timezone" value="Europe/Dublin"></label>
             <label>Button label <input name="button_label" placeholder="optional link button"></label>
             <label>Button URL <input name="button_url" placeholder="https://..."></label>
             <label class="full">Message <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
@@ -742,7 +797,11 @@ Event pings | bell | 1234567890</textarea></label>
             </label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Y coordinate <input name="y" type="number" value="7500"></label>
-            <label>Radius meters <input name="radius" type="number" value="250"></label>
+            <label>Shape
+              <select name="shape" data-zone-shape><option value="circle">Circle</option><option value="boundary">Draw boundary</option></select>
+            </label>
+            <label>Radius meters <input name="radius" type="number" min="10" max="{{ server.map_size if server else 15360 }}" step="10" value="250" data-zone-radius></label>
+            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="250" data-zone-radius-slider></label>
             <label>Ping / report channel
               <select name="channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
@@ -758,13 +817,28 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Trigger territory <select name="trigger_territory"><option value="inside">Inside zone</option><option value="outside">Outside zone</option></select></label>
             <label class="full">Triggers <input name="triggers" value="detection,login,kill,build" placeholder="detection, login, kill, build, flag_raise"></label>
             <label class="full">Ignored gamertags <input name="ignored_gamertags" placeholder="comma-separated names that should not ping radar"></label>
+            <input class="hidden-field" name="boundary_points" data-boundary-points value="">
             <div class="full embed-preview">
               <strong>Map controls</strong>
-              <span>Click anywhere on the map to fill X/Y. Use a radar zone to notify a role/channel, or a safe/PVP zone to apply actions like notify, manhunt, or Nitrado ban.</span>
+              <span>Circle mode sets the center and radius. Boundary mode lets you click multiple points around an area; save when the outline covers the place you want.</span>
+            </div>
+            <div class="full zone-tools">
+              <div class="mini-card"><strong data-zone-radius-label>250m</strong><span class="muted">Circle radius</span></div>
+              <div class="mini-card"><strong data-zone-shape-label>Circle</strong><span class="muted">Drawing mode</span></div>
+              <div class="mini-card"><strong data-boundary-count>0</strong><span class="muted">Boundary points</span></div>
+              <div class="zone-tool-actions">
+                <button type="button" data-clear-boundary>Clear Boundary</button>
+                <button type="button" data-undo-boundary>Undo Point</button>
+              </div>
             </div>
             <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}">
+              <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% for zone in (server.zones if server else []) %}
+              {% if zone.shape == "boundary" and zone.points_percent %}
+              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none"><polygon points="{{ zone.points_percent }}"></polygon></svg>
+              {% else %}
               <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
+              {% endif %}
               {% endfor %}
             </div>
             <div class="full map-readout" data-map-readout>Click the map to choose a coordinate.</div>
@@ -1131,7 +1205,25 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Tier <select name="tier"><option value="owner">owner</option><option value="premium">premium</option><option value="trial">trial</option><option value="none">none</option></select></label>
+            <label>Plan status
+              <select name="plan_status">
+                <option value="trial" {% if server and server.dashboard_access.plan_status == 'trial' %}selected{% endif %}>Trial</option>
+                <option value="subscription" {% if server and server.dashboard_access.plan_status == 'subscription' %}selected{% endif %}>Subscription</option>
+                <option value="lifetime" {% if server and server.dashboard_access.plan_status == 'lifetime' %}selected{% endif %}>Lifetime</option>
+                <option value="suspended" {% if server and server.dashboard_access.plan_status == 'suspended' %}selected{% endif %}>Suspended</option>
+                <option value="none" {% if server and server.dashboard_access.plan_status == 'none' %}selected{% endif %}>None</option>
+              </select>
+            </label>
+            <label>Trial ends <input name="trial_ends_at" type="date" value="{{ server.dashboard_access.trial_ends_at if server else '' }}"></label>
+            <label>Subscription ends <input name="subscription_ends_at" type="date" value="{{ server.dashboard_access.subscription_ends_at if server else '' }}"></label>
+            <label>Daily trial notice
+              <select name="trial_notice_enabled">
+                <option value="true" {% if not server or server.dashboard_access.trial_notice_enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if server and not server.dashboard_access.trial_notice_enabled %}selected{% endif %}>Off</option>
+              </select>
+            </label>
             <label>Allowed role IDs <input name="allowed_role_ids" placeholder="optional Discord role IDs"></label>
+            <label class="full">Owner note <input name="owner_note" value="{{ server.dashboard_access.owner_note if server else '' }}" placeholder="private note only you see"></label>
             <div class="full">
               <span class="muted">Enabled modules</span>
               <div class="check-grid">
@@ -1174,10 +1266,10 @@ Event pings | bell | 1234567890</textarea></label>
         <div class="owner-tile"><span class="muted">Admin routes</span><strong>{{ admin_routes|length }}</strong></div>
       </div>
       <table class="table">
-        <thead><tr><th>Server</th><th>Server ID</th><th>Map</th><th>Channels</th><th>Access</th></tr></thead>
+        <thead><tr><th>Server</th><th>Server ID</th><th>Map</th><th>Channels</th><th>Plan</th><th>Access</th></tr></thead>
         <tbody>
           {% for server in servers %}
-          <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</td></tr>
+          <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ server.dashboard_access.plan_status }}</td><td>{{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -1287,13 +1379,89 @@ Event pings | bell | 1234567890</textarea></label>
       });
     });
     document.querySelectorAll("[data-zone-map]").forEach((map) => {
+      const form = map.closest("form");
+      if (!form) return;
+      const size = Number(map.dataset.mapSize || 15360);
+      const boundaryPoints = [];
+      const radiusInput = form.querySelector("[data-zone-radius]");
+      const radiusSlider = form.querySelector("[data-zone-radius-slider]");
+      const shapeSelect = form.querySelector("[data-zone-shape]");
+      const radiusLabel = form.querySelector("[data-zone-radius-label]");
+      const shapeLabel = form.querySelector("[data-zone-shape-label]");
+      const boundaryCount = form.querySelector("[data-boundary-count]");
+      const boundaryField = form.querySelector("[data-boundary-points]");
+      const boundaryLayer = form.querySelector("[data-boundary-layer]");
+
+      function syncRadius(value) {
+        const radius = Math.max(10, Number(value || 250));
+        if (radiusInput) radiusInput.value = radius;
+        if (radiusSlider) radiusSlider.value = Math.min(Number(radiusSlider.max || radius), radius);
+        if (radiusLabel) radiusLabel.textContent = `${radius}m`;
+        renderCirclePreview();
+      }
+
+      function renderCirclePreview() {
+        let cursor = map.querySelector(".zone-cursor");
+        if (!cursor || !radiusInput) return;
+        let circle = map.querySelector(".zone-preview-circle");
+        if (!circle) {
+          circle = document.createElement("span");
+          circle.className = "zone-preview-circle";
+          map.appendChild(circle);
+        }
+        const radius = Math.max(10, Number(radiusInput.value || 250));
+        const width = (radius * 2 / size) * map.clientWidth;
+        circle.style.width = `${Math.max(12, width)}px`;
+        circle.style.height = `${Math.max(12, width)}px`;
+        circle.style.left = cursor.style.left;
+        circle.style.top = cursor.style.top;
+        circle.style.display = shapeSelect && shapeSelect.value === "boundary" ? "none" : "";
+      }
+
+      function renderBoundary() {
+        map.querySelectorAll(".zone-boundary-point").forEach((point) => point.remove());
+        if (boundaryField) boundaryField.value = JSON.stringify(boundaryPoints);
+        if (boundaryCount) boundaryCount.textContent = boundaryPoints.length;
+        if (!boundaryLayer) return;
+        boundaryLayer.innerHTML = "";
+        const percentPoints = boundaryPoints.map((point) => `${point.xPercent.toFixed(2)},${point.yPercent.toFixed(2)}`).join(" ");
+        if (boundaryPoints.length > 1) {
+          const node = document.createElementNS("http://www.w3.org/2000/svg", boundaryPoints.length > 2 ? "polygon" : "polyline");
+          node.setAttribute("points", percentPoints);
+          boundaryLayer.appendChild(node);
+        }
+        boundaryPoints.forEach((point) => {
+          const marker = document.createElement("span");
+          marker.className = "zone-boundary-point";
+          marker.style.left = `${point.xPercent}%`;
+          marker.style.top = `${point.yPercent}%`;
+          map.appendChild(marker);
+        });
+      }
+
+      if (radiusInput) radiusInput.addEventListener("input", () => syncRadius(radiusInput.value));
+      if (radiusSlider) radiusSlider.addEventListener("input", () => syncRadius(radiusSlider.value));
+      if (shapeSelect) {
+        shapeSelect.addEventListener("change", () => {
+          if (shapeLabel) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
+          renderCirclePreview();
+          renderBoundary();
+        });
+      }
+      form.querySelector("[data-clear-boundary]")?.addEventListener("click", () => {
+        boundaryPoints.length = 0;
+        renderBoundary();
+      });
+      form.querySelector("[data-undo-boundary]")?.addEventListener("click", () => {
+        boundaryPoints.pop();
+        renderBoundary();
+      });
       map.addEventListener("click", (event) => {
-        const form = map.closest("form");
-        if (!form) return;
-        const size = Number(map.dataset.mapSize || 15360);
         const rect = map.getBoundingClientRect();
-        const x = Math.round(((event.clientX - rect.left) / rect.width) * size);
-        const y = Math.round((1 - ((event.clientY - rect.top) / rect.height)) * size);
+        const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+        const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+        const x = Math.round((xPercent / 100) * size);
+        const y = Math.round((1 - (yPercent / 100)) * size);
         form.elements.x.value = Math.max(0, Math.min(size, x));
         form.elements.y.value = Math.max(0, Math.min(size, y));
         let cursor = map.querySelector(".zone-cursor");
@@ -1302,10 +1470,28 @@ Event pings | bell | 1234567890</textarea></label>
           cursor.className = "zone-cursor";
           map.appendChild(cursor);
         }
-        cursor.style.left = `${((event.clientX - rect.left) / rect.width) * 100}%`;
-        cursor.style.top = `${((event.clientY - rect.top) / rect.height) * 100}%`;
+        cursor.style.left = `${xPercent}%`;
+        cursor.style.top = `${yPercent}%`;
+        if (shapeSelect && shapeSelect.value === "boundary") {
+          boundaryPoints.push({x: form.elements.x.value, y: form.elements.y.value, xPercent, yPercent});
+          renderBoundary();
+        }
+        renderCirclePreview();
         const readout = form.querySelector("[data-map-readout]");
-        if (readout) readout.textContent = `Selected X ${form.elements.x.value}, Y ${form.elements.y.value}`;
+        if (readout) {
+          const mode = shapeSelect && shapeSelect.value === "boundary" ? `Boundary point ${boundaryPoints.length}` : `Circle radius ${radiusInput ? radiusInput.value : 250}m`;
+          readout.textContent = `Selected X ${form.elements.x.value}, Y ${form.elements.y.value} - ${mode}`;
+        }
+      });
+      syncRadius(radiusInput ? radiusInput.value : 250);
+    });
+    document.querySelectorAll("[data-plan-notice]").forEach((notice) => {
+      const today = new Date().toISOString().slice(0, 10);
+      const key = `wanderingPlanNotice:${notice.dataset.planKey}:${today}`;
+      if (localStorage.getItem(key)) notice.style.display = "none";
+      notice.querySelector("[data-dismiss-plan-notice]")?.addEventListener("click", () => {
+        localStorage.setItem(key, "1");
+        notice.style.display = "none";
       });
     });
     const savedTheme = localStorage.getItem("wanderingDashboardTheme") || "default";
@@ -1507,10 +1693,22 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def safe_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
 def csv_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def local_dashboard_time() -> str:
+    return datetime.now(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def public_channels(channels: Any) -> list[dict[str, str]]:
@@ -1714,9 +1912,17 @@ def leaderboard_categories(players: list[dict[str, Any]], swear_jar: Any, longsh
 def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
     access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
     features = access.get("features") if isinstance(access.get("features"), dict) else {}
+    plan_status = str(access.get("plan_status") or access.get("tier") or "none").lower()
+    if plan_status not in {"trial", "subscription", "lifetime", "suspended", "none"}:
+        plan_status = "none"
     return {
         "enabled": bool(access.get("enabled", False)),
         "tier": str(access.get("tier") or "none"),
+        "plan_status": plan_status,
+        "trial_ends_at": str(access.get("trial_ends_at") or ""),
+        "subscription_ends_at": str(access.get("subscription_ends_at") or ""),
+        "trial_notice_enabled": safe_bool(access.get("trial_notice_enabled"), True),
+        "owner_note": str(access.get("owner_note") or ""),
         "allowed_role_ids": [str(item) for item in access.get("allowed_role_ids", []) if item],
         "allowed_user_ids": [str(item) for item in access.get("allowed_user_ids", []) if item],
         "features": {
@@ -1824,6 +2030,21 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
         x = max(0, min(map_size, safe_int(zone.get("x") or zone.get("center_x") or zone.get("pos_x"))))
         y = max(0, min(map_size, safe_int(zone.get("y") or zone.get("center_y") or zone.get("pos_y"))))
         radius = max(25, safe_int(zone.get("radius") or zone.get("radius_m") or 250))
+        shape = str(zone.get("shape") or ("boundary" if zone.get("boundary_points") else "circle")).lower()
+        if shape not in {"circle", "boundary"}:
+            shape = "circle"
+        raw_points = zone.get("boundary_points") if isinstance(zone.get("boundary_points"), list) else []
+        boundary_points = []
+        for point in raw_points:
+            if not isinstance(point, dict):
+                continue
+            point_x = max(0, min(map_size, safe_int(point.get("x"))))
+            point_y = max(0, min(map_size, safe_int(point.get("y"))))
+            boundary_points.append({"x": point_x, "y": point_y})
+        points_percent = " ".join(
+            f"{round((point['x'] / map_size) * 100, 2)},{round(100 - ((point['y'] / map_size) * 100), 2)}"
+            for point in boundary_points
+        )
         zone_type = str(zone.get("zone_type") or zone.get("type") or "radar").lower()
         if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
             zone_type = "custom"
@@ -1840,6 +2061,9 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
                 "x": x,
                 "y": y,
                 "radius": radius,
+                "shape": shape,
+                "boundary_points": boundary_points,
+                "points_percent": points_percent,
                 "channel_key": str(zone.get("channel_key") or ""),
                 "alert_channel_id": str(zone.get("alert_channel_id") or ""),
                 "report_channel_id": str(zone.get("report_channel_id") or ""),
@@ -2044,7 +2268,7 @@ def load_dashboard_state() -> dict[str, Any]:
         "delivery_queue": redact(delivery_queue),
         "dashboard_admin": redact(dashboard_admin),
         "owner_notifications": owner_notifications(servers, delivery_queue, dashboard_admin),
-        "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "generated_at": local_dashboard_time(),
     }
 
 
@@ -2176,7 +2400,7 @@ def normalize_embed_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "type": str(payload.get("schedule_type") or "manual"),
         "time": str(payload.get("schedule_time") or ""),
         "interval_minutes": safe_int(payload.get("interval_minutes"), 0),
-        "timezone": str(payload.get("timezone") or "Europe/London"),
+        "timezone": str(payload.get("timezone") or "Europe/Dublin"),
         "event_filter": str(payload.get("event_filter") or ""),
         "event_minimum": safe_int(payload.get("event_minimum"), 0),
     }
@@ -2449,6 +2673,28 @@ def api_zone():
     x = max(0, min(map_size, safe_int(payload.get("x"))))
     y = max(0, min(map_size, safe_int(payload.get("y"))))
     radius = max(1, safe_int(payload.get("radius"), 250))
+    shape = str(payload.get("shape") or "circle").strip().lower()
+    if shape not in {"circle", "boundary"}:
+        return jsonify({"ok": False, "error": "shape must be circle or boundary"}), 400
+    raw_boundary_points = payload.get("boundary_points", [])
+    if isinstance(raw_boundary_points, str):
+        try:
+            raw_boundary_points = json.loads(raw_boundary_points)
+        except json.JSONDecodeError:
+            raw_boundary_points = []
+    boundary_points = []
+    if isinstance(raw_boundary_points, list):
+        for point in raw_boundary_points:
+            if not isinstance(point, dict):
+                continue
+            boundary_points.append(
+                {
+                    "x": max(0, min(map_size, safe_int(point.get("x")))),
+                    "y": max(0, min(map_size, safe_int(point.get("y")))),
+                }
+            )
+    if shape == "boundary" and len(boundary_points) < 3:
+        return jsonify({"ok": False, "error": "draw at least 3 boundary points before saving"}), 400
     zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
     channel_key = str(payload.get("channel_key") or "")
@@ -2461,6 +2707,8 @@ def api_zone():
         "x": x,
         "y": y,
         "radius": radius,
+        "shape": shape,
+        "boundary_points": boundary_points,
         "channel_key": channel_key,
         "alert_channel_id": channel_id if zone_type == "radar" else None,
         "report_channel_id": channel_id if zone_type in {"safe", "pvp"} else None,
@@ -2473,7 +2721,7 @@ def api_zone():
         "ban_type": str(payload.get("ban_type") or "temp"),
         "ban_duration_minutes": max(1, safe_int(payload.get("ban_duration_minutes"), 1440)),
         "escalate_to_perm_after": max(1, safe_int(payload.get("escalate_to_perm_after"), 3)),
-        "enabled": bool(payload.get("enabled", True)),
+        "enabled": safe_bool(payload.get("enabled"), True),
         "updated_at": datetime.now(UTC).isoformat(),
     }
     if zone_type == "radar":
@@ -2482,7 +2730,6 @@ def api_zone():
         target = config.setdefault("radar_zones", [])
     elif zone_type in {"safe", "pvp"}:
         radar_record = dict(record)
-        radar_record["shape"] = "circle"
         if zone_type == "pvp" and radar_record["action"] == "none":
             radar_record["action"] = "ban"
         target = config.setdefault("safe_zones", [])
@@ -2712,8 +2959,16 @@ def api_guild_access():
     if not isinstance(access, dict):
         access = {}
         config["dashboard"] = access
-    access["enabled"] = bool(payload.get("enabled", access.get("enabled", True)))
+    access["enabled"] = safe_bool(payload.get("enabled"), safe_bool(access.get("enabled"), True))
     access["tier"] = str(payload.get("tier") or access.get("tier") or "owner")
+    plan_status = str(payload.get("plan_status") or access.get("plan_status") or access.get("tier") or "trial").strip().lower()
+    if plan_status not in {"trial", "subscription", "lifetime", "suspended", "none"}:
+        plan_status = "trial"
+    access["plan_status"] = plan_status
+    access["trial_ends_at"] = str(payload.get("trial_ends_at") or access.get("trial_ends_at") or "")
+    access["subscription_ends_at"] = str(payload.get("subscription_ends_at") or access.get("subscription_ends_at") or "")
+    access["trial_notice_enabled"] = safe_bool(payload.get("trial_notice_enabled"), safe_bool(access.get("trial_notice_enabled"), True))
+    access["owner_note"] = str(payload.get("owner_note") or access.get("owner_note") or "")
     role_ids = payload.get("allowed_role_ids", access.get("allowed_role_ids", []))
     user_ids = payload.get("allowed_user_ids", access.get("allowed_user_ids", []))
     if isinstance(role_ids, str):
