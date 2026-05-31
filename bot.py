@@ -16502,6 +16502,27 @@ def nitrado_restart_server_now(config):
         return False, f"Nitrado restart failed: {error}"
 
 
+def nitrado_gameserver_action(config, action):
+    action = str(action or "").strip().lower()
+    if action not in {"restart", "stop", "start"}:
+        return False, f"Unsupported Nitrado action `{action}`."
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    if not token or not service_id:
+        return False, "Missing nitrado_token / service_id."
+    try:
+        response = requests.post(
+            f"https://api.nitrado.net/services/{service_id}/gameservers/{action}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if response.status_code in (200, 201, 202, 204):
+            return True, f"Nitrado {action} requested ({response.status_code})."
+        return False, f"Nitrado {action} failed ({response.status_code}): {response.text[:240]}"
+    except Exception as error:
+        return False, f"Nitrado {action} failed: {error}"
+
+
 def build_messages_xml_from_config(config):
     root = ET.Element("messages")
     messages = config.get("onscreen_messages") or {}
@@ -17928,7 +17949,13 @@ async def scheduled_restart_loop():
                         if queued_reset:
                             print(f"SCHEDULED VEHICLE RESET QUEUED BEFORE RESTART {guild_id}: {queued_reset.get('id')}")
 
-                        if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or has_active_scenario_events(config):
+                        economy_results = await process_economy_vehicle_reset_events(guild_id, config)
+                        if economy_results:
+                            for ok, message in economy_results:
+                                print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
+                            continue
+
+                        if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or bridge_scenario_events(config):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
                                 guild_id,
@@ -22006,6 +22033,29 @@ def active_scenario_events(config):
     ]
 
 
+def is_economy_vehicle_reset_event(event):
+    return (
+        str(event.get("event_type") or "") == "vehicle_reset_all"
+        and str(event.get("reset_method") or "").lower() == "economy_xml"
+    )
+
+
+def bridge_scenario_events(config):
+    return [
+        event
+        for event in active_scenario_events(config)
+        if not is_economy_vehicle_reset_event(event)
+    ]
+
+
+def active_economy_vehicle_reset_events(config):
+    return [
+        event
+        for event in active_scenario_events(config)
+        if is_economy_vehicle_reset_event(event)
+    ]
+
+
 def has_active_scenario_events(config):
     return bool(active_scenario_events(config))
 
@@ -22202,7 +22252,7 @@ def remove_wandering_ce_nodes(root):
 
 
 def console_ce_needs_spawnabletypes(config):
-    for event in active_scenario_events(config):
+    for event in bridge_scenario_events(config):
         if event.get("event_type") == "airdrop" and event.get("loot"):
             return True
     return False
@@ -22429,7 +22479,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     records = []
     warnings = []
-    for event in active_scenario_events(config):
+    for event in bridge_scenario_events(config):
         event_records, event_warnings = console_ce_records_for_event(event)
         records.extend(event_records)
         warnings.extend(event_warnings)
@@ -22480,7 +22530,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             spawnabletypes_path
         )
         spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
-        changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, active_scenario_events(config))
+        changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
         output["spawnabletypes_path"] = resolved_spawnable_path
         output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
         output["messages"].append(spawnable_source)
@@ -22562,6 +22612,8 @@ def build_scenario_event_xml(event):
         return None
 
     if event_type == "vehicle_reset_all":
+        if str(event.get("reset_method") or "").lower() == "economy_xml":
+            return None
         excluded = event.get("exclude") or []
         if isinstance(excluded, str):
             excluded = [item.strip() for item in excluded.split(",") if item.strip()]
@@ -22695,6 +22747,10 @@ def mark_one_time_scenario_events_uploaded(config):
             kept.append(event)
             continue
 
+        if is_economy_vehicle_reset_event(event):
+            kept.append(event)
+            continue
+
         if event.get("permanent"):
             kept.append(event)
             continue
@@ -22712,6 +22768,30 @@ def mark_one_time_scenario_events_uploaded(config):
             event["remaining_restarts"] = remaining
             kept.append(event)
 
+    config["scenario_events"] = kept
+
+
+def mark_scenario_event_completed(config, event_id):
+    event_id = str(event_id)
+    events = scenario_events_for_config(config)
+    kept = []
+    for event in events:
+        if str(event.get("id")) != event_id:
+            kept.append(event)
+            continue
+        if event.get("permanent"):
+            event["status"] = "Completed one economy reset cycle; waiting for next scheduled run"
+            kept.append(event)
+            continue
+        try:
+            remaining = int(event.get("remaining_restarts", 1) or 1)
+        except Exception:
+            remaining = 1
+        remaining -= 1
+        if remaining > 0:
+            event["remaining_restarts"] = remaining
+            event["status"] = "Completed one economy reset cycle"
+            kept.append(event)
     config["scenario_events"] = kept
 
 
@@ -22743,6 +22823,199 @@ def known_vehicle_classes(limit=25):
         seen.add(key)
 
     return deduped[:limit]
+
+
+def economy_xml_path_candidates(guild_id, config):
+    configured = str(config.get("vehicle_reset_economy_path") or "").strip()
+    paths = [configured] if configured else []
+    roots = [
+        "/dayzxb/mpmissions",
+        "/dayzxb_missions",
+        "/dayzps/mpmissions",
+        "/dayzps_missions",
+        "/dayz/mpmissions",
+        "/dayz_missions",
+        "/mpmissions",
+    ]
+
+    for mission in map_mission_folder_names(server_map_key(guild_id)):
+        for root in roots:
+            paths.append(f"{root}/{mission}/db/economy.xml")
+
+    deduped = []
+    for path in paths:
+        path = str(path or "").replace("\\", "/").strip()
+        if path and path not in deduped:
+            deduped.append(path)
+    return deduped
+
+
+def download_economy_xml_for_vehicle_reset(guild_id, config):
+    messages = []
+    for path in economy_xml_path_candidates(guild_id, config):
+        ok, message, text = download_text_file_from_nitrado(config, path)
+        messages.append(f"{path}: {message}")
+        if ok and text:
+            config["vehicle_reset_economy_path"] = path
+            return True, path, message, text
+
+    return False, "", "Could not download economy.xml. Tried: " + " | ".join(messages[-6:]), ""
+
+
+def set_vehicle_economy_init(economy_xml_text, init_value):
+    try:
+        root = ET.fromstring(economy_xml_text)
+    except ET.ParseError as error:
+        return False, f"economy.xml parse failed: {error}", economy_xml_text
+
+    wanted = str(init_value)
+    changed = 0
+    matched = 0
+    for node in root.iter():
+        tag = str(node.tag or "").split("}", 1)[-1].lower()
+        if tag in {"vehicles", "vehicle"}:
+            matched += 1
+            if node.get("init") != wanted:
+                node.set("init", wanted)
+                changed += 1
+
+    if matched <= 0:
+        return False, "No vehicle economy init entries were found.", economy_xml_text
+    if changed <= 0:
+        return True, f"Vehicle economy init was already {wanted}.", economy_xml_text
+
+    return (
+        True,
+        f"Changed {changed} vehicle economy init entr{'y' if changed == 1 else 'ies'} to {wanted}.",
+        ET.tostring(root, encoding="unicode"),
+    )
+
+
+async def run_economy_vehicle_reset_workflow(guild_id, config, event):
+    workflow = config.setdefault("vehicle_reset_economy_workflow", {})
+    if workflow.get("running"):
+        return False, "Economy vehicle reset is already running for this guild."
+
+    event_id = str(event.get("id") or "")
+    workflow.update({
+        "running": True,
+        "event_id": event_id,
+        "started_at": datetime.now(UTC).isoformat(),
+        "stage": "download_economy_xml",
+    })
+    event["status"] = "Economy XML reset running: preparing economy.xml"
+    save_guild_configs()
+
+    path = ""
+    original_text = ""
+    restored = False
+
+    try:
+        ok, path, message, original_text = await asyncio.to_thread(
+            download_economy_xml_for_vehicle_reset,
+            guild_id,
+            config,
+        )
+        if not ok:
+            event["status"] = message
+            return False, message
+
+        ok, message, wipe_text = set_vehicle_economy_init(original_text, "0")
+        if not ok:
+            event["status"] = message
+            return False, message
+
+        workflow["stage"] = "upload_init_0"
+        event["status"] = message
+        save_guild_configs()
+        upload_ok, upload_message = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            path,
+            wipe_text,
+        )
+        if not upload_ok:
+            event["status"] = f"Failed to upload vehicle init 0 economy.xml: {upload_message}"
+            return False, event["status"]
+
+        workflow["stage"] = "restart_with_init_0"
+        event["status"] = "Vehicles init set to 0; restarting server for wipe cycle"
+        save_guild_configs()
+        restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+        if not restart_ok:
+            event["status"] = restart_message
+            return False, restart_message
+
+        await asyncio.sleep(max(30, int(config.get("vehicle_reset_wipe_wait_seconds", 120) or 120)))
+
+        workflow["stage"] = "stop_for_restore"
+        event["status"] = "Stopping server so vehicles init can be restored to 1"
+        save_guild_configs()
+        stop_ok, stop_message = await asyncio.to_thread(nitrado_gameserver_action, config, "stop")
+        if not stop_ok:
+            event["status"] = stop_message
+            return False, stop_message
+
+        await asyncio.sleep(max(10, int(config.get("vehicle_reset_restore_wait_seconds", 30) or 30)))
+
+        ok, message, restore_text = set_vehicle_economy_init(original_text, "1")
+        if not ok:
+            event["status"] = message
+            return False, message
+
+        workflow["stage"] = "upload_init_1"
+        event["status"] = message
+        save_guild_configs()
+        upload_ok, upload_message = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            path,
+            restore_text,
+        )
+        if not upload_ok:
+            event["status"] = f"Failed to restore vehicle init 1 economy.xml: {upload_message}"
+            return False, event["status"]
+        restored = True
+
+        workflow["stage"] = "start_with_init_1"
+        event["status"] = "Vehicles init restored to 1; starting server"
+        save_guild_configs()
+        start_ok, start_message = await asyncio.to_thread(nitrado_gameserver_action, config, "start")
+        if not start_ok:
+            event["status"] = start_message
+            return False, start_message
+
+        workflow["stage"] = "complete"
+        workflow["last_completed_at"] = datetime.now(UTC).isoformat()
+        workflow["last_path"] = path
+        event["status"] = "Economy XML vehicle reset complete"
+        mark_scenario_event_completed(config, event_id)
+        return True, "Economy XML vehicle reset complete."
+
+    finally:
+        if original_text and path and not restored:
+            try:
+                ok, _, restore_text = set_vehicle_economy_init(original_text, "1")
+                if ok:
+                    await asyncio.to_thread(upload_text_file_to_nitrado, config, path, restore_text)
+                    workflow["restore_attempted_at"] = datetime.now(UTC).isoformat()
+            except Exception as restore_error:
+                workflow["restore_error"] = str(restore_error)
+                print(f"ECONOMY VEHICLE RESET RESTORE FAILED {guild_id}: {restore_error}")
+
+        workflow["running"] = False
+        workflow["finished_at"] = datetime.now(UTC).isoformat()
+        save_guild_configs()
+
+
+async def process_economy_vehicle_reset_events(guild_id, config):
+    processed = []
+    for event in list(active_economy_vehicle_reset_events(config)):
+        ok, message = await run_economy_vehicle_reset_workflow(guild_id, config, event)
+        processed.append((ok, message))
+        if not ok:
+            break
+    return processed
 
 
 def queue_all_vehicle_reset(guild_id, config, requested_by):
@@ -23219,7 +23492,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     output = {
         "items": queue_entries_for_guild(delivery_queue, guild_id),
         "vehicles": queue_entries_for_guild(vehicle_rentals_queue, guild_id),
-        "scenario_events": [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config),
+        "scenario_events": [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config),
         "generated": str(generated_at)
     }
 
@@ -23232,8 +23505,8 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     )
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
-        bridge_scenario_events = [] if console_ce_event_config(config).get("enabled") else active_scenario_events(config)
-        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], bridge_scenario_events))
+        xml_scenario_events = [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config)
+        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], xml_scenario_events))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
@@ -23535,6 +23808,11 @@ async def restart_delivery_processor():
             if queued_reset:
                 print(f"SCHEDULED VEHICLE RESET QUEUED {guild_id}: {queued_reset.get('id')}")
 
+            economy_results = await process_economy_vehicle_reset_events(guild_id, config)
+            if economy_results:
+                for ok, message in economy_results:
+                    print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
+
             restart_interval = config.get(
                 "restart_interval_hours",
                 DEFAULT_RESTART_INTERVAL_HOURS
@@ -23552,7 +23830,8 @@ async def restart_delivery_processor():
                 now.hour >= restart_offset
                 and ((now.hour - restart_offset) % restart_interval == 0)
             ):
-                if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or (has_active_scenario_events(config) and not console_ce_event_config(config).get("enabled")):
+                normal_scenario_events = bridge_scenario_events(config)
+                if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or (normal_scenario_events and not console_ce_event_config(config).get("enabled")):
                     await asyncio.to_thread(
                         write_and_upload_delivery_xml,
                         guild_id,
@@ -23560,7 +23839,7 @@ async def restart_delivery_processor():
                         now
                     )
 
-                if has_active_scenario_events(config) and console_ce_event_config(config).get("enabled"):
+                if normal_scenario_events and console_ce_event_config(config).get("enabled"):
                     success, _, messages = await asyncio.to_thread(
                         upload_console_ce_event_files,
                         guild_id,
@@ -27785,10 +28064,11 @@ async def event_exportxml(interaction: discord.Interaction):
         return
 
     config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    guild_id = str(interaction.guild.id)
     xml_text = build_delivery_xml(
-        delivery_queue,
-        vehicle_rentals_queue,
-        active_scenario_events(config)
+        queue_entries_for_guild(delivery_queue, guild_id),
+        queue_entries_for_guild(vehicle_rentals_queue, guild_id),
+        bridge_scenario_events(config)
     )
     file = discord.File(
         io.BytesIO(xml_text.encode("utf-8")),
