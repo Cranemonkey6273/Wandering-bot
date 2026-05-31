@@ -78,6 +78,7 @@ DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS",
 ADMIN_TOKEN = os.getenv("WANDERING_DASHBOARD_ADMIN_TOKEN", "")
 OWNER_DASHBOARD_ID = os.getenv("WANDERING_OWNER_DASHBOARD_ID", "owner").strip().lower()
 OWNER_DASHBOARD_PASSWORD = os.getenv("WANDERING_OWNER_DASHBOARD_PASSWORD", "")
+OWNER_ADMIN_GUILD_IDS = os.getenv("WANDERING_OWNER_ADMIN_GUILD_IDS", "")
 DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
@@ -499,7 +500,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Server Switcher</h2>
-          <p class="tool-note">Linked servers stay in one dashboard. Pick a server, then every category below uses that server's data and locked server identity.</p>
+          <p class="tool-note">{% if auth.kind == "owner" and mode == "owner" %}Owner view only: every server the bot knows about is visible here.{% else %}Admin view is scoped to the private dashboard login and linked servers only. Pick a server, then every category below uses that server's data and locked server identity.{% endif %}</p>
         </div>
       </div>
       <div class="server-tabs">
@@ -525,7 +526,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
-      {% if auth.kind == "owner" %}<a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>{% endif %}
+      {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
     </section>
 
     {% if active_section == "overview" %}
@@ -541,7 +542,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
-      {% if auth.kind == "owner" %}<a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>{% endif %}
+      {% if auth.kind == "owner" and mode == "owner" %}<a class="category-link" href="/owner?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>{% endif %}
     </section>
     {% endif %}
 
@@ -608,8 +609,21 @@ PAGE_TEMPLATE = """
                 <td>{{ owned.guild_name }}</td>
                 <td>{{ owned.map|upper }}</td>
                 <td>{{ 'enabled' if owned.dashboard_access.enabled else 'locked' }} · {{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</td>
-                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Open</a></td>
+                <td><a class="button" href="/owner?guild_id={{ owned.guild_id }}">Owner Open</a></td>
                 <td><div class="owner-server-actions">
+                  {% if owned.dashboard_access.owner_admin_visible %}
+                  <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="action" value="hide_from_owner_admin">
+                    <button type="submit">Hide From My Admin</button> <span class="result muted"></span>
+                  </form>
+                  {% else %}
+                  <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="action" value="show_in_owner_admin">
+                    <button type="submit">Show In My Admin</button> <span class="result muted"></span>
+                  </form>
+                  {% endif %}
                   {% if not owned.dashboard_access.enabled %}
                   <form class="admin-form inline-action" data-route="/api/admin/guild-access">
                     <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
@@ -839,6 +853,14 @@ Event pings | bell | 1234567890</textarea></label>
       </div>
     </section>
 
+    {% endif %}
+
+    {% if mode == "admin" and auth.kind == "owner" and not servers %}
+    <section class="section-panel">
+      <h2>No Owner Admin Servers Selected</h2>
+      <p class="tool-note">Your owner login can still see and manage every guild from the Owner section. Mark your own servers as “Show In My Admin” there before using the Admin section.</p>
+      <a class="button" href="/owner">Open Owner Section</a>
+    </section>
     {% endif %}
 
     {% if mode in ["admin", "owner"] and active_section == "factions" %}
@@ -1652,6 +1674,7 @@ Event pings | bell | 1234567890</textarea></label>
         data.forEach((value, key) => {
           if (value !== "") payload[key] = formValue(value);
         });
+        payload.dashboard_mode = "{{ mode }}";
         const featureBoxes = form.querySelectorAll('input[name^="feature_"]');
         if (featureBoxes.length) {
           payload.features = {};
@@ -2083,10 +2106,30 @@ def linked_guild_ids_for_config(config: dict[str, Any], primary_guild_id: str) -
     return guild_ids
 
 
+def owner_admin_guild_ids(guild_configs: dict[str, Any] | None = None) -> list[str]:
+    guild_ids = []
+    for item in csv_list(OWNER_ADMIN_GUILD_IDS):
+        if item not in guild_ids:
+            guild_ids.append(item)
+    if not isinstance(guild_configs, dict):
+        guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return guild_ids
+    for guild_id, config in guild_configs.items():
+        if not isinstance(config, dict):
+            continue
+        dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+        if safe_bool(dashboard.get("owner_admin_visible"), False):
+            guild_id = str(guild_id)
+            if guild_id not in guild_ids:
+                guild_ids.append(guild_id)
+    return guild_ids
+
+
 def current_auth() -> dict[str, Any] | None:
     provided = request.headers.get("X-Dashboard-Token") or request.args.get("token") or ""
     if ADMIN_TOKEN and secrets.compare_digest(provided, ADMIN_TOKEN):
-        return {"kind": "owner", "guild_id": None, "label": "all servers"}
+        return {"kind": "owner", "guild_id": None, "guild_ids": owner_admin_guild_ids(), "label": "all servers"}
 
     cookie = request.cookies.get("dashboard_session", "")
     if ":" not in cookie:
@@ -2094,7 +2137,7 @@ def current_auth() -> dict[str, Any] | None:
     guild_id, signature = cookie.split(":", 1)
     if guild_id == "owner" and OWNER_DASHBOARD_PASSWORD:
         if secrets.compare_digest(signature, owner_session_signature()):
-            return {"kind": "owner", "guild_id": None, "label": "all servers"}
+            return {"kind": "owner", "guild_id": None, "guild_ids": owner_admin_guild_ids(guild_configs), "label": "all servers"}
         return None
     guild_configs = load_store("guild_configs", {})
     config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
@@ -2135,6 +2178,16 @@ def scoped_payload_for_auth(payload: dict[str, Any], auth: dict[str, Any]) -> di
         allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth["guild_id"]])]
         requested_guild_id = str(payload.get("guild_id") or auth["guild_id"])
         payload["guild_id"] = requested_guild_id if requested_guild_id in allowed_guild_ids else auth["guild_id"]
+    elif auth["kind"] == "owner" and request.path.startswith("/api/admin/"):
+        payload = dict(payload)
+        if str(payload.get("dashboard_mode") or "").lower() == "owner":
+            return payload
+        allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [])]
+        requested_guild_id = str(payload.get("guild_id") or "")
+        if not allowed_guild_ids or requested_guild_id not in allowed_guild_ids:
+            payload["_scope_denied"] = True
+        else:
+            payload["guild_id"] = requested_guild_id
     return payload
 
 
@@ -2149,7 +2202,10 @@ def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
     auth = current_auth()
     if not auth:
         return None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
-    return scoped_payload_for_auth(request_payload(), auth), None
+    payload = scoped_payload_for_auth(request_payload(), auth)
+    if payload.get("_scope_denied"):
+        return None, (jsonify({"ok": False, "error": "server is not in this admin scope"}), 403)
+    return payload, None
 
 
 def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
@@ -2589,6 +2645,7 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
         "subscription_ends_at": str(access.get("subscription_ends_at") or ""),
         "trial_notice_enabled": safe_bool(access.get("trial_notice_enabled"), True),
         "owner_note": str(access.get("owner_note") or ""),
+        "owner_admin_visible": safe_bool(access.get("owner_admin_visible"), False),
         "allowed_role_ids": [str(item) for item in access.get("allowed_role_ids", []) if item],
         "allowed_user_ids": [str(item) for item in access.get("allowed_user_ids", []) if item],
         "features": {
@@ -3044,10 +3101,10 @@ def load_dashboard_state() -> dict[str, Any]:
     }
 
 
-def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
-    if auth["kind"] == "owner":
+def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str = "admin") -> dict[str, Any]:
+    if auth["kind"] == "owner" and mode == "owner":
         return state
-    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth["guild_id"]])]
+    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth.get("guild_id")]) if item]
     servers = [server for server in state["servers"] if str(server.get("guild_id")) in allowed_guild_ids]
     summary = dict(state["summary"])
     if servers:
@@ -3077,15 +3134,17 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[s
 
 def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
-    state = filter_state_for_auth(state, auth)
+    state = filter_state_for_auth(state, auth, mode)
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
+    if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
+        active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
-    if focused_guild_id and mode in {"admin", "overview"}:
+    if focused_guild_id and mode in {"admin", "overview", "owner"}:
         state = dict(state)
         focused = [server for server in state["servers"] if str(server.get("guild_id")) == focused_guild_id]
         others = [server for server in state["servers"] if str(server.get("guild_id")) != focused_guild_id]
@@ -3949,7 +4008,7 @@ def api_owner_guild_action():
     action = str(payload.get("action") or "leave").strip().lower()
     if not guild_id:
         return jsonify({"ok": False, "error": "guild_id is required"}), 400
-    if action not in {"leave", "leave_and_remove"}:
+    if action not in {"leave", "leave_and_remove", "show_in_owner_admin", "hide_from_owner_admin"}:
         return jsonify({"ok": False, "error": "unsupported owner guild action"}), 400
 
     guild_configs = load_store("guild_configs", {})
@@ -3958,6 +4017,17 @@ def api_owner_guild_action():
     config = guild_configs.get(guild_id)
     if not isinstance(config, dict):
         config = {"guild_name": f"Guild {guild_id}", "channels": {}}
+
+    if action in {"show_in_owner_admin", "hide_from_owner_admin"}:
+        dashboard = config.setdefault("dashboard", {})
+        if not isinstance(dashboard, dict):
+            dashboard = {}
+            config["dashboard"] = dashboard
+        dashboard["owner_admin_visible"] = action == "show_in_owner_admin"
+        dashboard["owner_admin_visible_updated_at"] = datetime.now(UTC).isoformat()
+        guild_configs[guild_id] = config
+        save_store("guild_configs", guild_configs)
+        return jsonify({"ok": True, "guild_id": guild_id, "owner_admin_visible": dashboard["owner_admin_visible"]})
 
     left, message = discord_bot_leave_guild(guild_id)
     if not left:
