@@ -276,6 +276,7 @@ PAGE_TEMPLATE = """
 </head>
 <body>
   {% set server = servers[0] if servers else none %}
+  {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   <header>
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
@@ -331,25 +332,33 @@ PAGE_TEMPLATE = """
     {% endif %}
 
     <section class="section-nav" aria-label="Dashboard sections">
-      {% if servers|length > 1 %}<a class="tab-link" href="#servers">Servers</a>{% endif %}
-      <a class="tab-link" href="#leaderboards">Leaderboards</a>
-      <a class="tab-link" href="#automations">Auto Messages</a>
-      <a class="tab-link" href="#factions-radar">Factions & Radar</a>
-      <a class="tab-link" href="#heatmaps">Heatmaps</a>
-      <a class="tab-link" href="#pve-workshop">PVE & Workshop</a>
-      <a class="tab-link" href="#economy">Economy</a>
-      <a class="tab-link" href="#shop-control">Shop Control</a>
-      {% if auth.kind == "owner" %}<a class="tab-link" href="#owner-control">Owner Control</a>{% endif %}
-      <a class="tab-link" href="#access">Access</a>
+      <a class="tab-link" href="/admin?section=overview{{ server_qs }}">Overview</a>
+      {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
+      <a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>
+      <a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>
+      <a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>
+      <a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>
+      <a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>
+      <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
+      <a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>
+      {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
+      <a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>
     </section>
 
+    {% if active_section == "overview" %}
     <section class="category-grid" aria-label="Main categories">
-      <a class="category-link" href="#leaderboards"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
-      <a class="category-link" href="#automations"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
-      <a class="category-link" href="#factions-radar"><strong>Factions</strong><span>Faction setup, members and radar routing.</span></a>
-      <a class="category-link" href="#economy"><strong>Economy</strong><span>Shop, wages, wallets, rewards and punishments.</span></a>
+      <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
+      <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
+      <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, members and radar routing.</span></a>
+      <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
+      <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
+      <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
+      <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
+      <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>
     </section>
+    {% endif %}
 
+    {% if active_section == "leaderboards" %}
     <section class="section-panel" id="leaderboards">
       <div class="discord-board">
         <h2>{{ server.guild_name if server else 'Server' }} — Server Leaderboard</h2>
@@ -375,8 +384,9 @@ PAGE_TEMPLATE = """
         </div>
       </div>
     </section>
+    {% endif %}
 
-    {% if mode == "owner" %}
+    {% if mode == "owner" and active_section in ["owner", "overview"] %}
     <section class="section-panel" id="owner-control">
       <div class="section-head">
         <div>
@@ -421,7 +431,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] %}
+    {% if mode in ["admin", "owner"] and active_section == "automations" %}
     <section class="section-panel" id="automations">
       <div class="section-head">
         <div>
@@ -513,6 +523,9 @@ Event pings | bell | 1234567890</textarea></label>
       </div>
     </section>
 
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "factions" %}
     <section class="section-panel" id="factions-radar">
       <div class="section-head">
         <div>
@@ -567,7 +580,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
       </div>
     </section>
+    {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "heatmaps" %}
     <section class="section-panel" id="heatmaps">
       <div class="section-head">
         <div>
@@ -596,7 +611,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% endfor %}
       </div>
     </section>
+    {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "pve" %}
     <section class="section-panel" id="pve-workshop">
       <div class="section-head">
         <div>
@@ -630,37 +647,17 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
       </div>
     </section>
+    {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "economy" %}
     <section class="section-panel" id="economy">
       <div class="section-head">
         <div>
           <h2>Economy</h2>
-          <p class="tool-note">Control shop items, player wallet adjustments, and recurring wages without touching raw JSON.</p>
+          <p class="tool-note">Control wallets, recurring wages, and reward or punishment rules without touching raw JSON.</p>
         </div>
       </div>
       <div class="panel-grid">
-        <article class="admin-panel">
-          <h3>Shop Item</h3>
-          <form class="admin-form" data-route="/api/admin/shop-item">
-            <label>Item name <input name="item_name" value="NailsBox"></label>
-            <label>Price <input name="price" type="number" value="100"></label>
-            <label>Category
-              <select name="category">
-                <option value="Building">Building</option>
-                <option value="Weapons">Weapons</option>
-                <option value="Medical">Medical</option>
-                <option value="Vehicles">Vehicles</option>
-                <option value="Food">Food</option>
-                <option value="Tools">Tools</option>
-              </select>
-            </label>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
-            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
-            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
-            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
-          </form>
-        </article>
         <article class="admin-panel">
           <h3>Wage</h3>
           <form class="admin-form" data-route="/api/admin/wage">
@@ -719,7 +716,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
       </div>
     </section>
+    {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "shop" %}
     <section class="section-panel" id="shop-control">
       <div class="section-head">
         <div>
@@ -728,6 +727,29 @@ Event pings | bell | 1234567890</textarea></label>
         </div>
       </div>
       <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Edit Shop Item</h3>
+          <form class="admin-form" data-route="/api/admin/shop-item">
+            <label>Item name <input name="item_name" value="NailsBox"></label>
+            <label>Price <input name="price" type="number" value="100"></label>
+            <label>Category
+              <select name="category">
+                <option value="Building">Building</option>
+                <option value="Weapons">Weapons</option>
+                <option value="Medical">Medical</option>
+                <option value="Food">Food</option>
+                <option value="Tools">Tools</option>
+                <option value="Clothing">Clothing</option>
+                <option value="General">General</option>
+              </select>
+            </label>
+            <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
+            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
+            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
+            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
+          </form>
+        </article>
         {% for category, items in shop_categories.items() %}
         <article class="admin-panel">
           <h3>{{ category }}</h3>
@@ -745,7 +767,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% endfor %}
       </div>
     </section>
+    {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "access" %}
     <section class="section-panel" id="access">
       <div class="section-head">
         <div>
@@ -795,7 +819,7 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
-    {% if mode == "owner" %}
+    {% if mode == "owner" and active_section == "overview" %}
     <section class="wide card">
       <h2>Owner Console</h2>
       <div class="owner-grid">
@@ -818,6 +842,7 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
+    {% if active_section == "overview" %}
     <section class="grid">
       <article class="card"><h3>Economy</h3><p class="muted">{{ summary.wallets }} wallets, {{ summary.delivery_queue }} queued deliveries and {{ summary.wages }} active wages.</p></article>
       <article class="card"><h3>Automations</h3><p class="muted">{{ summary.embed_templates }} message templates, {{ summary.welcome_automations }} welcomes and {{ summary.reaction_role_panels }} role panels.</p></article>
@@ -849,6 +874,7 @@ Event pings | bell | 1234567890</textarea></label>
       <article class="card"><h2>No guilds configured</h2><p class="muted">Run the Discord setup flow, then refresh this dashboard.</p></article>
       {% endfor %}
     </section>
+    {% endif %}
   </main>
   <script>
     function formValue(value) {
@@ -1569,6 +1595,10 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[s
 def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
+    active_section = str(request.args.get("section") or "overview").strip().lower()
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "heatmaps", "pve", "economy", "shop", "access", "owner"}
+    if active_section not in valid_sections:
+        active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
     if focused_guild_id and mode in {"admin", "overview"}:
         state = dict(state)
@@ -1579,6 +1609,7 @@ def page(mode: str, auth: dict[str, Any]):
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
+        active_section=active_section,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
         auth=auth,
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
