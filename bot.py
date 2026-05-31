@@ -828,6 +828,57 @@ def split_adm_coords(coords):
     return x, z, y
 
 
+def nearest_named_location_for_coords(guild_id, x, z):
+    try:
+        x_value = float(str(x).replace(",", ""))
+        z_value = float(str(z).replace(",", ""))
+    except Exception:
+        return ""
+
+    try:
+        presets = scenario_location_presets_for_map(server_map_key(guild_id))
+    except Exception:
+        return ""
+
+    best_name = ""
+    best_distance = None
+    for key, location in presets.items():
+        if key == "custom" or not isinstance(location, dict):
+            continue
+        loc_x = location.get("x")
+        loc_z = location.get("z")
+        if loc_x is None or loc_z is None:
+            continue
+        distance = ((float(loc_x) - x_value) ** 2 + (float(loc_z) - z_value) ** 2) ** 0.5
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_name = str(location.get("name") or key)
+    if best_name and best_distance is not None:
+        return f"{best_name} area ({int(best_distance)}m away)"
+    return ""
+
+
+def extract_flag_base_name(line, guild_id, x=None, z=None):
+    patterns = [
+        r'flag of (?:base )?"([^"]+)"',
+        r'(?:territory\s*)?flag (?:at|in|inside|for) "([^"]+)"',
+        r'base "([^"]+)"',
+        r'territory "([^"]+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+    nearest = nearest_named_location_for_coords(guild_id, x, z) if x and z else ""
+    return nearest or "Unregistered flag"
+
+
+def extract_flag_class_name(line):
+    match = re.search(r"\b(TerritoryFlag[A-Za-z0-9_]*)\b", line)
+    return match.group(1) if match else "TerritoryFlag"
+
+
 def extract_placed_object(line):
     match = re.search(r"\bplaced\s+([^<]+)", line, re.IGNORECASE)
     if match:
@@ -1696,12 +1747,9 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         return
 
     if event_type in ["flag_raise", "flag_lower"]:
-        # Parse base name from common ADM flag log shapes:
-        #   ... raised the flag of base "Bob's Camp" at <pos>
-        #   ... lowered the flag of base "Cobalt Outpost"
-        base_match = re.search(r'flag of (?:base )?"([^"]+)"', line, re.IGNORECASE)
-        base_name = base_match.group(1) if base_match else "Unknown Base"
         x, z, _ = split_adm_coords(coords)
+        base_name = extract_flag_base_name(line, guild_id, x, z)
+        flag_class = extract_flag_class_name(line)
 
         if event_type == "flag_raise":
             description = (
@@ -1717,6 +1765,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
             )
 
         embed = discord.Embed(title=title, description=description, color=color)
+        embed.add_field(name="Flag", value=flag_class, inline=True)
         embed.add_field(name="🏴 Base", value=base_name, inline=True)
         embed.add_field(name="👤 Player", value=player, inline=True)
         embed.add_field(name="🎯 Action", value="Raised" if event_type == "flag_raise" else "Lowered", inline=True)
@@ -21700,6 +21749,7 @@ SCENARIO_SPAWN_PRESETS = {
 SCENARIO_LOOT_PRESETS = {
     "none": [],
     "military": ["M4A1", "Mag_STANAG_30Rnd", "Ammo_556x45", "BandageDressing", "Canteen"],
+    "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "military_high": [
         "M4A1", "AKM", "SVD", "PlateCarrierVest", "BallisticHelmet_Green",
         "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
@@ -27287,6 +27337,8 @@ async def event_vehiclereset(
             "count": 1,
             "radius": reset_radius,
             "exclude": excluded,
+            "reset_method": "economy_xml",
+            "status": "Accepted / waiting for economy.xml wipe cycle",
             **restart_count_fields(restarts),
             "enabled": True,
             "created_by": str(interaction.user.id),
@@ -27316,6 +27368,8 @@ async def event_vehiclereset(
             "map": map_key,
             "count": 1,
             "radius": reset_radius,
+            "reset_method": "bridge",
+            "status": "Accepted / waiting for bridge reset",
             **restart_count_fields(restarts),
             "enabled": True,
             "created_by": str(interaction.user.id),
@@ -27327,7 +27381,10 @@ async def event_vehiclereset(
 
     embed = discord.Embed(
         title="VEHICLE RESET EVENT CREATED",
-        description="This reset remains a bridge-only action. Native console XML can spawn vehicles, but cannot delete existing ones on command.",
+        description=(
+            "All-vehicle resets use the economy.xml vehicle-init workflow. "
+            "Point resets remain bridge-only because they delete vehicles near a coordinate."
+        ),
         color=0xF1C40F
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)

@@ -31,6 +31,31 @@ MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
 }
+SCENARIO_SPAWN_PRESETS = {
+    "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack", "count": 3, "radius": 90},
+    "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack", "count": 6, "radius": 120},
+    "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack", "count": 5, "radius": 120},
+    "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack", "count": 4, "radius": 80},
+    "civilian_zombie": {"label": "Civilian infected", "class": "ZmbM_CitizenASkinny_Brown", "event_type": "zombie_horde", "count": 10, "radius": 55},
+    "military_zombie": {"label": "Military infected", "class": "ZmbM_SoldierNormal", "event_type": "zombie_horde", "count": 12, "radius": 60},
+    "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
+    "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
+    "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
+    "military_crate": {"label": "Military crate", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "military_high"},
+    "medical_crate": {"label": "Medical crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "medical"},
+    "building_crate": {"label": "Building crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "building"},
+    "food_crate": {"label": "Food crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "food"},
+    "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
+}
+SCENARIO_LOOT_PRESETS = {
+    "none": [],
+    "military_high": ["M4A1", "AKM", "SVD", "PlateCarrierVest", "NVGoggles", "BandageDressing"],
+    "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
+    "medical": ["BandageDressing", "TetracyclineAntibiotics", "SalineBagIV", "Morphine"],
+    "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
+    "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
+    "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
+}
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
@@ -962,7 +987,7 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
-              <select name="event_type">
+              <select name="event_type" data-scenario-type>
                 <option value="airdrop">Airdrop crate</option>
                 <option value="animal_pack">Animal pack</option>
                 <option value="zombie_horde">Zombie horde</option>
@@ -970,7 +995,22 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="vehicle_spawn">Vehicle spawn</option>
               </select>
             </label>
-            <label>Classname <input name="class_name" value="WoodenCrate" placeholder="WoodenCrate, Animal_UrsusArctos, ZmbM_SoldierNormal"></label>
+            <label>Preset
+              <select name="spawn_preset" data-scenario-preset>
+                <option value="military_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
+                <option value="medical_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot crate</option>
+                <option value="building_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="building">Building loot crate</option>
+                <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
+                <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
+                <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
+                <option value="boar" data-type="animal_pack" data-class="Animal_SusScrofa" data-count="4" data-radius="80">Boar</option>
+                <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55">Civilian infected</option>
+                <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60">Military infected</option>
+                <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55">Heavy military infected</option>
+                <option value="custom">Custom classname</option>
+              </select>
+            </label>
+            <label>Classname <input name="class_name" value="WoodenCrate" placeholder="Only needed for Custom classname"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
             <label>Y height <input name="y" type="number" value="0"></label>
@@ -978,13 +1018,14 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
             <label>Loot preset
-              <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option></select>
+              <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high tier</option><option value="military_basic">Military basic</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option></select>
             </label>
-            <label class="full">Loot items <input name="loot_items" placeholder="M4A1, AKM, NailBox, BandageDressing"></label>
+            <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"></label>
             <label>Visual marker <select name="visual_marker"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Guard class <input name="guard_class" value="ZmbM_SoldierNormal" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="0"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
+            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. The bot will apply this on the next restart/upload cycle, or immediately where the event workflow supports it.</span></div>
             <div class="full"><button type="submit">Queue Event</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. They apply through the bot's CE XML or bridge workflow at restart/upload time.</p>
@@ -993,26 +1034,29 @@ Event pings | bell | 1234567890</textarea></label>
           <h3>Vehicle Reset</h3>
           <form class="admin-form" data-route="/api/admin/scenario-event">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="event_type" value="vehicle_reset_point">
+            <input class="hidden-field" name="event_type" value="vehicle_reset_all">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Vehicle class <input name="class_name" value="OffroadHatchback"></label>
+            <label>Reset method
+              <select name="reset_method"><option value="economy_xml">Economy XML full wipe</option><option value="bridge">Bridge radius delete</option></select>
+            </label>
+            <label>Vehicle class <input name="class_name" value="ALL_VEHICLES"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
-            <label>Delete radius <input name="radius" type="number" value="35"></label>
+            <label>Delete radius <input name="radius" type="number" value="30000"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1"></label>
             <div class="full"><button type="submit">Queue Vehicle Reset</button> <span class="result muted"></span></div>
           </form>
-          <p class="tool-note" style="margin-top:.75rem">Hard vehicle reset/delete requires the DayZ bridge. Native CE XML can spawn vehicles, but it cannot delete the old ones.</p>
+          <p class="tool-note" style="margin-top:.75rem">Economy XML full wipe changes vehicles init to 0 for the wipe cycle, then restores it to 1. The server must restart for DayZ file changes to take effect.</p>
         </article>
         <article class="admin-panel full">
           <h3>Queued Scenario Events</h3>
           <table class="item-table">
-            <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th></tr></thead>
+            <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
-              <tr><td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td></tr>
+              <tr><td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}</td></tr>
               {% else %}
-              <tr><td colspan="6">No scenario events queued.</td></tr>
+              <tr><td colspan="7">No scenario events queued.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -1470,6 +1514,22 @@ Event pings | bell | 1234567890</textarea></label>
           row.style.display = !query || row.dataset.search.includes(query) ? "" : "none";
         });
       });
+    });
+    document.querySelectorAll("[data-scenario-preset]").forEach((presetSelect) => {
+      const form = presetSelect.closest("form");
+      if (!form) return;
+      const typeSelect = form.querySelector("[data-scenario-type]");
+      function syncScenarioPreset() {
+        const option = presetSelect.selectedOptions[0];
+        if (!option || option.value === "custom") return;
+        if (typeSelect && option.dataset.type) typeSelect.value = option.dataset.type;
+        if (option.dataset.class) form.elements.class_name.value = option.dataset.class;
+        if (option.dataset.count) form.elements.count.value = option.dataset.count;
+        if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
+        if (option.dataset.loot && form.elements.loot_preset) form.elements.loot_preset.value = option.dataset.loot;
+      }
+      presetSelect.addEventListener("change", syncScenarioPreset);
+      syncScenarioPreset();
     });
     document.querySelectorAll("[data-zone-map]").forEach((map) => {
       const form = map.closest("form");
@@ -2793,7 +2853,13 @@ def api_scenario_event():
     permanent = restarts <= 0
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
     map_size = map_size_for(server_map)
+    spawn_preset = str(payload.get("spawn_preset") or "").strip()
+    preset = SCENARIO_SPAWN_PRESETS.get(spawn_preset, {})
+    if preset:
+        event_type = str(preset.get("event_type") or event_type)
     class_name = str(payload.get("class_name") or "").strip()
+    if preset and spawn_preset != "custom":
+        class_name = str(preset.get("class") or class_name)
     if not class_name:
         defaults = {
             "airdrop": "WoodenCrate",
@@ -2815,20 +2881,16 @@ def api_scenario_event():
         z = max(0, min(map_size, safe_int(payload.get("z"), payload.get("y") or map_size // 2)))
         radius = max(0, min(30000, safe_int(payload.get("radius"), 35)))
 
-    loot = csv_list(payload.get("loot_items", []))
-    if not loot and event_type in {"airdrop", "loot_crate"}:
-        preset_loot = {
-            "military_high": ["M4A1", "AKM", "SVD", "PlateCarrierVest", "NVGoggles", "BandageDressing"],
-            "medical": ["BandageDressing", "TetracyclineAntibiotics", "SalineBagIV", "Morphine"],
-            "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
-            "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
-            "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
-        }
-        loot = preset_loot.get(str(payload.get("loot_preset") or "none"), [])
+    loot_preset = str(payload.get("loot_preset") or preset.get("loot_preset") or "none")
+    loot = list(SCENARIO_LOOT_PRESETS.get(loot_preset, []))
+    extra_loot = csv_list(payload.get("loot_items", []))
+    for item in extra_loot:
+        if item not in loot:
+            loot.append(item)
 
     event = {
         "id": event_id,
-        "name": str(payload.get("name") or f"{event_type.replace('_', ' ').title()} #{event_id}"),
+        "name": str(payload.get("name") or f"{preset.get('label') or event_type.replace('_', ' ').title()} #{event_id}"),
         "event_type": event_type,
         "location": str(payload.get("location") or "Dashboard"),
         "x": x,
@@ -2836,10 +2898,12 @@ def api_scenario_event():
         "z": z,
         "class_name": class_name,
         "map": map_key_for(server_map),
-        "count": max(1, min(250, safe_int(payload.get("count"), 1))),
+        "preset": spawn_preset or "custom",
+        "count": max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1)))),
         "radius": radius,
-        "loot_preset": str(payload.get("loot_preset") or "none"),
+        "loot_preset": loot_preset,
         "loot": loot,
+        "reset_method": str(payload.get("reset_method") or "bridge"),
         "visual_marker": safe_bool(payload.get("visual_marker"), event_type == "airdrop"),
         "marker_class": "Land_Wreck_Caravan_MGreen" if safe_bool(payload.get("visual_marker"), event_type == "airdrop") else "",
         "guard_class": str(payload.get("guard_class") or "").strip(),
@@ -2848,6 +2912,7 @@ def api_scenario_event():
         "permanent": permanent,
         "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
         "enabled": True,
+        "status": "Accepted / waiting for restart",
         "created_by": "dashboard",
         "created_at": datetime.now(UTC).isoformat(),
     }
