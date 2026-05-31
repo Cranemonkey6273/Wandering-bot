@@ -156,8 +156,18 @@ PAGE_TEMPLATE = """
     .full { grid-column: 1 / -1; }
     .route-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
     .route-list code { display: block; overflow-wrap: anywhere; }
+    .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+    .admin-panel { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #0b100b; }
+    .admin-panel form { margin-top: .75rem; }
+    .result { min-height: 1.25rem; }
+    .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+    .owner-tile { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: #0b100b; }
+    .owner-tile strong { display: block; color: var(--gold); font-size: 1.35rem; }
+    .table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
+    .table th, .table td { border-bottom: 1px solid var(--line); padding: .55rem; text-align: left; color: var(--muted); }
+    .table th { color: var(--text); font-size: .8rem; text-transform: uppercase; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid { grid-template-columns: 1fr; }
       nav { display: none; }
     }
   </style>
@@ -195,25 +205,128 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] %}
     <section class="wide card">
-      <h2>Admin Actions</h2>
-      <form id="quickAction">
-        <label>Route
-          <select name="route">
-            {% for route in admin_routes %}<option value="{{ route }}">{{ route }}</option>{% endfor %}
-          </select>
-        </label>
-        <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-        <label class="full">JSON payload
-          <textarea name="payload">{"name":"Example","enabled":true}</textarea>
-        </label>
-        <div class="full"><button type="submit">Send JSON</button> <span id="result" class="muted"></span></div>
-      </form>
+      <h2>Admin Control Panels</h2>
+      <p class="muted">Pick a server, update the panel, and the dashboard writes the bot JSON files in the Railway volume.</p>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Embed Template</h3>
+          <form class="admin-form" data-route="/api/admin/embed-template">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Template name <input name="name" value="server-rules"></label>
+            <label>Title <input name="title" value="Server Rules"></label>
+            <label>Colour <input name="colour" value="#8d963e"></label>
+            <label class="full">Body <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
+            <div class="full"><button type="submit">Save Embed</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Welcome Automation</h3>
+          <form class="admin-form" data-route="/api/admin/welcome-automation">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Name <input name="name" value="new-survivor-welcome"></label>
+            <label>Channel ID <input name="channel_id" placeholder="Discord channel id"></label>
+            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+            <label class="full">Message <textarea name="message">Welcome survivor. Read the rules, link your gamer tag, and good luck out there.</textarea></label>
+            <div class="full"><button type="submit">Save Welcome</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Reaction Roles</h3>
+          <form class="admin-form" data-route="/api/admin/reaction-role-panel">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Panel name <input name="name" value="server-roles"></label>
+            <label>Channel ID <input name="channel_id" placeholder="Discord channel id"></label>
+            <label>Message ID <input name="message_id" placeholder="optional existing message"></label>
+            <label class="full">Roles JSON <textarea name="roles">[{"emoji":"yes","role_id":"1234567890","label":"Verified"}]</textarea></label>
+            <div class="full"><button type="submit">Save Panel</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Shop Item</h3>
+          <form class="admin-form" data-route="/api/admin/shop-item">
+            <label>Item name <input name="item_name" value="NailsBox"></label>
+            <label>Price <input name="price" type="number" value="100"></label>
+            <label>Category <input name="category" value="Building"></label>
+            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Faction</h3>
+          <form class="admin-form" data-route="/api/admin/faction">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Name <input name="name" value="The Wanderers"></label>
+            <label>Leader ID <input name="leader_id" placeholder="Discord user id"></label>
+            <label>Role ID <input name="role_id" placeholder="Discord role id"></label>
+            <label>Alert Channel ID <input name="alert_channel_id" placeholder="Discord channel id"></label>
+            <label>Colour <input name="colour" value="#8d963e"></label>
+            <div class="full"><button type="submit">Save Faction</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Faction Member</h3>
+          <form class="admin-form" data-route="/api/admin/faction-member">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Faction <input name="name" value="The Wanderers"></label>
+            <label>Member ID <input name="member_id" placeholder="Discord user id"></label>
+            <label>Action <select name="action"><option value="add">add</option><option value="remove">remove</option></select></label>
+            <div class="full"><button type="submit">Update Member</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Wage</h3>
+          <form class="admin-form" data-route="/api/admin/wage">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Target type <select name="target_type"><option value="user">user</option><option value="role">role</option><option value="faction">faction</option></select></label>
+            <label>Target ID <input name="target_id" placeholder="user, role, or faction"></label>
+            <label>Amount <input name="amount" type="number" value="250"></label>
+            <label>Cadence <select name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="monthly">monthly</option></select></label>
+            <label>Active <select name="active"><option value="true">true</option><option value="false">false</option></select></label>
+            <div class="full"><button type="submit">Save Wage</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Wallet Adjustment</h3>
+          <form class="admin-form" data-route="/api/admin/wallet-adjustment">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>User ID <input name="user_id" placeholder="Discord user id"></label>
+            <label>Amount <input name="amount" type="number" value="100"></label>
+            <label>Reason <input name="reason" value="dashboard adjustment"></label>
+            <div class="full"><button type="submit">Adjust Wallet</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Dashboard Access</h3>
+          <form class="admin-form" data-route="/api/admin/guild-access">
+            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+            <label>Tier <select name="tier"><option value="owner">owner</option><option value="premium">premium</option><option value="trial">trial</option><option value="none">none</option></select></label>
+            <label>Allowed role IDs <input name="allowed_role_ids" placeholder="123,456"></label>
+            <label class="full">Features JSON <textarea name="features">{"leaderboards":true,"economy":true,"factions":true,"embeds":true,"safe_zones":true}</textarea></label>
+            <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+      </div>
     </section>
     {% endif %}
 
     {% if mode == "owner" %}
     <section class="wide card">
-      <h2>Owner Surface</h2>
+      <h2>Owner Console</h2>
+      <div class="owner-grid">
+        <div class="owner-tile"><span class="muted">Active guilds</span><strong>{{ summary.guilds }}</strong></div>
+        <div class="owner-tile"><span class="muted">Dashboard enabled</span><strong>{{ summary.dashboard_enabled }}</strong></div>
+        <div class="owner-tile"><span class="muted">Admin routes</span><strong>{{ admin_routes|length }}</strong></div>
+      </div>
+      <table class="table">
+        <thead><tr><th>Server</th><th>Guild ID</th><th>Map</th><th>Channels</th><th>Access</th></tr></thead>
+        <tbody>
+          {% for server in servers %}
+          <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <h3>Routes</h3>
       <div class="route-list">
         {% for route in all_routes %}<code>{{ route }}</code>{% endfor %}
       </div>
@@ -253,23 +366,36 @@ PAGE_TEMPLATE = """
     </section>
   </main>
   <script>
-    const form = document.getElementById("quickAction");
-    if (form) {
+    function formValue(value) {
+      const text = String(value || "").trim();
+      if (text === "true") return true;
+      if (text === "false") return false;
+      if (/^-?\\d+$/.test(text)) return Number(text);
+      if ((text.startsWith("{") && text.endsWith("}")) || (text.startsWith("[") && text.endsWith("]"))) {
+        try { return JSON.parse(text); } catch (error) { return value; }
+      }
+      return value;
+    }
+    document.querySelectorAll(".admin-form").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const data = new FormData(form);
-        const result = document.getElementById("result");
+        const result = form.querySelector(".result");
         let payload = {};
-        try { payload = JSON.parse(data.get("payload") || "{}"); } catch (error) { result.textContent = "Invalid JSON"; return; }
-        payload.guild_id = payload.guild_id || data.get("guild_id");
-        const response = await fetch(data.get("route"), {
+        data.forEach((value, key) => {
+          if (value !== "") payload[key] = formValue(value);
+        });
+        result.textContent = "Saving...";
+        const response = await fetch(form.dataset.route, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload)
         });
-        result.textContent = response.ok ? "Saved" : "Rejected";
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
       });
-    }
+    });
   </script>
 </body>
 </html>
@@ -284,6 +410,7 @@ ADMIN_ROUTES = [
     "/api/admin/faction-member",
     "/api/admin/wage",
     "/api/admin/wallet-adjustment",
+    "/api/admin/guild-access",
 ]
 
 
@@ -680,8 +807,8 @@ def api_faction_member():
     members = faction.setdefault("members", [])
     action = str(payload.get("action") or "add").lower()
     if action in {"remove", "delete"}:
-        faction["members"] = [member for member in members if str(member.get("user_id", member)) != member_id]
-    elif member_id not in [str(member.get("user_id", member)) for member in members]:
+        faction["members"] = [member for member in members if str(member.get("user_id", member) if isinstance(member, dict) else member) != member_id]
+    elif member_id not in [str(member.get("user_id", member) if isinstance(member, dict) else member) for member in members]:
         members.append({"user_id": member_id, "name": str(payload.get("member_name") or ""), "added_at": datetime.now(UTC).isoformat()})
     faction["updated_at"] = datetime.now(UTC).isoformat()
     save_store("factions", factions)
@@ -749,6 +876,38 @@ def api_wallet_adjustment():
     )
     save_store("wallets", wallets)
     return jsonify({"ok": True, "wallet": redact(wallet)})
+
+
+@APP.post("/api/admin/guild-access")
+def api_guild_access():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    access = config.setdefault("dashboard", {})
+    if not isinstance(access, dict):
+        access = {}
+        config["dashboard"] = access
+    access["enabled"] = bool(payload.get("enabled", access.get("enabled", True)))
+    access["tier"] = str(payload.get("tier") or access.get("tier") or "owner")
+    role_ids = payload.get("allowed_role_ids", access.get("allowed_role_ids", []))
+    user_ids = payload.get("allowed_user_ids", access.get("allowed_user_ids", []))
+    if isinstance(role_ids, str):
+        role_ids = [item.strip() for item in role_ids.split(",") if item.strip()]
+    if isinstance(user_ids, str):
+        user_ids = [item.strip() for item in user_ids.split(",") if item.strip()]
+    access["allowed_role_ids"] = [str(item) for item in role_ids if item]
+    access["allowed_user_ids"] = [str(item) for item in user_ids if item]
+    features = payload.get("features", access.get("features", {}))
+    access["features"] = features if isinstance(features, dict) else {}
+    access["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "dashboard": access})
 
 
 def configure_dashboard_state_provider(provider):
