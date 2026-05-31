@@ -106,7 +106,6 @@ PAGE_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="{{ refresh_seconds }}">
   <title>Wandering Bot Dashboard</title>
   <style>
     :root {
@@ -114,6 +113,7 @@ PAGE_TEMPLATE = """
       --bg: #050806;
       --panel: #111710;
       --panel-2: #192014;
+      --panel-3: #0b100b;
       --line: rgba(209, 203, 145, .24);
       --text: #f3ecd9;
       --muted: #c4bda7;
@@ -131,6 +131,7 @@ PAGE_TEMPLATE = """
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     a { color: var(--gold); text-decoration: none; }
+    h1, h2, h3, p { margin-top: 0; }
     header {
       position: sticky;
       top: 0;
@@ -149,7 +150,7 @@ PAGE_TEMPLATE = """
     .brand strong { display: block; text-transform: uppercase; letter-spacing: .08em; }
     .brand span, .muted { color: var(--muted); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
-    nav a, button, .button {
+    nav a, button, .button, .tab-link {
       border: 1px solid var(--line);
       border-radius: .5rem;
       background: var(--panel-2);
@@ -159,7 +160,7 @@ PAGE_TEMPLATE = """
       cursor: pointer;
     }
     main { max-width: 1440px; margin: 0 auto; padding: 1.1rem clamp(1rem, 4vw, 2rem) 2rem; display: grid; gap: 1rem; }
-    .hero, .card, .wide {
+    .hero, .card, .wide, .section-panel {
       border: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(243, 236, 217, .05), rgba(243, 236, 217, .015)), var(--panel);
       border-radius: .5rem;
@@ -167,11 +168,10 @@ PAGE_TEMPLATE = """
     }
     .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding: clamp(1rem, 4vw, 2rem); }
     h1 { margin: .2rem 0 .5rem; font-size: clamp(2rem, 5vw, 4.25rem); line-height: .95; text-transform: uppercase; letter-spacing: 0; }
-    h2, h3, p { margin-top: 0; }
     .hero img { width: min(11rem, 35vw); aspect-ratio: 1; object-fit: cover; border-radius: 50%; border: 2px solid var(--gold); }
     .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .75rem; }
     .stat, .card { padding: 1rem; }
-    .stat { border: 1px solid var(--line); border-radius: .5rem; background: #0b100b; }
+    .stat { border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-3); }
     .stat span { display: block; color: var(--muted); font-size: .8rem; text-transform: uppercase; }
     .stat strong { display: block; color: var(--gold); font-size: 1.8rem; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
@@ -196,26 +196,48 @@ PAGE_TEMPLATE = """
       padding: .65rem .75rem;
     }
     textarea { min-height: 7rem; resize: vertical; }
+    input[readonly] { color: var(--gold); background: rgba(213, 180, 95, .08); cursor: default; }
     .full { grid-column: 1 / -1; }
     .route-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
     .route-list code { display: block; overflow-wrap: anywhere; }
-    .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
-    .admin-panel { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #0b100b; }
+    .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; align-items: start; }
+    .admin-panel { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel-3); }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
-    .owner-tile { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: #0b100b; }
+    .owner-tile { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: var(--panel-3); }
     .owner-tile strong { display: block; color: var(--gold); font-size: 1.35rem; }
     .table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
     .table th, .table td { border-bottom: 1px solid var(--line); padding: .55rem; text-align: left; color: var(--muted); }
     .table th { color: var(--text); font-size: .8rem; text-transform: uppercase; }
+    .section-nav { position: sticky; top: 5rem; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); backdrop-filter: blur(14px); }
+    .section-panel { padding: 1rem; scroll-margin-top: 8rem; }
+    .section-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: .85rem; }
+    .server-lock { display: grid; grid-template-columns: 1fr; gap: .35rem; margin-bottom: .75rem; }
+    .server-lock span { color: var(--muted); font-size: .85rem; }
+    .leaderboard { display: grid; gap: .45rem; margin-top: .75rem; }
+    .leader-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) repeat(3, minmax(4rem, auto)); gap: .55rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; }
+    .rank { color: var(--gold); font-weight: 900; font-size: 1.15rem; }
+    .leader-name { color: var(--text); font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .metric { color: var(--muted); text-align: right; }
+    .metric strong { color: var(--text); display: block; }
+    .tool-note { color: var(--muted); font-size: .9rem; line-height: 1.45; }
+    .option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+    .option-card { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; background: #070b08; }
+    .option-card strong { display: block; color: var(--gold); margin-bottom: .25rem; }
+    .check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+    .check { display: flex; align-items: center; gap: .5rem; color: var(--muted); border: 1px solid var(--line); border-radius: .45rem; padding: .55rem; background: #070b08; }
+    .check input { width: auto; accent-color: var(--olive); }
+    .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid { grid-template-columns: 1fr; }
+      .metric { text-align: left; }
       nav { display: none; }
     }
   </style>
 </head>
 <body>
+  {% set server = servers[0] if servers else none %}
   <header>
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
@@ -235,41 +257,108 @@ PAGE_TEMPLATE = """
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ view_title }}</h1>
         <p class="muted">Live readout for {{ auth.label }}. Server dashboards are scoped by private ID/password and cannot access another guild.</p>
+        {% if server %}
+        <div class="pills">
+          <span class="pill ok">{{ server.guild_name }}</span>
+          <span class="pill">{{ server.map|upper }}</span>
+          <span class="pill">{{ server.channels|length }} channels</span>
+        </div>
+        {% endif %}
       </div>
       <img src="/brand-image" alt="Wandering Bot mark">
     </section>
 
     <section class="stats">
-      <div class="stat"><span>Guilds</span><strong>{{ summary.guilds }}</strong></div>
+      <div class="stat"><span>Server</span><strong>{{ server.map|upper if server else summary.guilds }}</strong></div>
       <div class="stat"><span>Online</span><strong>{{ summary.online }}</strong></div>
       <div class="stat"><span>Players</span><strong>{{ summary.players }}</strong></div>
       <div class="stat"><span>Shop</span><strong>{{ summary.shop_items }}</strong></div>
       <div class="stat"><span>Factions</span><strong>{{ summary.factions }}</strong></div>
     </section>
 
+    <section class="section-nav" aria-label="Dashboard sections">
+      <a class="tab-link" href="#leaderboards">Leaderboards</a>
+      <a class="tab-link" href="#automations">Auto Messages</a>
+      <a class="tab-link" href="#factions-radar">Factions & Radar</a>
+      <a class="tab-link" href="#economy">Economy</a>
+      <a class="tab-link" href="#access">Access</a>
+    </section>
+
+    <section class="section-panel" id="leaderboards">
+      <div class="section-head">
+        <div>
+          <h2>{{ server.guild_name if server else 'Server' }} Leaderboard</h2>
+          <p class="tool-note">Styled like the bot leaderboard: rank, survivor, kills, deaths, and builds.</p>
+        </div>
+        <span class="pill">{{ server.map|upper if server else 'NO SERVER' }}</span>
+      </div>
+      <div class="leaderboard">
+        {% for leader in (server.leaders[:10] if server else []) %}
+        <div class="leader-row">
+          <div class="rank">#{{ loop.index }}</div>
+          <div class="leader-name">{{ leader.name }}</div>
+          <div class="metric"><strong>{{ leader.kills }}</strong>Kills</div>
+          <div class="metric"><strong>{{ leader.deaths }}</strong>Deaths</div>
+          <div class="metric"><strong>{{ leader.builds }}</strong>Builds</div>
+        </div>
+        {% else %}
+        <p class="muted">No player stats have been recorded for this server yet.</p>
+        {% endfor %}
+      </div>
+    </section>
+
     {% if mode in ["admin", "owner"] %}
-    <section class="wide card">
-      <h2>Admin Control Panels</h2>
-      <p class="muted">Pick a server, update the panel, and the dashboard writes the bot JSON files in the Railway volume.</p>
+    <section class="section-panel" id="automations">
+      <div class="section-head">
+        <div>
+          <h2>Auto Messages & Embeds</h2>
+          <p class="tool-note">Create messages the bot can use for rules, restarts, welcomes, events, shop notices, and staff announcements.</p>
+        </div>
+      </div>
       <div class="panel-grid">
         <article class="admin-panel">
-          <h3>Embed Template</h3>
+          <h3>Auto Message</h3>
           <form class="admin-form" data-route="/api/admin/embed-template">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Template name <input name="name" value="server-rules"></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Purpose
+              <select name="name">
+                <option value="server-rules">Server rules</option>
+                <option value="restart-warning">Restart warning</option>
+                <option value="event-announcement">Event announcement</option>
+                <option value="shop-notice">Shop notice</option>
+                <option value="staff-alert">Staff alert</option>
+              </select>
+            </label>
+            <label>Post to channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Title <input name="title" value="Server Rules"></label>
             <label>Colour <input name="colour" value="#8d963e"></label>
-            <label class="full">Body <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
-            <div class="full"><button type="submit">Save Embed</button> <span class="result muted"></span></div>
+            <label class="full">Message <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
+            <div class="full"><button type="submit">Save Message</button> <span class="result muted"></span></div>
           </form>
         </article>
         <article class="admin-panel">
           <h3>Welcome Automation</h3>
           <form class="admin-form" data-route="/api/admin/welcome-automation">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Name <input name="name" value="new-survivor-welcome"></label>
-            <label>Channel ID <input name="channel_id" placeholder="Discord channel id"></label>
-            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>When should it send?
+              <select name="name">
+                <option value="new-survivor-welcome">New survivor joins Discord</option>
+                <option value="first-time-seen">New gamertag appears in ADM</option>
+                <option value="returning-player">Returning player reconnects</option>
+              </select>
+            </label>
+            <label>Post to channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'welcome' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label class="full">Message <textarea name="message">Welcome survivor. Read the rules, link your gamer tag, and good luck out there.</textarea></label>
             <div class="full"><button type="submit">Save Welcome</button> <span class="result muted"></span></div>
           </form>
@@ -277,32 +366,51 @@ PAGE_TEMPLATE = """
         <article class="admin-panel">
           <h3>Reaction Roles</h3>
           <form class="admin-form" data-route="/api/admin/reaction-role-panel">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Panel name <input name="name" value="server-roles"></label>
-            <label>Channel ID <input name="channel_id" placeholder="Discord channel id"></label>
-            <label>Message ID <input name="message_id" placeholder="optional existing message"></label>
-            <label class="full">Roles JSON <textarea name="roles">[{"emoji":"yes","role_id":"1234567890","label":"Verified"}]</textarea></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Panel type
+              <select name="name">
+                <option value="server-roles">Server roles</option>
+                <option value="platform-roles">Platform roles</option>
+                <option value="event-pings">Event pings</option>
+                <option value="faction-alerts">Faction alert roles</option>
+              </select>
+            </label>
+            <label>Post to channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Role lines <textarea name="roles">Verified | yes | 1234567890
+Trader pings | coin | 1234567890
+Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Panel</button> <span class="result muted"></span></div>
           </form>
         </article>
-        <article class="admin-panel">
-          <h3>Shop Item</h3>
-          <form class="admin-form" data-route="/api/admin/shop-item">
-            <label>Item name <input name="item_name" value="NailsBox"></label>
-            <label>Price <input name="price" type="number" value="100"></label>
-            <label>Category <input name="category" value="Building"></label>
-            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
-            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
-          </form>
-        </article>
+      </div>
+    </section>
+
+    <section class="section-panel" id="factions-radar">
+      <div class="section-head">
+        <div>
+          <h2>Factions & Radar</h2>
+          <p class="tool-note">Manage faction info, faction members, and the channels that should receive radar pings or faction alerts.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
         <article class="admin-panel">
           <h3>Faction</h3>
           <form class="admin-form" data-route="/api/admin/faction">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Name <input name="name" value="The Wanderers"></label>
-            <label>Leader ID <input name="leader_id" placeholder="Discord user id"></label>
-            <label>Role ID <input name="role_id" placeholder="Discord role id"></label>
-            <label>Alert Channel ID <input name="alert_channel_id" placeholder="Discord channel id"></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Faction name <input name="name" value="The Wanderers"></label>
+            <label>Leader Discord ID <input name="leader_id" placeholder="Discord user id"></label>
+            <label>Faction role ID <input name="role_id" placeholder="Discord role id"></label>
+            <label>Alert channel
+              <select name="alert_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Colour <input name="colour" value="#8d963e"></label>
             <div class="full"><button type="submit">Save Faction</button> <span class="result muted"></span></div>
           </form>
@@ -310,43 +418,122 @@ PAGE_TEMPLATE = """
         <article class="admin-panel">
           <h3>Faction Member</h3>
           <form class="admin-form" data-route="/api/admin/faction-member">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Faction <input name="name" value="The Wanderers"></label>
-            <label>Member ID <input name="member_id" placeholder="Discord user id"></label>
-            <label>Action <select name="action"><option value="add">add</option><option value="remove">remove</option></select></label>
+            <label>Member Discord ID <input name="member_id" placeholder="Discord user id"></label>
+            <label>Action <select name="action"><option value="add">Add member</option><option value="remove">Remove member</option></select></label>
             <div class="full"><button type="submit">Update Member</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Radar Ping Routing</h3>
+          <form class="admin-form" data-route="/api/admin/embed-template">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="name" value="radar-routing-note">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Default radar channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Ping reason <input name="title" value="Radar Ping"></label>
+            <label class="full">Staff note <textarea name="body">Use this routing for radar pings, faction territory alerts, and suspicious movement reports.</textarea></label>
+            <div class="full"><button type="submit">Save Radar Routing</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-panel" id="economy">
+      <div class="section-head">
+        <div>
+          <h2>Economy</h2>
+          <p class="tool-note">Control shop items, player wallet adjustments, and recurring wages without touching raw JSON.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Shop Item</h3>
+          <form class="admin-form" data-route="/api/admin/shop-item">
+            <label>Item name <input name="item_name" value="NailsBox"></label>
+            <label>Price <input name="price" type="number" value="100"></label>
+            <label>Category
+              <select name="category">
+                <option value="Building">Building</option>
+                <option value="Weapons">Weapons</option>
+                <option value="Medical">Medical</option>
+                <option value="Vehicles">Vehicles</option>
+                <option value="Food">Food</option>
+                <option value="Tools">Tools</option>
+              </select>
+            </label>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
           </form>
         </article>
         <article class="admin-panel">
           <h3>Wage</h3>
           <form class="admin-form" data-route="/api/admin/wage">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Target type <select name="target_type"><option value="user">user</option><option value="role">role</option><option value="faction">faction</option></select></label>
-            <label>Target ID <input name="target_id" placeholder="user, role, or faction"></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Pay who?
+              <select name="target_type"><option value="user">One player</option><option value="role">Discord role</option><option value="faction">Whole faction</option></select>
+            </label>
+            <label>Target ID or faction name <input name="target_id" placeholder="user id, role id, or faction"></label>
             <label>Amount <input name="amount" type="number" value="250"></label>
-            <label>Cadence <select name="cadence"><option value="daily">daily</option><option value="weekly">weekly</option><option value="monthly">monthly</option></select></label>
-            <label>Active <select name="active"><option value="true">true</option><option value="false">false</option></select></label>
+            <label>Cadence <select name="cadence"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
+            <label>Active <select name="active"><option value="true">On</option><option value="false">Off</option></select></label>
             <div class="full"><button type="submit">Save Wage</button> <span class="result muted"></span></div>
           </form>
         </article>
         <article class="admin-panel">
           <h3>Wallet Adjustment</h3>
           <form class="admin-form" data-route="/api/admin/wallet-adjustment">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>User ID <input name="user_id" placeholder="Discord user id"></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Player Discord ID <input name="user_id" placeholder="Discord user id"></label>
             <label>Amount <input name="amount" type="number" value="100"></label>
-            <label>Reason <input name="reason" value="dashboard adjustment"></label>
+            <label>Reason
+              <select name="reason">
+                <option value="admin reward">Admin reward</option>
+                <option value="event prize">Event prize</option>
+                <option value="refund">Refund</option>
+                <option value="rule penalty">Rule penalty</option>
+              </select>
+            </label>
             <div class="full"><button type="submit">Adjust Wallet</button> <span class="result muted"></span></div>
           </form>
         </article>
+      </div>
+    </section>
+
+    <section class="section-panel" id="access">
+      <div class="section-head">
+        <div>
+          <h2>Dashboard Access</h2>
+          <p class="tool-note">Server identity is locked to the logged-in guild. Use Discord `/dashboardcredentials reset:true` to change the private password.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
         <article class="admin-panel">
-          <h3>Dashboard Access</h3>
+          <h3>Feature Access</h3>
           <form class="admin-form" data-route="/api/admin/guild-access">
-            <label>Guild ID <input name="guild_id" value="{{ servers[0].guild_id if servers else '' }}"></label>
-            <label>Enabled <select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Tier <select name="tier"><option value="owner">owner</option><option value="premium">premium</option><option value="trial">trial</option><option value="none">none</option></select></label>
-            <label>Allowed role IDs <input name="allowed_role_ids" placeholder="123,456"></label>
-            <label class="full">Features JSON <textarea name="features">{"leaderboards":true,"economy":true,"factions":true,"embeds":true,"safe_zones":true}</textarea></label>
+            <label>Allowed role IDs <input name="allowed_role_ids" placeholder="optional Discord role IDs"></label>
+            <div class="full">
+              <span class="muted">Enabled modules</span>
+              <div class="check-grid">
+                <label class="check"><input type="checkbox" name="feature_leaderboards" checked> Leaderboards</label>
+                <label class="check"><input type="checkbox" name="feature_economy" checked> Economy</label>
+                <label class="check"><input type="checkbox" name="feature_factions" checked> Factions</label>
+                <label class="check"><input type="checkbox" name="feature_embeds" checked> Auto messages</label>
+                <label class="check"><input type="checkbox" name="feature_safe_zones" checked> Radar zones</label>
+              </div>
+            </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -363,7 +550,7 @@ PAGE_TEMPLATE = """
         <div class="owner-tile"><span class="muted">Admin routes</span><strong>{{ admin_routes|length }}</strong></div>
       </div>
       <table class="table">
-        <thead><tr><th>Server</th><th>Guild ID</th><th>Map</th><th>Channels</th><th>Access</th></tr></thead>
+        <thead><tr><th>Server</th><th>Server ID</th><th>Map</th><th>Channels</th><th>Access</th></tr></thead>
         <tbody>
           {% for server in servers %}
           <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</td></tr>
@@ -379,8 +566,8 @@ PAGE_TEMPLATE = """
 
     <section class="grid">
       <article class="card"><h3>Economy</h3><p class="muted">{{ summary.wallets }} wallets, {{ summary.delivery_queue }} queued deliveries and {{ summary.wages }} active wages.</p></article>
-      <article class="card"><h3>Embeds</h3><p class="muted">{{ summary.embed_templates }} templates, {{ summary.welcome_automations }} welcome automations and {{ summary.reaction_role_panels }} reaction-role panels.</p></article>
-      <article class="card"><h3>Access</h3><p class="muted">{{ summary.dashboard_enabled }} guilds have dashboard access enabled.</p></article>
+      <article class="card"><h3>Automations</h3><p class="muted">{{ summary.embed_templates }} message templates, {{ summary.welcome_automations }} welcomes and {{ summary.reaction_role_panels }} role panels.</p></article>
+      <article class="card"><h3>Access</h3><p class="muted">{{ 'This dashboard is enabled.' if summary.dashboard_enabled else 'This dashboard is locked.' }}</p></article>
     </section>
 
     <section class="servers">
@@ -390,7 +577,7 @@ PAGE_TEMPLATE = """
           <div>
             <h2>{{ server.guild_name }}</h2>
             <div class="pills">
-              <span class="pill">Guild {{ server.guild_id }}</span>
+              <span class="pill">Server ID {{ server.guild_id }}</span>
               <span class="pill {{ 'ok' if server.active else 'bad' }}">{{ 'active' if server.active else 'inactive' }}</span>
               <span class="pill {{ 'ok' if server.dashboard_access.enabled else 'bad' }}">Dashboard {{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</span>
               <span class="pill">{{ server.map|upper }}</span>
@@ -429,6 +616,14 @@ PAGE_TEMPLATE = """
         data.forEach((value, key) => {
           if (value !== "") payload[key] = formValue(value);
         });
+        const featureBoxes = form.querySelectorAll('input[name^="feature_"]');
+        if (featureBoxes.length) {
+          payload.features = {};
+          featureBoxes.forEach((box) => {
+            payload.features[box.name.replace("feature_", "")] = box.checked;
+            delete payload[box.name];
+          });
+        }
         result.textContent = "Saving...";
         const token = new URLSearchParams(window.location.search).get("token");
         const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
@@ -994,6 +1189,7 @@ def api_faction():
             "leader_id": str(payload.get("leader_id") or faction.get("leader_id") or ""),
             "role_id": str(payload.get("role_id") or faction.get("role_id") or ""),
             "alert_channel_id": str(payload.get("alert_channel_id") or faction.get("alert_channel_id") or ""),
+            "alert_channel_key": str(payload.get("alert_channel_key") or faction.get("alert_channel_key") or ""),
             "colour": str(payload.get("colour") or payload.get("color") or faction.get("colour") or "#8d963e"),
             "members": faction.get("members", []),
             "updated_at": datetime.now(UTC).isoformat(),
