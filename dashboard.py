@@ -145,6 +145,7 @@ FILES = {
     "pve_workshop_schedules": "pve_workshop_schedules.json",
     "swear_jar": "swear_jar.json",
     "longshot_records": "longshot_records.json",
+    "removed_guilds": "removed_guilds.json",
 }
 
 LOGIN_TEMPLATE = """
@@ -589,7 +590,7 @@ PAGE_TEMPLATE = """
         <article class="admin-panel">
           <h3>All Server Dashboards</h3>
           <table class="item-table">
-            <thead><tr><th>Server</th><th>Map</th><th>Access</th><th>Open</th></tr></thead>
+            <thead><tr><th>Server</th><th>Map</th><th>Access</th><th>Open</th><th>Owner Actions</th></tr></thead>
             <tbody>
               {% for owned in servers %}
               <tr>
@@ -597,6 +598,18 @@ PAGE_TEMPLATE = """
                 <td>{{ owned.map|upper }}</td>
                 <td>{{ owned.dashboard_access.tier }}</td>
                 <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Open</a></td>
+                <td>
+                  <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="action" value="leave">
+                    <button type="submit">Leave Discord</button> <span class="result muted"></span>
+                  </form>
+                  <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }} and remove this guild from dashboard data. Continue?">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="action" value="leave_and_remove">
+                    <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
+                  </form>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -1604,6 +1617,7 @@ Event pings | bell | 1234567890</textarea></label>
     document.querySelectorAll(".admin-form").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
         const data = new FormData(form);
         const result = form.querySelector(".result");
         let payload = {};
@@ -2110,6 +2124,15 @@ def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
     return scoped_payload_for_auth(request_payload(), auth), None
 
 
+def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
+    auth = current_auth()
+    if not auth:
+        return None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
+    if auth.get("kind") != "owner":
+        return None, (jsonify({"ok": False, "error": "owner login required"}), 403)
+    return request_payload(), None
+
+
 def normalize_guild_id(value: Any) -> str:
     return str(value or "global").strip() or "global"
 
@@ -2256,6 +2279,80 @@ def resolve_channel_selection(config: dict[str, Any], value: Any) -> tuple[str, 
                 return str(key), selection
         return "", selection
     return selection, str(channels.get(selection) or "")
+
+
+def discord_bot_leave_guild(guild_id: str) -> tuple[bool, str]:
+    if not DISCORD_TOKEN:
+        return False, "DISCORD_TOKEN is not configured, so the dashboard cannot make the bot leave Discord guilds."
+
+    request_obj = urllib.request.Request(
+        f"https://discord.com/api/v10/users/@me/guilds/{guild_id}",
+        method="DELETE",
+        headers={
+            "Authorization": f"Bot {DISCORD_TOKEN}",
+            "User-Agent": "WanderingBotDashboard/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request_obj, timeout=20) as response:
+            if response.status in {200, 202, 204}:
+                return True, f"Bot leave requested for guild {guild_id}."
+            return False, f"Discord returned status {response.status}."
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return True, f"Bot is already not in guild {guild_id}."
+        body = error.read().decode("utf-8", errors="ignore")[:240]
+        return False, f"Discord leave failed ({error.code}): {body}"
+    except Exception as error:
+        return False, f"Discord leave failed: {error}"
+
+
+def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
+    removed = load_store("removed_guilds", [])
+    if not isinstance(removed, list):
+        removed = []
+    removed.append({
+        "guild_id": guild_id,
+        "guild_name": str(config.get("guild_name") or ""),
+        "removed_at": datetime.now(UTC).isoformat(),
+        "config": redact(config),
+    })
+    save_store("removed_guilds", removed[-100:])
+
+    for store_name in [
+        "guild_configs",
+        "player_stats",
+        "online_players",
+        "factions",
+        "wages",
+        "shop",
+        "heatmap",
+        "pve_challenges",
+        "pve_ai_campaigns",
+        "pve_workshop_schedules",
+        "swear_jar",
+        "longshot_records",
+    ]:
+        store = load_store(store_name, {})
+        if isinstance(store, dict) and guild_id in store:
+            store.pop(guild_id, None)
+            save_store(store_name, store)
+
+    wallets = load_store("wallets", {})
+    if isinstance(wallets, dict):
+        wallets = {
+            key: value for key, value in wallets.items()
+            if str(key) != guild_id and not str(key).startswith(f"{guild_id}:")
+        }
+        save_store("wallets", wallets)
+
+    delivery_queue = load_store("delivery_queue", [])
+    if isinstance(delivery_queue, list):
+        delivery_queue = [
+            item for item in delivery_queue
+            if not (isinstance(item, dict) and str(item.get("guild_id") or "") == guild_id)
+        ]
+        save_store("delivery_queue", delivery_queue)
 
 
 def is_shop_sellable_item(item_name: Any, category: Any = "") -> bool:
@@ -3812,6 +3909,41 @@ def api_faction_member():
     faction["updated_at"] = datetime.now(UTC).isoformat()
     save_store("factions", factions)
     return jsonify({"ok": True, "faction": faction})
+
+
+@APP.post("/api/owner/guild-action")
+def api_owner_guild_action():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = str(payload.get("guild_id") or "").strip()
+    action = str(payload.get("action") or "leave").strip().lower()
+    if not guild_id:
+        return jsonify({"ok": False, "error": "guild_id is required"}), 400
+    if action not in {"leave", "leave_and_remove"}:
+        return jsonify({"ok": False, "error": "unsupported owner guild action"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        config = {"guild_name": f"Guild {guild_id}", "channels": {}}
+
+    left, message = discord_bot_leave_guild(guild_id)
+    if not left:
+        return jsonify({"ok": False, "error": message}), 502
+
+    if action == "leave_and_remove":
+        remove_guild_dashboard_data(guild_id, config)
+        return jsonify({"ok": True, "message": f"{message} Dashboard data removed.", "removed": True})
+
+    config["dashboard_removed_at"] = datetime.now(UTC).isoformat()
+    config["dashboard_removed_reason"] = "owner requested bot leave guild"
+    guild_configs[guild_id] = config
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "message": message, "removed": False})
 
 
 @APP.post("/api/admin/wage")
