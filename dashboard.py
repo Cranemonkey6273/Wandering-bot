@@ -372,6 +372,17 @@ PAGE_TEMPLATE = """
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
+    .owner-server-panel { overflow-x: auto; }
+    .owner-server-table { min-width: 58rem; table-layout: fixed; }
+    .owner-server-table th:nth-child(1), .owner-server-table td:nth-child(1) { width: 28%; }
+    .owner-server-table th:nth-child(2), .owner-server-table td:nth-child(2) { width: 15%; }
+    .owner-server-table th:nth-child(3), .owner-server-table td:nth-child(3) { width: 17%; }
+    .owner-server-table th:nth-child(4), .owner-server-table td:nth-child(4) { width: 13%; }
+    .owner-server-table th:nth-child(5), .owner-server-table td:nth-child(5) { width: 27%; }
+    .owner-server-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .owner-server-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
+    .owner-server-actions .result { display: none; }
+    .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
@@ -587,9 +598,9 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel owner-server-panel">
           <h3>All Server Dashboards</h3>
-          <table class="item-table">
+          <table class="item-table owner-server-table">
             <thead><tr><th>Server</th><th>Map</th><th>Admin Access</th><th>Open</th><th>Owner Actions</th></tr></thead>
             <tbody>
               {% for owned in servers %}
@@ -597,8 +608,8 @@ PAGE_TEMPLATE = """
                 <td>{{ owned.guild_name }}</td>
                 <td>{{ owned.map|upper }}</td>
                 <td>{{ 'enabled' if owned.dashboard_access.enabled else 'locked' }} · {{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</td>
-                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Owner Open</a></td>
-                <td>
+                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Open</a></td>
+                <td><div class="owner-server-actions">
                   {% if not owned.dashboard_access.enabled %}
                   <form class="admin-form inline-action" data-route="/api/admin/guild-access">
                     <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
@@ -626,7 +637,7 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="action" value="leave_and_remove">
                     <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
                   </form>
-                </td>
+                </div></td>
               </tr>
               {% endfor %}
             </tbody>
