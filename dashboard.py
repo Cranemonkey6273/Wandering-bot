@@ -263,14 +263,24 @@ PAGE_TEMPLATE = """
     .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--olive), var(--gold)); }
     .item-table { width: 100%; border-collapse: collapse; }
     .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
+    input[type="color"] { min-height: 2.8rem; padding: .25rem; cursor: pointer; }
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
-    .zone-map { position: relative; width: 100%; aspect-ratio: 1 / .72; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background: radial-gradient(circle at 35% 30%, rgba(141,150,62,.28), transparent 28%), linear-gradient(135deg, #172314, #070b08 70%); cursor: crosshair; }
-    .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 10% 10%; }
+    .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .zone-map { position: relative; width: 100%; min-height: 34rem; aspect-ratio: 1 / .62; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background:
+      radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
+      radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
+      radial-gradient(circle at 62% 55%, rgba(52,152,219,.12), transparent 13%),
+      linear-gradient(135deg, #182315, #071008 68%);
+      cursor: crosshair;
+    }
+    .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
+    .zone-map::after { content: "Click map to set X/Y"; position: absolute; right: .75rem; bottom: .65rem; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--gold); background: rgba(213,180,95,.22); border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: .75rem; font-weight: 900; pointer-events: none; }
     .zone-dot.safe { border-color: #75d89a; background: rgba(117,216,154,.18); }
     .zone-dot.pvp { border-color: #ed3853; background: rgba(237,56,83,.18); }
     .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
+    .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .server-switcher { display: grid; gap: .65rem; }
     .server-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
     .server-tab { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem .75rem; background: #070b08; color: var(--muted); }
@@ -280,7 +290,8 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
+      .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
       nav { display: none; }
     }
@@ -349,6 +360,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>
       <a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>
       <a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>
+      <a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>
       <a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>
       <a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>
       <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
@@ -362,7 +374,8 @@ PAGE_TEMPLATE = """
     <section class="category-grid" aria-label="Main categories">
       <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
       <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
-      <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, members and radar routing.</span></a>
+      <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
+      <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
@@ -486,7 +499,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Title <input name="title" value="Server Rules"></label>
-            <label>Colour <input name="colour" value="#8d963e"></label>
+            <label>Colour <input name="colour" type="color" value="#8d963e"></label>
             <label>Author name <input name="author_name" placeholder="optional"></label>
             <label>Author icon URL <input name="author_icon_url" placeholder="https://..."></label>
             <label>Thumbnail URL <input name="thumbnail_url" placeholder="https://..."></label>
@@ -604,7 +617,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             <label>Limit / max count <input name="limit" type="number" value="10"></label>
             <label>XP per message <input name="xp_per_message" type="number" value="15"></label>
             <label>Cooldown seconds <input name="cooldown_seconds" type="number" value="60"></label>
-            <label>Card accent colour <input name="card_colour" value="#8d963e"></label>
+            <label>Card accent colour <input name="card_colour" type="color" value="#8d963e"></label>
             <label>Background image URL <input name="background_url" placeholder="https://..."></label>
             <label class="full">Settings note <textarea name="notes">Configure this module for this server.</textarea></label>
             <div class="full"><button type="submit">Save Utility</button> <span class="result muted"></span></div>
@@ -661,7 +674,7 @@ Event pings | bell | 1234567890</textarea></label>
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
               </select>
             </label>
-            <label>Colour <input name="colour" value="#8d963e"></label>
+            <label>Colour <input name="colour" type="color" value="#8d963e"></label>
             <div class="full"><button type="submit">Save Faction</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -692,12 +705,25 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Radar Routing</button> <span class="result muted"></span></div>
           </form>
         </article>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "zones" %}
+    <section class="section-panel" id="zones">
+      <div class="section-head">
+        <div>
+          <h2>Zones</h2>
+          <p class="tool-note">Create and manage safe zones, PVP zones, radar ping zones, faction territory, and action rules. Existing radar zones created with Discord commands are shown here too.</p>
+        </div>
+        <span class="pill">{{ server.zones|length if server else 0 }} zones</span>
+      </div>
+      <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
-          <p class="tool-note">Click the map to place the zone center, choose the type, radius, and ping channel, then save. Coordinates are stored in the guild config for safe zones, PVP zones, and radar pings.</p>
-          <form class="admin-form" data-route="/api/admin/zone">
+          <form class="admin-form zone-builder-form" data-route="/api/admin/zone">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Zone name <input name="name" value="North West Airfield"></label>
             <label>Zone type
               <select name="zone_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option><option value="faction">Faction territory</option><option value="custom">Custom marker</option></select>
@@ -705,20 +731,41 @@ Event pings | bell | 1234567890</textarea></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Y coordinate <input name="y" type="number" value="7500"></label>
             <label>Radius meters <input name="radius" type="number" value="250"></label>
-            <label>Ping channel
+            <label>Ping / report channel
               <select name="channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
               </select>
             </label>
-            <label>Ping role ID <input name="role_id" placeholder="optional role id"></label>
+            <label>Ping role ID <input name="role_id" placeholder="optional Discord role id"></label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Action on violation
+              <select name="action"><option value="none">Notify only</option><option value="manhunt">Start manhunt</option><option value="ban">Ban through Nitrado</option></select>
+            </label>
+            <label>Ban type <select name="ban_type"><option value="temp">Temp ban</option><option value="perm">Perm ban</option></select></label>
+            <label>Temp ban minutes <input name="ban_duration_minutes" type="number" value="1440"></label>
+            <label>Trigger territory <select name="trigger_territory"><option value="inside">Inside zone</option><option value="outside">Outside zone</option></select></label>
+            <label class="full">Triggers <input name="triggers" value="detection,login,kill,build" placeholder="detection, login, kill, build, flag_raise"></label>
+            <label class="full">Ignored gamertags <input name="ignored_gamertags" placeholder="comma-separated names that should not ping radar"></label>
             <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}">
               {% for zone in (server.zones if server else []) %}
-              <span class="zone-dot {{ zone.zone_type }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
+              <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
               {% endfor %}
             </div>
             <div class="full"><button type="submit">Save Zone</button> <span class="result muted"></span></div>
           </form>
+        </article>
+        <article class="admin-panel full">
+          <h3>Existing Zones</h3>
+          <table class="item-table">
+            <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th></tr></thead>
+            <tbody>
+              {% for zone in (server.zones if server else []) %}
+              <tr><td>{{ loop.index }}</td><td>{{ zone.name }}</td><td>{{ zone.zone_type }}</td><td>{{ zone.x }}, {{ zone.y }}</td><td>{{ zone.radius }}m</td><td>{{ zone.action or 'notify' }}</td><td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td></tr>
+              {% else %}
+              <tr><td colspan="7">No zones saved yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </article>
       </div>
     </section>
@@ -989,7 +1036,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Start delay seconds <input name="delay_seconds" type="number" value="30" min="0"></label>
             <label>Repeat minutes <input name="repeat_minutes" type="number" value="30" min="0"></label>
             <label>Display seconds <input name="display_seconds" type="number" value="10" min="1"></label>
-            <label>Colour <input name="colour" value="#d5b45f"></label>
+            <label>Colour <input name="colour" type="color" value="#d5b45f"></label>
             <label class="full">Message text <textarea name="text">Join the Discord and link your gamertag with /linkgamer to keep playing.</textarea></label>
             <div class="full embed-preview">
               <strong>Restart required</strong>
@@ -1664,21 +1711,22 @@ def map_size_for(server_map: str) -> int:
 
 def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, Any]]:
     map_size = map_size_for(server_map)
-    zones = config.get("zones")
-    if not isinstance(zones, list):
-        zones = []
-    if not zones:
-        for zone in list_records(config.get("safe_zones", [])):
-            if isinstance(zone, dict):
-                zone = dict(zone)
-                zone.setdefault("zone_type", "safe")
-                zones.append(zone)
-        for zone in list_records(config.get("radar_zones", [])):
-            if isinstance(zone, dict):
-                zone = dict(zone)
-                zone.setdefault("zone_type", "radar")
-                zones.append(zone)
+    zones = []
+    for zone in list_records(config.get("zones", [])):
+        if isinstance(zone, dict):
+            zones.append(dict(zone))
+    for zone in list_records(config.get("safe_zones", [])):
+        if isinstance(zone, dict):
+            zone = dict(zone)
+            zone.setdefault("zone_type", "safe")
+            zones.append(zone)
+    for zone in list_records(config.get("radar_zones", [])):
+        if isinstance(zone, dict):
+            zone = dict(zone)
+            zone.setdefault("zone_type", "radar")
+            zones.append(zone)
     normalized = []
+    seen = set()
     for zone in zones:
         if not isinstance(zone, dict):
             continue
@@ -1688,16 +1736,25 @@ def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, 
         zone_type = str(zone.get("zone_type") or zone.get("type") or "radar").lower()
         if zone_type not in {"safe", "pvp", "radar", "faction", "custom"}:
             zone_type = "custom"
+        zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
+        dedupe_key = (zone_type, zone_id, x, y, radius)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
         normalized.append(
             {
-                "id": str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}"),
+                "id": zone_id,
                 "name": str(zone.get("name") or zone.get("label") or "Unnamed zone"),
                 "zone_type": zone_type,
                 "x": x,
                 "y": y,
                 "radius": radius,
                 "channel_key": str(zone.get("channel_key") or ""),
+                "alert_channel_id": str(zone.get("alert_channel_id") or ""),
+                "report_channel_id": str(zone.get("report_channel_id") or ""),
                 "role_id": str(zone.get("role_id") or ""),
+                "mention_role_id": str(zone.get("mention_role_id") or ""),
+                "action": str(zone.get("action") or "none"),
                 "enabled": bool(zone.get("enabled", True)),
                 "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
                 "y_percent": round(100 - ((y / map_size) * 100), 2) if map_size else 0,
@@ -1933,7 +1990,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "heatmaps", "pve", "economy", "shop", "server-rules", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "access", "owner"}
     if active_section not in valid_sections:
         active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
@@ -2302,6 +2359,10 @@ def api_zone():
     y = max(0, min(map_size, safe_int(payload.get("y"))))
     radius = max(1, safe_int(payload.get("radius"), 250))
     zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel_key = str(payload.get("channel_key") or "")
+    channel_id = channels.get(channel_key)
+    role_id = str(payload.get("role_id") or "").strip()
     record = {
         "id": zone_id,
         "name": name,
@@ -2309,29 +2370,52 @@ def api_zone():
         "x": x,
         "y": y,
         "radius": radius,
-        "channel_key": str(payload.get("channel_key") or ""),
-        "role_id": str(payload.get("role_id") or ""),
+        "channel_key": channel_key,
+        "alert_channel_id": channel_id if zone_type == "radar" else None,
+        "report_channel_id": channel_id if zone_type in {"safe", "pvp"} else None,
+        "role_id": role_id,
+        "mention_role_id": role_id,
+        "triggers": csv_list(payload.get("triggers", ["detection", "login"])) if zone_type == "radar" else csv_list(payload.get("triggers", ["kill", "build", "trespass"])),
+        "ignored_gamertags": csv_list(payload.get("ignored_gamertags", [])),
+        "trigger_territory": str(payload.get("trigger_territory") or "inside"),
+        "action": str(payload.get("action") or ("none" if zone_type == "radar" else "ban")),
+        "ban_type": str(payload.get("ban_type") or "temp"),
+        "ban_duration_minutes": max(1, safe_int(payload.get("ban_duration_minutes"), 1440)),
+        "escalate_to_perm_after": max(1, safe_int(payload.get("escalate_to_perm_after"), 3)),
         "enabled": bool(payload.get("enabled", True)),
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    zones = config.setdefault("zones", [])
-    if not isinstance(zones, list):
-        zones = []
-        config["zones"] = zones
+    if zone_type == "radar":
+        radar_record = dict(record)
+        radar_record["cooldown_seconds"] = max(1, safe_int(payload.get("cooldown_seconds"), 600))
+        target = config.setdefault("radar_zones", [])
+    elif zone_type in {"safe", "pvp"}:
+        radar_record = dict(record)
+        radar_record["shape"] = "circle"
+        if zone_type == "pvp" and radar_record["action"] == "none":
+            radar_record["action"] = "ban"
+        target = config.setdefault("safe_zones", [])
+    else:
+        radar_record = dict(record)
+        target = config.setdefault("zones", [])
+    if not isinstance(target, list):
+        target = []
+        if zone_type == "radar":
+            config["radar_zones"] = target
+        elif zone_type in {"safe", "pvp"}:
+            config["safe_zones"] = target
+        else:
+            config["zones"] = target
     replaced = False
-    for index, zone in enumerate(zones):
+    for index, zone in enumerate(target):
         if isinstance(zone, dict) and str(zone.get("id") or zone.get("name")) == zone_id:
-            zones[index] = record
+            target[index] = radar_record
             replaced = True
             break
     if not replaced:
-        zones.append(record)
-    if zone_type == "safe":
-        config["safe_zones"] = [zone for zone in zones if isinstance(zone, dict) and str(zone.get("zone_type")) == "safe"]
-    if zone_type == "radar":
-        config["radar_zones"] = [zone for zone in zones if isinstance(zone, dict) and str(zone.get("zone_type")) == "radar"]
+        target.append(radar_record)
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "zone": record})
+    return jsonify({"ok": True, "zone": radar_record})
 
 
 @APP.post("/api/admin/link-enforcement")
