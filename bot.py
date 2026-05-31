@@ -9888,11 +9888,12 @@ load_rpt_event_tracker()
 # LIVE DASHBOARD SETTINGS
 # =========================================================
 
-ONLINE_UPDATE_MINUTES = 30
+ONLINE_UPDATE_MINUTES = 15
 LEADERBOARD_UPDATE_MINUTES = 60
 HEATMAP_UPDATE_MINUTES = 60
 
 last_online_message_ids = {}
+last_online_dashboard_snapshots = {}
 last_leaderboard_message_ids = {}
 last_heatmap_message_ids = {}
 last_pve_heatmap_message_ids = {}
@@ -12967,7 +12968,7 @@ async def parse_adm(guild_id, config):
 
         # ================= CONNECT =================
 
-        if event_type == "connect" and connect_channel:
+        if event_type == "connect":
 
             player_match = re.search(
                 r'Player "([^"]+)"',
@@ -12985,7 +12986,7 @@ async def parse_adm(guild_id, config):
 
             # 👋 Welcome embed for any gamertag we've never seen before.
             # Posts in the connect channel right under the connect feed.
-            if is_first_time_player(guild_id, player_name):
+            if connect_channel and is_first_time_player(guild_id, player_name):
                 try:
                     welcome_embed = discord.Embed(
                         title="👋✨ NEW SURVIVOR DETECTED",
@@ -13099,14 +13100,17 @@ async def parse_adm(guild_id, config):
 
             embed.timestamp = event_time
 
-            await connect_channel.send(embed=embed)
+            if connect_channel:
+                await connect_channel.send(embed=embed)
+
+            await upsert_online_dashboard_message(guild_id, config, f"{player_name} joined")
 
             # Welcome channel messaging for in-game connects removed.
             # Welcome messages are only for Discord member joins.
 
         # ================= DISCONNECT =================
 
-        elif event_type == "disconnect" and disconnect_channel:
+        elif event_type == "disconnect":
 
             player_match = re.search(
                 r'Player "([^"]+)"',
@@ -13203,6 +13207,8 @@ async def parse_adm(guild_id, config):
 
             if disconnect_channel:
                 await disconnect_channel.send(embed=embed)
+
+            await upsert_online_dashboard_message(guild_id, config, f"{player_name} left")
 
         # ================= BUILD =================
 
@@ -21065,12 +21071,92 @@ async def purge_self_dashboard_messages(channel, limit=10):
         pass
 
 
+def build_online_dashboard_embed(guild_id, reason=""):
+    ensure_guild_runtime(guild_id)
+    guild_online = online_players[guild_id]
+    player_text = "\n".join(
+        f"🟢 {player}"
+        for player in sorted(guild_online)
+    ) if guild_online else "No survivors online."
+
+    embed = discord.Embed(
+        title=f"✅🎮 LIVE SURVIVORS ONLINE 🎮✅ ({len(guild_online)})",
+        description=player_text,
+        color=0x2ECC71
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    footer = "Wandering Bot Alpha - Live online display"
+    if reason:
+        footer = f"{footer} - {reason}"
+    embed.set_footer(text=footer)
+    embed.timestamp = datetime.now(UTC)
+    return embed
+
+
+async def find_existing_online_dashboard_message(channel):
+    try:
+        async for old_msg in channel.history(limit=20):
+            if old_msg.author != bot.user or not old_msg.embeds:
+                continue
+            title = str(getattr(old_msg.embeds[0], "title", "") or "")
+            if "LIVE SURVIVORS ONLINE" in title or "ONLINE SURVIVORS" in title:
+                return old_msg
+    except Exception:
+        pass
+    return None
+
+
+async def upsert_online_dashboard_message(guild_id, config, reason="", force=False):
+    channels = config.get("channels", {})
+    online_channel = bot.get_channel(channels.get("online"))
+    if not online_channel:
+        return
+
+    ensure_guild_runtime(guild_id)
+    snapshot = tuple(sorted(online_players[guild_id]))
+    if not force and last_online_dashboard_snapshots.get(guild_id) == snapshot:
+        return
+
+    embed = build_online_dashboard_embed(guild_id, reason)
+    message_id = last_online_message_ids.get(guild_id) or config.get("online_dashboard_message_id")
+    message = None
+
+    if message_id:
+        try:
+            message = await online_channel.fetch_message(int(message_id))
+        except Exception:
+            message = None
+
+    if message is None:
+        message = await find_existing_online_dashboard_message(online_channel)
+
+    if message is not None:
+        try:
+            await message.edit(embed=embed)
+            last_online_message_ids[guild_id] = message.id
+            config["online_dashboard_message_id"] = message.id
+            last_online_dashboard_snapshots[guild_id] = snapshot
+            save_guild_configs()
+            return
+        except Exception:
+            pass
+
+    await purge_self_dashboard_messages(online_channel, limit=10)
+    sent_message = await online_channel.send(embed=embed)
+    last_online_message_ids[guild_id] = sent_message.id
+    config["online_dashboard_message_id"] = sent_message.id
+    last_online_dashboard_snapshots[guild_id] = snapshot
+    save_guild_configs()
+
+
 @tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
 async def online_dashboard_loop():
 
     for guild_id, config in active_guild_config_items():
 
         try:
+            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=True)
+            continue
 
             channels = config.get("channels", {})
 
