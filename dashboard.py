@@ -4174,7 +4174,19 @@ def run_dashboard_server():
     try:
         from waitress import serve
 
-        serve(APP, host=DASHBOARD_HOST, port=DASHBOARD_PORT, threads=8)
+        serve(
+            APP,
+            host=DASHBOARD_HOST,
+            port=DASHBOARD_PORT,
+            threads=8,
+            trusted_proxy="*",
+            trusted_proxy_headers={
+                "x-forwarded-for",
+                "x-forwarded-host",
+                "x-forwarded-port",
+                "x-forwarded-proto",
+            },
+        )
     except Exception as error:
         print(f"[DASHBOARD] Waitress unavailable, falling back to Flask dev server: {error}")
         APP.run(host=DASHBOARD_HOST, port=DASHBOARD_PORT, use_reloader=False)
