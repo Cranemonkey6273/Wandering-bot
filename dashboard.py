@@ -27,6 +27,10 @@ DATA_ROOT = (
 )
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
+MAP_IMAGE_FILES = {
+    "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
+    "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
+}
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
@@ -154,6 +158,7 @@ PAGE_TEMPLATE = """
       --gold: #d5b45f;
       --red: #ed3853;
       --accent: var(--gold);
+      --map-image: linear-gradient(transparent, transparent);
     }
     body[data-theme="forest"] { --bg: #07100b; --panel: #18251a; --panel-2: #26351f; --panel-3: #101910; --line: rgba(143, 201, 128, .34); --text: #f1f7e9; --muted: #c8d8bb; --olive: #7ca45a; --gold: #c8d46a; --accent: #9fcd73; }
     body[data-theme="amber"] { --bg: #120d06; --panel: #241b10; --panel-2: #342514; --panel-3: #1a130b; --line: rgba(225, 178, 94, .36); --text: #fff1d8; --muted: #dec8a4; --olive: #a47d3a; --gold: #e3b65f; --accent: #e3b65f; }
@@ -319,10 +324,13 @@ PAGE_TEMPLATE = """
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
     .zone-map { position: relative; width: 100%; min-height: 34rem; aspect-ratio: 1 / .62; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background:
+      var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
       radial-gradient(circle at 62% 55%, rgba(52,152,219,.12), transparent 13%),
       linear-gradient(135deg, #182315, #071008 68%);
+      background-size: cover, auto, auto, auto, auto;
+      background-position: center, center, center, center, center;
       cursor: crosshair;
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
@@ -338,6 +346,7 @@ PAGE_TEMPLATE = """
     .zone-boundary-layer polygon { fill: rgba(213,180,95,.16); stroke: var(--accent); stroke-width: 2.5; }
     .zone-boundary-layer polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-dasharray: 7 5; }
     .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); pointer-events: none; z-index: 2; }
+    .map-missing { position: absolute; left: .75rem; top: .75rem; z-index: 2; max-width: min(34rem, calc(100% - 1.5rem)); border: 1px solid rgba(237,56,83,.4); border-radius: .45rem; background: rgba(5,8,6,.84); color: #ffd8df; padding: .55rem .7rem; font-size: .9rem; }
     .trial-notice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid rgba(213,180,95,.45); border-radius: .5rem; padding: .7rem .85rem; background: rgba(213,180,95,.13); color: var(--text); }
     .trial-notice span { color: var(--muted); }
     .map-readout { margin-top: .4rem; color: var(--gold); font-size: .9rem; }
@@ -404,7 +413,7 @@ PAGE_TEMPLATE = """
       <img src="/brand-image" alt="Wandering Bot mark">
     </section>
 
-    {% if server and server.dashboard_access.plan_status == "trial" and server.dashboard_access.trial_notice_enabled %}
+    {% if auth.kind == "owner" and server and server.dashboard_access.plan_status == "trial" and server.dashboard_access.trial_notice_enabled %}
     <section class="trial-notice" data-plan-notice data-plan-key="{{ server.guild_id }}-trial">
       <div><strong>Trial dashboard</strong> <span>{% if server.dashboard_access.trial_ends_at %}Trial ends {{ server.dashboard_access.trial_ends_at }}.{% else %}This server is currently running as a trial.{% endif %}</span></div>
       <button type="button" data-dismiss-plan-notice>Dismiss today</button>
@@ -449,7 +458,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
-      <a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>
+      {% if auth.kind == "owner" %}<a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>{% endif %}
     </section>
 
     {% if active_section == "overview" %}
@@ -464,7 +473,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
-      <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>
+      {% if auth.kind == "owner" %}<a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>{% endif %}
     </section>
     {% endif %}
 
@@ -831,7 +840,10 @@ Event pings | bell | 1234567890</textarea></label>
                 <button type="button" data-undo-boundary>Undo Point</button>
               </div>
             </div>
-            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}">
+            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+              {% if server and not server.map_image_available %}
+              <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
+              {% endif %}
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% for zone in (server.zones if server else []) %}
               {% if zone.shape == "boundary" and zone.points_percent %}
@@ -1189,7 +1201,7 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] and active_section == "access" %}
+    {% if auth.kind == "owner" and mode in ["admin", "owner"] and active_section == "access" %}
     <section class="section-panel" id="access">
       <div class="section-head">
         <div>
@@ -2006,6 +2018,17 @@ def map_size_for(server_map: str) -> int:
     return 15360
 
 
+def map_key_for(server_map: str) -> str:
+    name = str(server_map or "").strip().lower()
+    if "livonia" in name or name == "enoch":
+        return "livonia"
+    return "chernarus"
+
+
+def map_image_file_for(server_map: str) -> str:
+    return MAP_IMAGE_FILES.get(map_key_for(server_map), MAP_IMAGE_FILES["chernarus"])
+
+
 def normalized_zones(config: dict[str, Any], server_map: str) -> list[dict[str, Any]]:
     map_size = map_size_for(server_map)
     zones = []
@@ -2218,7 +2241,9 @@ def load_dashboard_state() -> dict[str, Any]:
                 "guild_name": str(config.get("guild_name") or f"Guild {guild_id}"),
                 "active": not bool(config.get("bot_removed")),
                 "map": server_map,
+                "map_key": map_key_for(server_map),
                 "map_size": map_size_for(server_map),
+                "map_image_available": os.path.exists(map_image_file_for(server_map)),
                 "online": online,
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
@@ -2306,6 +2331,8 @@ def page(mode: str, auth: dict[str, Any]):
     state = filter_state_for_auth(state, auth)
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "help", "access", "owner"}
+    if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
+        active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
@@ -2425,6 +2452,15 @@ def brand_image():
     return ("", 404)
 
 
+@APP.get("/map-image/<map_key>")
+def map_image(map_key: str):
+    key = map_key_for(map_key)
+    path = MAP_IMAGE_FILES.get(key, "")
+    if path and os.path.exists(path):
+        return send_file(path)
+    return ("", 404)
+
+
 @APP.get("/")
 def index():
     auth, error = require_page_auth()
@@ -2497,9 +2533,11 @@ def api_summary():
 
 @APP.get("/api/admin")
 def api_admin_index():
-    if not current_auth():
+    auth = current_auth()
+    if not auth:
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
-    return jsonify({"ok": True, "routes": ADMIN_ROUTES})
+    routes = ADMIN_ROUTES if auth.get("kind") == "owner" else [route for route in ADMIN_ROUTES if route != "/api/admin/guild-access"]
+    return jsonify({"ok": True, "routes": routes})
 
 
 @APP.post("/api/admin/embed-template")
@@ -2946,9 +2984,12 @@ def api_wallet_adjustment():
 
 @APP.post("/api/admin/guild-access")
 def api_guild_access():
-    payload, error = require_admin()
-    if error:
-        return error
+    auth = current_auth()
+    if not auth:
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    if auth.get("kind") != "owner":
+        return jsonify({"ok": False, "error": "owner login required"}), 403
+    payload = request_payload()
     payload = payload or {}
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
