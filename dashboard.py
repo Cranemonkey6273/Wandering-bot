@@ -11,6 +11,7 @@ import json
 import os
 import secrets
 import hashlib
+import re
 from datetime import UTC, datetime
 from threading import Thread
 from typing import Any
@@ -117,17 +118,22 @@ PAGE_TEMPLATE = """
     :root {
       color-scheme: dark;
       --bg: #050806;
-      --panel: #111710;
-      --panel-2: #192014;
-      --panel-3: #0b100b;
-      --line: rgba(209, 203, 145, .24);
+      --panel: #172016;
+      --panel-2: #222d1b;
+      --panel-3: #10180f;
+      --line: rgba(209, 203, 145, .32);
       --text: #f3ecd9;
       --muted: #c4bda7;
       --dim: #8f8a6e;
       --olive: #8d963e;
       --gold: #d5b45f;
       --red: #ed3853;
+      --accent: var(--gold);
     }
+    body[data-theme="forest"] { --bg: #07100b; --panel: #18251a; --panel-2: #26351f; --panel-3: #101910; --line: rgba(143, 201, 128, .34); --text: #f1f7e9; --muted: #c8d8bb; --olive: #7ca45a; --gold: #c8d46a; --accent: #9fcd73; }
+    body[data-theme="amber"] { --bg: #120d06; --panel: #241b10; --panel-2: #342514; --panel-3: #1a130b; --line: rgba(225, 178, 94, .36); --text: #fff1d8; --muted: #dec8a4; --olive: #a47d3a; --gold: #e3b65f; --accent: #e3b65f; }
+    body[data-theme="steel"] { --bg: #071014; --panel: #142027; --panel-2: #1f3038; --panel-3: #0d171c; --line: rgba(134, 191, 210, .34); --text: #edf7fb; --muted: #b9ced6; --olive: #5b8ea0; --gold: #79c7dd; --accent: #79c7dd; }
+    body[data-theme="highland"] { --bg: #0f0d0b; --panel: #211d18; --panel-2: #302a21; --panel-3: #17130f; --line: rgba(198, 169, 121, .35); --text: #f8eddd; --muted: #d4c0a4; --olive: #8b7652; --gold: #d9b779; --accent: #d9b779; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -155,6 +161,14 @@ PAGE_TEMPLATE = """
     .brand img { width: 3rem; height: 3rem; border-radius: .75rem; object-fit: cover; }
     .brand strong { display: block; text-transform: uppercase; letter-spacing: .08em; }
     .brand span, .muted { color: var(--muted); }
+    .theme-picker { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; }
+    .theme-picker button { width: 2rem; height: 2rem; padding: 0; border-radius: 999px; border-color: var(--line); color: transparent; overflow: hidden; }
+    .theme-picker button[data-theme-choice="default"] { background: linear-gradient(135deg, #8d963e 0 50%, #d5b45f 50%); }
+    .theme-picker button[data-theme-choice="forest"] { background: linear-gradient(135deg, #7ca45a 0 50%, #c8d46a 50%); }
+    .theme-picker button[data-theme-choice="amber"] { background: linear-gradient(135deg, #a47d3a 0 50%, #e3b65f 50%); }
+    .theme-picker button[data-theme-choice="steel"] { background: linear-gradient(135deg, #5b8ea0 0 50%, #79c7dd 50%); }
+    .theme-picker button[data-theme-choice="highland"] { background: linear-gradient(135deg, #8b7652 0 50%, #d9b779 50%); }
+    .theme-picker button.active { box-shadow: 0 0 0 2px var(--text); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
     nav a, button, .button, .tab-link {
       border: 1px solid var(--line);
@@ -179,7 +193,7 @@ PAGE_TEMPLATE = """
     .stat, .card { padding: 1rem; }
     .stat { border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-3); }
     .stat span { display: block; color: var(--muted); font-size: .8rem; text-transform: uppercase; }
-    .stat strong { display: block; color: var(--gold); font-size: 1.8rem; }
+    .stat strong { display: block; color: var(--accent); font-size: 1.8rem; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
     .servers { display: grid; gap: .85rem; }
     .server-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
@@ -281,6 +295,11 @@ PAGE_TEMPLATE = """
     .zone-dot.pvp { border-color: #ed3853; background: rgba(237,56,83,.18); }
     .zone-dot.radar { border-color: #d5b45f; background: rgba(213,180,95,.2); }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
+    .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
+    .map-readout { margin-top: .4rem; color: var(--gold); font-size: .9rem; }
+    .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+    .help-card { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #070b08; }
+    .help-card ol { margin: .5rem 0 0; padding-left: 1.2rem; color: var(--muted); line-height: 1.55; }
     .server-switcher { display: grid; gap: .65rem; }
     .server-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
     .server-tab { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem .75rem; background: #070b08; color: var(--muted); }
@@ -290,7 +309,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid { grid-template-columns: 1fr; }
       .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
       nav { display: none; }
@@ -312,6 +331,13 @@ PAGE_TEMPLATE = """
       <a href="/api/summary">API</a>
       <a href="/logout">Logout</a>
     </nav>
+    <div class="theme-picker" aria-label="Theme picker">
+      <button type="button" data-theme-choice="default" title="Wandering"></button>
+      <button type="button" data-theme-choice="forest" title="Forest"></button>
+      <button type="button" data-theme-choice="amber" title="Amber"></button>
+      <button type="button" data-theme-choice="steel" title="Steel"></button>
+      <button type="button" data-theme-choice="highland" title="Highland"></button>
+    </div>
   </header>
   <main>
     <section class="hero">
@@ -366,6 +392,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
       <a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>
       <a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>
+      <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
       <a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>
     </section>
@@ -381,6 +408,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
+      <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
       <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>
     </section>
     {% endif %}
@@ -689,22 +717,6 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Update Member</button> <span class="result muted"></span></div>
           </form>
         </article>
-        <article class="admin-panel">
-          <h3>Radar Ping Routing</h3>
-          <form class="admin-form" data-route="/api/admin/embed-template">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="name" value="radar-routing-note">
-            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Default radar channel
-              <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Ping reason <input name="title" value="Radar Ping"></label>
-            <label class="full">Staff note <textarea name="body">Use this routing for radar pings, faction territory alerts, and suspicious movement reports.</textarea></label>
-            <div class="full"><button type="submit">Save Radar Routing</button> <span class="result muted"></span></div>
-          </form>
-        </article>
       </div>
     </section>
     {% endif %}
@@ -746,11 +758,16 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Trigger territory <select name="trigger_territory"><option value="inside">Inside zone</option><option value="outside">Outside zone</option></select></label>
             <label class="full">Triggers <input name="triggers" value="detection,login,kill,build" placeholder="detection, login, kill, build, flag_raise"></label>
             <label class="full">Ignored gamertags <input name="ignored_gamertags" placeholder="comma-separated names that should not ping radar"></label>
+            <div class="full embed-preview">
+              <strong>Map controls</strong>
+              <span>Click anywhere on the map to fill X/Y. Use a radar zone to notify a role/channel, or a safe/PVP zone to apply actions like notify, manhunt, or Nitrado ban.</span>
+            </div>
             <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}">
               {% for zone in (server.zones if server else []) %}
               <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
               {% endfor %}
             </div>
+            <div class="full map-readout" data-map-readout>Click the map to choose a coordinate.</div>
             <div class="full"><button type="submit">Save Zone</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -1049,6 +1066,55 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "help" %}
+    <section class="section-panel" id="help">
+      <div class="section-head">
+        <div>
+          <h2>Dashboard Help</h2>
+          <p class="tool-note">A quick walkthrough for the controls admins ask about most often.</p>
+        </div>
+      </div>
+      <div class="help-grid">
+        <article class="help-card">
+          <h3>Zones</h3>
+          <ol>
+            <li>Open Zones and pick the server at the top of the dashboard.</li>
+            <li>Click the map to fill the X/Y coordinates, then set the radius.</li>
+            <li>Use Radar when you only want a channel or role ping.</li>
+            <li>Use Safe/PVP when the zone needs actions such as notify, manhunt, or Nitrado ban.</li>
+            <li>Existing `/addradarzone` and `/server zone` entries are loaded here automatically.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Radar Pings</h3>
+          <ol>
+            <li>Choose Radar ping zone.</li>
+            <li>Pick the channel that should receive alerts.</li>
+            <li>Add a Discord role ID if a role should be pinged.</li>
+            <li>Add ignored gamertags for admins, owners, or faction members who should not trigger it.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Server Rules</h3>
+          <ol>
+            <li>Use Discord Link Enforcement to require players to join Discord and link their gamertag.</li>
+            <li>Notify is safest, temp ban and perm ban push to Nitrado ban files.</li>
+            <li>Restart after ban forces Nitrado to apply the ban immediately.</li>
+            <li>On-screen message changes are file changes and apply after restart.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Themes</h3>
+          <ol>
+            <li>Use the colour circles in the top bar to change the dashboard look.</li>
+            <li>The choice is saved in this browser.</li>
+            <li>The theme only changes dashboard colours, not bot behaviour.</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "access" %}
     <section class="section-panel" id="access">
       <div class="section-head">
@@ -1230,6 +1296,31 @@ Event pings | bell | 1234567890</textarea></label>
         const y = Math.round((1 - ((event.clientY - rect.top) / rect.height)) * size);
         form.elements.x.value = Math.max(0, Math.min(size, x));
         form.elements.y.value = Math.max(0, Math.min(size, y));
+        let cursor = map.querySelector(".zone-cursor");
+        if (!cursor) {
+          cursor = document.createElement("span");
+          cursor.className = "zone-cursor";
+          map.appendChild(cursor);
+        }
+        cursor.style.left = `${((event.clientX - rect.left) / rect.width) * 100}%`;
+        cursor.style.top = `${((event.clientY - rect.top) / rect.height) * 100}%`;
+        const readout = form.querySelector("[data-map-readout]");
+        if (readout) readout.textContent = `Selected X ${form.elements.x.value}, Y ${form.elements.y.value}`;
+      });
+    });
+    const savedTheme = localStorage.getItem("wanderingDashboardTheme") || "default";
+    function applyTheme(theme) {
+      document.body.dataset.theme = theme === "default" ? "" : theme;
+      document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.themeChoice === theme);
+      });
+    }
+    applyTheme(savedTheme);
+    document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const theme = button.dataset.themeChoice || "default";
+        localStorage.setItem("wanderingDashboardTheme", theme);
+        applyTheme(theme);
       });
     });
   </script>
@@ -1990,7 +2081,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "help", "access", "owner"}
     if active_section not in valid_sections:
         active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
