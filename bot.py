@@ -12405,8 +12405,18 @@ void WanderingBotDeleteAllVehicles(vector centerPos, float radius, string exclud
     }
 }
 
+vector WanderingBotGrounded(vector pos)
+{
+    if (pos[1] <= 0.1)
+    {
+        pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
+    }
+    return pos;
+}
+
 vector WanderingBotRandomNearby(vector centerPos, float radius)
 {
+    centerPos = WanderingBotGrounded(centerPos);
     if (radius <= 0)
     {
         return centerPos;
@@ -12414,7 +12424,7 @@ vector WanderingBotRandomNearby(vector centerPos, float radius)
 
     float offsetX = Math.RandomFloatInclusive(-radius, radius);
     float offsetZ = Math.RandomFloatInclusive(-radius, radius);
-    return Vector(centerPos[0] + offsetX, centerPos[1], centerPos[2] + offsetZ);
+    return WanderingBotGrounded(Vector(centerPos[0] + offsetX, centerPos[1], centerPos[2] + offsetZ));
 }
 
 void WanderingBotFillLoot(EntityAI container, string lootTypes)
@@ -12515,7 +12525,7 @@ void WanderingBotSpawnGuards(string guardClass, vector centerPos, int guardCount
     for (int guardIndex = 0; guardIndex < guardCount; guardIndex++)
     {
         vector guardPos = WanderingBotRandomNearby(centerPos, guardRadius);
-        GetGame().CreateObject(guardClass, guardPos);
+        GetGame().CreateObject(guardClass, WanderingBotGrounded(guardPos));
         Print("[WANDERING BOT] Airdrop guard spawned: " + guardClass);
     }
 }
@@ -12534,7 +12544,7 @@ void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float 
 
     if (markerClass != "")
     {
-        GetGame().CreateObject(markerClass, centerPos);
+        GetGame().CreateObject(markerClass, WanderingBotGrounded(centerPos));
         Print("[WANDERING BOT] Event marker spawned: " + markerClass);
     }
 
@@ -12597,6 +12607,7 @@ void SpawnWanderingDeliveries()
                     posSplit.Get(1).ToFloat(),
                     posSplit.Get(2).ToFloat()
                 );
+                spawnPos = WanderingBotGrounded(spawnPos);
 
                 if (action == "reset_vehicle")
                 {
@@ -22586,8 +22597,17 @@ def add_console_ce_event_definition(root, event_name, child_type, count, lifetim
     return event_node
 
 
-def add_console_ce_event_spawn(root, event_name, x, z, angle=0):
+def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45):
     event_node = ET.SubElement(root, "event", {"name": event_name})
+    count = max(1, int(count or 1))
+    radius = max(1, int(radius or 45))
+    ET.SubElement(event_node, "zone", {
+        "smin": "1",
+        "smax": str(count),
+        "dmin": "1",
+        "dmax": str(count),
+        "r": str(radius),
+    })
     ET.SubElement(event_node, "pos", {
         "x": ce_decimal(x),
         "z": ce_decimal(z),
@@ -22630,6 +22650,7 @@ def console_ce_records_for_event(event):
         "lifetime": lifetime,
         "x": event.get("x"),
         "z": event.get("z"),
+        "radius": event.get("radius"),
     })
 
     if event_type == "airdrop":
@@ -22643,6 +22664,7 @@ def console_ce_records_for_event(event):
                 "lifetime": 1800,
                 "x": event.get("x"),
                 "z": event.get("z"),
+                "radius": event.get("guard_radius") or event.get("radius"),
             })
 
         marker_class = str(event.get("marker_class") or "").strip()
@@ -22654,6 +22676,7 @@ def console_ce_records_for_event(event):
                 "lifetime": 7200,
                 "x": event.get("x"),
                 "z": event.get("z"),
+                "radius": event.get("radius"),
             })
 
         if event.get("loot_preset") and event.get("loot_preset") != "none":
@@ -22725,6 +22748,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             record["name"],
             record["x"],
             record["z"],
+            count=record["count"],
+            radius=record.get("radius") or 45,
         )
 
     messages = [
@@ -24103,9 +24128,11 @@ async def dashboard_scenario_upload_loop():
                 if isinstance(event, dict)
                 and event.get("enabled", True)
                 and str(event.get("created_by") or "") == "dashboard"
-                and str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
+                and (
+                    str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
+                    or (event.get("bridge_uploaded_at") and not event.get("bridge_surface_fixed_at"))
+                )
                 and not event.get("xml_uploaded_at")
-                and not event.get("bridge_uploaded_at")
                 and not is_economy_vehicle_reset_event(event)
             ]
             if not pending_events:
@@ -24132,6 +24159,7 @@ async def dashboard_scenario_upload_loop():
                 if success:
                     event["upload_status"] = "uploaded"
                     event["bridge_uploaded_at"] = now_text
+                    event["bridge_surface_fixed_at"] = now_text
                     event["bridge_xml_path"] = xml_path
                     event["status"] = "Bridge XML uploaded / waiting for restart"
                     event.pop("upload_error", None)

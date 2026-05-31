@@ -1207,7 +1207,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Classname <input name="class_name" value="WoodenCrate" placeholder="Only needed for Custom classname"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
-            <label>Y height <input name="y" type="number" value="0"></label>
+            <label>Y height <input name="y" type="number" value="0" placeholder="0 = terrain height"></label>
             <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
@@ -3781,6 +3781,8 @@ def api_scenario_event_action():
         if action == "approve":
             event["upload_status"] = "waiting_for_bot_upload"
             event.pop("xml_uploaded_at", None)
+            event.pop("bridge_uploaded_at", None)
+            event.pop("bridge_surface_fixed_at", None)
             event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
