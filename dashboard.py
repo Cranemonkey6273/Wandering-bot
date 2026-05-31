@@ -590,15 +590,32 @@ PAGE_TEMPLATE = """
         <article class="admin-panel">
           <h3>All Server Dashboards</h3>
           <table class="item-table">
-            <thead><tr><th>Server</th><th>Map</th><th>Access</th><th>Open</th><th>Owner Actions</th></tr></thead>
+            <thead><tr><th>Server</th><th>Map</th><th>Admin Access</th><th>Open</th><th>Owner Actions</th></tr></thead>
             <tbody>
               {% for owned in servers %}
               <tr>
                 <td>{{ owned.guild_name }}</td>
                 <td>{{ owned.map|upper }}</td>
-                <td>{{ owned.dashboard_access.tier }}</td>
-                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Open</a></td>
+                <td>{{ 'enabled' if owned.dashboard_access.enabled else 'locked' }} · {{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</td>
+                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Owner Open</a></td>
                 <td>
+                  {% if not owned.dashboard_access.enabled %}
+                  <form class="admin-form inline-action" data-route="/api/admin/guild-access">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="enabled" value="true">
+                    <input class="hidden-field" name="tier" value="owner">
+                    <input class="hidden-field" name="plan_status" value="lifetime">
+                    <button type="submit">Enable Admin Access</button> <span class="result muted"></span>
+                  </form>
+                  {% else %}
+                  <form class="admin-form inline-action" data-route="/api/admin/guild-access" data-confirm="This locks normal admin dashboard login for {{ owned.guild_name }}. Your owner login will still work. Continue?">
+                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                    <input class="hidden-field" name="enabled" value="false">
+                    <input class="hidden-field" name="tier" value="{{ owned.dashboard_access.tier or 'none' }}">
+                    <input class="hidden-field" name="plan_status" value="{{ owned.dashboard_access.plan_status or 'none' }}">
+                    <button type="submit">Lock Admin Access</button> <span class="result muted"></span>
+                  </form>
+                  {% endif %}
                   <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
                     <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
                     <input class="hidden-field" name="action" value="leave">
@@ -1558,7 +1575,7 @@ Event pings | bell | 1234567890</textarea></label>
         <thead><tr><th>Server</th><th>Server ID</th><th>Map</th><th>Channels</th><th>Plan</th><th>Access</th></tr></thead>
         <tbody>
           {% for server in servers %}
-          <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ server.dashboard_access.plan_status }}</td><td>{{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</td></tr>
+          <tr><td>{{ server.guild_name }}</td><td>{{ server.guild_id }}</td><td>{{ server.map }}</td><td>{{ server.channels|length }}</td><td>{{ server.dashboard_access.plan_status }}</td><td>{{ 'admin enabled' if server.dashboard_access.enabled else 'admin locked, owner override active' }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -1585,7 +1602,7 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="pills">
               <span class="pill">Server ID {{ server.guild_id }}</span>
               <span class="pill {{ 'ok' if server.active else 'bad' }}">{{ 'active' if server.active else 'inactive' }}</span>
-              <span class="pill {{ 'ok' if server.dashboard_access.enabled else 'bad' }}">Dashboard {{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</span>
+              <span class="pill {{ 'ok' if server.dashboard_access.enabled else 'bad' }}">Admin dashboard {{ 'enabled' if server.dashboard_access.enabled else 'locked' }}</span>
               <span class="pill">{{ server.map|upper }}</span>
             </div>
           </div>
@@ -2874,7 +2891,7 @@ def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dash
         if not server.get("active"):
             notes.append({"title": f"{server.get('guild_name')} inactive", "body": "The bot is marked as removed or inactive for this guild."})
         if not server.get("dashboard_access", {}).get("enabled"):
-            notes.append({"title": f"{server.get('guild_name')} dashboard locked", "body": "Dashboard access is currently disabled for this server."})
+            notes.append({"title": f"{server.get('guild_name')} admin dashboard locked", "body": "Normal server-admin login is disabled. Owner login can still open and manage this server."})
     queued = count_records(delivery_queue)
     if queued:
         notes.append({"title": "Shop deliveries waiting", "body": f"{queued} delivery records are queued for the next restart."})
