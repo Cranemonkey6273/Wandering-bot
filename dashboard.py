@@ -244,9 +244,16 @@ PAGE_TEMPLATE = """
     .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--olive), var(--gold)); }
     .item-table { width: 100%; border-collapse: collapse; }
     .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
+    .server-switcher { display: grid; gap: .65rem; }
+    .server-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .server-tab { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem .75rem; background: #070b08; color: var(--muted); }
+    .server-tab.active { color: var(--text); border-color: var(--gold); background: rgba(213, 180, 95, .12); }
+    .category-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+    .category-link { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: #070b08; color: var(--muted); }
+    .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid, .mini-grid, .heat-row { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid, .mini-grid, .heat-row, .category-grid { grid-template-columns: 1fr; }
       .metric { text-align: left; }
       nav { display: none; }
     }
@@ -292,7 +299,24 @@ PAGE_TEMPLATE = """
       <div class="stat"><span>Factions</span><strong>{{ summary.factions }}</strong></div>
     </section>
 
+    {% if servers|length > 1 %}
+    <section class="section-panel server-switcher" id="servers">
+      <div class="section-head">
+        <div>
+          <h2>Server Switcher</h2>
+          <p class="tool-note">Linked servers stay in one dashboard. Pick a server, then every category below uses that server's data and locked server identity.</p>
+        </div>
+      </div>
+      <div class="server-tabs">
+        {% for item in servers %}
+        <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/admin?guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     <section class="section-nav" aria-label="Dashboard sections">
+      {% if servers|length > 1 %}<a class="tab-link" href="#servers">Servers</a>{% endif %}
       <a class="tab-link" href="#leaderboards">Leaderboards</a>
       <a class="tab-link" href="#automations">Auto Messages</a>
       <a class="tab-link" href="#factions-radar">Factions & Radar</a>
@@ -302,6 +326,13 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="#shop-control">Shop Control</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="#owner-control">Owner Control</a>{% endif %}
       <a class="tab-link" href="#access">Access</a>
+    </section>
+
+    <section class="category-grid" aria-label="Main categories">
+      <a class="category-link" href="#leaderboards"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
+      <a class="category-link" href="#automations"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
+      <a class="category-link" href="#factions-radar"><strong>Factions</strong><span>Faction setup, members and radar routing.</span></a>
+      <a class="category-link" href="#economy"><strong>Economy</strong><span>Shop, wages, wallets, rewards and punishments.</span></a>
     </section>
 
     <section class="section-panel" id="leaderboards">
@@ -731,6 +762,17 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
           </form>
         </article>
+        <article class="admin-panel">
+          <h3>Link Another Server</h3>
+          <form class="admin-form" data-route="/api/admin/link-server">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Current dashboard group</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Other dashboard ID <input name="dashboard_id" autocomplete="off" placeholder="private dashboard id"></label>
+            <label>Other dashboard password <input name="password" type="password" autocomplete="new-password" placeholder="private dashboard password"></label>
+            <div class="full"><button type="submit">Link Server</button> <span class="result muted"></span></div>
+          </form>
+          <p class="tool-note" style="margin-top:.75rem">This verifies the other server's private dashboard login before it appears in this dashboard group.</p>
+        </article>
       </div>
     </section>
     {% endif %}
@@ -842,6 +884,7 @@ ADMIN_ROUTES = [
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/economy-rule",
+    "/api/admin/link-server",
     "/api/admin/faction",
     "/api/admin/faction-member",
     "/api/admin/wage",
@@ -921,6 +964,19 @@ def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str,
     return None, None
 
 
+def linked_guild_ids_for_config(config: dict[str, Any], primary_guild_id: str) -> list[str]:
+    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    linked = dashboard.get("linked_guild_ids", []) if isinstance(dashboard, dict) else []
+    if not isinstance(linked, list):
+        linked = []
+    guild_ids = [str(primary_guild_id)]
+    for linked_id in linked:
+        linked_id = str(linked_id).strip()
+        if linked_id and linked_id not in guild_ids:
+            guild_ids.append(linked_id)
+    return guild_ids
+
+
 def current_auth() -> dict[str, Any] | None:
     provided = request.headers.get("X-Dashboard-Token") or request.args.get("token") or ""
     if ADMIN_TOKEN and secrets.compare_digest(provided, ADMIN_TOKEN):
@@ -945,6 +1001,7 @@ def current_auth() -> dict[str, Any] | None:
     return {
         "kind": "guild",
         "guild_id": guild_id,
+        "guild_ids": linked_guild_ids_for_config(config, guild_id),
         "label": str(config.get("guild_name") or f"Guild {guild_id}"),
     }
 
@@ -965,7 +1022,9 @@ def require_page_auth(owner_only: bool = False):
 def scoped_payload_for_auth(payload: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
     if auth["kind"] == "guild":
         payload = dict(payload)
-        payload["guild_id"] = auth["guild_id"]
+        allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth["guild_id"]])]
+        requested_guild_id = str(payload.get("guild_id") or auth["guild_id"])
+        payload["guild_id"] = requested_guild_id if requested_guild_id in allowed_guild_ids else auth["guild_id"]
     return payload
 
 
@@ -1301,23 +1360,22 @@ def load_dashboard_state() -> dict[str, Any]:
 def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
     if auth["kind"] == "owner":
         return state
-    guild_id = str(auth["guild_id"])
-    servers = [server for server in state["servers"] if str(server.get("guild_id")) == guild_id]
+    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth["guild_id"]])]
+    servers = [server for server in state["servers"] if str(server.get("guild_id")) in allowed_guild_ids]
     summary = dict(state["summary"])
     if servers:
-        server = servers[0]
         summary.update(
             {
-                "guilds": 1,
-                "online": len(server.get("online", [])),
-                "players": server.get("totals", {}).get("players", 0),
-                "kills": server.get("totals", {}).get("kills", 0),
-                "dashboard_enabled": 1 if server.get("dashboard_access", {}).get("enabled") else 0,
-                "factions": count_records(server.get("factions")),
-                "wages": count_records(server.get("wages")),
-                "heatmap_points": server.get("heatmap", {}).get("total", 0),
-                "pve_active": count_records(server.get("pve", {}).get("active")),
-                "pve_campaigns": safe_int(server.get("pve", {}).get("campaigns")),
+                "guilds": len(servers),
+                "online": sum(len(server.get("online", [])) for server in servers),
+                "players": sum(safe_int(server.get("totals", {}).get("players")) for server in servers),
+                "kills": sum(safe_int(server.get("totals", {}).get("kills")) for server in servers),
+                "dashboard_enabled": sum(1 for server in servers if server.get("dashboard_access", {}).get("enabled")),
+                "factions": sum(count_records(server.get("factions")) for server in servers),
+                "wages": sum(count_records(server.get("wages")) for server in servers),
+                "heatmap_points": sum(server.get("heatmap", {}).get("total", 0) for server in servers),
+                "pve_active": sum(count_records(server.get("pve", {}).get("active")) for server in servers),
+                "pve_campaigns": sum(safe_int(server.get("pve", {}).get("campaigns")) for server in servers),
             }
         )
     else:
@@ -1332,9 +1390,12 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
-    if auth["kind"] == "owner" and focused_guild_id and mode == "admin":
+    if focused_guild_id and mode in {"admin", "overview"}:
         state = dict(state)
-        state["servers"] = [server for server in state["servers"] if str(server.get("guild_id")) == focused_guild_id]
+        focused = [server for server in state["servers"] if str(server.get("guild_id")) == focused_guild_id]
+        others = [server for server in state["servers"] if str(server.get("guild_id")) != focused_guild_id]
+        if focused:
+            state["servers"] = focused + others
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -1548,6 +1609,48 @@ def api_economy_rule():
     rules.append(rule)
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "rule": rule})
+
+
+@APP.post("/api/admin/link-server")
+def api_link_server():
+    auth = current_auth()
+    if not auth:
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    payload = request_payload()
+    dashboard_id = str(payload.get("dashboard_id") or "").strip()
+    password = str(payload.get("password") or "")
+    target_guild_id, target_config = find_guild_by_dashboard_id(dashboard_id)
+    if not target_guild_id or not isinstance(target_config, dict):
+        return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
+    credentials = target_config.get("dashboard_credentials")
+    if not isinstance(credentials, dict):
+        credentials = target_config.get("dashboard_login")
+    if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
+        return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
+    if auth["kind"] == "owner":
+        return jsonify({"ok": True, "linked_guild_id": target_guild_id, "message": "owner already has access to every server"})
+    primary_guild_id = str(auth["guild_id"])
+    if target_guild_id == primary_guild_id:
+        return jsonify({"ok": True, "linked_guild_id": target_guild_id, "message": "server already belongs to this dashboard"})
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    primary_config = guild_configs.get(primary_guild_id)
+    if not isinstance(primary_config, dict):
+        return jsonify({"ok": False, "error": "current dashboard config is missing"}), 404
+    dashboard = primary_config.setdefault("dashboard", {})
+    if not isinstance(dashboard, dict):
+        dashboard = {}
+        primary_config["dashboard"] = dashboard
+    linked = dashboard.setdefault("linked_guild_ids", [])
+    if not isinstance(linked, list):
+        linked = []
+        dashboard["linked_guild_ids"] = linked
+    if target_guild_id not in [str(item) for item in linked]:
+        linked.append(target_guild_id)
+    dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)})
 
 
 @APP.post("/api/admin/faction")
