@@ -21045,6 +21045,9 @@ async def start_background_tasks():
         if not restart_delivery_processor.is_running():
             restart_delivery_processor.start()
 
+        if not dashboard_scenario_upload_loop.is_running():
+            dashboard_scenario_upload_loop.start()
+
         if not pve_challenge_loop.is_running():
             pve_challenge_loop.start()
 
@@ -24084,6 +24087,47 @@ async def restart_delivery_processor():
 
         except Exception as error:
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
+
+
+@tasks.loop(minutes=1)
+async def dashboard_scenario_upload_loop():
+    changed = False
+    for guild_id, config in active_guild_config_items():
+        try:
+            pending_events = [
+                event
+                for event in scenario_events_for_config(config)
+                if isinstance(event, dict)
+                and event.get("enabled", True)
+                and str(event.get("created_by") or "") == "dashboard"
+                and str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
+                and not event.get("xml_uploaded_at")
+                and not is_economy_vehicle_reset_event(event)
+            ]
+            if not pending_events:
+                continue
+
+            success, status_text = await auto_push_scenario_events_xml(guild_id, config)
+            now_text = datetime.now(UTC).isoformat()
+            for event in pending_events:
+                attempts = int(event.get("upload_attempts") or 0) + 1
+                event["upload_attempts"] = attempts
+                event["updated_at"] = now_text
+                if success:
+                    event["upload_status"] = "uploaded"
+                    event["xml_uploaded_at"] = now_text
+                    event["status"] = "XML uploaded / waiting for restart"
+                    event.pop("upload_error", None)
+                else:
+                    event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
+                    event["upload_error"] = status_text
+                    event["status"] = "XML upload failed" if attempts >= 3 else "XML upload retry pending"
+            changed = True
+            print(f"DASHBOARD SCENARIO XML UPLOAD {guild_id}: success={success} {status_text}")
+        except Exception as error:
+            print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
+    if changed:
+        save_guild_configs()
 
 
 # =========================================================

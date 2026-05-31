@@ -3730,7 +3730,8 @@ def api_scenario_event():
         "permanent": permanent,
         "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
         "enabled": True,
-        "status": "Accepted / waiting for restart",
+        "status": "Accepted / waiting for bot XML upload",
+        "upload_status": "waiting_for_bot_upload",
         "created_by": "dashboard",
         "created_at": datetime.now(UTC).isoformat(),
     }
@@ -3773,10 +3774,14 @@ def api_scenario_event_action():
             return jsonify({"ok": True, "deleted": removed})
         event["enabled"] = action in {"approve"}
         event["status"] = {
-            "approve": "Accepted / waiting for restart",
+            "approve": "Accepted / waiting for bot XML upload",
             "pause": "Paused by dashboard",
             "cancel": "Cancelled by dashboard",
         }[action]
+        if action == "approve":
+            event["upload_status"] = "waiting_for_bot_upload"
+            event.pop("xml_uploaded_at", None)
+            event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         return jsonify({"ok": True, "event": event})
