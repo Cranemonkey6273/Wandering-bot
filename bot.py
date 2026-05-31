@@ -24130,45 +24130,50 @@ async def dashboard_scenario_upload_loop():
                 and str(event.get("created_by") or "") == "dashboard"
                 and (
                     str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
-                    or (event.get("bridge_uploaded_at") and not event.get("bridge_surface_fixed_at"))
+                    or not event.get("native_ce_uploaded_at")
                 )
-                and not event.get("xml_uploaded_at")
                 and not is_economy_vehicle_reset_event(event)
             ]
             if not pending_events:
                 continue
 
-            success, xml_path = await asyncio.to_thread(
-                write_and_upload_delivery_xml,
-                guild_id,
-                config,
-                datetime.now(UTC),
-                pending_events,
-                False,
-            )
-            status_text = (
-                f"Bridge deliveries.xml uploaded to Nitrado: {xml_path}"
-                if success
-                else "Bridge deliveries.xml upload failed. Check Nitrado token/service/FTP settings and bridge delivery path."
-            )
+            try:
+                upload_success, built, messages = await asyncio.to_thread(
+                    upload_console_ce_event_files,
+                    guild_id,
+                    config,
+                    "",
+                    "",
+                    "",
+                    False,
+                )
+                status_text = (
+                    f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+                    if upload_success
+                    else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
+                )
+            except Exception as ce_error:
+                upload_success = False
+                built = {}
+                status_text = f"Native CE XML upload failed: {ce_error}"
             now_text = datetime.now(UTC).isoformat()
             for event in pending_events:
                 attempts = int(event.get("upload_attempts") or 0) + 1
                 event["upload_attempts"] = attempts
                 event["updated_at"] = now_text
-                if success:
+                if upload_success:
+                    event["native_ce_uploaded_at"] = now_text
+                    event["native_ce_events_path"] = built.get("events_path", "")
+                    event["native_ce_spawns_path"] = built.get("spawns_path", "")
                     event["upload_status"] = "uploaded"
-                    event["bridge_uploaded_at"] = now_text
-                    event["bridge_surface_fixed_at"] = now_text
-                    event["bridge_xml_path"] = xml_path
-                    event["status"] = "Bridge XML uploaded / waiting for restart"
+                    event["status"] = "Native CE XML uploaded / waiting for restart"
                     event.pop("upload_error", None)
                 else:
                     event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
                     event["upload_error"] = status_text
-                    event["status"] = "Bridge XML upload failed" if attempts >= 3 else "Bridge XML upload retry pending"
+                    event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
             changed = True
-            print(f"DASHBOARD SCENARIO BRIDGE UPLOAD {guild_id}: success={success} {status_text}")
+            print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
     if changed:

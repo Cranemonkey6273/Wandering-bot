@@ -1207,7 +1207,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Classname <input name="class_name" value="WoodenCrate" placeholder="Only needed for Custom classname"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
-            <label>Y height <input name="y" type="number" value="0" placeholder="0 = terrain height"></label>
+            <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
             <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
@@ -1219,10 +1219,10 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Guard class <input name="guard_class" value="ZmbM_SoldierNormal" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="0"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
-            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Dashboard events upload through the DayZ bridge delivery XML and do not depend on normal bear, animal, or infected event totals. Counts are capped at 250 per event for server safety.</span></div>
+            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Console events upload through events.xml and cfgeventspawns.xml, so no init.c access is needed. Counts are capped at 250 per event for server safety.</span></div>
             <div class="full"><button type="submit">Queue Event</button> <span class="result muted"></span></div>
           </form>
-          <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. They apply through the bot's CE XML or bridge workflow at restart/upload time.</p>
+          <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
         </article>
         <article class="admin-panel">
           <h3>Vehicle Reset</h3>
@@ -3730,7 +3730,7 @@ def api_scenario_event():
         "permanent": permanent,
         "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
         "enabled": True,
-        "status": "Accepted / waiting for bridge XML upload",
+        "status": "Accepted / waiting for native CE XML upload",
         "upload_status": "waiting_for_bot_upload",
         "created_by": "dashboard",
         "created_at": datetime.now(UTC).isoformat(),
@@ -3774,7 +3774,7 @@ def api_scenario_event_action():
             return jsonify({"ok": True, "deleted": removed})
         event["enabled"] = action in {"approve"}
         event["status"] = {
-            "approve": "Accepted / waiting for bridge XML upload",
+            "approve": "Accepted / waiting for native CE XML upload",
             "pause": "Paused by dashboard",
             "cancel": "Cancelled by dashboard",
         }[action]
@@ -3783,6 +3783,7 @@ def api_scenario_event_action():
             event.pop("xml_uploaded_at", None)
             event.pop("bridge_uploaded_at", None)
             event.pop("bridge_surface_fixed_at", None)
+            event.pop("native_ce_uploaded_at", None)
             event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
