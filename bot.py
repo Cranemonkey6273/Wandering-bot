@@ -21219,11 +21219,13 @@ def build_online_dashboard_embed(guild_id, reason=""):
 
 def build_online_dashboard_view(guild_id, config):
     view = discord.ui.View(timeout=None)
+    # Do not expose guild_id in public Discord link buttons. The dashboard
+    # still gates all server data behind the private dashboard login.
     view.add_item(
         discord.ui.Button(
             label="Open Dashboard",
             style=discord.ButtonStyle.link,
-            url=f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/admin?guild_id={guild_id}",
+            url=f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/admin",
         )
     )
     return view
