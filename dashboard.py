@@ -59,6 +59,10 @@ FILES = {
     "wages": "wages.json",
     "delivery_queue": "delivery_queue.json",
     "dashboard_admin": "dashboard_admin.json",
+    "heatmap": "heatmap.json",
+    "pve_challenges": "pve_challenges.json",
+    "pve_ai_campaigns": "pve_ai_campaigns.json",
+    "pve_workshop_schedules": "pve_workshop_schedules.json",
 }
 
 LOGIN_TEMPLATE = """
@@ -228,9 +232,21 @@ PAGE_TEMPLATE = """
     .check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
     .check { display: flex; align-items: center; gap: .5rem; color: var(--muted); border: 1px solid var(--line); border-radius: .45rem; padding: .55rem; background: #070b08; }
     .check input { width: auto; accent-color: var(--olive); }
+    .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
+    .mini-card { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
+    .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
+    .stack { display: grid; gap: .65rem; }
+    .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .heat-list { display: grid; gap: .45rem; }
+    .heat-row { display: grid; grid-template-columns: minmax(0, 1fr) 5rem; gap: .65rem; align-items: center; }
+    .bar { height: .65rem; border-radius: 999px; background: rgba(213, 180, 95, .18); overflow: hidden; }
+    .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--olive), var(--gold)); }
+    .item-table { width: 100%; border-collapse: collapse; }
+    .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .check-grid, .mini-grid, .heat-row { grid-template-columns: 1fr; }
       .metric { text-align: left; }
       nav { display: none; }
     }
@@ -280,7 +296,11 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="#leaderboards">Leaderboards</a>
       <a class="tab-link" href="#automations">Auto Messages</a>
       <a class="tab-link" href="#factions-radar">Factions & Radar</a>
+      <a class="tab-link" href="#heatmaps">Heatmaps</a>
+      <a class="tab-link" href="#pve-workshop">PVE & Workshop</a>
       <a class="tab-link" href="#economy">Economy</a>
+      <a class="tab-link" href="#shop-control">Shop Control</a>
+      {% if auth.kind == "owner" %}<a class="tab-link" href="#owner-control">Owner Control</a>{% endif %}
       <a class="tab-link" href="#access">Access</a>
     </section>
 
@@ -307,6 +327,51 @@ PAGE_TEMPLATE = """
       </div>
     </section>
 
+    {% if mode == "owner" %}
+    <section class="section-panel" id="owner-control">
+      <div class="section-head">
+        <div>
+          <h2>Owner Command Center</h2>
+          <p class="tool-note">Only your owner token can open this section. Use it to inspect every guild, jump into a server dashboard, and control which modules customers can use.</p>
+        </div>
+      </div>
+      <div class="mini-grid">
+        <div class="mini-card"><span class="muted">Guilds</span><strong>{{ summary.guilds }}</strong></div>
+        <div class="mini-card"><span class="muted">Members tracked</span><strong>{{ summary.players }}</strong></div>
+        <div class="mini-card"><span class="muted">Heat points</span><strong>{{ summary.heatmap_points }}</strong></div>
+        <div class="mini-card"><span class="muted">PVE quests</span><strong>{{ summary.pve_active }}</strong></div>
+      </div>
+      <div class="panel-grid" style="margin-top:.85rem">
+        <article class="admin-panel">
+          <h3>Owner Notifications</h3>
+          <div class="stack">
+            {% for note in owner_notifications %}
+            <div class="notification"><strong>{{ note.title }}</strong><span>{{ note.body }}</span></div>
+            {% else %}
+            <p class="muted">No owner alerts right now.</p>
+            {% endfor %}
+          </div>
+        </article>
+        <article class="admin-panel">
+          <h3>All Server Dashboards</h3>
+          <table class="item-table">
+            <thead><tr><th>Server</th><th>Map</th><th>Access</th><th>Open</th></tr></thead>
+            <tbody>
+              {% for owned in servers %}
+              <tr>
+                <td>{{ owned.guild_name }}</td>
+                <td>{{ owned.map|upper }}</td>
+                <td>{{ owned.dashboard_access.tier }}</td>
+                <td><a class="button" href="/admin?guild_id={{ owned.guild_id }}">Open</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] %}
     <section class="section-panel" id="automations">
       <div class="section-head">
@@ -328,8 +393,10 @@ PAGE_TEMPLATE = """
                 <option value="event-announcement">Event announcement</option>
                 <option value="shop-notice">Shop notice</option>
                 <option value="staff-alert">Staff alert</option>
+                <option value="custom-message">Custom message</option>
               </select>
             </label>
+            <label>Message key <input name="template_id" value="server-rules" placeholder="unique name for this embed"></label>
             <label>Post to channel
               <select name="channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
@@ -340,6 +407,13 @@ PAGE_TEMPLATE = """
             <label class="full">Message <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
             <div class="full"><button type="submit">Save Message</button> <span class="result muted"></span></div>
           </form>
+          <div class="stack" style="margin-top:.75rem">
+            {% for template in (server.embed_templates if server else []) %}
+            <div class="notification"><strong>{{ template.template_id }}</strong><span>{{ template.title }} -> {{ template.channel_key or 'channel not set' }}</span></div>
+            {% else %}
+            <p class="muted">No saved embed templates for this server yet.</p>
+            {% endfor %}
+          </div>
         </article>
         <article class="admin-panel">
           <h3>Welcome Automation</h3>
@@ -445,6 +519,69 @@ Event pings | bell | 1234567890</textarea></label>
       </div>
     </section>
 
+    <section class="section-panel" id="heatmaps">
+      <div class="section-head">
+        <div>
+          <h2>Heatmaps</h2>
+          <p class="tool-note">See the busiest PVP, PVE, infected, animal, build, and movement zones the bot has collected from ADM activity.</p>
+        </div>
+        <span class="pill">{{ server.heatmap.total if server else 0 }} events</span>
+      </div>
+      <div class="panel-grid">
+        {% for mode_name, heat in (server.heatmap.modes.items() if server else []) %}
+        <article class="admin-panel">
+          <h3>{{ mode_name|upper }} Heat</h3>
+          <div class="heat-list">
+            {% for zone in heat %}
+            <div>
+              <div class="heat-row"><span>{{ zone.name }}</span><strong>{{ zone.count }}</strong></div>
+              <div class="bar"><span style="width: {{ zone.percent }}%"></span></div>
+            </div>
+            {% else %}
+            <p class="muted">No heat recorded for this mode yet.</p>
+            {% endfor %}
+          </div>
+        </article>
+        {% else %}
+        <article class="admin-panel"><h3>No Heatmap Data</h3><p class="muted">The bot will fill this once ADM events are processed.</p></article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="section-panel" id="pve-workshop">
+      <div class="section-head">
+        <div>
+          <h2>PVE Quests & Workshop</h2>
+          <p class="tool-note">Track active quests, AI campaigns, scheduled workshop posts, and reward delivery information from the dashboard.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Active Quest Board</h3>
+          <table class="item-table">
+            <thead><tr><th>Quest</th><th>Difficulty</th><th>Reward</th></tr></thead>
+            <tbody>
+              {% for quest in (server.pve.active[:10] if server else []) %}
+              <tr><td>{{ quest.title }}</td><td>{{ quest.difficulty }}</td><td>{{ quest.reward_pennies }}</td></tr>
+              {% else %}
+              <tr><td colspan="3">No active PVE quests found yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        <article class="admin-panel">
+          <h3>Quest Workshop</h3>
+          <div class="mini-grid">
+            <div class="mini-card"><span class="muted">Campaigns</span><strong>{{ server.pve.campaigns if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Schedules</span><strong>{{ server.pve.schedules if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Rewards</span><strong>{{ server.pve.reward_types|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Quest channels</span><strong>{{ server.pve.quest_channels if server else 0 }}</strong></div>
+          </div>
+          <p class="tool-note" style="margin-top:.75rem">Use the Discord quest-workshop channel for AI generation. This dashboard shows the state and lets you control whether each guild has the module enabled.</p>
+        </article>
+      </div>
+    </section>
+
     <section class="section-panel" id="economy">
       <div class="section-head">
         <div>
@@ -469,6 +606,9 @@ Event pings | bell | 1234567890</textarea></label>
               </select>
             </label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
+            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
+            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -505,6 +645,55 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Adjust Wallet</button> <span class="result muted"></span></div>
           </form>
         </article>
+        <article class="admin-panel">
+          <h3>Reward / Punishment Rule</h3>
+          <form class="admin-form" data-route="/api/admin/economy-rule">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>When this happens
+              <select name="event_type">
+                <option value="chat_keyword">Chat keyword</option>
+                <option value="kill">Player kill</option>
+                <option value="death">Player death</option>
+                <option value="zombie_kill">Infected kill</option>
+                <option value="animal_kill">Animal kill</option>
+                <option value="longshot">Longshot</option>
+              </select>
+            </label>
+            <label>Reward or punish
+              <select name="kind"><option value="reward">Reward pennies</option><option value="punishment">Remove pennies</option></select>
+            </label>
+            <label>Keyword / condition <input name="keyword" placeholder="e.g. gg, kill, longshot"></label>
+            <label>Amount <input name="amount" type="number" value="100"></label>
+            <div class="full"><button type="submit">Save Rule</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-panel" id="shop-control">
+      <div class="section-head">
+        <div>
+          <h2>Shop Control</h2>
+          <p class="tool-note">Items imported from types.xml appear here already grouped by category. Admins can set prices, enable/disable items, add limits, and restrict items by Discord role or player.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        {% for category, items in shop_categories.items() %}
+        <article class="admin-panel">
+          <h3>{{ category }}</h3>
+          <table class="item-table">
+            <thead><tr><th>Item</th><th>Price</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for item in items[:12] %}
+              <tr><td>{{ item.name }}</td><td>{{ item.price }}</td><td>{{ 'On' if item.enabled else 'Off' }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% else %}
+        <article class="admin-panel"><h3>No Shop Items</h3><p class="muted">Import types.xml in Discord with `/tools importtypesxml`, then manage the items here.</p></article>
+        {% endfor %}
       </div>
     </section>
 
@@ -532,6 +721,11 @@ Event pings | bell | 1234567890</textarea></label>
                 <label class="check"><input type="checkbox" name="feature_factions" checked> Factions</label>
                 <label class="check"><input type="checkbox" name="feature_embeds" checked> Auto messages</label>
                 <label class="check"><input type="checkbox" name="feature_safe_zones" checked> Radar zones</label>
+                <label class="check"><input type="checkbox" name="feature_heatmaps" checked> Heatmaps</label>
+                <label class="check"><input type="checkbox" name="feature_pve_quests" checked> PVE quests</label>
+                <label class="check"><input type="checkbox" name="feature_quest_workshop" checked> Quest workshop</label>
+                <label class="check"><input type="checkbox" name="feature_shop" checked> Shop control</label>
+                <label class="check"><input type="checkbox" name="feature_wages" checked> Economy wages</label>
               </div>
             </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
@@ -647,6 +841,7 @@ ADMIN_ROUTES = [
     "/api/admin/welcome-automation",
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
+    "/api/admin/economy-rule",
     "/api/admin/faction",
     "/api/admin/faction-member",
     "/api/admin/wage",
@@ -799,6 +994,12 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def csv_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
 def public_channels(channels: Any) -> list[dict[str, str]]:
     if not isinstance(channels, dict):
         return []
@@ -852,8 +1053,13 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "economy": bool(features.get("economy", False)),
             "embeds": bool(features.get("embeds", False)),
             "factions": bool(features.get("factions", False)),
+            "heatmaps": bool(features.get("heatmaps", False)),
             "leaderboards": bool(features.get("leaderboards", True)),
+            "pve_quests": bool(features.get("pve_quests", False)),
+            "quest_workshop": bool(features.get("quest_workshop", False)),
             "safe_zones": bool(features.get("safe_zones", False)),
+            "shop": bool(features.get("shop", False)),
+            "wages": bool(features.get("wages", False)),
         },
     }
 
@@ -870,6 +1076,116 @@ def guild_block(data: Any, guild_id: str, default: Any) -> Any:
     return default
 
 
+def list_records(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return list(value.values())
+    return []
+
+
+def dashboard_admin_records(dashboard_admin: Any, section: str, guild_id: str) -> list[dict[str, Any]]:
+    if not isinstance(dashboard_admin, dict):
+        return []
+    section_data = dashboard_admin.get(section, {})
+    if not isinstance(section_data, dict):
+        return []
+    return [item for item in list_records(section_data.get(guild_id, {})) if isinstance(item, dict)]
+
+
+def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
+    categories: dict[str, list[dict[str, Any]]] = {}
+    if not isinstance(shop, dict):
+        return categories
+    for item_name, data in sorted(shop.items(), key=lambda item: str(item[0]).lower()):
+        if not isinstance(data, dict):
+            data = {}
+        category = str(data.get("category") or "General")
+        categories.setdefault(category, []).append(
+            {
+                "name": str(item_name),
+                "price": safe_int(data.get("price")),
+                "enabled": bool(data.get("enabled", True)),
+                "daily_limit": safe_int(data.get("daily_limit")),
+                "allowed_role_ids": [str(item) for item in data.get("allowed_role_ids", [])] if isinstance(data.get("allowed_role_ids"), list) else [],
+                "blocked_user_ids": [str(item) for item in data.get("blocked_user_ids", [])] if isinstance(data.get("blocked_user_ids"), list) else [],
+            }
+        )
+    return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
+
+
+def heatmap_summary(heatmap: Any, guild_id: str) -> dict[str, Any]:
+    raw = guild_block(heatmap, guild_id, {}) if isinstance(heatmap, dict) else {}
+    if not isinstance(raw, dict):
+        raw = {}
+    modes = raw.get("__modes__", {}) if isinstance(raw.get("__modes__"), dict) else {}
+    pvp = {key: value for key, value in raw.items() if not str(key).startswith("__") and isinstance(value, int)}
+    if pvp:
+        modes = dict(modes)
+        modes.setdefault("pvp", pvp)
+    if not modes:
+        modes = {"all": pvp}
+    summary_modes = {}
+    total = 0
+    for mode, counts in modes.items():
+        if not isinstance(counts, dict):
+            continue
+        rows = sorted(
+            ({"name": str(zone), "count": safe_int(count)} for zone, count in counts.items()),
+            key=lambda item: item["count"],
+            reverse=True,
+        )[:8]
+        max_count = max([row["count"] for row in rows] or [1])
+        for row in rows:
+            row["percent"] = max(5, min(100, int((row["count"] / max_count) * 100))) if row["count"] else 0
+        total += sum(row["count"] for row in rows)
+        summary_modes[str(mode)] = rows
+    return {"total": total, "modes": summary_modes}
+
+
+def pve_summary(challenges: Any, campaigns: Any, schedules: Any, guild_id: str, channels: list[dict[str, str]]) -> dict[str, Any]:
+    active = []
+    for quest in list_records(guild_block(challenges, guild_id, [])):
+        if not isinstance(quest, dict):
+            continue
+        active.append(
+            {
+                "title": str(quest.get("title") or quest.get("name") or quest.get("quest_code") or "Untitled quest"),
+                "difficulty": str(quest.get("difficulty") or quest.get("tier") or "Normal"),
+                "reward_pennies": safe_int(quest.get("reward_pennies") or quest.get("reward")),
+                "reward_type": str(quest.get("reward_type") or "pennies"),
+            }
+        )
+    campaign_records = list_records(guild_block(campaigns, guild_id, []))
+    schedule_records = list_records(guild_block(schedules, guild_id, []))
+    reward_types = sorted({quest["reward_type"] for quest in active if quest.get("reward_type")})
+    quest_channels = len([channel for channel in channels if "pve" in channel.get("key", "") or "quest" in channel.get("key", "")])
+    return {
+        "active": active,
+        "campaigns": len(campaign_records),
+        "schedules": len(schedule_records),
+        "reward_types": reward_types,
+        "quest_channels": quest_channels,
+    }
+
+
+def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dashboard_admin: Any) -> list[dict[str, str]]:
+    notes = []
+    for server in servers:
+        if not server.get("active"):
+            notes.append({"title": f"{server.get('guild_name')} inactive", "body": "The bot is marked as removed or inactive for this guild."})
+        if not server.get("dashboard_access", {}).get("enabled"):
+            notes.append({"title": f"{server.get('guild_name')} dashboard locked", "body": "Dashboard access is currently disabled for this server."})
+    queued = count_records(delivery_queue)
+    if queued:
+        notes.append({"title": "Shop deliveries waiting", "body": f"{queued} delivery records are queued for the next restart."})
+    if isinstance(dashboard_admin, dict):
+        saved_messages = sum(count_records(block) for block in dashboard_admin.get("embed_templates", {}).values()) if isinstance(dashboard_admin.get("embed_templates"), dict) else 0
+        if saved_messages:
+            notes.append({"title": "Saved embed templates", "body": f"{saved_messages} auto-message/embed templates are configured across dashboards."})
+    return notes[:10]
+
+
 def load_dashboard_state() -> dict[str, Any]:
     runtime_state = CUSTOM_STATE_PROVIDER() if CUSTOM_STATE_PROVIDER else {}
     if not isinstance(runtime_state, dict):
@@ -884,6 +1200,11 @@ def load_dashboard_state() -> dict[str, Any]:
     wages = runtime_state.get("wages") or load_store("wages", {})
     delivery_queue = runtime_state.get("delivery_queue") or load_store("delivery_queue", [])
     dashboard_admin = load_store("dashboard_admin", {})
+    heatmap = runtime_state.get("territory_heat") or runtime_state.get("heatmap") or load_store("heatmap", {})
+    pve_challenges = runtime_state.get("pve_challenges") or load_store("pve_challenges", {})
+    pve_ai_campaigns = runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})
+    pve_workshop_schedules = runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})
+    shop_categories = shop_category_map(shop)
 
     if not isinstance(guild_configs, dict):
         guild_configs = {}
@@ -908,6 +1229,9 @@ def load_dashboard_state() -> dict[str, Any]:
             safe_zones = []
         server_factions = guild_block(factions, guild_id, {})
         server_wages = guild_block(wages, guild_id, [])
+        channels = public_channels(config.get("channels", {}))
+        server_heatmap = heatmap_summary(heatmap, guild_id)
+        server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels)
         totals = {
             "kills": sum(player["kills"] for player in players),
             "deaths": sum(player["deaths"] for player in players),
@@ -926,12 +1250,16 @@ def load_dashboard_state() -> dict[str, Any]:
                 "map": str(config.get("server_map") or config.get("map") or "chernarus"),
                 "online": online,
                 "leaders": players,
-                "channels": public_channels(config.get("channels", {})),
+                "channels": channels,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "dashboard_access": access,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
+                "chat_rules": redact(config.get("chat_rules", [])),
+                "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
+                "heatmap": server_heatmap,
+                "pve": server_pve,
                 "config": redact(config),
             }
         )
@@ -955,12 +1283,17 @@ def load_dashboard_state() -> dict[str, Any]:
             "embed_templates": count_records(admin_embed_templates),
             "welcome_automations": count_records(admin_welcome),
             "reaction_role_panels": count_records(admin_reaction_roles),
+            "heatmap_points": sum(server.get("heatmap", {}).get("total", 0) for server in servers),
+            "pve_active": sum(count_records(server.get("pve", {}).get("active")) for server in servers),
+            "pve_campaigns": sum(safe_int(server.get("pve", {}).get("campaigns")) for server in servers),
         },
         "servers": servers,
         "shop": redact(shop),
+        "shop_categories": redact(shop_categories),
         "wallets": redact(wallets),
         "delivery_queue": redact(delivery_queue),
         "dashboard_admin": redact(dashboard_admin),
+        "owner_notifications": owner_notifications(servers, delivery_queue, dashboard_admin),
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
 
@@ -982,10 +1315,13 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[s
                 "dashboard_enabled": 1 if server.get("dashboard_access", {}).get("enabled") else 0,
                 "factions": count_records(server.get("factions")),
                 "wages": count_records(server.get("wages")),
+                "heatmap_points": server.get("heatmap", {}).get("total", 0),
+                "pve_active": count_records(server.get("pve", {}).get("active")),
+                "pve_campaigns": safe_int(server.get("pve", {}).get("campaigns")),
             }
         )
     else:
-        summary.update({"guilds": 0, "online": 0, "players": 0, "kills": 0, "dashboard_enabled": 0, "factions": 0, "wages": 0})
+        summary.update({"guilds": 0, "online": 0, "players": 0, "kills": 0, "dashboard_enabled": 0, "factions": 0, "wages": 0, "heatmap_points": 0, "pve_active": 0, "pve_campaigns": 0})
     scoped = dict(state)
     scoped["summary"] = summary
     scoped["servers"] = servers
@@ -995,6 +1331,10 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[s
 def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
+    focused_guild_id = str(request.args.get("guild_id") or "").strip()
+    if auth["kind"] == "owner" and focused_guild_id and mode == "admin":
+        state = dict(state)
+        state["servers"] = [server for server in state["servers"] if str(server.get("guild_id")) == focused_guild_id]
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -1003,6 +1343,8 @@ def page(mode: str, auth: dict[str, Any]):
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
         summary=state["summary"],
         servers=state["servers"],
+        shop_categories=state.get("shop_categories", {}),
+        owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
         all_routes=sorted(str(rule) for rule in APP.url_map.iter_rules()),
@@ -1160,12 +1502,52 @@ def api_shop_item():
             "price": safe_int(payload.get("price", existing.get("price", 0))),
             "category": str(payload.get("category") or existing.get("category") or "General"),
             "enabled": bool(payload.get("enabled", existing.get("enabled", True))),
+            "daily_limit": safe_int(payload.get("daily_limit", existing.get("daily_limit", 0))),
+            "allowed_role_ids": csv_list(payload.get("allowed_role_ids", existing.get("allowed_role_ids", []))),
+            "blocked_user_ids": csv_list(payload.get("blocked_user_ids", existing.get("blocked_user_ids", []))),
             "updated_at": datetime.now(UTC).isoformat(),
         }
     )
     shop[item_name] = existing
     save_store("shop", shop)
     return jsonify({"ok": True, "item": {item_name: existing}})
+
+
+@APP.post("/api/admin/economy-rule")
+def api_economy_rule():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    keyword = str(payload.get("keyword") or payload.get("condition") or "").strip().lower()
+    event_type = str(payload.get("event_type") or "chat_keyword").strip().lower()
+    kind = str(payload.get("kind") or "reward").strip().lower()
+    amount = safe_int(payload.get("amount"))
+    if kind not in {"reward", "punishment"}:
+        return jsonify({"ok": False, "error": "kind must be reward or punishment"}), 400
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "amount must be above 0"}), 400
+    if not keyword:
+        keyword = event_type
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    rules = config.setdefault("chat_rules", [])
+    if not isinstance(rules, list):
+        rules = []
+        config["chat_rules"] = rules
+    rule = {
+        "kind": kind,
+        "keyword": keyword,
+        "event_type": event_type,
+        "amount": amount,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    rules.append(rule)
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "rule": rule})
 
 
 @APP.post("/api/admin/faction")

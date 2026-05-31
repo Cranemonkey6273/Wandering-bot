@@ -22495,6 +22495,19 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("❌ That item is currently disabled.")
         return
 
+    item_config = shop_items.get(item_name, {})
+    blocked_user_ids = {str(uid) for uid in item_config.get("blocked_user_ids", []) if uid}
+    if user_id in blocked_user_ids:
+        await ctx.send("You are restricted from buying that item.")
+        return
+
+    allowed_role_ids = {str(rid) for rid in item_config.get("allowed_role_ids", []) if rid}
+    if allowed_role_ids:
+        member_role_ids = {str(getattr(role, "id", "")) for role in getattr(ctx.author, "roles", [])}
+        if not member_role_ids.intersection(allowed_role_ids):
+            await ctx.send("That item is restricted to a specific Discord role.")
+            return
+
     if user_id not in wallets:
 
         wallets[user_id] = {
@@ -22506,6 +22519,9 @@ async def buy(ctx, item_name: str, x: str, y: str):
     wallet = wallets[user_id]
 
     limit = DEFAULT_DAILY_TRANSACTION_LIMIT
+    item_daily_limit = int(item_config.get("daily_limit", 0) or 0)
+    if item_daily_limit > 0:
+        limit = min(limit, item_daily_limit)
 
     if wallet["daily_transactions"] >= limit:
 
