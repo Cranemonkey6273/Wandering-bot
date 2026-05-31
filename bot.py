@@ -23711,8 +23711,12 @@ def build_delivery_xml(items, vehicles, scenario_events=None):
     return "\n".join(xml_lines)
 
 
-def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
+def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_events_override=None, consume_scenario_events=True):
     generated_at = generated_at or datetime.now(UTC)
+    if scenario_events_override is None:
+        scenario_events = [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config)
+    else:
+        scenario_events = list(scenario_events_override or [])
     delivery_file = os.path.join(
         GUILD_DATA_FOLDER,
         f"{guild_id}_deliveries.json"
@@ -23720,7 +23724,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     output = {
         "items": queue_entries_for_guild(delivery_queue, guild_id),
         "vehicles": queue_entries_for_guild(vehicle_rentals_queue, guild_id),
-        "scenario_events": [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config),
+        "scenario_events": scenario_events,
         "generated": str(generated_at)
     }
 
@@ -23733,8 +23737,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     )
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
-        xml_scenario_events = [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config)
-        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], xml_scenario_events))
+        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], scenario_events))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
@@ -23742,7 +23745,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None):
     if upload_success:
         print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
         remove_uploaded_queue_entries(guild_id)
-        if not console_ce_event_config(config).get("enabled"):
+        if consume_scenario_events:
             mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
         save_delivery_queue()
@@ -24102,12 +24105,25 @@ async def dashboard_scenario_upload_loop():
                 and str(event.get("created_by") or "") == "dashboard"
                 and str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
                 and not event.get("xml_uploaded_at")
+                and not event.get("bridge_uploaded_at")
                 and not is_economy_vehicle_reset_event(event)
             ]
             if not pending_events:
                 continue
 
-            success, status_text = await auto_push_scenario_events_xml(guild_id, config)
+            success, xml_path = await asyncio.to_thread(
+                write_and_upload_delivery_xml,
+                guild_id,
+                config,
+                datetime.now(UTC),
+                pending_events,
+                False,
+            )
+            status_text = (
+                f"Bridge deliveries.xml uploaded to Nitrado: {xml_path}"
+                if success
+                else "Bridge deliveries.xml upload failed. Check Nitrado token/service/FTP settings and bridge delivery path."
+            )
             now_text = datetime.now(UTC).isoformat()
             for event in pending_events:
                 attempts = int(event.get("upload_attempts") or 0) + 1
@@ -24115,15 +24131,16 @@ async def dashboard_scenario_upload_loop():
                 event["updated_at"] = now_text
                 if success:
                     event["upload_status"] = "uploaded"
-                    event["xml_uploaded_at"] = now_text
-                    event["status"] = "XML uploaded / waiting for restart"
+                    event["bridge_uploaded_at"] = now_text
+                    event["bridge_xml_path"] = xml_path
+                    event["status"] = "Bridge XML uploaded / waiting for restart"
                     event.pop("upload_error", None)
                 else:
                     event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
                     event["upload_error"] = status_text
-                    event["status"] = "XML upload failed" if attempts >= 3 else "XML upload retry pending"
+                    event["status"] = "Bridge XML upload failed" if attempts >= 3 else "Bridge XML upload retry pending"
             changed = True
-            print(f"DASHBOARD SCENARIO XML UPLOAD {guild_id}: success={success} {status_text}")
+            print(f"DASHBOARD SCENARIO BRIDGE UPLOAD {guild_id}: success={success} {status_text}")
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
     if changed:
