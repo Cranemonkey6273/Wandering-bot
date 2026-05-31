@@ -253,6 +253,10 @@ PAGE_TEMPLATE = """
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
     .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .embed-preview { border-left: 4px solid var(--gold); border-radius: .45rem; background: #202126; padding: .85rem; color: #f4f4f5; }
+    .embed-preview strong { display: block; color: #fff; margin-bottom: .25rem; }
+    .embed-preview span { color: #d8d8dc; }
+    .embed-preview small { display: block; color: #aeb0b8; margin-top: .55rem; }
     .heat-list { display: grid; gap: .45rem; }
     .heat-row { display: grid; grid-template-columns: minmax(0, 1fr) 5rem; gap: .65rem; align-items: center; }
     .bar { height: .65rem; border-radius: 999px; background: rgba(213, 180, 95, .18); overflow: hidden; }
@@ -441,21 +445,31 @@ PAGE_TEMPLATE = """
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
-          <h3>Auto Message</h3>
+          <h3>Embed & Timed Message Builder</h3>
           <form class="admin-form" data-route="/api/admin/embed-template">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Purpose
               <select name="name">
+                <option value="timed-reminder">Timed reminder</option>
                 <option value="server-rules">Server rules</option>
                 <option value="restart-warning">Restart warning</option>
                 <option value="event-announcement">Event announcement</option>
                 <option value="shop-notice">Shop notice</option>
                 <option value="staff-alert">Staff alert</option>
+                <option value="giveaway">Giveaway</option>
+                <option value="level-up">Level up notice</option>
+                <option value="server-stats">Server stats panel</option>
+                <option value="birthday">Birthday message</option>
+                <option value="moderation">Moderation message</option>
+                <option value="custom-command">Custom command response</option>
                 <option value="custom-message">Custom message</option>
               </select>
             </label>
             <label>Message key <input name="template_id" value="server-rules" placeholder="unique name for this embed"></label>
+            <label>Message type
+              <select name="content_mode"><option value="embed">Embed</option><option value="text">Plain text</option><option value="both">Text + embed</option></select>
+            </label>
             <label>Post to channel
               <select name="channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
@@ -463,7 +477,43 @@ PAGE_TEMPLATE = """
             </label>
             <label>Title <input name="title" value="Server Rules"></label>
             <label>Colour <input name="colour" value="#8d963e"></label>
+            <label>Author name <input name="author_name" placeholder="optional"></label>
+            <label>Author icon URL <input name="author_icon_url" placeholder="https://..."></label>
+            <label>Thumbnail URL <input name="thumbnail_url" placeholder="https://..."></label>
+            <label>Large image URL <input name="image_url" placeholder="https://..."></label>
+            <label>Footer text <input name="footer_text" value="Wandering Bot"></label>
+            <label>Footer icon URL <input name="footer_icon_url" placeholder="https://..."></label>
+            <label>Mention
+              <select name="mention_mode"><option value="none">No mention</option><option value="everyone">@everyone</option><option value="here">@here</option><option value="role">Role mention</option></select>
+            </label>
+            <label>Role ID to mention <input name="mention_role_id" placeholder="optional role id"></label>
+            <label>Schedule / trigger
+              <select name="schedule_type">
+                <option value="manual">Manual / save only</option>
+                <option value="timer">Timer</option>
+                <option value="daily">Daily at time</option>
+                <option value="weekly">Weekly at time</option>
+                <option value="interval">Repeat every X minutes</option>
+                <option value="member_join">Member joins</option>
+                <option value="member_leave">Member leaves</option>
+                <option value="level_up">Level up</option>
+                <option value="birthday">Member birthday</option>
+                <option value="stats_refresh">Server stats refresh</option>
+              </select>
+            </label>
+            <label>Time / day <input name="schedule_time" placeholder="10:00, Monday 18:00, etc."></label>
+            <label>Interval minutes <input name="interval_minutes" type="number" value="60"></label>
+            <label>Timezone <input name="timezone" value="Europe/London"></label>
+            <label>Button label <input name="button_label" placeholder="optional link button"></label>
+            <label>Button URL <input name="button_url" placeholder="https://..."></label>
             <label class="full">Message <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
+            <label class="full">Embed fields <textarea name="fields_lines">Server Rule | No exploits, duping, or glitch abuse. | false
+Respect | Keep chat and gameplay fair. | false</textarea></label>
+            <div class="full embed-preview">
+              <strong>Embed preview shape</strong>
+              <span>Title, description, colour, author, thumbnail/image, footer, custom fields, link button and trigger settings are saved together.</span>
+              <small>Fields use: Name | Value | inline true/false</small>
+            </div>
             <div class="full"><button type="submit">Save Message</button> <span class="result muted"></span></div>
           </form>
           <div class="stack" style="margin-top:.75rem">
@@ -475,13 +525,15 @@ PAGE_TEMPLATE = """
           </div>
         </article>
         <article class="admin-panel">
-          <h3>Welcome Automation</h3>
+          <h3>Welcome, Goodbye & Birthday</h3>
           <form class="admin-form" data-route="/api/admin/welcome-automation">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When should it send?
               <select name="name">
                 <option value="new-survivor-welcome">New survivor joins Discord</option>
+                <option value="member-goodbye">Member leaves Discord</option>
+                <option value="birthday">Member birthday</option>
                 <option value="first-time-seen">New gamertag appears in ADM</option>
                 <option value="returning-player">Returning player reconnects</option>
               </select>
@@ -492,8 +544,43 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Assign birthday role ID <input name="birthday_role_id" placeholder="optional role id"></label>
+            <label>Send hour <input name="send_hour" value="10:00"></label>
             <label class="full">Message <textarea name="message">Welcome survivor. Read the rules, link your gamer tag, and good luck out there.</textarea></label>
             <div class="full"><button type="submit">Save Welcome</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Utilities & Server Growth</h3>
+          <form class="admin-form" data-route="/api/admin/utility-config">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Module
+              <select name="module">
+                <option value="server_stats">Server statistics counters</option>
+                <option value="leveling">Leveling and XP</option>
+                <option value="profile_card">Custom profile/rank card</option>
+                <option value="giveaways">Giveaways</option>
+                <option value="birthdays">Birthday notifications</option>
+                <option value="custom_commands">Custom commands</option>
+                <option value="moderation">Moderation helpers</option>
+                <option value="invite_tracker">Invite tracker</option>
+                <option value="transcripts">Ticket transcripts</option>
+              </select>
+            </label>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Output channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}">{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Limit / max count <input name="limit" type="number" value="10"></label>
+            <label>XP per message <input name="xp_per_message" type="number" value="15"></label>
+            <label>Cooldown seconds <input name="cooldown_seconds" type="number" value="60"></label>
+            <label>Card accent colour <input name="card_colour" value="#8d963e"></label>
+            <label>Background image URL <input name="background_url" placeholder="https://..."></label>
+            <label class="full">Settings note <textarea name="notes">Configure this module for this server.</textarea></label>
+            <div class="full"><button type="submit">Save Utility</button> <span class="result muted"></span></div>
           </form>
         </article>
         <article class="admin-panel">
@@ -925,6 +1012,7 @@ Event pings | bell | 1234567890</textarea></label>
 ADMIN_ROUTES = [
     "/api/admin/embed-template",
     "/api/admin/welcome-automation",
+    "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/economy-rule",
@@ -1640,6 +1728,62 @@ def save_dashboard_admin(section: str, payload: dict[str, Any], key_name: str = 
     return record
 
 
+def parse_embed_fields(lines: Any) -> list[dict[str, Any]]:
+    fields = []
+    for raw_line in str(lines or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        if len(parts) < 2:
+            continue
+        fields.append(
+            {
+                "name": parts[0][:256],
+                "value": parts[1][:1024],
+                "inline": str(parts[2]).lower() in {"true", "yes", "1", "inline"} if len(parts) > 2 else False,
+            }
+        )
+    return fields[:25]
+
+
+def normalize_embed_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(payload or {})
+    fields = parse_embed_fields(payload.pop("fields_lines", ""))
+    payload["embed"] = {
+        "title": str(payload.get("title") or "")[:256],
+        "description": str(payload.get("body") or payload.get("description") or "")[:4000],
+        "colour": str(payload.get("colour") or payload.get("color") or "#8d963e"),
+        "author": {
+            "name": str(payload.get("author_name") or ""),
+            "icon_url": str(payload.get("author_icon_url") or ""),
+        },
+        "thumbnail_url": str(payload.get("thumbnail_url") or ""),
+        "image_url": str(payload.get("image_url") or ""),
+        "footer": {
+            "text": str(payload.get("footer_text") or ""),
+            "icon_url": str(payload.get("footer_icon_url") or ""),
+        },
+        "fields": fields,
+    }
+    payload["delivery"] = {
+        "content_mode": str(payload.get("content_mode") or "embed"),
+        "channel_key": str(payload.get("channel_key") or ""),
+        "mention_mode": str(payload.get("mention_mode") or "none"),
+        "mention_role_id": str(payload.get("mention_role_id") or ""),
+        "button_label": str(payload.get("button_label") or ""),
+        "button_url": str(payload.get("button_url") or ""),
+    }
+    payload["schedule"] = {
+        "type": str(payload.get("schedule_type") or "manual"),
+        "time": str(payload.get("schedule_time") or ""),
+        "interval_minutes": safe_int(payload.get("interval_minutes"), 0),
+        "timezone": str(payload.get("timezone") or "Europe/London"),
+    }
+    payload["enabled"] = bool(payload.get("enabled", True))
+    return payload
+
+
 @APP.get("/healthz")
 def healthz():
     return jsonify({"ok": True, "generated_at": datetime.now(UTC).isoformat()})
@@ -1734,7 +1878,7 @@ def api_embed_template():
     payload, error = require_admin()
     if error:
         return error
-    record = save_dashboard_admin("embed_templates", payload or {}, "template_id")
+    record = save_dashboard_admin("embed_templates", normalize_embed_payload(payload or {}), "template_id")
     return jsonify({"ok": True, "template": record})
 
 
@@ -1745,6 +1889,19 @@ def api_welcome_automation():
         return error
     record = save_dashboard_admin("welcome_automations", payload or {}, "automation_id")
     return jsonify({"ok": True, "automation": record})
+
+
+@APP.post("/api/admin/utility-config")
+def api_utility_config():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    module = str(payload.get("module") or payload.get("name") or "utility").strip()
+    payload["module"] = module
+    payload["name"] = module
+    record = save_dashboard_admin("utility_configs", payload, "module")
+    return jsonify({"ok": True, "utility": record})
 
 
 @APP.post("/api/admin/reaction-role-panel")
