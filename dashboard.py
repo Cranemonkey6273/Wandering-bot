@@ -781,6 +781,25 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Update Member</button> <span class="result muted"></span></div>
           </form>
         </article>
+        <article class="admin-panel full">
+          <h3>Existing Factions</h3>
+          <table class="item-table">
+            <thead><tr><th>Faction</th><th>Members</th><th>Leader</th><th>Role</th><th>Alert channel</th></tr></thead>
+            <tbody>
+              {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}
+              <tr>
+                <td>{{ faction.name or faction_name }}</td>
+                <td>{{ faction.members|length if faction.members else 0 }}</td>
+                <td>{{ faction.leader_id or faction.leader or '-' }}</td>
+                <td>{{ faction.role_id or faction.discord_role_id or '-' }}</td>
+                <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5">No factions found for this server yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
       </div>
     </section>
     {% endif %}
@@ -1083,6 +1102,7 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel">
           <h3>Edit Shop Item</h3>
           <form class="admin-form" data-route="/api/admin/shop-item" id="shop-edit-form">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <label>Item name <input name="item_name" value="NailsBox"></label>
             <label>Price <input name="price" type="number" value="100"></label>
             <label>Category
@@ -1107,12 +1127,12 @@ Event pings | bell | 1234567890</textarea></label>
           <h3>All Shop Items</h3>
           <div class="shop-toolbar">
             <label>Search items <input data-shop-search placeholder="type item/category/status"></label>
-            <span class="pill">{{ shop_items|length }} items</span>
+            <span class="pill">{{ server.shop_items|length if server else 0 }} items</span>
           </div>
           <table class="item-table">
             <thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
             <tbody>
-              {% for item in shop_items %}
+              {% for item in (server.shop_items if server else []) %}
               <tr data-shop-row data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
                 <td>{{ item.name }}</td>
                 <td>{{ item.category }}</td>
@@ -1127,7 +1147,7 @@ Event pings | bell | 1234567890</textarea></label>
             </tbody>
           </table>
         </article>
-        {% for category, items in shop_categories.items() %}
+        {% for category, items in (server.shop_categories.items() if server else []) %}
         <article class="admin-panel">
           <h3>{{ category }}</h3>
           <table class="item-table">
@@ -2073,6 +2093,59 @@ def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
 
 
+def is_shop_record(value: Any) -> bool:
+    return isinstance(value, dict) and any(
+        key in value
+        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids")
+    )
+
+
+def shop_for_guild(shop: Any, guild_id: str) -> dict[str, Any]:
+    if not isinstance(shop, dict):
+        return {}
+    block = shop.get(str(guild_id))
+    if isinstance(block, dict) and not is_shop_record(block):
+        return block
+    return {str(name): data for name, data in shop.items() if is_shop_record(data)}
+
+
+def faction_records_for_guild(factions: Any, guild_id: str) -> dict[str, Any]:
+    records: dict[str, Any] = {}
+    if not isinstance(factions, dict):
+        return records
+
+    nested = factions.get(str(guild_id))
+    if isinstance(nested, dict):
+        for name, faction in nested.items():
+            record = dict(faction) if isinstance(faction, dict) else {}
+            record.setdefault("name", str(name))
+            records[str(record.get("name") or name)] = record
+
+    prefix = f"{guild_id}:"
+    for key, faction in factions.items():
+        if not str(key).startswith(prefix):
+            continue
+        record = dict(faction) if isinstance(faction, dict) else {}
+        name = str(record.get("name") or str(key)[len(prefix):] or key)
+        record.setdefault("name", name)
+        records.setdefault(name, record)
+
+    return records
+
+
+def wallet_records_for_guild(wallets: Any, guild_id: str) -> list[dict[str, Any]]:
+    records = []
+    if not isinstance(wallets, dict):
+        return records
+    prefix = f"{guild_id}:"
+    for key, wallet in wallets.items():
+        if str(key).startswith(prefix) and isinstance(wallet, dict):
+            records.append(dict(wallet))
+        elif isinstance(wallet, dict) and str(wallet.get("guild_id")) == str(guild_id):
+            records.append(dict(wallet))
+    return records
+
+
 def map_size_for(server_map: str) -> int:
     name = str(server_map or "").strip().lower()
     if "livonia" in name or name == "enoch":
@@ -2282,7 +2355,11 @@ def load_dashboard_state() -> dict[str, Any]:
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
-        server_factions = guild_block(factions, guild_id, {})
+        server_shop = shop_for_guild(shop, guild_id)
+        server_shop_categories = shop_category_map(server_shop)
+        server_shop_items = flat_shop_items(server_shop)
+        server_factions = faction_records_for_guild(factions, guild_id)
+        server_wallets = wallet_records_for_guild(wallets, guild_id)
         server_wages = guild_block(wages, guild_id, [])
         channels = public_channels(config.get("channels", {}))
         server_heatmap = heatmap_summary(heatmap, guild_id)
@@ -2317,6 +2394,9 @@ def load_dashboard_state() -> dict[str, Any]:
                 "dashboard_access": access,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
+                "wallets": redact(server_wallets),
+                "shop_items": redact(server_shop_items),
+                "shop_categories": redact(server_shop_categories),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
                 "heatmap": server_heatmap,
@@ -2336,8 +2416,8 @@ def load_dashboard_state() -> dict[str, Any]:
             "players": total_players,
             "kills": total_kills,
             "dashboard_enabled": dashboard_enabled,
-            "shop_items": count_records(shop),
-            "wallets": count_records(wallets),
+            "shop_items": sum(count_records(server.get("shop_items")) for server in servers),
+            "wallets": sum(count_records(server.get("wallets")) for server in servers) or count_records(wallets),
             "delivery_queue": count_records(delivery_queue),
             "factions": sum(count_records(server.get("factions")) for server in servers),
             "wages": sum(count_records(server.get("wages")) for server in servers),
@@ -2374,6 +2454,8 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[s
                 "players": sum(safe_int(server.get("totals", {}).get("players")) for server in servers),
                 "kills": sum(safe_int(server.get("totals", {}).get("kills")) for server in servers),
                 "dashboard_enabled": sum(1 for server in servers if server.get("dashboard_access", {}).get("enabled")),
+                "shop_items": sum(count_records(server.get("shop_items")) for server in servers),
+                "wallets": sum(count_records(server.get("wallets")) for server in servers),
                 "factions": sum(count_records(server.get("factions")) for server in servers),
                 "wages": sum(count_records(server.get("wages")) for server in servers),
                 "heatmap_points": sum(server.get("heatmap", {}).get("total", 0) for server in servers),
@@ -2654,22 +2736,29 @@ def api_shop_item():
         return jsonify({"ok": False, "error": "item_name is required"}), 400
     if not is_shop_sellable_item(item_name, payload.get("category")):
         return jsonify({"ok": False, "error": "that class is not a shop item"}), 400
+    guild_id = normalize_guild_id(payload.get("guild_id"))
     shop = load_store("shop", {})
     if not isinstance(shop, dict):
         shop = {}
-    existing = shop.get(item_name, {}) if isinstance(shop.get(item_name), dict) else {}
+    guild_shop = shop.setdefault(guild_id, {})
+    if not isinstance(guild_shop, dict) or is_shop_record(guild_shop):
+        guild_shop = {}
+        shop[guild_id] = guild_shop
+    legacy = shop.get(item_name, {}) if isinstance(shop.get(item_name), dict) else {}
+    existing = guild_shop.get(item_name, legacy) if isinstance(guild_shop.get(item_name, legacy), dict) else {}
     existing.update(
         {
             "price": safe_int(payload.get("price", existing.get("price", 0))),
             "category": str(payload.get("category") or existing.get("category") or "General"),
-            "enabled": bool(payload.get("enabled", existing.get("enabled", True))),
+            "enabled": safe_bool(payload.get("enabled", existing.get("enabled", True)), True),
             "daily_limit": safe_int(payload.get("daily_limit", existing.get("daily_limit", 0))),
             "allowed_role_ids": csv_list(payload.get("allowed_role_ids", existing.get("allowed_role_ids", []))),
             "blocked_user_ids": csv_list(payload.get("blocked_user_ids", existing.get("blocked_user_ids", []))),
+            "guild_id": guild_id,
             "updated_at": datetime.now(UTC).isoformat(),
         }
     )
-    shop[item_name] = existing
+    guild_shop[item_name] = existing
     save_store("shop", shop)
     return jsonify({"ok": True, "item": {item_name: existing}})
 
@@ -3122,17 +3211,31 @@ def api_wallet_adjustment():
     if not user_id:
         return jsonify({"ok": False, "error": "user_id is required"}), 400
     amount = safe_int(payload.get("amount"))
+    guild_id = normalize_guild_id(payload.get("guild_id"))
     wallets = load_store("wallets", {})
     if not isinstance(wallets, dict):
         wallets = {}
-    wallet = wallets.setdefault(user_id, {"name": str(payload.get("name") or ""), "balance": 0, "daily_transactions": 0})
+    key = f"{guild_id}:{user_id}"
+    legacy = wallets.get(user_id, {}) if isinstance(wallets.get(user_id), dict) else {}
+    wallet = wallets.setdefault(
+        key,
+        {
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "name": str(payload.get("name") or legacy.get("name") or ""),
+            "balance": safe_int(legacy.get("balance", 0)),
+            "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
+        },
+    )
+    wallet["guild_id"] = guild_id
+    wallet["user_id"] = user_id
     wallet["balance"] = safe_int(wallet.get("balance")) + amount
     wallet["updated_at"] = datetime.now(UTC).isoformat()
     wallet.setdefault("adjustments", []).append(
         {
             "amount": amount,
             "reason": str(payload.get("reason") or "dashboard adjustment"),
-            "guild_id": normalize_guild_id(payload.get("guild_id")),
+            "guild_id": guild_id,
             "created_at": datetime.now(UTC).isoformat(),
         }
     )

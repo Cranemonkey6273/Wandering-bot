@@ -5461,17 +5461,9 @@ async def run_legacy_as_slash(interaction: discord.Interaction, legacy_name: str
     await cmd.callback(ctx, *args, **kwargs)
 
 
-def ensure_wallet(user):
+def ensure_wallet(user, guild_id=None):
     user_id = str(user.id)
-
-    if user_id not in wallets:
-        wallets[user_id] = {
-            "name": str(user),
-            "balance": 0,
-            "daily_transactions": 0
-        }
-
-    return wallets[user_id]
+    return guild_wallet(guild_id, user_id, str(user))
 
 
 async def _translate_via_mymemory(text, target_language, source_language):
@@ -14716,15 +14708,9 @@ async def on_message(message):
                 SWEAR_REWARD_MAX
             )
 
-            if user_id not in wallets:
-
-                wallets[user_id] = {
-                    "name": str(message.author),
-                    "balance": 0,
-                    "daily_transactions": 0
-                }
-
-            wallets[user_id]["balance"] += reward
+            guild_id = str(message.guild.id) if message.guild else None
+            wallet = guild_wallet(guild_id, user_id, str(message.author))
+            wallet["balance"] += reward
 
             tracker["eligible"] = False
             tracker["recent_swears"] = 0
@@ -18106,11 +18092,7 @@ async def wage_loop():
                     continue
 
                 user_id = str(wage.get("user_id"))
-                wallet = wallets.setdefault(user_id, {
-                    "name": wage.get("name", user_id),
-                    "balance": 0,
-                    "daily_transactions": 0
-                })
+                wallet = guild_wallet(guild_id, user_id, wage.get("name", user_id))
                 amount = int(wage.get("amount", 0))
                 if amount <= 0:
                     continue
@@ -19008,16 +18990,12 @@ def linked_user_id_for_player(player_name):
     return None
 
 
-def award_pve_pennies(player_name, challenge):
+def award_pve_pennies(guild_id, player_name, challenge):
     user_id = linked_user_id_for_player(player_name)
     if not user_id:
         return False, "No linked Discord member found"
 
-    wallet = wallets.setdefault(user_id, {
-        "name": linked_players.get(user_id, {}).get("discord_name", player_name),
-        "balance": 0,
-        "daily_transactions": 0
-    })
+    wallet = guild_wallet(guild_id, user_id, linked_players.get(user_id, {}).get("discord_name", player_name))
     reward = int(challenge.get("reward_pennies", 0))
     wallet["balance"] = wallet.get("balance", 0) + reward
     save_wallets()
@@ -20003,7 +19981,7 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
             challenge["status"] = "completed"
             challenge["completed_by"] = player_name
             challenge["completed"] = str(datetime.now(UTC))
-            paid, reward_status = award_pve_pennies(player_name, challenge)
+            paid, reward_status = award_pve_pennies(guild_id, player_name, challenge)
             if not paid:
                 reward_status = f"{challenge.get('reward_pennies', 0)} pennies pending. Survivor must link gamertag with `/linkgamer`."
             await send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status)
@@ -20142,7 +20120,7 @@ async def wages_payout_loop():
 
             if target_type == "user":
                 user_id = str(wage.get("target_id"))
-                w = wallets.setdefault(user_id, {"name": "", "balance": 0, "daily_transactions": 0})
+                w = guild_wallet(guild_id, user_id)
                 w["balance"] = int(w.get("balance", 0) or 0) + amount
                 paid_to.append(f"<@{user_id}>")
 
@@ -20153,7 +20131,7 @@ async def wages_payout_loop():
                     for member in role.members:
                         if member.bot:
                             continue
-                        w = wallets.setdefault(str(member.id), {"name": str(member), "balance": 0, "daily_transactions": 0})
+                        w = guild_wallet(guild_id, str(member.id), str(member))
                         w["balance"] = int(w.get("balance", 0) or 0) + amount
                         paid_to.append(member.mention)
 
@@ -20168,7 +20146,7 @@ async def wages_payout_loop():
                         for member in role.members:
                             if member.bot:
                                 continue
-                            w = wallets.setdefault(str(member.id), {"name": str(member), "balance": 0, "daily_transactions": 0})
+                            w = guild_wallet(guild_id, str(member.id), str(member))
                             w["balance"] = int(w.get("balance", 0) or 0) + amount
                             paid_to.append(member.mention)
                 # Also pay any linked-gamertag member that's listed in the faction.
@@ -20180,7 +20158,7 @@ async def wages_payout_loop():
                             mention = f"<@{user_id}>"
                             if mention in paid_to:
                                 continue
-                            w = wallets.setdefault(str(user_id), {"name": gt, "balance": 0, "daily_transactions": 0})
+                            w = guild_wallet(guild_id, str(user_id), gt)
                             w["balance"] = int(w.get("balance", 0) or 0) + amount
                             paid_to.append(mention)
 
@@ -20409,11 +20387,7 @@ async def pvecomplete(interaction: discord.Interaction, quest_id: str, member: d
     challenge["completed_discord_id"] = user_id
     challenge["completed"] = str(datetime.now(UTC))
 
-    wallet = wallets.setdefault(user_id, {
-        "name": str(member),
-        "balance": 0,
-        "daily_transactions": 0
-    })
+    wallet = guild_wallet(guild_id, user_id, str(member))
     reward = int(challenge.get("reward_pennies", 0))
     wallet["balance"] = wallet.get("balance", 0) + reward
     save_wallets()
@@ -21466,12 +21440,70 @@ def is_shop_sellable_item(item_name, category=""):
     return True
 
 
-def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrite=False):
+def is_shop_item_record(value):
+    return isinstance(value, dict) and any(
+        key in value
+        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids")
+    )
+
+
+def legacy_shop_template():
+    template = {}
+    for item_name, data in shop_items.items():
+        if is_shop_item_record(data):
+            template[str(item_name)] = dict(data)
+    return template
+
+
+def guild_shop_items(guild_id):
+    guild_id = str(guild_id or "global")
+    block = shop_items.get(guild_id)
+    if isinstance(block, dict) and not is_shop_item_record(block):
+        return block
+
+    block = legacy_shop_template()
+    shop_items[guild_id] = block
+    save_shop()
+    return block
+
+
+def wallet_key(guild_id, user_id):
+    return f"{guild_id}:{user_id}" if guild_id else str(user_id)
+
+
+def guild_wallet(guild_id, user_id, name=""):
+    key = wallet_key(str(guild_id) if guild_id else None, str(user_id))
+    wallet = wallets.get(key)
+    if isinstance(wallet, dict):
+        wallet.setdefault("guild_id", str(guild_id) if guild_id else "")
+        wallet.setdefault("user_id", str(user_id))
+        wallet.setdefault("name", str(name or wallet.get("name") or ""))
+        wallet.setdefault("balance", 0)
+        wallet.setdefault("daily_transactions", 0)
+        return wallet
+
+    legacy = wallets.get(str(user_id))
+    if not isinstance(legacy, dict):
+        legacy = {}
+
+    wallet = {
+        "guild_id": str(guild_id) if guild_id else "",
+        "user_id": str(user_id),
+        "name": str(name or legacy.get("name") or ""),
+        "balance": int(legacy.get("balance", 0) or 0),
+        "daily_transactions": int(legacy.get("daily_transactions", 0) or 0),
+    }
+    wallets[key] = wallet
+    return wallet
+
+
+def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrite=False, guild_id=None):
     types_path = find_types_xml(source_path)
 
     if not types_path:
         return 0, 0, None
 
+    target_shop = guild_shop_items(guild_id) if guild_id else shop_items
     tree = ET.parse(types_path)
     root = tree.getroot()
     added = 0
@@ -21508,13 +21540,13 @@ def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrit
             "enabled": True
         }
 
-        if item_name in shop_items:
+        if item_name in target_shop:
             if overwrite:
-                shop_items[item_name].update(item_data)
+                target_shop[item_name].update(item_data)
                 updated += 1
             continue
 
-        shop_items[item_name] = item_data
+        target_shop[item_name] = item_data
         added += 1
 
     if added or updated:
@@ -22687,18 +22719,10 @@ def queue_all_vehicle_reset(guild_id, config, requested_by):
 async def wallet(ctx):
 
     user_id = str(ctx.author.id)
-
-    if user_id not in wallets:
-
-        wallets[user_id] = {
-            "name": str(ctx.author),
-            "balance": 0,
-            "daily_transactions": 0
-        }
-
-        save_wallets()
-
-    balance = wallets[user_id]["balance"]
+    guild_id = str(ctx.guild.id) if ctx.guild else None
+    wallet = guild_wallet(guild_id, user_id, str(ctx.author))
+    save_wallets()
+    balance = wallet["balance"]
 
     embed = discord.Embed(
         title="💰 SURVIVOR WALLET",
@@ -22713,15 +22737,17 @@ async def wallet(ctx):
 
 @bot.command()
 async def shop(ctx):
+    guild_id = str(ctx.guild.id) if ctx.guild else None
+    items = guild_shop_items(guild_id)
 
-    if not shop_items:
+    if not items:
 
         await ctx.send("Shop is currently empty.")
         return
 
     lines = []
 
-    for item_name, data in shop_items.items():
+    for item_name, data in items.items():
 
         lines.append(
             f"• {item_name} — {data.get('price', 0)} pennies 🪙"
@@ -22754,21 +22780,23 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400`.")
         return
 
-    if item_name not in shop_items:
+    items = guild_shop_items(guild_id)
+
+    if item_name not in items:
 
         await ctx.send("That item does not exist in the shop.")
         return
 
-    if not is_shop_sellable_item(item_name, shop_items[item_name].get("category")):
+    if not is_shop_sellable_item(item_name, items[item_name].get("category")):
         await ctx.send("That class is not allowed in the player shop.")
         return
 
-    if not shop_items[item_name].get("enabled", True):
+    if not items[item_name].get("enabled", True):
 
         await ctx.send("❌ That item is currently disabled.")
         return
 
-    item_config = shop_items.get(item_name, {})
+    item_config = items.get(item_name, {})
     blocked_user_ids = {str(uid) for uid in item_config.get("blocked_user_ids", []) if uid}
     if user_id in blocked_user_ids:
         await ctx.send("You are restricted from buying that item.")
@@ -22781,15 +22809,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
             await ctx.send("That item is restricted to a specific Discord role.")
             return
 
-    if user_id not in wallets:
-
-        wallets[user_id] = {
-            "name": str(ctx.author),
-            "balance": 0,
-            "daily_transactions": 0
-        }
-
-    wallet = wallets[user_id]
+    wallet = guild_wallet(guild_id, user_id, str(ctx.author))
 
     limit = DEFAULT_DAILY_TRANSACTION_LIMIT
     item_daily_limit = int(item_config.get("daily_limit", 0) or 0)
@@ -22801,7 +22821,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("❌ Daily delivery limit reached.")
         return
 
-    price = shop_items[item_name].get("price", 0)
+    price = items[item_name].get("price", 0)
 
     if wallet["balance"] < price:
 
@@ -23042,12 +23062,14 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
         await ctx.send("Use numeric map coordinates, for example `/tools rentvehicle OffroadHatchback 2 7500 8400`.")
         return
 
-    if vehicle_name not in shop_items:
+    items = guild_shop_items(guild_id)
+
+    if vehicle_name not in items:
 
         await ctx.send("❌ Vehicle not available.")
         return
 
-    vehicle_data = shop_items[vehicle_name]
+    vehicle_data = items[vehicle_name]
 
     if vehicle_data.get("category", "").lower() != "vehicles":
 
@@ -23056,20 +23078,14 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
     rental_price = vehicle_data.get("price", 0) * max(rental_hours, 1)
 
-    if user_id not in wallets:
+    wallet = guild_wallet(guild_id, user_id, str(ctx.author))
 
-        wallets[user_id] = {
-            "name": str(ctx.author),
-            "balance": 0,
-            "daily_transactions": 0
-        }
-
-    if wallets[user_id]["balance"] < rental_price:
+    if wallet["balance"] < rental_price:
 
         await ctx.send("❌ Not enough pennies.")
         return
 
-    wallets[user_id]["balance"] -= rental_price
+    wallet["balance"] -= rental_price
 
     rental_entry = {
         "guild_id": guild_id,
@@ -23376,7 +23392,8 @@ async def addshopitem(
     category: str = "General"
 ):
 
-    shop_items[item_name] = {
+    items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
+    items[item_name] = {
         "price": price,
         "category": category,
         "enabled": True
@@ -23431,16 +23448,18 @@ async def editshopitem(
     category: str = None
 ):
 
-    if item_name not in shop_items:
+    items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
+
+    if item_name not in items:
 
         await ctx.send("❌ Item not found in shop.")
         return
 
     if price is not None:
-        shop_items[item_name]["price"] = price
+        items[item_name]["price"] = price
 
     if category is not None:
-        shop_items[item_name]["category"] = category
+        items[item_name]["category"] = category
 
     save_shop()
 
@@ -23459,14 +23478,16 @@ async def editshopitem(
 @commands.check(lambda ctx: has_staff_permissions(ctx))
 async def toggleshopitem(ctx, item_name: str):
 
-    if item_name not in shop_items:
+    items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
+
+    if item_name not in items:
 
         await ctx.send("❌ Item not found.")
         return
 
-    current = shop_items[item_name].get("enabled", True)
+    current = items[item_name].get("enabled", True)
 
-    shop_items[item_name]["enabled"] = not current
+    items[item_name]["enabled"] = not current
 
     save_shop()
 
@@ -23488,8 +23509,9 @@ async def toggleshopitem(ctx, item_name: str):
 async def shopcategories(ctx):
 
     categories = {}
+    items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
 
-    for item, data in shop_items.items():
+    for item, data in items.items():
 
         category = data.get("category", "General")
 
@@ -23519,11 +23541,13 @@ async def shopcategories(ctx):
 @bot.command()
 @commands.check(lambda ctx: has_staff_permissions(ctx))
 async def importtypesxml(ctx, source_path: str = None, default_price: int = 100):
+    guild_id = str(ctx.guild.id) if ctx.guild else None
 
     added, updated, types_path = load_shop_items_from_types_xml(
         source_path,
         default_price,
-        overwrite=False
+        overwrite=False,
+        guild_id=guild_id
     )
 
     if not types_path:
@@ -23538,7 +23562,7 @@ async def importtypesxml(ctx, source_path: str = None, default_price: int = 100)
 
     embed.add_field(name="Added", value=str(added), inline=True)
     embed.add_field(name="Updated", value=str(updated), inline=True)
-    embed.add_field(name="Total Shop Items", value=str(len(shop_items)), inline=True)
+    embed.add_field(name="Total Shop Items", value=str(len(guild_shop_items(guild_id))), inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
 
     await ctx.send(embed=style_embed(embed))
@@ -23553,12 +23577,14 @@ async def importtypesxml(ctx, source_path: str = None, default_price: int = 100)
 @commands.check(lambda ctx: has_staff_permissions(ctx))
 async def removeshopitem(ctx, *, item_name: str):
 
-    if item_name not in shop_items:
+    items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
+
+    if item_name not in items:
 
         await ctx.send("Item not found.")
         return
 
-    del shop_items[item_name]
+    del items[item_name]
 
     save_shop()
 
@@ -23570,16 +23596,9 @@ async def removeshopitem(ctx, *, item_name: str):
 async def givepennies(ctx, member: discord.Member, amount: int):
 
     user_id = str(member.id)
-
-    if user_id not in wallets:
-
-        wallets[user_id] = {
-            "name": str(member),
-            "balance": 0,
-            "daily_transactions": 0
-        }
-
-    wallets[user_id]["balance"] += amount
+    guild_id = str(ctx.guild.id) if ctx.guild else None
+    wallet = guild_wallet(guild_id, user_id, str(member))
+    wallet["balance"] += amount
 
     save_wallets()
 
@@ -31138,7 +31157,8 @@ async def slash_importtypesxml(
             load_shop_items_from_types_xml,
             resolved_source,
             default_price,
-            False
+            False,
+            guild_id
         )
     except Exception as import_err:
         if cleanup_dir:
@@ -31166,7 +31186,7 @@ async def slash_importtypesxml(
     )
     embed.add_field(name="Items Added", value=str(added), inline=True)
     embed.add_field(name="Items Updated", value=str(updated), inline=True)
-    embed.add_field(name="Total Shop Items", value=str(len(shop_items)), inline=True)
+    embed.add_field(name="Total Shop Items", value=str(len(guild_shop_items(guild_id))), inline=True)
     embed.add_field(
         name="Default Price",
         value=f"`{default_price}` pennies (applied to items without a price in types.xml)",
@@ -31342,78 +31362,13 @@ async def slash_resetvehicles(interaction: discord.Interaction):
     )
 
 # =========================================================
-# DAYZ INIT.C DELIVERY LOADER (NITRADO SIDE)
+# DAYZ INIT.C DELIVERY BRIDGE NOTE
 # =========================================================
 
-# ADD THIS TO YOUR DAYZ SERVER init.c FILE
-# This loads deliveries.xml on restart.
-# Your bot already uploads the XML automatically.
-# This is the final bridge.
-
-'''
-void SpawnWanderingDeliveries()
-{
-    string path = "$profile:custom/deliveries.xml";
-
-    FileHandle file = OpenFile(path, FileMode.READ);
-
-    if (!file)
-    {
-        Print("[WANDERING BOT] deliveries.xml not found");
-        return;
-    }
-
-    string line;
-
-    while (FGets(file, line) > 0)
-    {
-        if (line.Contains("<object"))
-        {
-            string itemName;
-            string position;
-
-            int nameStart = line.IndexOf("name=\"") + 6;
-            int nameEnd = line.IndexOf("\"", nameStart);
-
-            itemName = line.Substring(nameStart, nameEnd - nameStart);
-
-            int posStart = line.IndexOf("pos=\"") + 5;
-            int posEnd = line.IndexOf("\"", posStart);
-
-            position = line.Substring(posStart, posEnd - posStart);
-
-            TStringArray posSplit = new TStringArray;
-            position.Split(" ", posSplit);
-
-            if (posSplit.Count() >= 3)
-            {
-                vector spawnPos = Vector(
-                    posSplit.Get(0).ToFloat(),
-                    posSplit.Get(1).ToFloat(),
-                    posSplit.Get(2).ToFloat()
-                );
-
-                EntityAI spawned = EntityAI.Cast(
-                    GetGame().CreateObject(itemName, spawnPos)
-                );
-
-                if (spawned)
-                {
-                    Print("[WANDERING BOT] Spawned: " + itemName);
-                }
-            }
-        }
-    }
-
-    CloseFile(file);
-}
-
-// =====================================================
-// CALL THIS INSIDE main() AFTER WEATHER SETUP
-// =====================================================
-
-SpawnWanderingDeliveries();
-'''
+# Do not copy an old inline init.c snippet from this source file.
+# Use `/events bridgecode` or `/installdayzbridge install:true` so Nitrado gets
+# the current v5 bridge that understands item deliveries, airdrops, animal
+# packs, vehicle spawns, and vehicle reset actions.
 
 # =========================================================
 # READY
