@@ -386,7 +386,9 @@ PAGE_TEMPLATE = """
           if (value !== "") payload[key] = formValue(value);
         });
         result.textContent = "Saving...";
-        const response = await fetch(form.dataset.route, {
+        const token = new URLSearchParams(window.location.search).get("token");
+        const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+        const response = await fetch(route, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload)
