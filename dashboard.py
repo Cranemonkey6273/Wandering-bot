@@ -373,14 +373,11 @@ PAGE_TEMPLATE = """
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
-    .owner-server-panel { overflow-x: auto; }
-    .owner-server-table { min-width: 58rem; table-layout: fixed; }
-    .owner-server-table th:nth-child(1), .owner-server-table td:nth-child(1) { width: 28%; }
-    .owner-server-table th:nth-child(2), .owner-server-table td:nth-child(2) { width: 15%; }
-    .owner-server-table th:nth-child(3), .owner-server-table td:nth-child(3) { width: 17%; }
-    .owner-server-table th:nth-child(4), .owner-server-table td:nth-child(4) { width: 13%; }
-    .owner-server-table th:nth-child(5), .owner-server-table td:nth-child(5) { width: 27%; }
-    .owner-server-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .owner-server-list { display: grid; gap: .65rem; }
+    .owner-server-card { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, auto); gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
+    .owner-server-card h4 { margin: 0 0 .35rem; color: var(--text); }
+    .owner-server-meta { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .owner-server-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; align-items: center; }
     .owner-server-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
@@ -429,7 +426,8 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card { grid-template-columns: 1fr; }
+      .owner-server-actions { justify-content: flex-start; }
       .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
       nav { display: none; }
@@ -538,7 +536,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
-      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules, base/container damage and vehicle reset settings.</span></a>
+      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules, damage toggles, and vehicle reset settings.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
@@ -599,63 +597,65 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </article>
-        <article class="admin-panel owner-server-panel">
+        <article class="admin-panel">
           <h3>All Server Dashboards</h3>
-          <table class="item-table owner-server-table">
-            <thead><tr><th>Server</th><th>Map</th><th>Admin Access</th><th>Open</th><th>Owner Actions</th></tr></thead>
-            <tbody>
-              {% for owned in servers %}
-              <tr>
-                <td>{{ owned.guild_name }}</td>
-                <td>{{ owned.map|upper }}</td>
-                <td>{{ 'enabled' if owned.dashboard_access.enabled else 'locked' }} · {{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</td>
-                <td><a class="button" href="/owner?guild_id={{ owned.guild_id }}">Owner Open</a></td>
-                <td><div class="owner-server-actions">
-                  {% if owned.dashboard_access.owner_admin_visible %}
-                  <form class="admin-form inline-action" data-route="/api/owner/guild-action">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="action" value="hide_from_owner_admin">
-                    <button type="submit">Hide From My Admin</button> <span class="result muted"></span>
-                  </form>
-                  {% else %}
-                  <form class="admin-form inline-action" data-route="/api/owner/guild-action">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="action" value="show_in_owner_admin">
-                    <button type="submit">Show In My Admin</button> <span class="result muted"></span>
-                  </form>
-                  {% endif %}
-                  {% if not owned.dashboard_access.enabled %}
-                  <form class="admin-form inline-action" data-route="/api/admin/guild-access">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="enabled" value="true">
-                    <input class="hidden-field" name="tier" value="owner">
-                    <input class="hidden-field" name="plan_status" value="lifetime">
-                    <button type="submit">Enable Admin Access</button> <span class="result muted"></span>
-                  </form>
-                  {% else %}
-                  <form class="admin-form inline-action" data-route="/api/admin/guild-access" data-confirm="This locks normal admin dashboard login for {{ owned.guild_name }}. Your owner login will still work. Continue?">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="enabled" value="false">
-                    <input class="hidden-field" name="tier" value="{{ owned.dashboard_access.tier or 'none' }}">
-                    <input class="hidden-field" name="plan_status" value="{{ owned.dashboard_access.plan_status or 'none' }}">
-                    <button type="submit">Lock Admin Access</button> <span class="result muted"></span>
-                  </form>
-                  {% endif %}
-                  <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="action" value="leave">
-                    <button type="submit">Leave Discord</button> <span class="result muted"></span>
-                  </form>
-                  <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }} and remove this guild from dashboard data. Continue?">
-                    <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
-                    <input class="hidden-field" name="action" value="leave_and_remove">
-                    <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
-                  </form>
-                </div></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <div class="owner-server-list">
+            {% for owned in servers %}
+            <div class="owner-server-card">
+              <div>
+                <h4>{{ owned.guild_name }}</h4>
+                <div class="owner-server-meta">
+                  <span class="pill">{{ owned.map|upper }}</span>
+                  <span class="pill {{ 'ok' if owned.dashboard_access.enabled else 'bad' }}">Admin {{ 'enabled' if owned.dashboard_access.enabled else 'locked' }}</span>
+                  <span class="pill">{{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</span>
+                </div>
+              </div>
+              <div class="owner-server-actions">
+                <a class="button" href="/owner?guild_id={{ owned.guild_id }}">Open</a>
+                {% if owned.dashboard_access.owner_admin_visible %}
+                <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="action" value="hide_from_owner_admin">
+                  <button type="submit">Hide From My Admin</button> <span class="result muted"></span>
+                </form>
+                {% else %}
+                <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="action" value="show_in_owner_admin">
+                  <button type="submit">Show In My Admin</button> <span class="result muted"></span>
+                </form>
+                {% endif %}
+                {% if not owned.dashboard_access.enabled %}
+                <form class="admin-form inline-action" data-route="/api/admin/guild-access">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="enabled" value="true">
+                  <input class="hidden-field" name="tier" value="owner">
+                  <input class="hidden-field" name="plan_status" value="lifetime">
+                  <button type="submit">Enable Admin Access</button> <span class="result muted"></span>
+                </form>
+                {% else %}
+                <form class="admin-form inline-action" data-route="/api/admin/guild-access" data-confirm="This locks normal admin dashboard login for {{ owned.guild_name }}. Your owner login will still work. Continue?">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="enabled" value="false">
+                  <input class="hidden-field" name="tier" value="{{ owned.dashboard_access.tier or 'none' }}">
+                  <input class="hidden-field" name="plan_status" value="{{ owned.dashboard_access.plan_status or 'none' }}">
+                  <button type="submit">Lock Admin Access</button> <span class="result muted"></span>
+                </form>
+                {% endif %}
+                <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="action" value="leave">
+                  <button type="submit">Leave Discord</button> <span class="result muted"></span>
+                </form>
+                <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }} and remove this guild from dashboard data. Continue?">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="action" value="leave_and_remove">
+                  <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
+                </form>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
         </article>
       </div>
     </section>
@@ -1414,7 +1414,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="section-head">
         <div>
           <h2>Server Control</h2>
-          <p class="tool-note">Set restart timing, damage options, and vehicle reset behaviour for this server only. File and gameplay changes need a server restart before DayZ applies them.</p>
+          <p class="tool-note">Restart timing, damage settings, and vehicle resets are separate controls for this server only. File and gameplay changes need a server restart before DayZ applies them.</p>
         </div>
       </div>
       <div class="panel-grid">
@@ -1436,7 +1436,18 @@ Event pings | bell | 1234567890</textarea></label>
           </form>
         </article>
         <article class="admin-panel">
-          <h3>Damage & Vehicle Reset</h3>
+          <h3>Damage Settings</h3>
+          <form class="admin-form" data-route="/api/admin/server-control">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Base damage <select name="base_damage_state"><option value="on" {% if not server or server.config.base_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.base_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Container damage <select name="container_damage_state"><option value="on" {% if not server or server.config.container_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.container_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <div class="full embed-preview"><strong>Damage Only</strong><span>These toggles are saved separately from vehicle resets so changing raid damage will not change the reset schedule.</span></div>
+            <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Vehicle Reset Schedule</h3>
           <form class="admin-form" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1448,8 +1459,6 @@ Event pings | bell | 1234567890</textarea></label>
             {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
             {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
             {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
-            <label>Base damage <select name="base_damage_state"><option value="on" {% if not server or server.config.base_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.base_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
-            <label>Container damage <select name="container_damage_state"><option value="on" {% if not server or server.config.container_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.container_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
             <label>Vehicle reset schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not server or not server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>Off</option><option value="true" {% if server and server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>On</option></select></label>
             <label>Vehicle reset method <select name="vehicle_reset_method"><option value="economy_xml" {% if not server or server.config.vehicle_reset_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if server and server.config.vehicle_reset_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
             <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
@@ -1472,7 +1481,7 @@ Event pings | bell | 1234567890</textarea></label>
             </label>
             <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
             <div class="full embed-preview"><strong>Important</strong><span>Economy XML vehicle resets are staged for the bot workflow so vehicles init can be restored safely after the wipe cycle. The schedule is saved per server and can repeat hourly, daily, weekly, or monthly.</span></div>
-            <div class="full"><button type="submit">Save Server Control</button> <span class="result muted"></span></div>
+            <div class="full"><button type="submit">Save Vehicle Reset</button> <span class="result muted"></span></div>
           </form>
         </article>
       </div>
