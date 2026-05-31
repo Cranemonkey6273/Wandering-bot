@@ -24069,6 +24069,9 @@ async def restart_delivery_processor():
                 for ok, message in economy_results:
                     print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
 
+            if await process_dashboard_scenario_xml_upload(guild_id, config):
+                save_guild_configs()
+
             restart_interval = config.get(
                 "restart_interval_hours",
                 DEFAULT_RESTART_INTERVAL_HOURS
@@ -24117,63 +24120,79 @@ async def restart_delivery_processor():
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
 
 
+def pending_dashboard_scenario_xml_events(config):
+    pending_events = []
+    for event in scenario_events_for_config(config):
+        if not isinstance(event, dict):
+            continue
+        if not event.get("enabled", True):
+            continue
+        if str(event.get("created_by") or "") != "dashboard":
+            continue
+        if is_economy_vehicle_reset_event(event):
+            continue
+        if event.get("native_ce_uploaded_at"):
+            continue
+        if str(event.get("upload_status") or "waiting_for_bot_upload") != "waiting_for_bot_upload":
+            continue
+        if int(event.get("upload_attempts") or 0) >= 3:
+            continue
+        pending_events.append(event)
+    return pending_events
+
+
+async def process_dashboard_scenario_xml_upload(guild_id, config):
+    pending_events = pending_dashboard_scenario_xml_events(config)
+    if not pending_events:
+        return False
+
+    try:
+        upload_success, built, messages = await asyncio.to_thread(
+            upload_console_ce_event_files,
+            guild_id,
+            config,
+            "",
+            "",
+            "",
+            False,
+        )
+        status_text = (
+            f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+            if upload_success
+            else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
+        )
+    except Exception as ce_error:
+        upload_success = False
+        built = {}
+        status_text = f"Native CE XML upload failed: {ce_error}"
+
+    now_text = datetime.now(UTC).isoformat()
+    for event in pending_events:
+        attempts = int(event.get("upload_attempts") or 0) + 1
+        event["upload_attempts"] = attempts
+        event["updated_at"] = now_text
+        if upload_success:
+            event["native_ce_uploaded_at"] = now_text
+            event["native_ce_events_path"] = built.get("events_path", "")
+            event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["upload_status"] = "uploaded"
+            event["status"] = "Native CE XML uploaded / waiting for restart"
+            event.pop("upload_error", None)
+        else:
+            event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
+            event["upload_error"] = status_text
+            event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
+    print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
+    return True
+
+
 @tasks.loop(minutes=1)
 async def dashboard_scenario_upload_loop():
     changed = False
     for guild_id, config in active_guild_config_items():
         try:
-            pending_events = [
-                event
-                for event in scenario_events_for_config(config)
-                if isinstance(event, dict)
-                and event.get("enabled", True)
-                and str(event.get("created_by") or "") == "dashboard"
-                and (
-                    str(event.get("upload_status") or "waiting_for_bot_upload") == "waiting_for_bot_upload"
-                    or not event.get("native_ce_uploaded_at")
-                )
-                and not is_economy_vehicle_reset_event(event)
-            ]
-            if not pending_events:
-                continue
-
-            try:
-                upload_success, built, messages = await asyncio.to_thread(
-                    upload_console_ce_event_files,
-                    guild_id,
-                    config,
-                    "",
-                    "",
-                    "",
-                    False,
-                )
-                status_text = (
-                    f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
-                    if upload_success
-                    else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
-                )
-            except Exception as ce_error:
-                upload_success = False
-                built = {}
-                status_text = f"Native CE XML upload failed: {ce_error}"
-            now_text = datetime.now(UTC).isoformat()
-            for event in pending_events:
-                attempts = int(event.get("upload_attempts") or 0) + 1
-                event["upload_attempts"] = attempts
-                event["updated_at"] = now_text
-                if upload_success:
-                    event["native_ce_uploaded_at"] = now_text
-                    event["native_ce_events_path"] = built.get("events_path", "")
-                    event["native_ce_spawns_path"] = built.get("spawns_path", "")
-                    event["upload_status"] = "uploaded"
-                    event["status"] = "Native CE XML uploaded / waiting for restart"
-                    event.pop("upload_error", None)
-                else:
-                    event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
-                    event["upload_error"] = status_text
-                    event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
-            changed = True
-            print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
+            if await process_dashboard_scenario_xml_upload(guild_id, config):
+                changed = True
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
     if changed:

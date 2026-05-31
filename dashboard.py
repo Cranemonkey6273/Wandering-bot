@@ -1284,12 +1284,12 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
               <tr>
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="event_id" value="{{ event.id }}">
-                    <select name="action"><option value="approve">Approve</option><option value="pause">Pause</option><option value="cancel">Cancel</option><option value="delete">Delete</option></select>
+                    <select name="action"><option value="upload">Upload XML now</option><option value="approve">Approve</option><option value="pause">Pause</option><option value="cancel">Cancel</option><option value="delete">Delete</option></select>
                     <button type="submit">Apply</button><span class="result muted"></span>
                   </form>
                 </td>
@@ -3751,8 +3751,8 @@ def api_scenario_event_action():
     guild_id = normalize_guild_id(payload.get("guild_id"))
     event_id = safe_int(payload.get("event_id") or payload.get("id"), 0)
     action = str(payload.get("action") or "approve").strip().lower()
-    if action not in {"approve", "pause", "cancel", "delete"}:
-        return jsonify({"ok": False, "error": "action must be approve, pause, cancel, or delete"}), 400
+    if action not in {"approve", "upload", "pause", "cancel", "delete"}:
+        return jsonify({"ok": False, "error": "action must be upload, approve, pause, cancel, or delete"}), 400
     if event_id <= 0:
         return jsonify({"ok": False, "error": "event_id is required"}), 400
 
@@ -3772,14 +3772,16 @@ def api_scenario_event_action():
             removed = events.pop(index)
             save_store("guild_configs", guild_configs)
             return jsonify({"ok": True, "deleted": removed})
-        event["enabled"] = action in {"approve"}
+        event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
             "approve": "Accepted / waiting for native CE XML upload",
+            "upload": "Queued for native CE XML upload now",
             "pause": "Paused by dashboard",
             "cancel": "Cancelled by dashboard",
         }[action]
-        if action == "approve":
+        if action in {"approve", "upload"}:
             event["upload_status"] = "waiting_for_bot_upload"
+            event["upload_attempts"] = 0
             event.pop("xml_uploaded_at", None)
             event.pop("bridge_uploaded_at", None)
             event.pop("bridge_surface_fixed_at", None)
