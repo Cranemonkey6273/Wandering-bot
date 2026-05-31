@@ -76,6 +76,8 @@ DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
 ADMIN_TOKEN = os.getenv("WANDERING_DASHBOARD_ADMIN_TOKEN", "")
+OWNER_DASHBOARD_ID = os.getenv("WANDERING_OWNER_DASHBOARD_ID", "owner").strip().lower()
+OWNER_DASHBOARD_PASSWORD = os.getenv("WANDERING_OWNER_DASHBOARD_PASSWORD", "")
 DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
@@ -172,7 +174,7 @@ LOGIN_TEMPLATE = """
   <main>
     <img src="/brand-image" alt="Wandering Bot logo">
     <h1>Wandering Bot</h1>
-    <p>Use the private dashboard ID and password created during Discord <code>/setup</code>. Each login opens only that server's dashboard.</p>
+    <p>Use a server dashboard ID/password for that one server, or your private owner login for the protected owner console.</p>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/login">
       <label>Dashboard ID <input name="dashboard_id" autocomplete="username" required></label>
@@ -871,8 +873,9 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
-          <form class="admin-form zone-builder-form" data-route="/api/admin/zone">
+          <form class="admin-form zone-builder-form" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="zone_id" value="">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Zone name <input name="name" value="North West Airfield"></label>
             <label>Zone type
@@ -941,12 +944,21 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Existing Zones</h3>
           <table class="item-table">
-            <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th></tr></thead>
+            <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th><th></th></tr></thead>
             <tbody>
               {% for zone in (server.zones if server else []) %}
-              <tr><td>{{ loop.index }}</td><td><span class="zone-swatch" style="--zone-colour: {{ zone.colour }};"></span>{{ zone.name }}</td><td>{{ zone.zone_type }}</td><td>{{ zone.x }}, {{ zone.y }}</td><td>{{ zone.radius }}m</td><td>{{ zone.action or 'notify' }}</td><td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td></tr>
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td><span class="zone-swatch" style="--zone-colour: {{ zone.colour }};"></span>{{ zone.name }}</td>
+                <td>{{ zone.zone_type }}</td>
+                <td>{{ zone.x }}, {{ zone.y }}</td>
+                <td>{{ zone.radius }}m</td>
+                <td>{{ zone.action or 'notify' }}</td>
+                <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
+                <td><button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button></td>
+              </tr>
               {% else %}
-              <tr><td colspan="7">No zones saved yet.</td></tr>
+              <tr><td colspan="8">No zones saved yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -1706,6 +1718,13 @@ Event pings | bell | 1234567890</textarea></label>
         if (colourInput) colourInput.value = value;
       }
 
+      function setSelectValue(select, value) {
+        if (!select || value === undefined || value === null) return;
+        const text = String(value);
+        const option = Array.from(select.options).find((item) => item.value === text || item.dataset.channelId === text);
+        if (option) select.value = option.value;
+      }
+
       function syncRadius(value) {
         const radius = Math.max(10, Number(value || 250));
         if (radiusInput) radiusInput.value = radius;
@@ -1814,6 +1833,58 @@ Event pings | bell | 1234567890</textarea></label>
           readout.textContent = `Selected X ${form.elements.x.value}, Y ${form.elements.y.value} - ${mode}`;
         }
       });
+      document.querySelectorAll("[data-zone-edit]").forEach((button) => {
+        button.addEventListener("click", () => {
+          let zone = {};
+          try { zone = JSON.parse(button.dataset.zone || "{}"); } catch (error) { zone = {}; }
+          if (!zone || !Object.keys(zone).length) return;
+          form.elements.zone_id.value = zone.id || zone.name || "";
+          form.elements.name.value = zone.name || "";
+          setSelectValue(form.elements.zone_type, zone.zone_type || zone.type || "radar");
+          form.elements.x.value = zone.x || 0;
+          form.elements.y.value = zone.y || 0;
+          setSelectValue(form.elements.shape, zone.shape || "circle");
+          syncRadius(zone.radius || 250);
+          setSelectValue(form.elements.channel_key, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
+          form.elements.role_id.value = zone.role_id || zone.mention_role_id || "";
+          setSelectValue(form.elements.faction_name, zone.faction_name || zone.faction || "");
+          syncZoneColour(zone.colour || zone.color || "#d5b45f");
+          setSelectValue(form.elements.enabled, zone.enabled === false ? "false" : "true");
+          setSelectValue(form.elements.action, zone.action || "none");
+          setSelectValue(form.elements.ban_type, zone.ban_type || "temp");
+          form.elements.ban_duration_minutes.value = zone.ban_duration_minutes || 1440;
+          setSelectValue(form.elements.trigger_territory, zone.trigger_territory || "inside");
+          form.elements.triggers.value = Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || "");
+          form.elements.ignored_gamertags.value = Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || "");
+          boundaryPoints.length = 0;
+          const savedPoints = Array.isArray(zone.boundary_points) ? zone.boundary_points : [];
+          savedPoints.forEach((point) => {
+            const x = Number(point.x || 0);
+            const y = Number(point.y || 0);
+            boundaryPoints.push({
+              x,
+              y,
+              xPercent: Number(point.xPercent || ((x / size) * 100)),
+              yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
+            });
+          });
+          renderBoundary();
+          let cursor = map.querySelector(".zone-cursor");
+          if (!cursor) {
+            cursor = document.createElement("span");
+            cursor.className = "zone-cursor";
+            map.appendChild(cursor);
+          }
+          cursor.style.left = `${(Number(form.elements.x.value || 0) / size) * 100}%`;
+          cursor.style.top = `${100 - ((Number(form.elements.y.value || 0) / size) * 100)}%`;
+          renderCirclePreview();
+          if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
+          const readout = form.querySelector("[data-map-readout]");
+          if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
+          form.scrollIntoView({behavior: "smooth", block: "center"});
+          form.elements.name.focus();
+        });
+      });
       syncRadius(radiusInput ? radiusInput.value : 250);
       syncZoneColour(colourInput ? colourInput.value : "#d5b45f");
     });
@@ -1919,6 +1990,24 @@ def make_session_cookie(guild_id: str, credentials: dict[str, Any]) -> str:
     return f"{guild_id}:{session_signature(guild_id, password_hash)}"
 
 
+def owner_session_signature() -> str:
+    return hashlib.sha256(f"owner:{OWNER_DASHBOARD_PASSWORD}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
+
+
+def make_owner_session_cookie() -> str:
+    return f"owner:{owner_session_signature()}"
+
+
+def verify_owner_login(dashboard_id: str, password: str) -> bool:
+    if not OWNER_DASHBOARD_PASSWORD:
+        return False
+    if not OWNER_DASHBOARD_ID:
+        return False
+    if str(dashboard_id or "").strip().lower() != OWNER_DASHBOARD_ID:
+        return False
+    return secrets.compare_digest(str(password or ""), OWNER_DASHBOARD_PASSWORD)
+
+
 def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str, Any] | None]:
     dashboard_id = str(dashboard_id or "").strip().lower()
     if not dashboard_id:
@@ -1961,6 +2050,10 @@ def current_auth() -> dict[str, Any] | None:
     if ":" not in cookie:
         return None
     guild_id, signature = cookie.split(":", 1)
+    if guild_id == "owner" and OWNER_DASHBOARD_PASSWORD:
+        if secrets.compare_digest(signature, owner_session_signature()):
+            return {"kind": "owner", "guild_id": None, "label": "all servers"}
+        return None
     guild_configs = load_store("guild_configs", {})
     config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
     if not isinstance(config, dict):
@@ -3036,6 +3129,19 @@ def login_get():
 def login_post():
     dashboard_id = str(request.form.get("dashboard_id") or "").strip()
     password = str(request.form.get("password") or "")
+
+    if verify_owner_login(dashboard_id, password):
+        response = make_response(redirect("/owner"))
+        response.set_cookie(
+            "dashboard_session",
+            make_owner_session_cookie(),
+            httponly=True,
+            secure=FORCE_HTTPS,
+            samesite="Lax",
+            max_age=60 * 60 * 24 * 30,
+        )
+        return response
+
     guild_id, config = find_guild_by_dashboard_id(dashboard_id)
     if not guild_id or not isinstance(config, dict):
         return login_page("Dashboard ID or password is incorrect."), 401
