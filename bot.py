@@ -9059,6 +9059,9 @@ def is_active_guild(guild_id):
 
 
 def active_guild_config_items():
+    # Dashboard writes guild config JSON directly; refresh here so web
+    # changes are picked up by live bot loops without requiring a restart.
+    load_guild_configs()
     active_ids = active_guild_ids()
 
     for guild_id, config in list(guild_configs.items()):
@@ -12936,6 +12939,7 @@ async def parse_adm(guild_id, config):
 
             online_players[guild_id].add(player_name)
             player_online_times[guild_id][player_name] = datetime.now(UTC)
+            schedule_link_enforcement_check(guild_id, player_name)
 
             # 👋 Welcome embed for any gamertag we've never seen before.
             # Posts in the connect channel right under the connect feed.
@@ -16158,6 +16162,7 @@ NITRADO_BANLIST_FTP_PATH = "/games/{user}/noftp/dayzxb/config/banlist.txt"
 # Per-player offense throttle so the same kill line doesn't double-ban.
 SAFE_ZONE_OFFENSE_DEDUPE_SECONDS = 8
 _safe_zone_offense_dedupe = {}
+_pending_link_enforcement_tasks = {}
 
 
 def _point_in_circle(point, center, radius):
@@ -16441,6 +16446,215 @@ def remove_player_from_nitrado_banlist(config, gamertag):
     if len(kept) == len(current):
         return True, "Player was not in banlist."
     return push_nitrado_banlist(config, kept)
+
+
+def nitrado_restart_server_now(config):
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    if not token or not service_id:
+        return False, "Missing nitrado_token / service_id."
+    try:
+        response = requests.post(
+            f"https://api.nitrado.net/services/{service_id}/gameservers/restart",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if response.status_code in (200, 201, 202, 204):
+            return True, f"Nitrado restart requested ({response.status_code})."
+        return False, f"Nitrado restart failed ({response.status_code}): {response.text[:240]}"
+    except Exception as error:
+        return False, f"Nitrado restart failed: {error}"
+
+
+def build_messages_xml_from_config(config):
+    root = ET.Element("messages")
+    messages = config.get("onscreen_messages") or {}
+    if isinstance(messages, list):
+        records = [item for item in messages if isinstance(item, dict)]
+    elif isinstance(messages, dict):
+        records = [item for item in messages.values() if isinstance(item, dict)]
+    else:
+        records = []
+
+    for record in records:
+        if not record.get("enabled", True):
+            continue
+        text = str(record.get("text") or "").strip()
+        if not text:
+            continue
+        repeat_minutes = max(0, int(record.get("repeat_minutes") or 0))
+        delay_seconds = max(0, int(record.get("delay_seconds") or 0))
+        display_seconds = max(1, int(record.get("display_seconds") or 10))
+        message = ET.SubElement(root, "message")
+        ET.SubElement(message, "deadline").text = "0"
+        ET.SubElement(message, "shutdown").text = "0"
+        ET.SubElement(message, "restart").text = "0"
+        ET.SubElement(message, "text").text = text
+        ET.SubElement(message, "delay").text = str(delay_seconds)
+        ET.SubElement(message, "repeat").text = str(repeat_minutes * 60 if repeat_minutes else 0)
+        ET.SubElement(message, "display_time").text = str(display_seconds)
+    return ET.tostring(root, encoding="unicode")
+
+
+def upload_messages_xml_to_nitrado(config):
+    messages = config.get("onscreen_messages") or {}
+    if not messages:
+        return True, "No on-screen messages configured."
+    xml_text = build_messages_xml_from_config(config)
+    errors = []
+    for mission_dir in _nitrado_ban_override_candidate_dirs(config):
+        target_path = f"{mission_dir}/db/messages.xml"
+        ok, msg = upload_text_file_to_nitrado(config, target_path, xml_text)
+        if ok:
+            config["_nitrado_messages_xml_working_path"] = target_path
+            pending = config.get("pending_server_file_changes")
+            if isinstance(pending, list):
+                config["pending_server_file_changes"] = [item for item in pending if item != "messages.xml"]
+            save_guild_configs()
+            return True, f"messages.xml uploaded to {target_path}. {msg}"
+        errors.append(f"{target_path}: {msg}")
+    return False, "messages.xml upload failed: " + " | ".join(errors[:4])
+
+
+def linked_discord_member_for_gamertag(guild, guild_id, gamertag):
+    wanted = normalize_discord_name(gamertag)
+    if not wanted:
+        return None
+    for user_id, data in linked_players.items():
+        if str(data.get("guild_id") or guild_id) != str(guild_id):
+            continue
+        if normalize_discord_name(data.get("gamertag", "")) != wanted:
+            continue
+        member = guild.get_member(int(user_id)) if guild else None
+        if member:
+            return member
+    return None
+
+
+async def has_linked_discord_member_for_gamertag(guild, guild_id, gamertag):
+    wanted = normalize_discord_name(gamertag)
+    if not wanted:
+        return False
+    for user_id, data in linked_players.items():
+        if str(data.get("guild_id") or guild_id) != str(guild_id):
+            continue
+        if normalize_discord_name(data.get("gamertag", "")) != wanted:
+            continue
+        if not guild:
+            return True
+        if guild.get_member(int(user_id)):
+            return True
+        try:
+            await guild.fetch_member(int(user_id))
+            return True
+        except Exception:
+            return False
+    return False
+
+
+async def _post_link_enforcement_notice(guild, config, title, description, color=0xE67E22):
+    if not guild:
+        return
+    settings = config.get("discord_link_enforcement") or {}
+    channel_key = settings.get("notification_channel_key") or "public_shame"
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel = bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("public_shame")) or bot.get_channel(channels.get("admin_log"))
+    if not channel:
+        print(f"[LINK ENFORCEMENT] {title}: {description}")
+        return
+    embed = discord.Embed(title=title, description=description, color=color)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Link Enforcement")
+    embed.timestamp = datetime.now(UTC)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as error:
+        print(f"[LINK ENFORCEMENT] notice failed: {error}")
+
+
+async def enforce_unlinked_player_after_grace(guild_id, player_name):
+    guild_id = str(guild_id)
+    player_name = str(player_name or "").strip()
+    await asyncio.sleep(max(1, int((guild_configs.get(guild_id, {}).get("discord_link_enforcement") or {}).get("grace_minutes", 30))) * 60)
+    config = guild_configs.get(guild_id, {})
+    settings = config.get("discord_link_enforcement") or {}
+    if not settings.get("enabled") or not player_name:
+        return
+    if player_name not in online_players.get(guild_id, set()):
+        return
+    guild = bot.get_guild(int(guild_id))
+    if await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
+        return
+
+    action = str(settings.get("action") or "notify").lower()
+    reason = str(settings.get("reason") or "Discord membership and gamertag link required.")[:500]
+    grace = int(settings.get("grace_minutes") or 30)
+    base_message = f"**{player_name}** stayed unlinked for **{grace} minute(s)**. Reason: {reason}"
+
+    if action == "notify":
+        await _post_link_enforcement_notice(guild, config, "Discord Link Required", base_message, 0xF1C40F)
+        return
+
+    if action == "kick":
+        nitrado_send_chat(config, f"{player_name}: {reason}")
+        await _post_link_enforcement_notice(
+            guild,
+            config,
+            "Kick Requested For Unlinked Player",
+            base_message + "\nKick mode does not edit the Nitrado banlist; use temp ban or perm ban for guaranteed server removal.",
+            0xE67E22,
+        )
+        return
+
+    if action in {"temp_ban", "perm_ban"}:
+        ok, msg = add_player_to_nitrado_banlist(config, player_name)
+        if not ok:
+            await _post_link_enforcement_notice(guild, config, "Nitrado Ban Failed", base_message + f"\n{msg}", 0xE74C3C)
+            return
+        if action == "temp_ban":
+            minutes = max(1, int(settings.get("temp_ban_minutes") or 60))
+            config.setdefault("nitrado_temp_bans", []).append({
+                "gamertag": player_name,
+                "reason": reason,
+                "created_ts": datetime.now(UTC).timestamp(),
+                "until_ts": datetime.now(UTC).timestamp() + minutes * 60,
+                "source": "discord_link_enforcement",
+            })
+            label = f"TEMP banned for {minutes} minute(s)"
+        else:
+            config.setdefault("nitrado_perm_bans", []).append({
+                "gamertag": player_name,
+                "reason": reason,
+                "created_ts": datetime.now(UTC).timestamp(),
+                "source": "discord_link_enforcement",
+            })
+            label = "PERM banned"
+        save_guild_configs()
+        restart_note = ""
+        if settings.get("restart_on_ban", True):
+            restart_ok, restart_msg = nitrado_restart_server_now(config)
+            restart_note = f"\nImmediate restart: {'OK' if restart_ok else 'FAILED'} - {restart_msg}"
+        await _post_link_enforcement_notice(
+            guild,
+            config,
+            "Unlinked Player Enforced",
+            base_message + f"\nResult: {label} through Nitrado banlist.{restart_note}",
+            0xE74C3C,
+        )
+
+
+def schedule_link_enforcement_check(guild_id, player_name):
+    guild_id = str(guild_id)
+    player_name = str(player_name or "").strip()
+    config = guild_configs.get(guild_id, {})
+    settings = config.get("discord_link_enforcement") or {}
+    if not settings.get("enabled") or not player_name:
+        return
+    key = f"{guild_id}:{normalize_discord_name(player_name)}"
+    old_task = _pending_link_enforcement_tasks.get(key)
+    if old_task and not old_task.done():
+        old_task.cancel()
+    _pending_link_enforcement_tasks[key] = asyncio.create_task(enforce_unlinked_player_after_grace(guild_id, player_name))
 
 
 # ---------- Auto-enforcement ----------------------------------------------
@@ -17198,33 +17412,8 @@ async def restartserver(ctx):
     guild_id = str(ctx.guild.id)
     config = guild_configs.get(guild_id, {})
 
-    token = config.get("nitrado_token")
-    service_id = config.get("service_id")
-
-    if not token or not service_id:
-        return
-
-    try:
-
-        url = (
-            f"https://api.nitrado.net/services/"
-            f"{service_id}/gameservers/restart"
-        )
-
-        headers = {
-            "Authorization": f"Bearer {token}"
-        }
-
-        restart_response = requests.post(
-            url,
-            headers=headers,
-            timeout=30
-        )
-
-        print(f"RESTART STATUS: {restart_response.status_code}")
-
-    except Exception as error:
-        print(error)
+    ok, message = await asyncio.to_thread(nitrado_restart_server_now, config)
+    print(f"RESTART STATUS: ok={ok} {message}")
 
 
 @bot.command()
@@ -23132,6 +23321,11 @@ async def restart_delivery_processor():
                     )
                     if not success:
                         print(f"CONSOLE CE EVENT UPLOAD FAILED {guild_id}: {' | '.join(messages[-4:])}")
+
+                pending_files = config.get("pending_server_file_changes") or []
+                if "messages.xml" in pending_files:
+                    ok, message = await asyncio.to_thread(upload_messages_xml_to_nitrado, config)
+                    print(f"MESSAGES XML UPLOAD {guild_id}: ok={ok} {message}")
 
         except Exception as error:
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")

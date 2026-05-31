@@ -353,6 +353,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>
       <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
       <a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>
+      <a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
       <a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>
     </section>
@@ -364,6 +365,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, members and radar routing.</span></a>
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
+      <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>
@@ -933,6 +935,73 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "server-rules" %}
+    <section class="section-panel" id="server-rules">
+      <div class="section-head">
+        <div>
+          <h2>Server Rules & Nitrado Control</h2>
+          <p class="tool-note">Control Discord-link enforcement, automatic Nitrado bans, immediate restart-on-ban, and DayZ on-screen messages. File changes take effect after a server restart.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Discord Link Enforcement</h3>
+          <form class="admin-form" data-route="/api/admin/link-enforcement">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Grace minutes after join <input name="grace_minutes" type="number" value="30" min="1"></label>
+            <label>Action if still unlinked
+              <select name="action">
+                <option value="notify">Notify staff only</option>
+                <option value="kick">Kick request / notify</option>
+                <option value="temp_ban">Temp ban through Nitrado</option>
+                <option value="perm_ban">Perm ban through Nitrado</option>
+              </select>
+            </label>
+            <label>Temp ban minutes <input name="temp_ban_minutes" type="number" value="60" min="1"></label>
+            <label>Restart after ban <select name="restart_on_ban"><option value="true">Yes, immediately</option><option value="false">No</option></select></label>
+            <label>Notify channel
+              <select name="notification_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'public_shame' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Player message / reason <textarea name="reason">You must join this Discord and link your gamertag with /linkgamer to play on this server.</textarea></label>
+            <div class="full"><button type="submit">Save Enforcement</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>On-Screen Messages</h3>
+          <form class="admin-form" data-route="/api/admin/on-screen-message">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Message key <input name="message_id" value="discord-required"></label>
+            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>When to show
+              <select name="trigger">
+                <option value="server_restart">After restart</option>
+                <option value="player_join">Player joins</option>
+                <option value="discord_required">Discord link reminder</option>
+                <option value="scheduled">Timed schedule</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>Start delay seconds <input name="delay_seconds" type="number" value="30" min="0"></label>
+            <label>Repeat minutes <input name="repeat_minutes" type="number" value="30" min="0"></label>
+            <label>Display seconds <input name="display_seconds" type="number" value="10" min="1"></label>
+            <label>Colour <input name="colour" value="#d5b45f"></label>
+            <label class="full">Message text <textarea name="text">Join the Discord and link your gamertag with /linkgamer to keep playing.</textarea></label>
+            <div class="full embed-preview">
+              <strong>Restart required</strong>
+              <span>DayZ reads messages.xml on server start. The bot stores this for the server file workflow, then the change applies after the next restart.</span>
+            </div>
+            <div class="full"><button type="submit">Save On-Screen Message</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "access" %}
     <section class="section-panel" id="access">
       <div class="section-head">
@@ -1130,6 +1199,8 @@ ADMIN_ROUTES = [
     "/api/admin/economy-rule",
     "/api/admin/link-server",
     "/api/admin/zone",
+    "/api/admin/link-enforcement",
+    "/api/admin/on-screen-message",
     "/api/admin/faction",
     "/api/admin/faction-member",
     "/api/admin/wage",
@@ -1862,7 +1933,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "heatmaps", "pve", "economy", "shop", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "heatmaps", "pve", "economy", "shop", "server-rules", "access", "owner"}
     if active_section not in valid_sections:
         active_section = "overview"
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
@@ -2261,6 +2332,73 @@ def api_zone():
         config["radar_zones"] = [zone for zone in zones if isinstance(zone, dict) and str(zone.get("zone_type")) == "radar"]
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "zone": record})
+
+
+@APP.post("/api/admin/link-enforcement")
+def api_link_enforcement():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    action = str(payload.get("action") or "notify").strip().lower()
+    if action not in {"notify", "kick", "temp_ban", "perm_ban"}:
+        return jsonify({"ok": False, "error": "action must be notify, kick, temp_ban, or perm_ban"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    record = {
+        "enabled": bool(payload.get("enabled", False)),
+        "grace_minutes": max(1, safe_int(payload.get("grace_minutes"), 30)),
+        "action": action,
+        "temp_ban_minutes": max(1, safe_int(payload.get("temp_ban_minutes"), 60)),
+        "restart_on_ban": bool(payload.get("restart_on_ban", True)),
+        "notification_channel_key": str(payload.get("notification_channel_key") or "public_shame"),
+        "reason": str(payload.get("reason") or "Discord membership and gamertag link required.")[:500],
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    config["discord_link_enforcement"] = record
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "enforcement": record})
+
+
+@APP.post("/api/admin/on-screen-message")
+def api_on_screen_message():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    message_id = str(payload.get("message_id") or payload.get("name") or "").strip()
+    if not message_id:
+        return jsonify({"ok": False, "error": "message_id is required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    messages = config.setdefault("onscreen_messages", {})
+    if not isinstance(messages, dict):
+        messages = {}
+        config["onscreen_messages"] = messages
+    record = {
+        "message_id": message_id,
+        "enabled": bool(payload.get("enabled", True)),
+        "trigger": str(payload.get("trigger") or "scheduled"),
+        "delay_seconds": max(0, safe_int(payload.get("delay_seconds"), 30)),
+        "repeat_minutes": max(0, safe_int(payload.get("repeat_minutes"), 30)),
+        "display_seconds": max(1, safe_int(payload.get("display_seconds"), 10)),
+        "colour": str(payload.get("colour") or "#d5b45f"),
+        "text": str(payload.get("text") or "")[:1000],
+        "requires_restart": True,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    messages[message_id] = record
+    pending = config.setdefault("pending_server_file_changes", [])
+    if isinstance(pending, list) and "messages.xml" not in pending:
+        pending.append("messages.xml")
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "message": record, "note": "messages.xml changes take effect after a server restart"})
 
 
 @APP.post("/api/admin/faction")
