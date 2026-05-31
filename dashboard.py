@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import hashlib
 from datetime import UTC, datetime
 from threading import Thread
 from typing import Any
 
-from flask import Flask, jsonify, render_template_string, request, send_file
+from flask import Flask, jsonify, make_response, redirect, render_template_string, request, send_file
 
 
 DATA_ROOT = (
@@ -29,8 +30,11 @@ DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
 ADMIN_TOKEN = os.getenv("WANDERING_DASHBOARD_ADMIN_TOKEN", "")
+DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
+DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 
 APP = Flask(__name__)
+APP.secret_key = DASHBOARD_COOKIE_SECRET
 CUSTOM_STATE_PROVIDER = None
 
 SECRET_KEYS = {
@@ -56,6 +60,45 @@ FILES = {
     "delivery_queue": "delivery_queue.json",
     "dashboard_admin": "dashboard_admin.json",
 }
+
+LOGIN_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wandering Bot Dashboard Login</title>
+  <style>
+    :root { color-scheme: dark; --bg: #050806; --panel: #111710; --line: rgba(209,203,145,.24); --text: #f3ecd9; --muted: #c4bda7; --gold: #d5b45f; --olive: #8d963e; --red: #ed3853; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(180deg, #10150d, var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(94vw, 30rem); border: 1px solid var(--line); border-radius: .5rem; background: var(--panel); padding: 1.25rem; box-shadow: 0 1rem 2.5rem rgba(0,0,0,.35); }
+    img { width: 4rem; height: 4rem; border-radius: .75rem; object-fit: cover; }
+    h1 { margin: .8rem 0 .35rem; text-transform: uppercase; letter-spacing: 0; }
+    p { color: var(--muted); line-height: 1.5; }
+    form { display: grid; gap: .75rem; margin-top: 1rem; }
+    label { display: grid; gap: .25rem; color: var(--muted); font-size: .9rem; }
+    input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; background: #080d09; color: var(--text); padding: .75rem .8rem; }
+    button { border: 0; border-radius: .45rem; background: var(--olive); color: #070a06; padding: .8rem; font-weight: 900; cursor: pointer; }
+    .error { color: #ffd8df; background: rgba(237,56,83,.16); border: 1px solid rgba(237,56,83,.35); padding: .65rem; border-radius: .45rem; }
+    code { color: var(--gold); }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/brand-image" alt="Wandering Bot logo">
+    <h1>Wandering Bot</h1>
+    <p>Use the private dashboard ID and password created during Discord <code>/setup</code>. Each login opens only that server's dashboard.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <label>Dashboard ID <input name="dashboard_id" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Open Dashboard</button>
+    </form>
+  </main>
+</body>
+</html>
+"""
 
 PAGE_TEMPLATE = """
 <!doctype html>
@@ -181,8 +224,9 @@ PAGE_TEMPLATE = """
     <nav>
       <a href="/">Overview</a>
       <a href="/admin">Admin</a>
-      <a href="/owner">Owner</a>
+      {% if auth.kind == "owner" %}<a href="/owner">Owner</a>{% endif %}
       <a href="/api/summary">API</a>
+      <a href="/logout">Logout</a>
     </nav>
   </header>
   <main>
@@ -190,7 +234,7 @@ PAGE_TEMPLATE = """
       <div>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ view_title }}</h1>
-        <p class="muted">Live readout for servers, feeds, economy, factions, wages, embeds, welcome automation and reaction-role panels.</p>
+        <p class="muted">Live readout for {{ auth.label }}. Server dashboards are scoped by private ID/password and cannot access another guild.</p>
       </div>
       <img src="/brand-image" alt="Wandering Bot mark">
     </section>
@@ -446,6 +490,95 @@ def save_store(name: str, data: Any) -> None:
     write_json_file(FILES[name], data)
 
 
+def dashboard_password_hash(password: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+
+def verify_dashboard_password(password: str, credentials: dict[str, Any]) -> bool:
+    salt = str(credentials.get("password_salt") or "")
+    expected = str(credentials.get("password_hash") or "")
+    if not salt or not expected:
+        return False
+    return secrets.compare_digest(dashboard_password_hash(password, salt), expected)
+
+
+def session_signature(guild_id: str, password_hash: str) -> str:
+    return hashlib.sha256(f"{guild_id}:{password_hash}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
+
+
+def make_session_cookie(guild_id: str, credentials: dict[str, Any]) -> str:
+    password_hash = str(credentials.get("password_hash") or "")
+    return f"{guild_id}:{session_signature(guild_id, password_hash)}"
+
+
+def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str, Any] | None]:
+    dashboard_id = str(dashboard_id or "").strip().lower()
+    if not dashboard_id:
+        return None, None
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return None, None
+    for guild_id, config in guild_configs.items():
+        if not isinstance(config, dict):
+            continue
+        credentials = config.get("dashboard_credentials")
+        if not isinstance(credentials, dict):
+            credentials = config.get("dashboard_login")
+        if not isinstance(credentials, dict):
+            continue
+        if str(credentials.get("dashboard_id") or "").strip().lower() == dashboard_id:
+            return str(guild_id), config
+    return None, None
+
+
+def current_auth() -> dict[str, Any] | None:
+    provided = request.headers.get("X-Dashboard-Token") or request.args.get("token") or ""
+    if ADMIN_TOKEN and secrets.compare_digest(provided, ADMIN_TOKEN):
+        return {"kind": "owner", "guild_id": None, "label": "all servers"}
+
+    cookie = request.cookies.get("dashboard_session", "")
+    if ":" not in cookie:
+        return None
+    guild_id, signature = cookie.split(":", 1)
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
+    if not isinstance(config, dict):
+        return None
+    credentials = config.get("dashboard_credentials")
+    if not isinstance(credentials, dict):
+        credentials = config.get("dashboard_login")
+    if not isinstance(credentials, dict):
+        return None
+    expected = session_signature(guild_id, str(credentials.get("password_hash") or ""))
+    if not secrets.compare_digest(signature, expected):
+        return None
+    return {
+        "kind": "guild",
+        "guild_id": guild_id,
+        "label": str(config.get("guild_name") or f"Guild {guild_id}"),
+    }
+
+
+def login_page(error: str = ""):
+    return render_template_string(LOGIN_TEMPLATE, error=error)
+
+
+def require_page_auth(owner_only: bool = False):
+    auth = current_auth()
+    if not auth:
+        return None, redirect("/login")
+    if owner_only and auth["kind"] != "owner":
+        return None, (jsonify({"ok": False, "error": "owner token required"}), 403)
+    return auth, None
+
+
+def scoped_payload_for_auth(payload: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    if auth["kind"] == "guild":
+        payload = dict(payload)
+        payload["guild_id"] = auth["guild_id"]
+    return payload
+
+
 def request_payload() -> dict[str, Any]:
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
@@ -454,11 +587,10 @@ def request_payload() -> dict[str, Any]:
 
 
 def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
-    if ADMIN_TOKEN:
-        provided = request.headers.get("X-Dashboard-Token") or request.args.get("token") or ""
-        if not secrets.compare_digest(provided, ADMIN_TOKEN):
-            return None, (jsonify({"ok": False, "error": "admin token required"}), 401)
-    return request_payload(), None
+    auth = current_auth()
+    if not auth:
+        return None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
+    return scoped_payload_for_auth(request_payload(), auth), None
 
 
 def normalize_guild_id(value: Any) -> str:
@@ -638,12 +770,41 @@ def load_dashboard_state() -> dict[str, Any]:
     }
 
 
-def page(mode: str):
+def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    if auth["kind"] == "owner":
+        return state
+    guild_id = str(auth["guild_id"])
+    servers = [server for server in state["servers"] if str(server.get("guild_id")) == guild_id]
+    summary = dict(state["summary"])
+    if servers:
+        server = servers[0]
+        summary.update(
+            {
+                "guilds": 1,
+                "online": len(server.get("online", [])),
+                "players": server.get("totals", {}).get("players", 0),
+                "kills": server.get("totals", {}).get("kills", 0),
+                "dashboard_enabled": 1 if server.get("dashboard_access", {}).get("enabled") else 0,
+                "factions": count_records(server.get("factions")),
+                "wages": count_records(server.get("wages")),
+            }
+        )
+    else:
+        summary.update({"guilds": 0, "online": 0, "players": 0, "kills": 0, "dashboard_enabled": 0, "factions": 0, "wages": 0})
+    scoped = dict(state)
+    scoped["summary"] = summary
+    scoped["servers"] = servers
+    return scoped
+
+
+def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
+    state = filter_state_for_auth(state, auth)
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
+        auth=auth,
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
         summary=state["summary"],
         servers=state["servers"],
@@ -684,26 +845,78 @@ def brand_image():
 
 @APP.get("/")
 def index():
-    return page("overview")
+    auth, error = require_page_auth()
+    if error:
+        return error
+    return page("overview", auth)
 
 
 @APP.get("/admin")
 def admin():
-    return page("admin")
+    auth, error = require_page_auth()
+    if error:
+        return error
+    return page("admin", auth)
 
 
 @APP.get("/owner")
 def owner():
-    return page("owner")
+    auth, error = require_page_auth(owner_only=True)
+    if error:
+        return error
+    return page("owner", auth)
+
+
+@APP.get("/login")
+def login_get():
+    if current_auth():
+        return redirect("/")
+    return login_page()
+
+
+@APP.post("/login")
+def login_post():
+    dashboard_id = str(request.form.get("dashboard_id") or "").strip()
+    password = str(request.form.get("password") or "")
+    guild_id, config = find_guild_by_dashboard_id(dashboard_id)
+    if not guild_id or not isinstance(config, dict):
+        return login_page("Dashboard ID or password is incorrect."), 401
+    credentials = config.get("dashboard_credentials")
+    if not isinstance(credentials, dict):
+        credentials = config.get("dashboard_login")
+    if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
+        return login_page("Dashboard ID or password is incorrect."), 401
+    response = make_response(redirect("/admin"))
+    response.set_cookie(
+        "dashboard_session",
+        make_session_cookie(guild_id, credentials),
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return response
+
+
+@APP.get("/logout")
+def logout():
+    response = make_response(redirect("/login"))
+    response.delete_cookie("dashboard_session")
+    return response
 
 
 @APP.get("/api/summary")
 def api_summary():
-    return jsonify(load_dashboard_state())
+    auth = current_auth()
+    if not auth:
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    return jsonify(filter_state_for_auth(load_dashboard_state(), auth))
 
 
 @APP.get("/api/admin")
 def api_admin_index():
+    if not current_auth():
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
     return jsonify({"ok": True, "routes": ADMIN_ROUTES})
 
 

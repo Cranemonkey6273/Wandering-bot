@@ -13,6 +13,7 @@ import asyncio
 import requests
 import tempfile
 import shutil
+import secrets
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
@@ -30,6 +31,7 @@ from discord import app_commands
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TRANSLATE_API_URL = os.getenv("TRANSLATE_API_URL", "https://libretranslate.de/translate")
 TRANSLATE_API_KEY = os.getenv("TRANSLATE_API_KEY")
+DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -10678,6 +10680,49 @@ async def on_guild_join(guild):
 # /SETUP COMMAND
 # =========================================================
 
+def dashboard_password_hash(password, salt):
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+
+def generate_dashboard_credentials(guild_id, guild_name):
+    password = secrets.token_urlsafe(12)
+    salt = secrets.token_hex(16)
+    suffix = secrets.token_hex(3).upper()
+    return {
+        "credentials": {
+            "dashboard_id": f"WB-{str(guild_id)[-6:]}-{suffix}",
+            "password_salt": salt,
+            "password_hash": dashboard_password_hash(password, salt),
+            "created_at": datetime.now(UTC).isoformat(),
+            "guild_id": str(guild_id),
+            "guild_name": str(guild_name),
+        },
+        "password": password,
+    }
+
+
+def ensure_dashboard_credentials(guild_id, config, guild_name):
+    credentials = config.get("dashboard_credentials")
+    if isinstance(credentials, dict) and credentials.get("dashboard_id") and credentials.get("password_hash"):
+        return credentials, None
+    created = generate_dashboard_credentials(guild_id, guild_name)
+    config["dashboard_credentials"] = created["credentials"]
+    dashboard = config.setdefault("dashboard", {})
+    dashboard.setdefault("enabled", True)
+    dashboard.setdefault("tier", "owner")
+    dashboard.setdefault(
+        "features",
+        {
+            "leaderboards": True,
+            "economy": True,
+            "factions": True,
+            "embeds": True,
+            "safe_zones": True,
+        },
+    )
+    return created["credentials"], created["password"]
+
+
 @bot.tree.command(
     name="setup",
     description="Connect your Nitrado server"
@@ -10928,6 +10973,11 @@ async def setup_command(
         guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
         guild_configs[guild_id].setdefault("ftp_host", "")
+    dashboard_credentials, dashboard_password = ensure_dashboard_credentials(
+        guild_id,
+        guild_configs[guild_id],
+        interaction.guild.name,
+    )
 
     save_guild_configs()
 
@@ -11125,6 +11175,67 @@ async def setup_command(
         "✅ Wandering Bot fully connected and operational.",
         ephemeral=True
     )
+
+    if dashboard_password:
+        await interaction.followup.send(
+            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
+            f"Dashboard ID: `{dashboard_credentials['dashboard_id']}`\n"
+            f"Dashboard password: `{dashboard_password}`\n\n"
+            "Save this password now. It will not be shown again. "
+            "Use `/dashboardcredentials reset:true` if you need a new one.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.followup.send(
+            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
+            f"Dashboard ID: `{dashboard_credentials['dashboard_id']}`\n"
+            "Password already exists and was not changed. "
+            "Use `/dashboardcredentials reset:true` if you need a new one.",
+            ephemeral=True,
+        )
+
+
+@bot.tree.command(name="dashboardcredentials", description="Admin: view or reset this server's private dashboard login")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(reset="Generate a new private dashboard password")
+async def dashboard_credentials_command(interaction: discord.Interaction, reset: bool = False):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id,
+        {
+            "guild_name": interaction.guild.name,
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+            "channels": {},
+        },
+    )
+    dashboard_password = None
+    if reset:
+        created = generate_dashboard_credentials(guild_id, interaction.guild.name)
+        config["dashboard_credentials"] = created["credentials"]
+        dashboard_password = created["password"]
+    credentials, created_password = ensure_dashboard_credentials(guild_id, config, interaction.guild.name)
+    dashboard_password = dashboard_password or created_password
+    save_guild_configs()
+
+    if dashboard_password:
+        await interaction.response.send_message(
+            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
+            f"Dashboard ID: `{credentials['dashboard_id']}`\n"
+            f"Dashboard password: `{dashboard_password}`\n\n"
+            "Save this password now. It will not be shown again.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
+            f"Dashboard ID: `{credentials['dashboard_id']}`\n"
+            "Password is already set. Run `/dashboardcredentials reset:true` to generate a new one.",
+            ephemeral=True,
+        )
+
 
 bridge_group = app_commands.Group(
     name="bridge",
