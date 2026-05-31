@@ -42,6 +42,9 @@ SCENARIO_SPAWN_PRESETS = {
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
     "military_crate": {"label": "Military crate", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "military_high"},
+    "wooden_crate": {"label": "Wooden crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "survival"},
+    "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate", "loot_preset": "survival"},
+    "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate", "loot_preset": "survival"},
     "medical_crate": {"label": "Medical crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "medical"},
     "building_crate": {"label": "Building crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "building"},
     "food_crate": {"label": "Food crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "food"},
@@ -77,9 +80,13 @@ def enforce_https():
     host = request.host.split(":", 1)[0].lower()
     if host in {"localhost", "127.0.0.1", "0.0.0.0"}:
         return None
-    forwarded_proto = request.headers.get("X-Forwarded-Proto", request.scheme)
-    if forwarded_proto == "http":
-        return redirect(request.url.replace("http://", "https://", 1), code=301)
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "")
+    primary_proto = forwarded_proto.split(",", 1)[0].strip().lower()
+    if primary_proto == "https" or request.is_secure:
+        return None
+    if primary_proto == "http" or request.url.startswith("http://"):
+        target = f"https://{request.host}{request.full_path}".rstrip("?")
+        return redirect(target, code=301)
     return None
 
 
@@ -481,6 +488,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
       <a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>
       <a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>
+      <a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" %}<a class="tab-link" href="/admin?section=access{{ server_qs }}">Access</a>{% endif %}
@@ -495,6 +503,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
+      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules, base/container damage and vehicle reset settings.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
@@ -780,7 +789,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Faction</h3>
-          <form class="admin-form" data-route="/api/admin/faction">
+          <form class="admin-form" data-route="/api/admin/faction" id="faction-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Faction name <input name="name" value="The Wanderers"></label>
@@ -809,7 +818,7 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Existing Factions</h3>
           <table class="item-table">
-            <thead><tr><th>Faction</th><th>Members</th><th>Leader</th><th>Role</th><th>Alert channel</th></tr></thead>
+            <thead><tr><th>Faction</th><th>Members</th><th>Leader</th><th>Role</th><th>Alert channel</th><th>Edit</th></tr></thead>
             <tbody>
               {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}
               <tr>
@@ -818,9 +827,10 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ faction.leader_id or faction.leader or '-' }}</td>
                 <td>{{ faction.role_id or faction.discord_role_id or '-' }}</td>
                 <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
+                <td><button type="button" data-faction-edit data-name="{{ faction.name or faction_name }}" data-leader="{{ faction.leader_id or faction.leader or '' }}" data-role="{{ faction.role_id or faction.discord_role_id or '' }}" data-channel="{{ faction.alert_channel_key or faction.alert_channel_id or '' }}" data-colour="{{ faction.colour or faction.color or '#8d963e' }}">Edit</button></td>
               </tr>
               {% else %}
-              <tr><td colspan="5">No factions found for this server yet.</td></tr>
+              <tr><td colspan="6">No factions found for this server yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -995,11 +1005,15 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="vehicle_spawn">Vehicle spawn</option>
               </select>
             </label>
-            <label>Preset
+            <label>Animal / infected / crate type
               <select name="spawn_preset" data-scenario-preset>
                 <option value="military_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
+                <option value="wooden_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="survival">Wooden crate</option>
+                <option value="sea_chest" data-type="loot_crate" data-class="SeaChest" data-count="1" data-radius="20" data-loot="survival">Sea chest</option>
+                <option value="green_barrel" data-type="loot_crate" data-class="Barrel_Green" data-count="1" data-radius="20" data-loot="survival">Green barrel</option>
                 <option value="medical_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot crate</option>
                 <option value="building_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="building">Building loot crate</option>
+                <option value="food_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="food">Food loot crate</option>
                 <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
                 <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
                 <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
@@ -1014,7 +1028,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
             <label>Y height <input name="y" type="number" value="0"></label>
-            <label>Count <input name="count" type="number" value="1"></label>
+            <label>How many animals / crates / infected <input name="count" type="number" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
             <label>Loot preset
@@ -1277,6 +1291,50 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "server-control" %}
+    <section class="section-panel" id="server-control">
+      <div class="section-head">
+        <div>
+          <h2>Server Control</h2>
+          <p class="tool-note">Set restart timing, damage options, and vehicle reset behaviour for this server only. File and gameplay changes need a server restart before DayZ applies them.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Restart Schedule</h3>
+          <form class="admin-form" data-route="/api/admin/server-control">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Restart schedule <select name="restart_schedule_enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Every hours <input name="restart_interval_hours" type="number" min="1" max="24" value="{{ (server.config.restart_interval_hours if server else 4) or 4 }}"></label>
+            <label>Start hour UTC <input name="restart_start_hour" type="number" min="0" max="23" value="{{ (server.config.restart_start_hour if server else 0) or 0 }}"></label>
+            <label>Warning minutes <input name="restart_warning_minutes" value="{{ (server.config.restart_warning_minutes|join(',') if server and server.config.restart_warning_minutes else '30,15,10,5,1') }}"></label>
+            <label>Notify channel
+              <select name="restart_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.key }}</option>{% endfor %}
+              </select>
+            </label>
+            <div class="full"><button type="submit">Save Restart Schedule</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Damage & Vehicle Reset</h3>
+          <form class="admin-form" data-route="/api/admin/server-control">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Base damage <select name="base_damage_state"><option value="on">On</option><option value="off">Off</option></select></label>
+            <label>Container damage <select name="container_damage_state"><option value="on">On</option><option value="off">Off</option></select></label>
+            <label>Vehicle reset schedule <select name="vehicle_reset_schedule_enabled"><option value="false">Off</option><option value="true">On</option></select></label>
+            <label>Vehicle reset method <select name="vehicle_reset_method"><option value="economy_xml">Economy XML full wipe</option><option value="bridge">Bridge radius delete</option></select></label>
+            <label>Run every restarts <input name="vehicle_reset_restarts" type="number" min="1" max="365" value="{{ (server.config.vehicle_reset_restarts if server else 7) or 7 }}"></label>
+            <div class="full embed-preview"><strong>Important</strong><span>Economy XML vehicle resets are staged for the bot workflow so vehicles init can be restored safely after the wipe cycle.</span></div>
+            <div class="full"><button type="submit">Save Server Control</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "help" %}
     <section class="section-panel" id="help">
       <div class="section-head">
@@ -1515,6 +1573,22 @@ Event pings | bell | 1234567890</textarea></label>
         });
       });
     });
+    document.querySelectorAll("[data-faction-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const form = document.getElementById("faction-edit-form");
+        if (!form) return;
+        form.elements.name.value = button.dataset.name || "";
+        form.elements.leader_id.value = button.dataset.leader || "";
+        form.elements.role_id.value = button.dataset.role || "";
+        form.elements.colour.value = button.dataset.colour || "#8d963e";
+        if (form.elements.alert_channel_key && button.dataset.channel) {
+          const option = Array.from(form.elements.alert_channel_key.options).find((item) => item.value === button.dataset.channel);
+          if (option) form.elements.alert_channel_key.value = button.dataset.channel;
+        }
+        form.scrollIntoView({behavior: "smooth", block: "center"});
+        form.elements.name.focus();
+      });
+    });
     document.querySelectorAll("[data-scenario-preset]").forEach((presetSelect) => {
       const form = presetSelect.closest("form");
       if (!form) return;
@@ -1679,6 +1753,7 @@ ADMIN_ROUTES = [
     "/api/admin/zone",
     "/api/admin/link-enforcement",
     "/api/admin/on-screen-message",
+    "/api/admin/server-control",
     "/api/admin/faction",
     "/api/admin/faction-member",
     "/api/admin/wage",
@@ -2535,7 +2610,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "heatmaps", "pve", "economy", "shop", "server-rules", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if active_section not in valid_sections:
@@ -3171,6 +3246,51 @@ def api_on_screen_message():
         pending.append("messages.xml")
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "message": record, "note": "messages.xml changes take effect after a server restart"})
+
+
+@APP.post("/api/admin/server-control")
+def api_server_control():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+
+    if "restart_schedule_enabled" in payload:
+        config["restart_schedule_enabled"] = safe_bool(payload.get("restart_schedule_enabled"), True)
+    if "restart_interval_hours" in payload:
+        config["restart_interval_hours"] = max(1, min(24, safe_int(payload.get("restart_interval_hours"), 4)))
+    if "restart_start_hour" in payload:
+        config["restart_start_hour"] = max(0, min(23, safe_int(payload.get("restart_start_hour"), 0)))
+    if "restart_warning_minutes" in payload:
+        warnings = []
+        for item in csv_list(payload.get("restart_warning_minutes", [])):
+            minute = safe_int(item, 0)
+            if minute > 0 and minute not in warnings:
+                warnings.append(minute)
+        config["restart_warning_minutes"] = warnings or [30, 15, 10, 5, 1]
+    if "restart_channel_key" in payload:
+        config["restart_channel_key"] = str(payload.get("restart_channel_key") or "")
+
+    if "base_damage_state" in payload:
+        config["base_damage_state"] = "off" if str(payload.get("base_damage_state")).lower() == "off" else "on"
+    if "container_damage_state" in payload:
+        config["container_damage_state"] = "off" if str(payload.get("container_damage_state")).lower() == "off" else "on"
+    if "vehicle_reset_schedule_enabled" in payload:
+        config["vehicle_reset_schedule_enabled"] = safe_bool(payload.get("vehicle_reset_schedule_enabled"), False)
+    if "vehicle_reset_method" in payload:
+        method = str(payload.get("vehicle_reset_method") or "economy_xml").strip().lower()
+        config["vehicle_reset_method"] = method if method in {"economy_xml", "bridge"} else "economy_xml"
+    if "vehicle_reset_restarts" in payload:
+        config["vehicle_reset_restarts"] = max(1, min(365, safe_int(payload.get("vehicle_reset_restarts"), 7)))
+
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "server_control": redact(config), "note": "saved for this guild only"})
 
 
 @APP.post("/api/admin/faction")
