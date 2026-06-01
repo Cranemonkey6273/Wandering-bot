@@ -1264,8 +1264,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Airdrop / Spawn Event</h3>
-          <form class="admin-form" data-route="/api/admin/scenario-event">
+          <form class="admin-form" data-route="/api/admin/scenario-event" id="scenario-event-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="event_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
               <select name="event_type" data-scenario-type>
@@ -1301,6 +1302,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="custom">Custom classname</option>
               </select>
             </label>
+            <label>Event name <input name="name" placeholder="Optional display name"></label>
             <label>Classname <input name="class_name" value="StaticObj_Misc_WoodenCrate_5x" placeholder="Only needed for Custom classname"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
@@ -1335,7 +1337,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Guard count <input name="guard_count" type="number" value="0"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
             <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Console events upload through events.xml and cfgeventspawns.xml, so no init.c access is needed. Counts are capped at 250 per event for server safety.</span></div>
-            <div class="full"><button type="submit">Queue Event</button> <span class="result muted"></span></div>
+            <div class="full"><button type="submit">Save / Queue Event</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
         </article>
@@ -1393,15 +1395,35 @@ Event pings | bell | 1234567890</textarea></label>
           </form>
         </article>
         <article class="admin-panel full">
-          <h3>Queued Scenario Events</h3>
+          <h3>Live Event Manager</h3>
+          <div class="mini-grid">
+            <div class="mini-card"><span class="muted">Total</span><strong>{{ server.scenario_events|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Active</span><strong>{{ server.scenario_events|selectattr('enabled')|list|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Permanent</span><strong>{{ server.scenario_events|selectattr('permanent')|list|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Uploads</span><strong>{{ server.scenario_events|selectattr('upload_status', 'equalto', 'uploaded')|list|length if server else 0 }}</strong></div>
+          </div>
+          <div class="shop-toolbar" style="margin-top:.85rem">
+            <label>Search events <input data-event-search placeholder="name/type/class/status"></label>
+            <label>Status
+              <select data-event-status>
+                <option value="">All events</option>
+                <option value="active">Active only</option>
+                <option value="paused">Paused only</option>
+                <option value="permanent">Permanent</option>
+                <option value="failed">Upload failed</option>
+              </select>
+            </label>
+            <span class="pill">Guild scoped</span>
+          </div>
           <table class="item-table">
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
-              <tr data-scenario-event-row="{{ event.id }}">
+              <tr data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
+                    <button type="button" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</button>
                     {% for action, label in [('upload', 'Upload XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -1978,6 +2000,49 @@ Event pings | bell | 1234567890</textarea></label>
         filterShop();
       });
       category?.addEventListener("change", filterShop);
+    });
+    document.querySelectorAll("[data-event-search]").forEach((input) => {
+      const section = input.closest("article") || document;
+      const status = section.querySelector("[data-event-status]");
+      function filterEvents() {
+        const query = input.value.trim().toLowerCase();
+        const statusValue = status ? status.value.trim().toLowerCase() : "";
+        section.querySelectorAll("[data-event-row]").forEach((row) => {
+          const matchesText = !query || row.dataset.eventSearch.includes(query);
+          let matchesStatus = true;
+          if (statusValue === "active") matchesStatus = row.dataset.eventEnabled === "true";
+          if (statusValue === "paused") matchesStatus = row.dataset.eventEnabled !== "true";
+          if (statusValue === "permanent") matchesStatus = row.dataset.eventPermanent === "true";
+          if (statusValue === "failed") matchesStatus = row.dataset.eventUpload === "failed";
+          row.style.display = matchesText && matchesStatus ? "" : "none";
+        });
+      }
+      input.addEventListener("input", filterEvents);
+      status?.addEventListener("change", filterEvents);
+    });
+    document.querySelectorAll("[data-scenario-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const form = document.getElementById("scenario-event-form");
+        if (!form) return;
+        form.elements.event_id.value = button.dataset.id || "";
+        form.elements.name.value = button.dataset.name || "";
+        form.elements.event_type.value = button.dataset.type || "airdrop";
+        form.elements.class_name.value = button.dataset.class || "";
+        form.elements.x.value = button.dataset.x || 7500;
+        form.elements.y.value = button.dataset.y || 0;
+        form.elements.z.value = button.dataset.z || 7500;
+        form.elements.count.value = button.dataset.count || 1;
+        form.elements.radius.value = button.dataset.radius || 35;
+        form.elements.permanent.value = button.dataset.permanent || "false";
+        form.elements.restarts.value = button.dataset.restarts || 1;
+        form.elements.loot_preset.value = button.dataset.loot || "none";
+        form.elements.visual_marker.value = button.dataset.marker || "false";
+        form.elements.guard_class.value = button.dataset.guard || "";
+        form.elements.guard_count.value = button.dataset.guardCount || 0;
+        form.elements.guard_radius.value = button.dataset.guardRadius || 35;
+        form.scrollIntoView({behavior: "smooth", block: "start"});
+        form.elements.class_name.focus();
+      });
     });
     document.querySelectorAll("[data-faction-edit]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -4081,13 +4146,20 @@ def api_scenario_event():
         events = []
         config["scenario_events"] = events
 
+    requested_event_id = safe_int(payload.get("event_id") or payload.get("id"), 0)
+    existing_index = None
+    existing_event: dict[str, Any] = {}
     existing_ids = []
-    for event in events:
+    for index, event in enumerate(events):
         if isinstance(event, dict):
-            existing_ids.append(safe_int(event.get("id"), 0))
-    event_id = max(existing_ids or [0]) + 1
+            current_id = safe_int(event.get("id"), 0)
+            existing_ids.append(current_id)
+            if requested_event_id > 0 and current_id == requested_event_id:
+                existing_index = index
+                existing_event = dict(event)
+    event_id = requested_event_id if existing_index is not None else max(existing_ids or [0]) + 1
     restarts = safe_int(payload.get("restarts"), 1)
-    permanent = restarts <= 0
+    permanent = safe_bool(payload.get("permanent"), False) or restarts <= 0
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
     map_size = map_size_for(server_map)
     spawn_preset = str(payload.get("spawn_preset") or "").strip()
@@ -4134,7 +4206,8 @@ def api_scenario_event():
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
 
-    event = {
+    event = dict(existing_event)
+    event.update({
         "id": event_id,
         "name": str(payload.get("name") or f"{preset.get('label') or event_type.replace('_', ' ').title()} #{event_id}"),
         "event_type": event_type,
@@ -4163,14 +4236,19 @@ def api_scenario_event():
         "enabled": True,
         "status": "Accepted / waiting for native CE XML upload",
         "upload_status": "waiting_for_bot_upload",
-        "created_by": "dashboard",
-        "created_at": datetime.now(UTC).isoformat(),
-    }
+        "created_by": existing_event.get("created_by") or "dashboard",
+        "created_at": existing_event.get("created_at") or datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+    })
     if event_type == "vehicle_reset_all":
         event["exclude"] = csv_list(payload.get("excluded_classes", []))
-    events.append(event)
+    if existing_index is None:
+        events.append(event)
+    else:
+        events[existing_index] = event
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "event": event, "note": "queued for bot restart/event processing"})
+    sync_runtime_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "event": event, "updated": existing_index is not None, "note": "queued for bot restart/event processing"})
 
 
 @APP.post("/api/admin/scenario-event-action")
