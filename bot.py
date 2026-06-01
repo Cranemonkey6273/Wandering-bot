@@ -5795,7 +5795,9 @@ def merge_guild_config_records(base, override):
             if event_time >= existing_time:
                 events_by_id[event_id] = event
         merged["scenario_events"] = list(events_by_id.values())
-    elif isinstance(base_events, list) and not override_events:
+    elif isinstance(override_events, list):
+        merged["scenario_events"] = override_events
+    elif isinstance(base_events, list):
         merged["scenario_events"] = base_events
     return merged
 

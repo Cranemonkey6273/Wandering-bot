@@ -590,6 +590,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>{% endif %}
       {% if section_allowed('economy') %}<a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
@@ -611,6 +612,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('pve') %}<option value="/admin?section=pve{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>PVE & Workshop</option>{% endif %}
           {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>{% endif %}
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
+          {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
@@ -629,6 +631,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
@@ -1264,9 +1267,10 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Airdrop / Spawn Event</h3>
-          <form class="admin-form" data-route="/api/admin/scenario-event" id="scenario-event-form">
+          <form class="admin-form" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event" id="scenario-event-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="event_id" value="">
+            <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
               <select name="event_type" data-scenario-type>
@@ -1343,8 +1347,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Vehicle Reset</h3>
-          <form class="admin-form" data-route="/api/admin/scenario-event">
+          <form class="admin-form" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
             <input class="hidden-field" name="event_type" value="vehicle_reset_all">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Reset method
@@ -1558,15 +1563,27 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
             <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
+            <div class="full">
+              <label>Find item from this server's shop/types list
+                <input data-bundle-item-search list="bundle-item-options" placeholder="Search item classname">
+              </label>
+              <datalist id="bundle-item-options">
+                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.category }}</option>{% endfor %}
+              </datalist>
+              <div class="shop-toolbar" style="margin-top:.5rem">
+                <label>Qty <input data-bundle-item-qty type="number" min="1" max="999" value="1"></label>
+                <button type="button" data-bundle-add-item>Add To Bundle</button>
+              </div>
+            </div>
             <label class="full">Bundle items
-              <textarea name="bundle_items" placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
+              <textarea name="bundle_items" data-bundle-items placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
             </label>
             <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full"><button type="submit">Save Bundle</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Players buy the bundle name once. The bot charges once, then queues each listed item for the next restart delivery.</p>
         </article>
-        <article class="admin-panel full">
+        <article class="admin-panel full" data-shop-list>
           <h3>All Shop Items</h3>
           <div class="shop-toolbar">
             <label>Search items <input data-shop-search placeholder="type item/category/status"></label>
@@ -1576,7 +1593,7 @@ Event pings | bell | 1234567890</textarea></label>
                 {% for category in (server.shop_categories.keys() if server else []) %}<option value="{{ category|lower }}">{{ category }}</option>{% endfor %}
               </select>
             </label>
-            <span class="pill">{{ server.shop_items|length if server else 0 }} items</span>
+            <span class="pill"><span data-shop-count>{{ server.shop_items|length if server else 0 }}</span> items</span>
           </div>
           <table class="item-table">
             <thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
@@ -1616,6 +1633,100 @@ Event pings | bell | 1234567890</textarea></label>
         {% else %}
         <article class="admin-panel"><h3>No Shop Items</h3><p class="muted">Import types.xml in Discord with `/tools importtypesxml`, then manage the items here.</p></article>
         {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "xml-workshop" %}
+    <section class="section-panel" id="xml-workshop">
+      <div class="section-head">
+        <div>
+          <h2>XML Workshop</h2>
+          <p class="tool-note">Build safe loot and loadout recipes for this server. These are saved as dashboard drafts first; live XML upload will only be added through the guarded injector path.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Loot Quality Rules</h3>
+          <form class="admin-form" data-route="/api/admin/xml-workshop">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="recipe_kind" value="settings">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Default item damage
+              <select name="default_damage">
+                <option value="pristine">Pristine</option>
+                <option value="worn">Worn</option>
+                <option value="random">Random</option>
+              </select>
+            </label>
+            <label>Food, drink, mags, meds quantity
+              <select name="quantity_mode">
+                <option value="full">Full / 100%</option>
+                <option value="vanilla">Keep vanilla</option>
+                <option value="custom">Use recipe values</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" name="full_magazines" checked> Magazines spawn full</label>
+            <label class="check"><input type="checkbox" name="full_liquids" checked> Bottles and canteens spawn full</label>
+            <label class="check"><input type="checkbox" name="full_meds" checked> Tablets and meds spawn full</label>
+            <label class="check"><input type="checkbox" name="weapon_attachments" checked> Weapons use attachment recipes</label>
+            <label class="full">Notes <input name="notes" placeholder="What this rule pack is for"></label>
+            <div class="full embed-preview"><strong>Safe mode</strong><span>This saves the intent only. The injector must download current XML, validate it, show a diff, keep one latest backup, then upload.</span></div>
+            <div class="full"><button type="submit">Save Loot Rules</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Filled Bag / Container Generator</h3>
+          <form class="admin-form" data-route="/api/admin/xml-workshop">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="recipe_kind" value="container">
+            <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
+            <label>Container classname <input name="container_class" list="bundle-item-options" value="DryBag_Black"></label>
+            <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+            <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
+            <label class="full">Items inside
+              <textarea name="items" placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
+            </label>
+            <div class="full"><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Player Loadout</h3>
+          <form class="admin-form" data-route="/api/admin/xml-workshop">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="recipe_kind" value="player_loadout">
+            <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
+            <label>Role restriction <input name="role_ids" placeholder="optional Discord role IDs"></label>
+            <label class="full">Loadout items
+              <textarea name="items" placeholder="BandageDressing, 2, -1, pristine&#10;WaterBottle, 1, 100, pristine"></textarea>
+            </label>
+            <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Vehicle Loadout</h3>
+          <form class="admin-form" data-route="/api/admin/xml-workshop">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
+            <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
+            <label>Vehicle classname <input name="vehicle_class" list="bundle-item-options" value="Truck_01_Covered"></label>
+            <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
+            <label class="full">Cargo items
+              <textarea name="items" placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
+            </label>
+            <div class="full"><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel full">
+          <h3>Saved XML Recipes</h3>
+          <div class="mini-grid">
+            <div class="mini-card"><span class="muted">Containers</span><strong>{{ server.xml_workshop.container_recipes|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Player loadouts</span><strong>{{ server.xml_workshop.player_loadouts|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Vehicle loadouts</span><strong>{{ server.xml_workshop.vehicle_loadouts|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Status</span><strong>Draft</strong></div>
+          </div>
+          <p class="tool-note" style="margin-top:.75rem">{{ server.xml_workshop.status if server else 'No recipes saved yet.' }}</p>
+        </article>
       </div>
     </section>
     {% endif %}
@@ -1825,6 +1936,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <label class="check"><input type="checkbox" name="feature_pve_quests" {% if features.pve_quests %}checked{% endif %}> PVE quests</label>
                 <label class="check"><input type="checkbox" name="feature_quest_workshop" {% if features.quest_workshop %}checked{% endif %}> Quest workshop</label>
                 <label class="check"><input type="checkbox" name="feature_shop" {% if features.shop %}checked{% endif %}> Shop control</label>
+                <label class="check"><input type="checkbox" name="feature_xml_workshop" {% if features.xml_workshop %}checked{% endif %}> XML workshop</label>
                 <label class="check"><input type="checkbox" name="feature_server_rules" {% if features.server_rules %}checked{% endif %}> Server rules</label>
                 <label class="check"><input type="checkbox" name="feature_server_control" {% if features.server_control %}checked{% endif %}> Server control</label>
                 <label class="check"><input type="checkbox" name="feature_wages" {% if features.wages %}checked{% endif %}> Economy wages</label>
@@ -2028,21 +2140,45 @@ Event pings | bell | 1234567890</textarea></label>
       });
     });
     document.querySelectorAll("[data-shop-search]").forEach((input) => {
-      const section = input.closest("section") || document;
+      const section = input.closest("[data-shop-list]") || input.closest("article") || document;
       const category = section.querySelector("[data-shop-category]");
+      const count = section.querySelector("[data-shop-count]");
       function filterShop() {
         const query = input.value.trim().toLowerCase();
         const categoryValue = category ? category.value.trim().toLowerCase() : "";
+        let visible = 0;
         section.querySelectorAll("[data-shop-row]").forEach((row) => {
-          const matchesText = !query || row.dataset.search.includes(query);
-          const matchesCategory = !categoryValue || row.dataset.category === categoryValue;
-          row.style.display = matchesText && matchesCategory ? "" : "none";
+          const search = row.dataset.search || "";
+          const rowCategory = row.dataset.category || "";
+          const matchesText = !query || search.includes(query);
+          const matchesCategory = !categoryValue || rowCategory === categoryValue;
+          const show = matchesText && matchesCategory;
+          row.hidden = !show;
+          if (show) visible += 1;
         });
+        if (count) count.textContent = visible;
       }
-      input.addEventListener("input", () => {
-        filterShop();
+      input.addEventListener("input", filterShop);
+      if (category) category.addEventListener("change", filterShop);
+      filterShop();
+    });
+    document.querySelectorAll("[data-bundle-add-item]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const form = button.closest("form");
+        if (!form) return;
+        const itemInput = form.querySelector("[data-bundle-item-search]");
+        const qtyInput = form.querySelector("[data-bundle-item-qty]");
+        const textarea = form.querySelector("[data-bundle-items]");
+        const item = itemInput ? itemInput.value.trim() : "";
+        const qty = Math.max(1, Math.min(999, Number(qtyInput ? qtyInput.value : 1) || 1));
+        if (!item || !textarea) return;
+        const line = `${qty}x ${item}`;
+        textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${line}` : line;
+        if (itemInput) {
+          itemInput.value = "";
+          itemInput.focus();
+        }
       });
-      category?.addEventListener("change", filterShop);
     });
     document.querySelectorAll("[data-event-search]").forEach((input) => {
       const section = input.closest("article") || document;
@@ -2397,6 +2533,7 @@ ADMIN_ROUTES = [
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/shop-bundle",
+    "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
     "/api/admin/scenario-event-action",
     "/api/admin/economy-rule",
@@ -2425,6 +2562,7 @@ SECTION_FEATURES = {
     "pve": "pve_quests",
     "economy": "economy",
     "shop": "shop",
+    "xml-workshop": "xml_workshop",
     "server-rules": "server_rules",
     "server-control": "server_control",
 }
@@ -2449,6 +2587,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/faction-member": "factions",
     "/api/admin/wage": "wages",
     "/api/admin/wallet-adjustment": "economy",
+    "/api/admin/xml-workshop": "xml_workshop",
 }
 
 
@@ -2514,7 +2653,9 @@ def merge_guild_config_records(base: Any, override: Any) -> Any:
             if event_time >= existing_time:
                 events_by_id[event_id] = event
         merged["scenario_events"] = list(events_by_id.values())
-    elif isinstance(base_events, list) and not override_events:
+    elif isinstance(override_events, list):
+        merged["scenario_events"] = override_events
+    elif isinstance(base_events, list):
         merged["scenario_events"] = base_events
     return merged
 
@@ -2901,6 +3042,61 @@ def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
         if item_name and is_shop_sellable_item(item_name, ""):
             rows.append({"item": item_name, "quantity": quantity})
     return rows
+
+
+def safe_dayz_class(value: Any) -> str:
+    text = str(value or "").strip()
+    return text if re.fullmatch(r"[A-Za-z0-9_]{2,80}", text) else ""
+
+
+def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = re.split(r"[\n;]+", str(value or ""))
+    for raw in candidates:
+        if len(rows) >= max_rows:
+            break
+        if isinstance(raw, dict):
+            item_name = safe_dayz_class(raw.get("item") or raw.get("name"))
+            quantity = safe_int(raw.get("quantity"), 1)
+            quantity_percent = safe_int(raw.get("quantity_percent"), safe_int(raw.get("quantityPercent"), -1))
+            damage = str(raw.get("damage") or "pristine").strip().lower()
+        else:
+            parts = [part.strip() for part in re.split(r"[|,]", str(raw or "")) if part.strip()]
+            if not parts:
+                continue
+            item_name = safe_dayz_class(parts[0])
+            quantity = safe_int(parts[1], 1) if len(parts) > 1 else 1
+            quantity_percent = safe_int(parts[2], -1) if len(parts) > 2 else -1
+            damage = str(parts[3] if len(parts) > 3 else "pristine").strip().lower()
+        if not item_name:
+            continue
+        if damage not in {"pristine", "worn", "damaged", "badly_damaged", "ruined", "random"}:
+            damage = "pristine"
+        rows.append({
+            "item": item_name,
+            "quantity": max(1, min(999, quantity)),
+            "quantity_percent": max(-1, min(100, quantity_percent)),
+            "damage": damage,
+        })
+    return rows
+
+
+def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
+    workshop = config.get("xml_workshop")
+    if not isinstance(workshop, dict):
+        workshop = {}
+    recipes = workshop.get("recipes") if isinstance(workshop.get("recipes"), dict) else {}
+    return {
+        "settings": workshop.get("settings") if isinstance(workshop.get("settings"), dict) else {},
+        "container_recipes": recipes.get("containers") if isinstance(recipes.get("containers"), list) else [],
+        "player_loadouts": recipes.get("players") if isinstance(recipes.get("players"), list) else [],
+        "vehicle_loadouts": recipes.get("vehicles") if isinstance(recipes.get("vehicles"), list) else [],
+        "updated_at": str(workshop.get("updated_at") or ""),
+        "status": str(workshop.get("status") or "Draft recipes only; no live XML upload has run."),
+    }
 
 
 def parse_zombie_mix(value: Any) -> list[dict[str, Any]]:
@@ -3406,6 +3602,7 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "server_control": bool(features.get("server_control", False)),
             "shop": bool(features.get("shop", False)),
             "wages": bool(features.get("wages", False)),
+            "xml_workshop": bool(features.get("xml_workshop", False)),
         },
     }
 
@@ -3813,6 +4010,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "wallets": redact(server_wallets),
                 "shop_items": redact(server_shop_items),
                 "shop_categories": redact(server_shop_categories),
+                "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
                 "heatmap": server_heatmap,
@@ -3891,7 +4089,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth, mode)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "server-rules", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "server-rules", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
@@ -4258,6 +4456,100 @@ def api_shop_bundle():
     return jsonify({"ok": True, "bundle": {bundle_name: existing}})
 
 
+@APP.post("/api/admin/xml-workshop")
+def api_xml_workshop():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    workshop = config.setdefault("xml_workshop", {})
+    if not isinstance(workshop, dict):
+        workshop = {}
+        config["xml_workshop"] = workshop
+    recipes = workshop.setdefault("recipes", {})
+    if not isinstance(recipes, dict):
+        recipes = {}
+        workshop["recipes"] = recipes
+    kind = str(payload.get("recipe_kind") or "settings").strip().lower()
+    now_text = datetime.now(UTC).isoformat()
+
+    if kind == "settings":
+        default_damage = str(payload.get("default_damage") or "pristine").strip().lower()
+        if default_damage not in {"pristine", "worn", "random"}:
+            default_damage = "pristine"
+        quantity_mode = str(payload.get("quantity_mode") or "full").strip().lower()
+        if quantity_mode not in {"full", "vanilla", "custom"}:
+            quantity_mode = "full"
+        record = {
+            "default_damage": default_damage,
+            "quantity_mode": quantity_mode,
+            "full_magazines": safe_bool(payload.get("full_magazines"), False),
+            "full_liquids": safe_bool(payload.get("full_liquids"), False),
+            "full_meds": safe_bool(payload.get("full_meds"), False),
+            "weapon_attachments": safe_bool(payload.get("weapon_attachments"), False),
+            "notes": str(payload.get("notes") or "").strip()[:500],
+            "updated_at": now_text,
+        }
+        workshop["settings"] = record
+        workshop["status"] = "Loot rule draft saved. Live XML upload is disabled until injector preview/diff is added."
+        save_store("guild_configs", guild_configs)
+        return jsonify({"ok": True, "settings": record, "note": workshop["status"]})
+
+    target_key = {
+        "container": "containers",
+        "player_loadout": "players",
+        "vehicle_loadout": "vehicles",
+    }.get(kind)
+    if not target_key:
+        return jsonify({"ok": False, "error": "recipe_kind must be settings, container, player_loadout, or vehicle_loadout"}), 400
+
+    recipe_name = str(payload.get("recipe_name") or payload.get("name") or "").strip()
+    if not recipe_name:
+        return jsonify({"ok": False, "error": "recipe_name is required"}), 400
+    items = parse_xml_workshop_items(payload.get("items"))
+    if not items:
+        return jsonify({"ok": False, "error": "add at least one valid item line"}), 400
+    record = {
+        "id": re.sub(r"[^a-z0-9_]+", "_", recipe_name.lower()).strip("_")[:80] or f"{target_key}_{len(recipes.get(target_key, [])) + 1}",
+        "name": recipe_name[:120],
+        "items": items,
+        "updated_at": now_text,
+    }
+    if kind == "container":
+        record.update({
+            "container_class": safe_dayz_class(payload.get("container_class")),
+            "damage": str(payload.get("damage") or "pristine").strip().lower(),
+            "capacity_hint": max(0, safe_int(payload.get("capacity_hint"), 0)),
+        })
+        if not record["container_class"]:
+            return jsonify({"ok": False, "error": "container_class must be a valid DayZ classname"}), 400
+    elif kind == "player_loadout":
+        record["role_ids"] = csv_list(payload.get("role_ids"))
+    elif kind == "vehicle_loadout":
+        record.update({
+            "vehicle_class": safe_dayz_class(payload.get("vehicle_class")),
+            "vehicle_mode": str(payload.get("vehicle_mode") or "full_with_cargo").strip(),
+        })
+        if not record["vehicle_class"]:
+            return jsonify({"ok": False, "error": "vehicle_class must be a valid DayZ classname"}), 400
+
+    collection = recipes.setdefault(target_key, [])
+    if not isinstance(collection, list):
+        collection = []
+        recipes[target_key] = collection
+    collection[:] = [item for item in collection if not isinstance(item, dict) or item.get("id") != record["id"]]
+    collection.append(record)
+    workshop["updated_at"] = now_text
+    workshop["status"] = "Recipe draft saved. The guarded XML injector will use this later for preview and upload."
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "recipe": record, "note": workshop["status"]})
+
+
 @APP.post("/api/admin/scenario-event")
 def api_scenario_event():
     payload, error = require_admin()
@@ -4265,6 +4557,7 @@ def api_scenario_event():
         return error
     payload = payload or {}
     guild_id = normalize_guild_id(payload.get("guild_id"))
+    return_to = safe_dashboard_return(payload.get("return_to"), f"/admin?section=pve&guild_id={guild_id}#pve-workshop")
     event_type = str(payload.get("event_type") or "airdrop").strip().lower()
     allowed_types = {"airdrop", "animal_pack", "zombie_horde", "loot_crate", "vehicle_spawn", "vehicle_reset_point", "vehicle_reset_all"}
     if event_type not in allowed_types:
@@ -4381,6 +4674,8 @@ def api_scenario_event():
         events[existing_index] = event
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
+    if not wants_json_response():
+        return redirect(return_to)
     return jsonify({"ok": True, "event": event, "updated": existing_index is not None, "note": "queued for bot restart/event processing"})
 
 
