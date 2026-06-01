@@ -23193,7 +23193,6 @@ def validate_console_ce_xml_bundle(built):
 
 
 def backup_remote_ce_sources_before_upload(config, built):
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_messages = []
     targets = [
         ("events.xml", built.get("events_path")),
@@ -23208,7 +23207,7 @@ def backup_remote_ce_sources_before_upload(config, built):
         ok, message, content = download_text_file_from_nitrado(config, path)
         if not ok or not str(content or "").strip():
             return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {message}"]
-        backup_path = f"{path}.wanderingbot-backup-{timestamp}"
+        backup_path = f"{path}.wanderingbot-backup-latest"
         backup_ok, backup_message = upload_text_file_to_nitrado(config, backup_path, content)
         backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
         if not backup_ok:
