@@ -22467,6 +22467,8 @@ def console_ce_default_paths(guild_id):
     return {
         "events_path": f"/dayzxb_missions/{mission_folder}/db/events.xml",
         "spawns_path": f"/dayzxb_missions/{mission_folder}/cfgeventspawns.xml",
+        "eventgroups_path": f"/dayzxb_missions/{mission_folder}/cfgeventgroups.xml",
+        "mapgroupproto_path": f"/dayzxb_missions/{mission_folder}/mapgroupproto.xml",
         "spawnabletypes_path": f"/dayzxb_missions/{mission_folder}/cfgspawnabletypes.xml",
     }
 
@@ -22476,6 +22478,10 @@ def console_ce_path_suffix(key):
         return "db/events.xml"
     if key == "spawnabletypes_path":
         return "cfgspawnabletypes.xml"
+    if key == "eventgroups_path":
+        return "cfgeventgroups.xml"
+    if key == "mapgroupproto_path":
+        return "mapgroupproto.xml"
     return "cfgeventspawns.xml"
 
 
@@ -22529,6 +22535,8 @@ def console_ce_event_config(config):
     settings.setdefault("enabled", False)
     settings.setdefault("events_path", "")
     settings.setdefault("spawns_path", "")
+    settings.setdefault("eventgroups_path", "")
+    settings.setdefault("mapgroupproto_path", "")
     settings.setdefault("spawnabletypes_path", "")
     return settings
 
@@ -22660,7 +22668,7 @@ def ce_decimal(value, default=0):
     return f"{float(parsed):.2f}".rstrip("0").rstrip(".")
 
 
-def add_console_ce_event_definition(root, event_name, child_type, count, lifetime, restock=0):
+def add_console_ce_event_definition(root, event_name, child_type, count, lifetime, restock=0, use_eventgroup=False):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
         ("nominal", count),
@@ -22689,14 +22697,53 @@ def add_console_ce_event_definition(root, event_name, child_type, count, lifetim
     active.text = "1"
 
     children = ET.SubElement(event_node, "children")
-    ET.SubElement(children, "child", {
-        "lootmax": "0",
-        "lootmin": "0",
-        "max": str(int(count)),
-        "min": str(int(count)),
-        "type": str(child_type),
-    })
+    if not use_eventgroup:
+        ET.SubElement(children, "child", {
+            "lootmax": "0",
+            "lootmin": "0",
+            "max": str(int(count)),
+            "min": str(int(count)),
+            "type": str(child_type),
+        })
     return event_node
+
+
+def add_console_ce_event_group(root, group_name, child_type, lootmax=80):
+    group_node = ET.SubElement(root, "group", {"name": str(group_name)})
+    ET.SubElement(group_node, "child", {
+        "type": str(child_type),
+        "deloot": "1",
+        "lootmax": str(int(lootmax)),
+    })
+    return group_node
+
+
+def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
+    wanted = str(class_name or "").strip()
+    if not wanted:
+        return None, False
+    for group_node in root.findall("group"):
+        if str(group_node.get("name") or "").strip().lower() == wanted.lower():
+            return group_node, False
+
+    group_node = ET.SubElement(root, "group", {"name": wanted, "lootmax": str(int(lootmax))})
+    for category in ("weapons", "explosives", "containers", "clothes"):
+        ET.SubElement(group_node, "usage", {"name": category})
+    # Generic crate loot points. Specific modded objects can still use their existing proto.
+    for x, y, z in [
+        ("0.0", "0.5", "0.0"),
+        ("0.4", "0.5", "0.4"),
+        ("-0.4", "0.5", "0.4"),
+        ("0.4", "0.5", "-0.4"),
+        ("-0.4", "0.5", "-0.4"),
+    ]:
+        ET.SubElement(group_node, "point", {
+            "pos": f"{x} {y} {z}",
+            "range": "0.5",
+            "height": "0.5",
+            "flags": "32",
+        })
+    return group_node, True
 
 
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45):
@@ -22739,20 +22786,22 @@ def console_ce_records_for_event(event):
     if event_type == "vehicle_spawn":
         count = 1
         lifetime = 3888000
-    elif event_type == "airdrop":
+    elif event_type in {"airdrop", "loot_crate"}:
         count = 1
         lifetime = 7200
     elif event_type == "zombie_horde":
         lifetime = 1800
 
+    use_eventgroup = event_type in {"airdrop", "loot_crate"}
     records.append({
-        "name": ce_event_name(event, family=ce_event_family_for_record(event_type, class_name)),
+        "name": ce_event_name(event, family="Static" if use_eventgroup else ce_event_family_for_record(event_type, class_name)),
         "class_name": class_name,
         "count": count,
         "lifetime": lifetime,
         "x": event.get("x"),
         "z": event.get("z"),
         "radius": event.get("radius"),
+        "use_eventgroup": use_eventgroup,
     })
 
     if event_type == "airdrop":
@@ -22814,6 +22863,12 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     elif key == "spawnabletypes_path":
         reference_parts = ("cfgspawnabletypes.xml",)
         fallback_root = "spawnabletypes"
+    elif key == "eventgroups_path":
+        reference_parts = ("cfgeventgroups.xml",)
+        fallback_root = "eventgroupdef"
+    elif key == "mapgroupproto_path":
+        reference_parts = ("mapgroupproto.xml",)
+        fallback_root = "mapgroupproto"
     else:
         reference_parts = ("cfgeventspawns.xml",)
         fallback_root = "eventposdef"
@@ -22849,6 +22904,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             record["class_name"],
             record["count"],
             record["lifetime"],
+            use_eventgroup=bool(record.get("use_eventgroup")),
         )
         add_console_ce_event_spawn(
             spawns_root,
@@ -22876,11 +22932,53 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "events_text": xml_text_from_root(events_root),
         "spawns_path": resolved_spawns_path,
         "spawns_text": xml_text_from_root(spawns_root),
+        "eventgroups_path": "",
+        "eventgroups_text": "",
+        "mapgroupproto_path": "",
+        "mapgroupproto_text": "",
         "spawnabletypes_path": "",
         "spawnabletypes_text": "",
         "record_count": len(records),
         "messages": messages,
     }
+
+    eventgroup_records = [record for record in records if record.get("use_eventgroup")]
+    if eventgroup_records:
+        eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
+            config,
+            guild_id,
+            "eventgroups_path",
+            ""
+        )
+        mapgroupproto_text, resolved_mapgroupproto_path, mapgroupproto_source = download_console_ce_source(
+            config,
+            guild_id,
+            "mapgroupproto_path",
+            ""
+        )
+        eventgroups_root, eventgroups_parse_warning = parse_xml_root_or_new(eventgroups_text, "eventgroupdef")
+        mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "mapgroupproto")
+        removed_groups = remove_wandering_ce_nodes(eventgroups_root)
+        added_proto = 0
+        for record in eventgroup_records:
+            add_console_ce_event_group(eventgroups_root, record["name"], record["class_name"])
+            _, created = add_mapgroupproto_loot_group(mapgroupproto_root, record["class_name"])
+            if created:
+                added_proto += 1
+        output["eventgroups_path"] = resolved_eventgroups_path
+        output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
+        output["mapgroupproto_path"] = resolved_mapgroupproto_path
+        output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
+        output["messages"].append(eventgroups_source)
+        output["messages"].append(mapgroupproto_source)
+        output["messages"].append(
+            f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` crate group(s), removed `{removed_groups}` old Wandering Bot group(s)."
+        )
+        output["messages"].append(f"Updated `mapgroupproto.xml` with `{added_proto}` new crate proto group(s).")
+        if eventgroups_parse_warning:
+            output["messages"].append(eventgroups_parse_warning)
+        if mapgroupproto_parse_warning:
+            output["messages"].append(mapgroupproto_parse_warning)
 
     if console_ce_needs_spawnabletypes(config):
         spawnable_text, resolved_spawnable_path, spawnable_source = download_console_ce_source(
@@ -22912,6 +23010,8 @@ def validate_console_ce_xml_bundle(built):
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
+        eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
+        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<mapgroupproto></mapgroupproto>").encode("utf-8"))
     except Exception as error:
         return False, [f"XML validation failed before upload: {error}"]
 
@@ -22933,7 +23033,7 @@ def validate_console_ce_xml_bundle(built):
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
-        if not child_nodes:
+        if not child_nodes and not name.startswith("Static"):
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
             if not str(child.get("type") or "").strip():
@@ -22959,6 +23059,32 @@ def validate_console_ce_xml_bundle(built):
     for name in generated_spawns:
         if name not in generated_events:
             messages.append(f"`{name}` is in cfgeventspawns.xml but missing from events.xml.")
+
+    generated_groups = {
+        str(group_node.get("name") or ""): group_node
+        for group_node in eventgroups_root.findall("group")
+        if CONSOLE_CE_EVENT_MARKER in str(group_node.get("name") or "")
+    }
+    proto_names = {
+        str(group_node.get("name") or "").strip()
+        for group_node in mapgroupproto_root.findall("group")
+    }
+    for name, event_node in generated_events.items():
+        if not name.startswith("Static"):
+            continue
+        group_node = generated_groups.get(name)
+        if group_node is None:
+            messages.append(f"`{name}` is a static crate event but is missing from cfgeventgroups.xml.")
+            continue
+        child_nodes = group_node.findall("child")
+        if not child_nodes:
+            messages.append(f"`{name}` has no eventgroup child object.")
+        for child in child_nodes:
+            child_type = str(child.get("type") or "").strip()
+            if not child_type:
+                messages.append(f"`{name}` has an eventgroup child with no type.")
+            elif child_type not in proto_names:
+                messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
 
     if messages:
         return False, messages
@@ -22987,12 +23113,34 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`cfgspawnabletypes.xml`: {spawnable_message}")
 
-    success = events_ok and spawns_ok and spawnable_ok
+    eventgroups_ok = True
+    if built.get("eventgroups_text"):
+        eventgroups_ok, eventgroups_message = upload_text_file_to_nitrado(
+            config,
+            built["eventgroups_path"],
+            built["eventgroups_text"]
+        )
+        messages.append(f"`cfgeventgroups.xml`: {eventgroups_message}")
+
+    mapgroupproto_ok = True
+    if built.get("mapgroupproto_text"):
+        mapgroupproto_ok, mapgroupproto_message = upload_text_file_to_nitrado(
+            config,
+            built["mapgroupproto_path"],
+            built["mapgroupproto_text"]
+        )
+        messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
+
+    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok
     if success:
         settings = console_ce_event_config(config)
         settings["enabled"] = True
         settings["events_path"] = built["events_path"]
         settings["spawns_path"] = built["spawns_path"]
+        if built.get("eventgroups_path"):
+            settings["eventgroups_path"] = built["eventgroups_path"]
+        if built.get("mapgroupproto_path"):
+            settings["mapgroupproto_path"] = built["mapgroupproto_path"]
         if built.get("spawnabletypes_path"):
             settings["spawnabletypes_path"] = built["spawnabletypes_path"]
         if consume_restart:

@@ -1210,7 +1210,13 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
             <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
-            <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="0 = forever"></label>
+            <label>Event length
+              <select name="permanent">
+                <option value="false">One restart only</option>
+                <option value="true">Permanent until deleted</option>
+              </select>
+            </label>
+            <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="Used only for one-time events"></label>
             <label>Loot preset
               <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high tier</option><option value="military_basic">Military basic</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option></select>
             </label>
