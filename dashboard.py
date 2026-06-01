@@ -581,17 +581,17 @@ PAGE_TEMPLATE = """
     <section class="section-nav" aria-label="Dashboard sections">
       <a class="tab-link" href="/admin?section=overview{{ server_qs }}">Overview</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
-      <a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>
-      <a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>
-      <a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>
-      <a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>
-      <a class="tab-link" href="/admin?section=members{{ server_qs }}">Members</a>
-      <a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>
-      <a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>
-      <a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>
-      <a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>
-      <a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>
-      <a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>
+      {% if section_allowed('leaderboards') %}<a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      {% if section_allowed('automations') %}<a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>{% endif %}
+      {% if section_allowed('factions') %}<a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>{% endif %}
+      {% if section_allowed('members') %}<a class="tab-link" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
+      {% if section_allowed('heatmaps') %}<a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>{% endif %}
+      {% if section_allowed('pve') %}<a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>{% endif %}
+      {% if section_allowed('economy') %}<a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
+      {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
+      {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
+      {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
@@ -602,17 +602,17 @@ PAGE_TEMPLATE = """
         <select onchange="if (this.value) window.location.href = this.value;">
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Overview</option>
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
-          <option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>
-          <option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Embeds & Welcome</option>
-          <option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>
-          <option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones</option>
-          <option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>
-          <option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Heatmaps</option>
-          <option value="/admin?section=pve{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>PVE & Workshop</option>
-          <option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>
-          <option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>
-          <option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>
-          <option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>
+          {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
+          {% if section_allowed('automations') %}<option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Embeds & Welcome</option>{% endif %}
+          {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
+          {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones</option>{% endif %}
+          {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
+          {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Heatmaps</option>{% endif %}
+          {% if section_allowed('pve') %}<option value="/admin?section=pve{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>PVE & Workshop</option>{% endif %}
+          {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>{% endif %}
+          {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
+          {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
+          {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
@@ -1813,17 +1813,21 @@ Event pings | bell | 1234567890</textarea></label>
             <label class="full">Owner note <input name="owner_note" value="{{ server.dashboard_access.owner_note if server else '' }}" placeholder="private note only you see"></label>
             <div class="full">
               <span class="muted">Enabled modules</span>
+              {% set features = server.dashboard_access.features if server else {} %}
               <div class="check-grid">
-                <label class="check"><input type="checkbox" name="feature_leaderboards" checked> Leaderboards</label>
-                <label class="check"><input type="checkbox" name="feature_economy" checked> Economy</label>
-                <label class="check"><input type="checkbox" name="feature_factions" checked> Factions</label>
-                <label class="check"><input type="checkbox" name="feature_embeds" checked> Auto messages</label>
-                <label class="check"><input type="checkbox" name="feature_safe_zones" checked> Radar zones</label>
-                <label class="check"><input type="checkbox" name="feature_heatmaps" checked> Heatmaps</label>
-                <label class="check"><input type="checkbox" name="feature_pve_quests" checked> PVE quests</label>
-                <label class="check"><input type="checkbox" name="feature_quest_workshop" checked> Quest workshop</label>
-                <label class="check"><input type="checkbox" name="feature_shop" checked> Shop control</label>
-                <label class="check"><input type="checkbox" name="feature_wages" checked> Economy wages</label>
+                <label class="check"><input type="checkbox" name="feature_leaderboards" {% if features.leaderboards %}checked{% endif %}> Leaderboards</label>
+                <label class="check"><input type="checkbox" name="feature_economy" {% if features.economy %}checked{% endif %}> Economy</label>
+                <label class="check"><input type="checkbox" name="feature_factions" {% if features.factions %}checked{% endif %}> Factions</label>
+                <label class="check"><input type="checkbox" name="feature_embeds" {% if features.embeds %}checked{% endif %}> Auto messages</label>
+                <label class="check"><input type="checkbox" name="feature_safe_zones" {% if features.safe_zones %}checked{% endif %}> Radar zones</label>
+                <label class="check"><input type="checkbox" name="feature_members" {% if features.members %}checked{% endif %}> Member actions</label>
+                <label class="check"><input type="checkbox" name="feature_heatmaps" {% if features.heatmaps %}checked{% endif %}> Heatmaps</label>
+                <label class="check"><input type="checkbox" name="feature_pve_quests" {% if features.pve_quests %}checked{% endif %}> PVE quests</label>
+                <label class="check"><input type="checkbox" name="feature_quest_workshop" {% if features.quest_workshop %}checked{% endif %}> Quest workshop</label>
+                <label class="check"><input type="checkbox" name="feature_shop" {% if features.shop %}checked{% endif %}> Shop control</label>
+                <label class="check"><input type="checkbox" name="feature_server_rules" {% if features.server_rules %}checked{% endif %}> Server rules</label>
+                <label class="check"><input type="checkbox" name="feature_server_control" {% if features.server_control %}checked{% endif %}> Server control</label>
+                <label class="check"><input type="checkbox" name="feature_wages" {% if features.wages %}checked{% endif %}> Economy wages</label>
               </div>
             </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
@@ -2372,6 +2376,42 @@ ADMIN_ROUTES = [
     "/api/admin/guild-access",
 ]
 
+SECTION_FEATURES = {
+    "leaderboards": "leaderboards",
+    "automations": "embeds",
+    "factions": "factions",
+    "zones": "safe_zones",
+    "members": "members",
+    "heatmaps": "heatmaps",
+    "pve": "pve_quests",
+    "economy": "economy",
+    "shop": "shop",
+    "server-rules": "server_rules",
+    "server-control": "server_control",
+}
+
+ADMIN_ROUTE_FEATURES = {
+    "/api/admin/embed-template": "embeds",
+    "/api/admin/welcome-automation": "embeds",
+    "/api/admin/reaction-role-panel": "embeds",
+    "/api/admin/shop-item": "shop",
+    "/api/admin/shop-bundle": "shop",
+    "/api/admin/scenario-event": "pve_quests",
+    "/api/admin/scenario-event-action": "pve_quests",
+    "/api/admin/economy-rule": "economy",
+    "/api/admin/zone": "safe_zones",
+    "/api/admin/zone-action": "safe_zones",
+    "/api/admin/member-action": "members",
+    "/api/admin/link-enforcement": "server_rules",
+    "/api/admin/on-screen-message": "server_rules",
+    "/api/admin/server-control": "server_control",
+    "/api/admin/faction": "factions",
+    "/api/admin/faction-action": "factions",
+    "/api/admin/faction-member": "factions",
+    "/api/admin/wage": "wages",
+    "/api/admin/wallet-adjustment": "economy",
+}
+
 
 def data_path(filename: str) -> str:
     return os.path.join(DATA_ROOT, filename)
@@ -2558,6 +2598,31 @@ def verify_owner_login(dashboard_id: str, password: str) -> bool:
     return secrets.compare_digest(str(password or ""), OWNER_DASHBOARD_PASSWORD)
 
 
+def dashboard_admin_login_enabled(config: dict[str, Any]) -> bool:
+    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    if not isinstance(dashboard, dict):
+        return True
+    plan_status = str(dashboard.get("plan_status") or dashboard.get("tier") or "trial").strip().lower()
+    if plan_status in {"suspended", "none"}:
+        return False
+    return safe_bool(dashboard.get("enabled"), True)
+
+
+def dashboard_feature_allowed(config: dict[str, Any], feature: str) -> bool:
+    if not feature:
+        return True
+    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    if not isinstance(dashboard, dict):
+        return True
+    plan_status = str(dashboard.get("plan_status") or dashboard.get("tier") or "trial").strip().lower()
+    if plan_status in {"suspended", "none"}:
+        return False
+    features = dashboard.get("features")
+    if not isinstance(features, dict) or feature not in features:
+        return safe_bool(dashboard.get("enabled"), True)
+    return safe_bool(features.get(feature), False)
+
+
 def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str, Any] | None]:
     dashboard_id = str(dashboard_id or "").strip().lower()
     if not dashboard_id:
@@ -2628,6 +2693,8 @@ def current_auth() -> dict[str, Any] | None:
     config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
     if not isinstance(config, dict):
         return None
+    if not dashboard_admin_login_enabled(config):
+        return None
     credentials = config.get("dashboard_credentials")
     if not isinstance(credentials, dict):
         credentials = config.get("dashboard_login")
@@ -2690,6 +2757,15 @@ def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
     payload = scoped_payload_for_auth(request_payload(), auth)
     if payload.get("_scope_denied"):
         return None, (jsonify({"ok": False, "error": "server is not in this admin scope"}), 403)
+    if auth.get("kind") == "guild":
+        guild_id = normalize_guild_id(payload.get("guild_id") or auth.get("guild_id"))
+        guild_configs = load_store("guild_configs", {})
+        config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
+        if not isinstance(config, dict) or not dashboard_admin_login_enabled(config):
+            return None, (jsonify({"ok": False, "error": "dashboard access is disabled for this server"}), 403)
+        feature = ADMIN_ROUTE_FEATURES.get(request.path)
+        if feature and not dashboard_feature_allowed(config, feature):
+            return None, (jsonify({"ok": False, "error": f"{feature} is not enabled for this dashboard"}), 403)
     return payload, None
 
 
@@ -3283,9 +3359,12 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "factions": bool(features.get("factions", False)),
             "heatmaps": bool(features.get("heatmaps", False)),
             "leaderboards": bool(features.get("leaderboards", True)),
+            "members": bool(features.get("members", False)),
             "pve_quests": bool(features.get("pve_quests", False)),
             "quest_workshop": bool(features.get("quest_workshop", False)),
             "safe_zones": bool(features.get("safe_zones", False)),
+            "server_rules": bool(features.get("server_rules", False)),
+            "server_control": bool(features.get("server_control", False)),
             "shop": bool(features.get("shop", False)),
             "wages": bool(features.get("wages", False)),
         },
@@ -3787,10 +3866,22 @@ def page(mode: str, auth: dict[str, Any]):
         others = [server for server in state["servers"] if str(server.get("guild_id")) != focused_guild_id]
         if focused:
             state["servers"] = focused + others
+    selected_server = state["servers"][0] if state.get("servers") else {}
+    selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
+
+    def section_allowed(section: str) -> bool:
+        if auth.get("kind") == "owner":
+            return True
+        feature = SECTION_FEATURES.get(section)
+        return dashboard_feature_allowed(selected_config, feature) if feature else True
+
+    if not section_allowed(active_section):
+        active_section = "overview"
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
         active_section=active_section,
+        section_allowed=section_allowed,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
         auth=auth,
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
@@ -3966,6 +4057,8 @@ def login_post():
     guild_id, config = find_guild_by_dashboard_id(dashboard_id)
     if not guild_id or not isinstance(config, dict):
         return login_page("Dashboard ID or password is incorrect."), 401
+    if not dashboard_admin_login_enabled(config):
+        return login_page("Dashboard access is currently disabled for this server."), 403
     credentials = config.get("dashboard_credentials")
     if not isinstance(credentials, dict):
         credentials = config.get("dashboard_login")
@@ -4364,6 +4457,21 @@ def api_scenario_event_action():
             return redirect(return_to)
         return jsonify({"ok": True, "event": event})
 
+    if action in {"delete", "cancel"}:
+        upload_result = run_runtime_scenario_xml_upload(guild_id)
+        if not wants_json_response():
+            return redirect(return_to)
+        return jsonify({
+            "ok": True,
+            "missing": True,
+            "deleted": None,
+            "cancelled": action == "cancel",
+            "note": "scenario event was already gone for this guild",
+            "upload": upload_result,
+        })
+
+    if not wants_json_response():
+        return redirect(return_to)
     return jsonify({"ok": False, "error": "scenario event not found for this guild"}), 404
 
 
