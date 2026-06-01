@@ -1317,7 +1317,7 @@ Event pings | bell | 1234567890</textarea></label>
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
-              <tr>
+              <tr data-scenario-event-row="{{ event.id }}">
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action">
@@ -1816,7 +1816,15 @@ Event pings | bell | 1234567890</textarea></label>
         let body = {};
         try { body = await response.json(); } catch (error) {}
         if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
-        if (response.ok && form.classList.contains("inline-action")) window.location.reload();
+        if (response.ok && form.classList.contains("inline-action")) {
+          const action = String(payload.action || "").toLowerCase();
+          if (action === "delete") {
+            const row = form.closest("[data-scenario-event-row]");
+            if (row) row.remove();
+            return;
+          }
+          window.location.reload();
+        }
       });
     });
     document.querySelectorAll("[data-shop-edit]").forEach((button) => {
@@ -3990,7 +3998,9 @@ def api_scenario_event_action():
         if action == "delete":
             removed = events.pop(index)
             save_store("guild_configs", guild_configs)
-            return jsonify({"ok": True, "deleted": removed})
+            sync_runtime_store("guild_configs", guild_configs)
+            upload_result = run_runtime_scenario_xml_upload(guild_id)
+            return jsonify({"ok": True, "deleted": removed, "upload": upload_result})
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
             "approve": "Accepted / waiting for native CE XML upload",
@@ -4008,6 +4018,7 @@ def api_scenario_event_action():
             event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
 
         if action == "upload":
             upload_result = run_runtime_scenario_xml_upload(guild_id)
