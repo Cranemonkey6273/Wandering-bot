@@ -22068,6 +22068,8 @@ SCENARIO_LOOT_PRESETS = {
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
     "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
     "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
+    "vehicle_car": ["SparkPlug", "CarBattery", "CarRadiator", "CanisterGasoline", "TireRepairKit", "Blowtorch"],
+    "vehicle_truck": ["NailBox", "MetalPlate", "WoodenPlank", "Hammer", "Hatchet", "Handsaw", "CanisterGasoline"],
 }
 
 SCENARIO_VEHICLE_PRESETS = {
@@ -22606,7 +22608,7 @@ def remove_wandering_ce_nodes(root):
 
 def console_ce_needs_spawnabletypes(config):
     for event in bridge_scenario_events(config):
-        if event.get("event_type") == "airdrop" and event.get("loot"):
+        if event.get("event_type") in {"airdrop", "vehicle_spawn"} and event.get("loot"):
             return True
     return False
 
@@ -22633,7 +22635,7 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
     cargo_blocks = 0
 
     for event in events:
-        if event.get("event_type") != "airdrop":
+        if event.get("event_type") not in {"airdrop", "vehicle_spawn"}:
             continue
 
         class_name = str(event.get("class_name") or "").strip()
@@ -23305,7 +23307,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
             output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {source_text}")
         output["messages"].append(
-            f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` airdrop cargo block(s) for: "
+            f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
             + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
         )
         output["messages"].append(
@@ -23662,6 +23664,7 @@ def build_scenario_event_xml(event):
         "event_type": event.get("event_type", ""),
         "loot_preset": event.get("loot_preset", ""),
         "vehicle_condition": event.get("vehicle_condition", ""),
+        "vehicle_cargo_mode": event.get("vehicle_cargo_mode", ""),
         "guard_class": event.get("guard_class", ""),
         "guard_count": event.get("guard_count", ""),
         "guard_radius": event.get("guard_radius", ""),

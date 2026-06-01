@@ -72,6 +72,16 @@ SCENARIO_LOOT_PRESETS = {
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
     "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire"],
     "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
+    "vehicle_car": ["SparkPlug", "CarBattery", "CarRadiator", "CanisterGasoline", "TireRepairKit", "Blowtorch"],
+    "vehicle_truck": ["NailBox", "MetalPlate", "WoodenPlank", "Hammer", "Hatchet", "Handsaw", "CanisterGasoline"],
+}
+SCENARIO_VEHICLE_PRESETS = {
+    "ada": {"label": "Ada 4x4", "class": "OffroadHatchback", "loot_preset": "vehicle_car"},
+    "gunter": {"label": "Gunter 2", "class": "Hatchback_02", "loot_preset": "vehicle_car"},
+    "sarka": {"label": "Sarka 120", "class": "CivilianSedan", "loot_preset": "vehicle_car"},
+    "olga": {"label": "Olga 24", "class": "Sedan_02", "loot_preset": "vehicle_car"},
+    "m3s": {"label": "M3S covered truck", "class": "Truck_01_Covered", "loot_preset": "vehicle_truck"},
+    "custom_vehicle": {"label": "Custom vehicle classname", "class": "", "loot_preset": "vehicle_car"},
 }
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
@@ -1185,7 +1195,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="vehicle_spawn">Vehicle spawn</option>
               </select>
             </label>
-            <label>Animal / infected / crate type
+            <label>Spawn type
               <select name="spawn_preset" data-scenario-preset>
                 <option value="military_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
                 <option value="wooden_crate" data-type="loot_crate" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="survival">Wooden crate</option>
@@ -1201,6 +1211,12 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55">Civilian infected</option>
                 <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60">Military infected</option>
                 <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55">Heavy military infected</option>
+                <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="5" data-loot="vehicle_car">Ada 4x4</option>
+                <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="5" data-loot="vehicle_car">Gunter 2</option>
+                <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="5" data-loot="vehicle_car">Sarka 120</option>
+                <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="5" data-loot="vehicle_car">Olga 24</option>
+                <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="5" data-loot="vehicle_truck">M3S covered truck</option>
+                <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="5" data-loot="vehicle_car">Custom vehicle classname</option>
                 <option value="custom">Custom classname</option>
               </select>
             </label>
@@ -1218,7 +1234,13 @@ Event pings | bell | 1234567890</textarea></label>
             </label>
             <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="Used only for one-time events"></label>
             <label>Loot preset
-              <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high tier</option><option value="military_basic">Military basic</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option></select>
+              <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high tier</option><option value="military_basic">Military basic</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option><option value="vehicle_car">Vehicle kit</option><option value="vehicle_truck">Truck build kit</option></select>
+            </label>
+            <label>Vehicle condition
+              <select name="vehicle_condition"><option value="full">Full fuel, fluids, and common parts</option><option value="random_parts">Random common parts</option><option value="no_parts">Body only / missing parts</option></select>
+            </label>
+            <label>Vehicle cargo
+              <select name="vehicle_cargo_mode"><option value="normal_with_loot">Full vehicle with selected loot</option><option value="normal_no_loot">Full vehicle with no bot-added loot</option><option value="native_only">Use my server files only</option></select>
             </label>
             <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"></label>
             <label>Visual marker <select name="visual_marker"><option value="true">On</option><option value="false">Off</option></select></label>
@@ -1844,7 +1866,15 @@ Event pings | bell | 1234567890</textarea></label>
       const form = presetSelect.closest("form");
       if (!form) return;
       const typeSelect = form.querySelector("[data-scenario-type]");
+      function chooseFirstPresetForType() {
+        if (!typeSelect) return;
+        const current = presetSelect.selectedOptions[0];
+        if (current && (current.dataset.type === typeSelect.value || current.value === "custom")) return;
+        const match = Array.from(presetSelect.options).find((item) => item.dataset.type === typeSelect.value);
+        if (match) presetSelect.value = match.value;
+      }
       function syncScenarioPreset() {
+        chooseFirstPresetForType();
         const option = presetSelect.selectedOptions[0];
         if (!option || option.value === "custom") return;
         if (typeSelect && option.dataset.type) typeSelect.value = option.dataset.type;
@@ -1854,6 +1884,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (option.dataset.loot && form.elements.loot_preset) form.elements.loot_preset.value = option.dataset.loot;
       }
       presetSelect.addEventListener("change", syncScenarioPreset);
+      if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
       syncScenarioPreset();
     });
     document.querySelectorAll("[data-zone-map]").forEach((map) => {
@@ -3758,6 +3789,8 @@ def api_scenario_event():
     map_size = map_size_for(server_map)
     spawn_preset = str(payload.get("spawn_preset") or "").strip()
     preset = SCENARIO_SPAWN_PRESETS.get(spawn_preset, {})
+    if event_type == "vehicle_spawn" and not preset:
+        preset = SCENARIO_VEHICLE_PRESETS.get(spawn_preset, {})
     if preset:
         event_type = str(preset.get("event_type") or event_type)
     class_name = str(payload.get("class_name") or "").strip()
@@ -3784,7 +3817,10 @@ def api_scenario_event():
         z = max(0, min(map_size, safe_int(payload.get("z"), payload.get("y") or map_size // 2)))
         radius = max(0, min(30000, safe_int(payload.get("radius"), 35)))
 
+    vehicle_cargo_mode = str(payload.get("vehicle_cargo_mode") or "normal_with_loot").strip()
     loot_preset = str(payload.get("loot_preset") or preset.get("loot_preset") or "none")
+    if event_type == "vehicle_spawn" and vehicle_cargo_mode in {"normal_no_loot", "native_only"}:
+        loot_preset = "none"
     loot = list(SCENARIO_LOOT_PRESETS.get(loot_preset, []))
     extra_loot = csv_list(payload.get("loot_items", []))
     for item in extra_loot:
@@ -3807,6 +3843,8 @@ def api_scenario_event():
         "loot_preset": loot_preset,
         "loot": loot,
         "reset_method": str(payload.get("reset_method") or "bridge"),
+        "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
+        "vehicle_cargo_mode": vehicle_cargo_mode,
         "visual_marker": safe_bool(payload.get("visual_marker"), event_type == "airdrop"),
         "marker_class": "Land_Wreck_Caravan_MGreen" if safe_bool(payload.get("visual_marker"), event_type == "airdrop") else "",
         "guard_class": str(payload.get("guard_class") or "").strip(),
