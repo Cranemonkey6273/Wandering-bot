@@ -1833,7 +1833,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
             <label>Container classname
               <select class="picker-select" name="container_class">
-                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'DryBag_Black' else '' }}>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'DryBag_Black' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
               </select>
             </label>
             <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
@@ -1843,7 +1843,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <label>Find item
                   <select class="picker-select" data-picker-item>
                     <option value="">Choose item</option>
-                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
@@ -1874,7 +1874,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <h4>Player Slots</h4>
                 <div class="loadout-slots">
                   {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"] %}
-                  <span class="loadout-slot">{{ slot }}</span>
+                  <button class="loadout-slot" type="button" data-loadout-slot="{{ slot }}">{{ slot }}</button>
                   {% endfor %}
                 </div>
               </div>
@@ -1888,7 +1888,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <label>Find item
                   <select class="picker-select" data-picker-item>
                     <option value="">Choose item</option>
-                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
@@ -1899,7 +1899,7 @@ Event pings | bell | 1234567890</textarea></label>
               <label>Attachment for weapon/item
                 <select class="picker-select" data-picker-attachment>
                   <option value="">None</option>
-                  {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                  {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                 </select>
               </label>
               <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
@@ -1923,7 +1923,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
             <label>Vehicle classname
               <select class="picker-select" name="vehicle_class">
-                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                {% for item in xml_picker_groups.vehicles %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
               </select>
             </label>
             <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
@@ -1932,7 +1932,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <label>Find cargo item
                   <select class="picker-select" data-picker-item>
                     <option value="">Choose item</option>
-                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
@@ -2278,6 +2278,7 @@ Event pings | bell | 1234567890</textarea></label>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
     const ITEM_LOOKUP = {{ (server.shop_items if server else [])|tojson }};
+    const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
       const fallback = window.location.origin;
@@ -2307,6 +2308,24 @@ Event pings | bell | 1234567890</textarea></label>
     }
     function fallbackThumb(category) {
       return `/item-thumb/${encodeURIComponent(category || "General")}`;
+    }
+    function rebuildPickerOptions(picker, groupName) {
+      const select = picker ? picker.querySelector("[data-picker-item]") : null;
+      if (!select || select.tagName !== "SELECT") return;
+      const items = XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      select.innerHTML = '<option value="">Choose item</option>';
+      items.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.name || "";
+        option.textContent = `${item.name || ""} - ${item.category || "General"}`;
+        select.appendChild(option);
+      });
+      syncPickerPreview(picker);
+    }
+    function syncLoadoutPickerSlot(slotSelect) {
+      const picker = slotSelect ? slotSelect.closest("[data-item-picker]") : null;
+      if (!picker || picker.dataset.pickerMode !== "loadout") return;
+      rebuildPickerOptions(picker, slotSelect.value || "cargo");
     }
     function syncPickerPreview(picker) {
       if (!picker) return;
@@ -2379,12 +2398,25 @@ Event pings | bell | 1234567890</textarea></label>
         const output = form ? form.querySelector("[data-picker-output]") : null;
         appendPickerLine(picker, output);
       }
+      const slotButton = event.target.closest("[data-loadout-slot]");
+      if (slotButton) {
+        const form = slotButton.closest("form");
+        const slotSelect = form ? form.querySelector("[data-picker-slot]") : null;
+        if (slotSelect) {
+          slotSelect.value = slotButton.dataset.loadoutSlot || "";
+          syncLoadoutPickerSlot(slotSelect);
+          form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
+            button.classList.toggle("active", button === slotButton);
+          });
+        }
+      }
     });
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
+      if (event.target.matches("[data-picker-slot]")) syncLoadoutPickerSlot(event.target);
       if (event.target.matches("[data-theme-select]")) {
         const theme = event.target.value || "default";
         localStorage.setItem("wanderingDashboardTheme", theme);
@@ -4247,6 +4279,57 @@ def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
 
 
+def item_matches_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
+    text = f"{item.get('name', '')} {item.get('category', '')}".lower()
+    return any(term in text for term in terms)
+
+
+def item_not_matching_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
+    return not item_matches_terms(item, terms)
+
+
+def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
+    vehicle_terms = ("car", "truck", "vehicle", "hatchback", "sedan", "ada", "olga", "sarka", "gunter", "humvee", "m3s", "bus")
+    container_terms = ("bag", "backpack", "barrel", "crate", "sea chest", "seachest", "case", "container", "drybag", "protectorcase")
+    head_terms = ("helmet", "hat", "cap", "beanie", "balaclava", "head", "beret", "ushanka", "boonie")
+    eye_terms = ("glasses", "eyewear", "nvg", "goggles")
+    mask_terms = ("mask", "respirator", "bandana", "balaclava")
+    body_terms = ("jacket", "shirt", "hoodie", "coat", "torso", "body", "sweater")
+    vest_terms = ("vest", "platecarrier", "chest")
+    hips_terms = ("belt", "holster", "hips", "sheath")
+    legs_terms = ("pants", "trousers", "skirt", "legs")
+    feet_terms = ("boots", "shoes", "sneakers", "feet")
+    gloves_terms = ("glove", "gloves")
+    armband_terms = ("armband",)
+    weapon_terms = ("weapon", "firearm", "rifle", "gun", "pistol", "shotgun", "smg", "ak", "m4", "mosin", "sks", "knife", "axe", "sword", "melee")
+    hands_terms = weapon_terms + ("tool", "hammer", "hatchet", "saw", "shovel", "pickaxe", "wrench")
+    excluded_loot_terms = ("animal", "infected", "zombie", "wreck")
+
+    groups = {
+        "all": items,
+        "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
+        "containers": [item for item in items if item_matches_terms(item, container_terms)],
+        "vehicles": [item for item in items if item_matches_terms(item, vehicle_terms)],
+        "Head": [item for item in items if item_matches_terms(item, head_terms)],
+        "Eyes": [item for item in items if item_matches_terms(item, eye_terms)],
+        "Mask": [item for item in items if item_matches_terms(item, mask_terms)],
+        "Body": [item for item in items if item_matches_terms(item, body_terms)],
+        "Vest": [item for item in items if item_matches_terms(item, vest_terms)],
+        "Back": [item for item in items if item_matches_terms(item, ("backpack", "bag", "drybag", "back"))],
+        "Hips": [item for item in items if item_matches_terms(item, hips_terms)],
+        "Legs": [item for item in items if item_matches_terms(item, legs_terms)],
+        "Feet": [item for item in items if item_matches_terms(item, feet_terms)],
+        "Hands": [item for item in items if item_matches_terms(item, hands_terms)],
+        "Left Shoulder": [item for item in items if item_matches_terms(item, weapon_terms)],
+        "Right Shoulder": [item for item in items if item_matches_terms(item, weapon_terms)],
+        "Gloves": [item for item in items if item_matches_terms(item, gloves_terms)],
+        "Armband": [item for item in items if item_matches_terms(item, armband_terms)],
+    }
+    for key, value in list(groups.items()):
+        groups[key] = value or items
+    return groups
+
+
 def is_shop_record(value: Any) -> bool:
     return isinstance(value, dict) and any(
         key in value
@@ -4708,6 +4791,7 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
+        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if isinstance(selected_server, dict) else []),
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
