@@ -22618,6 +22618,33 @@ def parse_xml_root_or_new(text, fallback_root):
         return ET.Element(fallback_root), f"Created new `{fallback_root}` template because XML parsing failed: {detail}.{line_text}"
 
 
+def parse_console_ce_xml_source(config, label, text, fallback_root, resolved_path=""):
+    root, warning = parse_xml_root_or_new(text, fallback_root)
+    if not warning:
+        return root, None, None
+
+    backup_path = f"{canonical_remote_path(resolved_path)}.wanderingbot-backup-latest" if resolved_path else ""
+    if backup_path:
+        ok, backup_message, backup_text = download_text_file_from_nitrado(config, backup_path)
+        if ok and str(backup_text or "").strip():
+            backup_root, backup_warning = parse_xml_root_or_new(backup_text, fallback_root)
+            if not backup_warning:
+                return backup_root, (
+                    f"{label}: live XML was malformed, so Wandering Bot recovered from "
+                    f"`{backup_path}` before merging. Live parse issue: {warning}"
+                ), None
+            return root, warning, (
+                f"{label}: live XML is malformed and backup `{backup_path}` is also invalid. "
+                f"Live issue: {warning} Backup issue: {backup_warning}"
+            )
+        return root, warning, (
+            f"{label}: live XML is malformed and backup `{backup_path}` could not be downloaded. "
+            f"Live issue: {warning} Backup download: {backup_message}"
+        )
+
+    return root, warning, f"{label}: {warning}"
+
+
 def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
@@ -23148,18 +23175,34 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
             source_fallbacks.append(f"{label}: {source_text}")
 
-    events_root, events_parse_warning = parse_xml_root_or_new(events_text, "events")
-    spawns_root, spawns_parse_warning = parse_xml_root_or_new(spawns_text, "eventposdef")
-    if events_parse_warning:
-        source_fallbacks.append(f"events.xml: {events_parse_warning}")
-    if spawns_parse_warning:
-        source_fallbacks.append(f"cfgeventspawns.xml: {spawns_parse_warning}")
+    warnings = []
+    events_root, events_parse_warning, events_parse_blocker = parse_console_ce_xml_source(
+        config,
+        "events.xml",
+        events_text,
+        "events",
+        resolved_events_path,
+    )
+    spawns_root, spawns_parse_warning, spawns_parse_blocker = parse_console_ce_xml_source(
+        config,
+        "cfgeventspawns.xml",
+        spawns_text,
+        "eventposdef",
+        resolved_spawns_path,
+    )
+    if events_parse_blocker:
+        source_fallbacks.append(events_parse_blocker)
+    elif events_parse_warning:
+        warnings.append(events_parse_warning)
+    if spawns_parse_blocker:
+        source_fallbacks.append(spawns_parse_blocker)
+    elif spawns_parse_warning:
+        warnings.append(spawns_parse_warning)
 
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
 
     records = []
-    warnings = []
     for event in bridge_scenario_events(config):
         event_records, event_warnings = console_ce_records_for_event(event)
         records.extend(event_records)
