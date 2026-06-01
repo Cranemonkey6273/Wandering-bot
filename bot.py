@@ -21921,7 +21921,7 @@ def is_shop_sellable_item(item_name, category=""):
 def is_shop_item_record(value):
     return isinstance(value, dict) and any(
         key in value
-        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids")
+        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids", "type", "bundle_items")
     )
 
 
@@ -22079,6 +22079,24 @@ def save_delivery_queue():
             "vehicles": vehicle_rentals_queue
         }
     )
+
+
+def shop_bundle_items(item_config):
+    if not isinstance(item_config, dict) or str(item_config.get("type") or "").lower() != "bundle":
+        return []
+    rows = []
+    for raw in item_config.get("bundle_items", []):
+        if not isinstance(raw, dict):
+            continue
+        item_name = str(raw.get("item") or raw.get("name") or "").strip()
+        try:
+            quantity = int(raw.get("quantity", 1) or 1)
+        except (TypeError, ValueError):
+            quantity = 1
+        quantity = max(1, min(100, quantity))
+        if item_name:
+            rows.append({"item": item_name, "quantity": quantity})
+    return rows
 
 
 def queue_entry_for_guild(entry, guild_id):
@@ -24499,7 +24517,11 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("That item does not exist in the shop.")
         return
 
-    if not is_shop_sellable_item(item_name, items[item_name].get("category")):
+    item_config = items.get(item_name, {})
+    bundle_items = shop_bundle_items(item_config)
+    is_bundle = bool(bundle_items)
+
+    if not is_bundle and not is_shop_sellable_item(item_name, item_config.get("category")):
         await ctx.send("That class is not allowed in the player shop.")
         return
 
@@ -24508,7 +24530,12 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("❌ That item is currently disabled.")
         return
 
-    item_config = items.get(item_name, {})
+    if is_bundle:
+        invalid_items = [row["item"] for row in bundle_items if not is_shop_sellable_item(row["item"], "")]
+        if invalid_items:
+            await ctx.send("That bundle contains a class that is not allowed in the player shop.")
+            return
+
     blocked_user_ids = {str(uid) for uid in item_config.get("blocked_user_ids", []) if uid}
     if user_id in blocked_user_ids:
         await ctx.send("You are restricted from buying that item.")
@@ -24543,18 +24570,38 @@ async def buy(ctx, item_name: str, x: str, y: str):
     wallet["balance"] -= price
     wallet["daily_transactions"] += 1
 
-    delivery_queue.append({
-        "guild_id": guild_id,
-        "delivery_type": "item",
-        "spawn_ready": False,
-        "player": str(ctx.author),
-        "discord_id": user_id,
-        "item": item_name,
-        "x": str(x_value),
-        "y": str(y_value),
-        "status": "queued",
-        "created": str(datetime.now(UTC))
-    })
+    created_at = str(datetime.now(UTC))
+    if is_bundle:
+        bundle_id = f"bundle-{guild_id}-{user_id}-{int(datetime.now(UTC).timestamp())}"
+        for row in bundle_items:
+            for _ in range(row["quantity"]):
+                delivery_queue.append({
+                    "guild_id": guild_id,
+                    "delivery_type": "bundle_item",
+                    "bundle_id": bundle_id,
+                    "bundle_name": item_name,
+                    "spawn_ready": False,
+                    "player": str(ctx.author),
+                    "discord_id": user_id,
+                    "item": row["item"],
+                    "x": str(x_value),
+                    "y": str(y_value),
+                    "status": "queued",
+                    "created": created_at
+                })
+    else:
+        delivery_queue.append({
+            "guild_id": guild_id,
+            "delivery_type": "item",
+            "spawn_ready": False,
+            "player": str(ctx.author),
+            "discord_id": user_id,
+            "item": item_name,
+            "x": str(x_value),
+            "y": str(y_value),
+            "status": "queued",
+            "created": created_at
+        })
 
     save_wallets()
     save_delivery_queue()

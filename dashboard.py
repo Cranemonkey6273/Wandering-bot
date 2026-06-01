@@ -1526,6 +1526,24 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
           </form>
         </article>
+        <article class="admin-panel">
+          <h3>Build Shop Bundle</h3>
+          <form class="admin-form" data-route="/api/admin/shop-bundle" id="shop-bundle-form">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>Bundle name <input name="bundle_name" value="Flagpole Kit"></label>
+            <label>Price <input name="price" type="number" value="2500"></label>
+            <label>Category <input name="category" value="Bundles"></label>
+            <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
+            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
+            <label class="full">Bundle items
+              <textarea name="bundle_items" placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
+            </label>
+            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
+            <div class="full"><button type="submit">Save Bundle</button> <span class="result muted"></span></div>
+          </form>
+          <p class="tool-note" style="margin-top:.75rem">Players buy the bundle name once. The bot charges once, then queues each listed item for the next restart delivery.</p>
+        </article>
         <article class="admin-panel full">
           <h3>All Shop Items</h3>
           <div class="shop-toolbar">
@@ -1543,7 +1561,7 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for item in (server.shop_items if server else []) %}
               <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
-                <td>{{ item.name }}</td>
+                <td>{{ item.name }}{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</td>
                 <td>{{ item.category }}</td>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
@@ -1564,7 +1582,7 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for item in items %}
               <tr>
-                <td>{{ item.name }}</td>
+                <td>{{ item.name }}{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</td>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
                 <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
@@ -2270,6 +2288,7 @@ ADMIN_ROUTES = [
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
+    "/api/admin/shop-bundle",
     "/api/admin/scenario-event",
     "/api/admin/scenario-event-action",
     "/api/admin/economy-rule",
@@ -2677,6 +2696,31 @@ def csv_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
+    rows = []
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = re.split(r"[\n;]+", str(value or ""))
+    for raw in candidates:
+        if isinstance(raw, dict):
+            item_name = str(raw.get("item") or raw.get("name") or "").strip()
+            quantity = safe_int(raw.get("quantity"), 1)
+        else:
+            text = str(raw or "").strip()
+            if not text:
+                continue
+            match = re.match(r"^(?:(\d+)\s*[xX]\s*)?([A-Za-z0-9_]+)(?:\s*(?:[,xX:])\s*(\d+))?$", text)
+            if not match:
+                continue
+            quantity = safe_int(match.group(1) or match.group(3), 1)
+            item_name = match.group(2).strip()
+        quantity = max(1, min(100, quantity))
+        if item_name and is_shop_sellable_item(item_name, ""):
+            rows.append({"item": item_name, "quantity": quantity})
+    return rows
 
 
 def parse_zombie_mix(value: Any) -> list[dict[str, Any]]:
@@ -3219,18 +3263,23 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
     for item_name, data in sorted(shop.items(), key=lambda item: str(item[0]).lower()):
         if not isinstance(data, dict):
             data = {}
-        category = str(data.get("category") or "General")
-        if not is_shop_sellable_item(item_name, category):
+        is_bundle = str(data.get("type") or "").lower() == "bundle"
+        category = str(data.get("category") or ("Bundles" if is_bundle else "General"))
+        if not is_bundle and not is_shop_sellable_item(item_name, category):
             continue
+        bundle_items = parse_shop_bundle_items(data.get("bundle_items", [])) if is_bundle else []
         categories.setdefault(category, []).append(
             {
                 "name": str(item_name),
                 "category": category,
+                "type": "bundle" if is_bundle else "item",
                 "price": safe_int(data.get("price")),
                 "enabled": bool(data.get("enabled", True)),
                 "daily_limit": safe_int(data.get("daily_limit")),
                 "allowed_role_ids": [str(item) for item in data.get("allowed_role_ids", [])] if isinstance(data.get("allowed_role_ids"), list) else [],
                 "blocked_user_ids": [str(item) for item in data.get("blocked_user_ids", [])] if isinstance(data.get("blocked_user_ids"), list) else [],
+                "bundle_items": bundle_items,
+                "bundle_summary": ", ".join(f"{row['quantity']}x {row['item']}" for row in bundle_items),
             }
         )
     return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
@@ -3246,7 +3295,7 @@ def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
 def is_shop_record(value: Any) -> bool:
     return isinstance(value, dict) and any(
         key in value
-        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids")
+        for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids", "type", "bundle_items")
     )
 
 
@@ -3969,6 +4018,46 @@ def api_shop_item():
     guild_shop[item_name] = existing
     save_store("shop", shop)
     return jsonify({"ok": True, "item": {item_name: existing}})
+
+
+@APP.post("/api/admin/shop-bundle")
+def api_shop_bundle():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    bundle_name = str(payload.get("bundle_name") or payload.get("item_name") or payload.get("name") or "").strip()
+    if not bundle_name:
+        return jsonify({"ok": False, "error": "bundle_name is required"}), 400
+    bundle_items = parse_shop_bundle_items(payload.get("bundle_items") or payload.get("items"))
+    if not bundle_items:
+        return jsonify({"ok": False, "error": "add at least one valid bundle item"}), 400
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    shop = load_store("shop", {})
+    if not isinstance(shop, dict):
+        shop = {}
+    guild_shop = shop.setdefault(guild_id, {})
+    if not isinstance(guild_shop, dict) or is_shop_record(guild_shop):
+        guild_shop = {}
+        shop[guild_id] = guild_shop
+    existing = guild_shop.get(bundle_name, {}) if isinstance(guild_shop.get(bundle_name), dict) else {}
+    existing.update(
+        {
+            "type": "bundle",
+            "price": safe_int(payload.get("price", existing.get("price", 0))),
+            "category": str(payload.get("category") or existing.get("category") or "Bundles"),
+            "enabled": safe_bool(payload.get("enabled", existing.get("enabled", True)), True),
+            "daily_limit": safe_int(payload.get("daily_limit", existing.get("daily_limit", 0))),
+            "allowed_role_ids": csv_list(payload.get("allowed_role_ids", existing.get("allowed_role_ids", []))),
+            "blocked_user_ids": csv_list(payload.get("blocked_user_ids", existing.get("blocked_user_ids", []))),
+            "bundle_items": bundle_items,
+            "guild_id": guild_id,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    guild_shop[bundle_name] = existing
+    save_store("shop", shop)
+    return jsonify({"ok": True, "bundle": {bundle_name: existing}})
 
 
 @APP.post("/api/admin/scenario-event")
