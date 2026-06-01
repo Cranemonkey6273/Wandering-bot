@@ -23408,6 +23408,13 @@ def validate_console_ce_xml_bundle(built):
     for name, event_node in generated_events.items():
         if not name.startswith("Static"):
             continue
+        spawn_node = generated_spawns.get(name)
+        has_group_pos = bool(spawn_node is not None and any(
+            str(pos.get("group") or "").strip()
+            for pos in spawn_node.findall("pos")
+        ))
+        if not has_group_pos:
+            continue
         group_node = generated_groups.get(name)
         if group_node is None:
             messages.append(f"`{name}` is a static crate event but is missing from cfgeventgroups.xml.")
