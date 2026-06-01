@@ -382,6 +382,10 @@ PAGE_TEMPLATE = """
     .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
     input[type="color"] { min-height: 2.8rem; padding: .25rem; cursor: pointer; }
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
+    .scenario-actions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 18rem; }
+    .scenario-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
+    .scenario-actions .result { display: none; }
+    .scenario-actions button { min-height: 2.2rem; padding: .35rem .55rem; white-space: nowrap; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
     .owner-server-list { display: grid; gap: .65rem; }
@@ -1318,14 +1322,18 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
               <tr data-scenario-event-row="{{ event.id }}">
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
-                  <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action">
-                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-                    <input class="hidden-field" name="event_id" value="{{ event.id }}">
-                    <select name="action"><option value="upload">Upload XML now</option><option value="approve">Approve</option><option value="pause">Pause</option><option value="cancel">Cancel</option><option value="delete">Delete</option></select>
-                    <button type="submit">Apply</button><span class="result muted"></span>
-                  </form>
+                  <div class="scenario-actions">
+                    {% for action, label in [('upload', 'Upload XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
+                    <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
+                      <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                      <input class="hidden-field" name="event_id" value="{{ event.id }}">
+                      <input class="hidden-field" name="action" value="{{ action }}">
+                      <button type="submit">{{ label }}</button><span class="result muted"></span>
+                    </form>
+                    {% endfor %}
+                  </div>
                 </td>
               </tr>
               {% else %}
@@ -1816,6 +1824,22 @@ Event pings | bell | 1234567890</textarea></label>
         let body = {};
         try { body = await response.json(); } catch (error) {}
         if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
+        if (response.ok && form.dataset.scenarioActionForm) {
+          const action = String(payload.action || "").toLowerCase();
+          const row = form.closest("[data-scenario-event-row]");
+          const statusCell = row ? row.querySelector("[data-scenario-status]") : null;
+          if (action === "delete" || action === "cancel") {
+            if (row) row.remove();
+            return;
+          }
+          const status = body.event && body.event.status ? body.event.status : (action === "pause" ? "Paused by dashboard" : "Saved");
+          if (statusCell) statusCell.textContent = status;
+          if (action === "upload" && body.upload && body.upload.ok === false && statusCell) {
+            const messages = Array.isArray(body.upload.messages) ? body.upload.messages.slice(-2).join(" | ") : "";
+            statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
+          }
+          return;
+        }
         if (response.ok && form.classList.contains("inline-action")) {
           const action = String(payload.action || "").toLowerCase();
           if (action === "delete") {
@@ -3995,18 +4019,17 @@ def api_scenario_event_action():
     for index, event in enumerate(events):
         if not isinstance(event, dict) or safe_int(event.get("id"), 0) != event_id:
             continue
-        if action == "delete":
+        if action in {"delete", "cancel"}:
             removed = events.pop(index)
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
             upload_result = run_runtime_scenario_xml_upload(guild_id)
-            return jsonify({"ok": True, "deleted": removed, "upload": upload_result})
+            return jsonify({"ok": True, "deleted": removed, "cancelled": action == "cancel", "upload": upload_result})
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
             "approve": "Accepted / waiting for native CE XML upload",
             "upload": "Queued for native CE XML upload now",
             "pause": "Paused by dashboard",
-            "cancel": "Cancelled by dashboard",
         }[action]
         if action in {"approve", "upload"}:
             event["upload_status"] = "waiting_for_bot_upload"
@@ -4020,7 +4043,7 @@ def api_scenario_event_action():
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
 
-        if action == "upload":
+        if action in {"upload", "pause", "cancel"}:
             upload_result = run_runtime_scenario_xml_upload(guild_id)
             if upload_result is not None:
                 guild_configs = load_store("guild_configs", {})
@@ -4049,16 +4072,22 @@ def api_scenario_event_action():
                         and str(queued_event.get("event_type") or "") != "vehicle_reset_all"
                         and str(queued_event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed", "uploaded"}
                     )
-                    if not is_target and not (upload_ok and is_pending_dashboard_event):
+                    if action != "upload" and not is_target:
+                        continue
+                    if action == "upload" and not is_target and not (upload_ok and is_pending_dashboard_event):
                         continue
                     queued_event["updated_at"] = now_text
                     if upload_ok:
-                        queued_event["native_ce_uploaded_at"] = now_text
-                        queued_event["native_ce_events_path"] = built.get("events_path", "")
-                        queued_event["native_ce_spawns_path"] = built.get("spawns_path", "")
-                        queued_event["upload_status"] = "uploaded"
-                        queued_event["status"] = "Native CE XML uploaded / waiting for restart"
-                        queued_event.pop("upload_error", None)
+                        if action in {"pause", "cancel"}:
+                            queued_event["upload_status"] = "removed"
+                            queued_event["status"] = "Removed from native CE XML"
+                        else:
+                            queued_event["native_ce_uploaded_at"] = now_text
+                            queued_event["native_ce_events_path"] = built.get("events_path", "")
+                            queued_event["native_ce_spawns_path"] = built.get("spawns_path", "")
+                            queued_event["upload_status"] = "uploaded"
+                            queued_event["status"] = "Native CE XML uploaded / waiting for restart"
+                            queued_event.pop("upload_error", None)
                     else:
                         queued_event["upload_attempts"] = int(queued_event.get("upload_attempts") or 0) + 1
                         queued_event["upload_status"] = "failed"
