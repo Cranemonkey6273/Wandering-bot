@@ -22740,6 +22740,7 @@ def add_console_ce_event_definition(
     saferadius=0,
     distanceradius=0,
     cleanupradius=100,
+    child_records=None,
 ):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
@@ -22770,13 +22771,21 @@ def add_console_ce_event_definition(
 
     children = ET.SubElement(event_node, "children")
     if not use_eventgroup:
-        ET.SubElement(children, "child", {
-            "lootmax": str(int(child_lootmax)),
-            "lootmin": str(int(child_lootmin)),
-            "max": str(int(count)),
-            "min": str(int(count)),
-            "type": str(child_type),
-        })
+        child_records = child_records if isinstance(child_records, list) and child_records else [{
+            "type": child_type,
+            "count": count,
+            "lootmin": child_lootmin,
+            "lootmax": child_lootmax,
+        }]
+        for child_record in child_records:
+            child_count = max(1, int(child_record.get("count") or count or 1))
+            ET.SubElement(children, "child", {
+                "lootmax": str(int(child_record.get("lootmax", child_lootmax) or 0)),
+                "lootmin": str(int(child_record.get("lootmin", child_lootmin) or 0)),
+                "max": str(child_count),
+                "min": str(child_count),
+                "type": str(child_record.get("type") or child_type),
+            })
     return event_node
 
 
@@ -23042,6 +23051,31 @@ def console_ce_records_for_event(event):
         family = "Item"
         limit_type = "custom"
         child_lootmax = 5
+        mix = event.get("zombie_mix")
+        if isinstance(mix, list):
+            child_records = []
+            total_count = 0
+            for item in mix:
+                if not isinstance(item, dict):
+                    continue
+                child_class = str(item.get("class") or item.get("type") or "").strip()
+                child_count = ce_event_nominal_count(item)
+                if child_class and child_class.startswith(("ZmbM_", "ZmbF_")):
+                    child_records.append({
+                        "type": child_class,
+                        "count": child_count,
+                        "lootmin": 0,
+                        "lootmax": 5,
+                    })
+                    total_count += child_count
+            if child_records:
+                count = max(1, min(250, total_count))
+            else:
+                child_records = None
+        else:
+            child_records = None
+    else:
+        child_records = None
     animal_profile = animal_territory_profile(class_name) if event_type == "animal_pack" else {}
     territory_name = ""
     if event_type == "animal_pack":
@@ -23062,6 +23096,7 @@ def console_ce_records_for_event(event):
         "limit_type": limit_type,
         "child_lootmin": child_lootmin,
         "child_lootmax": child_lootmax,
+        "child_records": child_records,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 0 if use_eventgroup else None,
         "max_count": 0 if use_eventgroup else None,
@@ -23226,6 +23261,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             saferadius=record.get("saferadius", 0),
             distanceradius=record.get("distanceradius", 0),
             cleanupradius=record.get("cleanupradius", 100),
+            child_records=record.get("child_records"),
         )
         add_console_ce_event_spawn(
             spawns_root,

@@ -1226,6 +1226,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
             <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
+            <label class="full">Zombie horde mix <textarea name="zombie_mix" placeholder="Optional, one per line: 10 ZmbM_SoldierNormal&#10;25 ZmbF_PolicemanNormal&#10;15 ZmbM_usSoldier_Heavy_Woodland"></textarea></label>
             <label>Event length
               <select name="permanent">
                 <option value="false">One restart only</option>
@@ -1312,7 +1313,7 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
               <tr>
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{{ event.class_name }}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -2507,6 +2508,30 @@ def csv_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def parse_zombie_mix(value: Any) -> list[dict[str, Any]]:
+    rows = []
+    for raw in re.split(r"[\n,;]+", str(value or "")):
+        text = raw.strip()
+        if not text:
+            continue
+        match = re.match(r"^(?:(\d+)\s*[xX]?\s+)?([A-Za-z0-9_]+)(?:\s*[xX]\s*(\d+))?$", text)
+        if not match:
+            continue
+        count = safe_int(match.group(1) or match.group(3), 1)
+        class_name = str(match.group(2) or "").strip()
+        if class_name.startswith(("ZmbM_", "ZmbF_")):
+            rows.append({"class": class_name, "count": max(1, min(250, count))})
+    total = 0
+    capped = []
+    for row in rows:
+        if total >= 250:
+            break
+        count = min(int(row["count"]), 250 - total)
+        capped.append({"class": row["class"], "count": count})
+        total += count
+    return capped
 
 
 def local_dashboard_time() -> str:
@@ -3846,6 +3871,10 @@ def api_scenario_event():
     for item in extra_loot:
         if item not in loot:
             loot.append(item)
+    zombie_mix = parse_zombie_mix(payload.get("zombie_mix"))
+    event_count = max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
+    if event_type == "zombie_horde" and zombie_mix:
+        event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
 
     event = {
         "id": event_id,
@@ -3858,10 +3887,11 @@ def api_scenario_event():
         "class_name": class_name,
         "map": map_key_for(server_map),
         "preset": spawn_preset or "custom",
-        "count": max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1)))),
+        "count": event_count,
         "radius": radius,
         "loot_preset": loot_preset,
         "loot": loot,
+        "zombie_mix": zombie_mix if event_type == "zombie_horde" else [],
         "reset_method": str(payload.get("reset_method") or "bridge"),
         "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
         "vehicle_cargo_mode": vehicle_cargo_mode,
