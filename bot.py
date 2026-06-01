@@ -23563,6 +23563,7 @@ def validate_console_ce_xml_bundle(built):
 
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
+    required_backups = {"events.xml", "cfgeventspawns.xml", "cfgspawnabletypes.xml"}
     targets = [
         ("events.xml", built.get("events_path")),
         ("cfgeventspawns.xml", built.get("spawns_path")),
@@ -23583,7 +23584,15 @@ def backup_remote_ce_sources_before_upload(config, built):
             continue
         ok, message, content = download_text_file_from_nitrado(config, path)
         if not ok or not str(content or "").strip():
-            return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {message}"]
+            detail = message
+            if ok and not str(content or "").strip():
+                detail = f"{message} (download returned empty content)"
+            if label in required_backups:
+                return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}"]
+            backup_messages.append(
+                f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}"
+            )
+            continue
         backup_path = f"{path}.wanderingbot-backup-latest"
         backup_ok, backup_message = upload_text_file_to_nitrado(config, backup_path, content)
         backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
