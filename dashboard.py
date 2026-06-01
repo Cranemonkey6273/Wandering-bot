@@ -1906,6 +1906,19 @@ Event pings | bell | 1234567890</textarea></label>
     {% endif %}
   </main>
   <script>
+    const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
+    function secureDashboardUrl(path) {
+      const fallback = window.location.origin;
+      const base = DASHBOARD_PUBLIC_URL || fallback;
+      try {
+        return new URL(path || window.location.href, base).toString();
+      } catch (error) {
+        return path;
+      }
+    }
+    if (window.location.protocol === "http:" && !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)) {
+      window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
+    }
     function formValue(value) {
       const text = String(value || "").trim();
       if (text === "true") return true;
@@ -1920,8 +1933,16 @@ Event pings | bell | 1234567890</textarea></label>
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+        if (window.location.protocol === "http:" && !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)) {
+          const result = form.querySelector(".result");
+          if (result) result.textContent = "Opening secure dashboard...";
+          window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
+          return;
+        }
         const data = new FormData(form);
         const result = form.querySelector(".result");
+        const button = event.submitter || form.querySelector('button[type="submit"]');
+        const originalButtonText = button ? button.textContent : "";
         let payload = {};
         data.forEach((value, key) => {
           if (value !== "") payload[key] = formValue(value);
@@ -1936,40 +1957,58 @@ Event pings | bell | 1234567890</textarea></label>
           });
         }
         if (result) result.textContent = "Saving...";
+        if (button) {
+          button.disabled = true;
+          button.textContent = form.dataset.scenarioActionForm ? "Working..." : "Saving...";
+        }
         const token = new URLSearchParams(window.location.search).get("token");
         const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
-        const response = await fetch(route, {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload)
-        });
-        let body = {};
-        try { body = await response.json(); } catch (error) {}
-        if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
-        if (response.ok && form.dataset.scenarioActionForm) {
-          const action = String(payload.action || "").toLowerCase();
-          const row = form.closest("[data-scenario-event-row]");
-          const statusCell = row ? row.querySelector("[data-scenario-status]") : null;
-          if (action === "delete" || action === "cancel") {
-            if (row) row.remove();
-            return;
-          }
-          const status = body.event && body.event.status ? body.event.status : (action === "pause" ? "Paused by dashboard" : "Saved");
-          if (statusCell) statusCell.textContent = status;
-          if (action === "upload" && body.upload && body.upload.ok === false && statusCell) {
-            const messages = Array.isArray(body.upload.messages) ? body.upload.messages.slice(-2).join(" | ") : "";
-            statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
-          }
-          return;
-        }
-        if (response.ok && form.classList.contains("inline-action")) {
-          const action = String(payload.action || "").toLowerCase();
-          if (action === "delete") {
+        try {
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
+          if (response.ok && form.dataset.scenarioActionForm) {
+            const action = String(payload.action || "").toLowerCase();
             const row = form.closest("[data-scenario-event-row]");
-            if (row) row.remove();
+            const statusCell = row ? row.querySelector("[data-scenario-status]") : null;
+            if (action === "delete" || action === "cancel") {
+              if (row) row.remove();
+              return;
+            }
+            const status = body.event && body.event.status ? body.event.status : (action === "pause" ? "Paused by dashboard" : "Saved");
+            if (statusCell) statusCell.textContent = status;
+            if (action === "upload" && body.upload && body.upload.ok === false && statusCell) {
+              const messages = Array.isArray(body.upload.messages) ? body.upload.messages.slice(-2).join(" | ") : "";
+              statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
+            }
             return;
           }
-          window.location.reload();
+          if (response.ok && form.classList.contains("inline-action")) {
+            const action = String(payload.action || "").toLowerCase();
+            if (action === "delete") {
+              const row = form.closest("[data-scenario-event-row]");
+              if (row) row.remove();
+              return;
+            }
+            window.location.reload();
+          }
+        } catch (error) {
+          const message = window.location.protocol === "http:"
+            ? "Open the secure HTTPS dashboard and try again."
+            : `Request failed: ${error && error.message ? error.message : error}`;
+          if (result) result.textContent = message;
+          window.alert(message);
+        } finally {
+          if (button && button.isConnected) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+          }
         }
       });
     });
@@ -3885,6 +3924,7 @@ def page(mode: str, auth: dict[str, Any]):
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
         auth=auth,
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
+        public_url=DASHBOARD_PUBLIC_URL,
         summary=state["summary"],
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
