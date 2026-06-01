@@ -453,6 +453,13 @@ PAGE_TEMPLATE = """
     .recipe-list { display: grid; gap: .65rem; margin-top: .85rem; }
     .recipe-row { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
     .recipe-row strong { display: block; color: var(--gold); margin-bottom: .25rem; }
+    .selected-items { display: grid; gap: .45rem; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; padding: .55rem; min-height: 3rem; }
+    .selected-row { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; border: 1px solid var(--line); border-radius: .45rem; background: var(--panel-2); padding: .4rem; cursor: grab; }
+    .selected-row.dragging { opacity: .55; }
+    .selected-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .selected-row small { color: var(--muted); }
+    .selected-row button { min-height: 2rem; padding: .25rem .5rem; }
+    .raw-output { min-height: 4rem; font-size: .85rem; opacity: .72; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -606,7 +613,7 @@ PAGE_TEMPLATE = """
     <script>
       (function () {
         const serverTheme = "{{ dashboard_theme }}";
-        const initialTheme = serverTheme && serverTheme !== "default" ? serverTheme : (localStorage.getItem("wanderingDashboardTheme") || "default");
+        const initialTheme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
         function apply(theme, persist) {
           const safeTheme = theme || "default";
           document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
@@ -1290,12 +1297,12 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full">
           <h3>Server Members</h3>
           <table class="item-table">
-            <thead><tr><th>Player</th><th>Discord ID</th><th>Faction</th><th>Online</th><th>Kills</th><th>Deaths</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Player</th><th>Discord</th><th>Faction</th><th>Online</th><th>Kills</th><th>Deaths</th><th>Actions</th></tr></thead>
             <tbody>
               {% for member in (server.members if server else []) %}
               <tr>
                 <td>{{ member.name }}</td>
-                <td>{{ member.discord_id or '-' }}</td>
+                <td>{% if member.discord_name %}<strong>{{ member.discord_name }}</strong><br><small class="muted">{{ member.discord_id }}</small>{% else %}{{ member.discord_id or '-' }}{% endif %}</td>
                 <td>{{ member.faction or '-' }}</td>
                 <td>{{ 'Online' if member.online else 'Offline' }}</td>
                 <td>{{ member.kills }}</td>
@@ -1807,17 +1814,18 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="random">Random</option>
               </select>
             </label>
-            <label>Food, drink, mags, meds quantity
+            <label>Types quantity mode
               <select name="quantity_mode">
-                <option value="full">Full / 100%</option>
+                <option value="full">Force selected categories full / 100%</option>
                 <option value="vanilla">Keep vanilla</option>
                 <option value="custom">Use recipe values</option>
               </select>
             </label>
-            <label class="check"><input type="checkbox" name="full_magazines" checked> Magazines spawn full</label>
-            <label class="check"><input type="checkbox" name="full_liquids" checked> Bottles and canteens spawn full</label>
-            <label class="check"><input type="checkbox" name="full_meds" checked> Tablets and meds spawn full</label>
+            <label class="check"><input type="checkbox" name="full_magazines" checked> Weapons, magazines and ammo quantity rules</label>
+            <label class="check"><input type="checkbox" name="full_liquids" checked> Food, drink and container quantity rules</label>
+            <label class="check"><input type="checkbox" name="full_meds" checked> Medical, tablets and survival item quantity rules</label>
             <label class="check"><input type="checkbox" name="weapon_attachments" checked> Weapons use attachment recipes</label>
+            <div class="full embed-preview"><strong>Types.xml scope</strong><span>These are draft rule choices for whole categories. The final injector must show exactly which XML fields it will change before upload.</span></div>
             <label class="full">Notes <input name="notes" placeholder="What this rule pack is for"></label>
             <div class="full embed-preview"><strong>Safe mode</strong><span>This saves the intent only. The injector must download current XML, validate it, show a diff, keep one latest backup, then upload.</span></div>
             <div class="full"><button type="submit">Save Loot Rules</button> <span class="result muted"></span></div>
@@ -1854,7 +1862,8 @@ Event pings | bell | 1234567890</textarea></label>
               <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose items without typing classnames by hand.</span></div>
             </div>
             <label class="full">Items inside
-              <textarea name="items" data-picker-output placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
+              <div class="selected-items" data-selected-items data-empty-text="No items added yet"></div>
+              <textarea class="raw-output" name="items" data-picker-output placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
             </label>
             <div class="full"><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
           </form>
@@ -1906,7 +1915,8 @@ Event pings | bell | 1234567890</textarea></label>
               <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
             </div>
             <label class="full">Loadout items
-              <textarea name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
+              <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
+              <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
             </label>
             <div class="full embed-preview"><strong>cfggameplay.json</strong><span>This loadout will be referenced from PlayerData.spawnGearPresetFiles using the custom file path above.</span></div>
             <pre class="full save-preview" data-save-preview hidden></pre>
@@ -1943,7 +1953,8 @@ Event pings | bell | 1234567890</textarea></label>
               <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Build vehicle cargo from server item data.</span></div>
             </div>
             <label class="full">Cargo items
-              <textarea name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
+              <div class="selected-items" data-selected-items data-empty-text="No cargo items added yet"></div>
+              <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
             </label>
             <div class="full"><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
           </form>
@@ -2284,7 +2295,9 @@ Event pings | bell | 1234567890</textarea></label>
       const fallback = window.location.origin;
       const base = DASHBOARD_PUBLIC_URL || fallback;
       try {
-        return new URL(path || window.location.href, base).toString();
+        const url = new URL(path || window.location.href, base);
+        if (!["localhost", "127.0.0.1", "0.0.0.0"].includes(url.hostname)) url.protocol = "https:";
+        return url.toString();
       } catch (error) {
         return path;
       }
@@ -2354,11 +2367,57 @@ Event pings | bell | 1234567890</textarea></label>
         ? `${qty}x ${item}`
         : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
     }
+    function lineParts(line) {
+      const parts = String(line || "").split(",").map((part) => part.trim());
+      if (/^\\d+x\\s+/i.test(parts[0] || "")) {
+        const match = parts[0].match(/^(\\d+)x\\s+(.+)$/i);
+        return match ? {name: match[2], meta: `${match[1]}x`} : {name: parts[0], meta: ""};
+      }
+      return {
+        name: parts[0] || "",
+        meta: [parts[1] ? `${parts[1]}x` : "", parts[3] || "", parts[4] || ""].filter(Boolean).join(" - "),
+      };
+    }
+    function syncSelectedItems(output) {
+      const form = output ? output.closest("form") : null;
+      const board = form ? form.querySelector("[data-selected-items]") : null;
+      if (!board) return;
+      const lines = output.value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+      board.innerHTML = "";
+      if (!lines.length) {
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = board.dataset.emptyText || "No items added yet";
+        board.appendChild(empty);
+        return;
+      }
+      lines.forEach((line, index) => {
+        const info = lineParts(line);
+        const item = itemInfo(info.name);
+        const row = document.createElement("div");
+        row.className = "selected-row";
+        row.draggable = true;
+        row.dataset.index = String(index);
+        row.innerHTML = `<img class="item-thumb" src="${item.image_url || fallbackThumb(item.category)}" alt=""><span><strong></strong><small></small></span><button type="button" data-remove-selected>&times;</button>`;
+        row.querySelector("strong").textContent = info.name;
+        row.querySelector("small").textContent = info.meta || line;
+        row.querySelector("img").onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
+        board.appendChild(row);
+      });
+    }
+    function setOutputLines(output, lines) {
+      output.value = lines.filter(Boolean).join("\n");
+      syncSelectedItems(output);
+    }
+    function outputLines(output) {
+      return output.value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    }
     function appendPickerLine(picker, output) {
       const line = pickerLine(picker);
       const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
       if (!line || !output) return false;
       output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
+      syncSelectedItems(output);
       if (itemInput) {
         itemInput.value = "";
         itemInput.focus();
@@ -2366,7 +2425,8 @@ Event pings | bell | 1234567890</textarea></label>
       if (picker) syncPickerPreview(picker);
       return true;
     }
-    applyTheme(DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : (localStorage.getItem("wanderingDashboardTheme") || "default"));
+    document.querySelectorAll("[data-picker-output]").forEach(syncSelectedItems);
+    applyTheme(localStorage.getItem("wanderingDashboardTheme") || (DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : "default"));
     document.addEventListener("click", (event) => {
       const themeButton = event.target.closest("[data-theme-choice]");
       if (themeButton) {
@@ -2410,9 +2470,50 @@ Event pings | bell | 1234567890</textarea></label>
           });
         }
       }
+      const removeSelected = event.target.closest("[data-remove-selected]");
+      if (removeSelected) {
+        const row = removeSelected.closest("[data-index]");
+        const form = removeSelected.closest("form");
+        const output = form ? form.querySelector("[data-picker-output]") : null;
+        if (row && output) {
+          const lines = outputLines(output);
+          lines.splice(Number(row.dataset.index || 0), 1);
+          setOutputLines(output, lines);
+        }
+      }
+    });
+    document.addEventListener("dragstart", (event) => {
+      const row = event.target.closest(".selected-row");
+      if (!row) return;
+      row.classList.add("dragging");
+      event.dataTransfer.setData("text/plain", row.dataset.index || "0");
+    });
+    document.addEventListener("dragend", (event) => {
+      const row = event.target.closest(".selected-row");
+      if (row) row.classList.remove("dragging");
+    });
+    document.addEventListener("dragover", (event) => {
+      if (event.target.closest("[data-selected-items]")) event.preventDefault();
+    });
+    document.addEventListener("drop", (event) => {
+      const board = event.target.closest("[data-selected-items]");
+      if (!board) return;
+      event.preventDefault();
+      const form = board.closest("form");
+      const output = form ? form.querySelector("[data-picker-output]") : null;
+      if (!output) return;
+      const from = Number(event.dataTransfer.getData("text/plain") || 0);
+      const targetRow = event.target.closest(".selected-row");
+      const to = targetRow ? Number(targetRow.dataset.index || 0) : outputLines(output).length - 1;
+      const lines = outputLines(output);
+      const moved = lines.splice(from, 1)[0];
+      if (!moved) return;
+      lines.splice(Math.max(0, Math.min(lines.length, to)), 0, moved);
+      setOutputLines(output, lines);
     });
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
+      if (event.target.matches("[data-picker-output]")) syncSelectedItems(event.target);
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
@@ -3995,6 +4096,7 @@ def guild_players(player_stats: Any, guild_id: str) -> list[dict[str, Any]]:
             {
                 "name": str(name),
                 "discord_id": str(stats.get("discord_id") or stats.get("user_id") or stats.get("member_id") or ""),
+                "discord_name": str(stats.get("discord_name") or stats.get("display_name") or stats.get("username") or stats.get("member_name") or ""),
                 "gamertag": str(stats.get("gamertag") or stats.get("player_name") or name),
                 "kills": safe_int(stats.get("kills")),
                 "deaths": safe_int(stats.get("deaths")),
@@ -4039,10 +4141,12 @@ def member_records_for_guild(players: list[dict[str, Any]], online: list[str], f
         if not name:
             continue
         discord_id = str(player.get("discord_id") or "").strip()
+        discord_name = str(player.get("discord_name") or "").strip()
         members.append(
             {
                 "name": name,
                 "discord_id": discord_id,
+                "discord_name": discord_name,
                 "faction": faction_name_for_member(factions, name, discord_id),
                 "online": name.lower() in online_names,
                 "kills": safe_int(player.get("kills")),
