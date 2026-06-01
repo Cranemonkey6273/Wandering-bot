@@ -1226,7 +1226,12 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
             <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
             <label>Spread radius <input name="radius" type="number" value="35"></label>
-            <label class="full">Zombie horde mix <textarea name="zombie_mix" placeholder="Optional, one per line: 10 ZmbM_SoldierNormal&#10;25 ZmbF_PolicemanNormal&#10;15 ZmbM_usSoldier_Heavy_Woodland"></textarea></label>
+            <div class="full" data-zombie-mix-builder>
+              <h4>Zombie Horde Mix</h4>
+              <input type="hidden" name="zombie_mix" data-zombie-mix-value>
+              <div data-zombie-mix-rows></div>
+              <button type="button" data-add-zombie-row>Add Zombie Type</button>
+            </div>
             <label>Event length
               <select name="permanent">
                 <option value="false">One restart only</option>
@@ -1886,6 +1891,47 @@ Event pings | bell | 1234567890</textarea></label>
       presetSelect.addEventListener("change", syncScenarioPreset);
       if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
       syncScenarioPreset();
+    });
+    document.querySelectorAll("[data-zombie-mix-builder]").forEach((builder) => {
+      const rows = builder.querySelector("[data-zombie-mix-rows]");
+      const hidden = builder.querySelector("[data-zombie-mix-value]");
+      const addButton = builder.querySelector("[data-add-zombie-row]");
+      const zombieOptions = [
+        ["ZmbM_CitizenASkinny_Brown", "Civilian infected"],
+        ["ZmbM_SoldierNormal", "Military infected"],
+        ["ZmbM_usSoldier_Heavy_Woodland", "Heavy military infected"],
+        ["ZmbM_PolicemanFat", "Police infected"],
+        ["ZmbM_DoctorFat", "Medical infected"],
+        ["ZmbM_FirefighterNormal", "Firefighter infected"],
+        ["ZmbM_PrisonerSkinny", "Prisoner infected"],
+        ["ZmbF_MilkMaidOld_Green", "Village infected"],
+        ["ZmbF_JoggerSkinny_Brown", "Runner infected"]
+      ];
+      function syncMix() {
+        const lines = [];
+        rows.querySelectorAll("[data-zombie-row]").forEach((row) => {
+          const select = row.querySelector("[data-zombie-class]");
+          const count = Math.max(1, Math.min(250, Number(row.querySelector("[data-zombie-count]").value || 1)));
+          if (select.value) lines.push(`${count} ${select.value}`);
+        });
+        hidden.value = lines.join("\n");
+      }
+      function addRow(className = "ZmbM_SoldierNormal", count = 10) {
+        const row = document.createElement("div");
+        row.className = "mini-grid";
+        row.dataset.zombieRow = "1";
+        const options = zombieOptions.map(([value, label]) => `<option value="${value}" ${value === className ? "selected" : ""}>${label}</option>`).join("");
+        row.innerHTML = `<label>Type <select data-zombie-class>${options}</select></label><label>Count <input data-zombie-count type="number" min="1" max="250" value="${count}"></label><label>Remove <button type="button" data-remove-zombie-row>Remove</button></label>`;
+        rows.appendChild(row);
+        row.querySelectorAll("select,input").forEach((input) => input.addEventListener("input", syncMix));
+        row.querySelector("[data-remove-zombie-row]").addEventListener("click", () => {
+          row.remove();
+          syncMix();
+        });
+        syncMix();
+      }
+      if (addButton) addButton.addEventListener("click", () => addRow());
+      addRow("ZmbM_SoldierNormal", 10);
     });
     document.querySelectorAll("[data-zone-map]").forEach((map) => {
       const form = map.closest("form");
