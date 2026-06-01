@@ -55,8 +55,8 @@ SCENARIO_SPAWN_PRESETS = {
     "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
-    "military_crate": {"label": "Military crate", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "military_high"},
-    "wooden_crate": {"label": "Wooden crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "survival"},
+    "military_crate": {"label": "Military crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "military_high"},
+    "wooden_crate": {"label": "Wooden crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "survival"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate", "loot_preset": "survival"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate", "loot_preset": "survival"},
     "medical_crate": {"label": "Medical crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "medical"},
@@ -1187,8 +1187,8 @@ Event pings | bell | 1234567890</textarea></label>
             </label>
             <label>Animal / infected / crate type
               <select name="spawn_preset" data-scenario-preset>
-                <option value="military_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
-                <option value="wooden_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="survival">Wooden crate</option>
+                <option value="military_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
+                <option value="wooden_crate" data-type="loot_crate" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="survival">Wooden crate</option>
                 <option value="sea_chest" data-type="loot_crate" data-class="SeaChest" data-count="1" data-radius="20" data-loot="survival">Sea chest</option>
                 <option value="green_barrel" data-type="loot_crate" data-class="Barrel_Green" data-count="1" data-radius="20" data-loot="survival">Green barrel</option>
                 <option value="medical_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot crate</option>
@@ -1204,7 +1204,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="custom">Custom classname</option>
               </select>
             </label>
-            <label>Classname <input name="class_name" value="WoodenCrate" placeholder="Only needed for Custom classname"></label>
+            <label>Classname <input name="class_name" value="StaticObj_Misc_WoodenCrate_5x" placeholder="Only needed for Custom classname"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
             <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>

@@ -22679,17 +22679,23 @@ def add_console_ce_event_definition(
     limit_type="child",
     child_lootmin=0,
     child_lootmax=0,
+    nominal=None,
+    min_count=None,
+    max_count=None,
+    saferadius=0,
+    distanceradius=0,
+    cleanupradius=100,
 ):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
-        ("nominal", count),
-        ("min", count),
-        ("max", count),
+        ("nominal", count if nominal is None else nominal),
+        ("min", count if min_count is None else min_count),
+        ("max", count if max_count is None else max_count),
         ("lifetime", lifetime),
         ("restock", restock),
-        ("saferadius", 0),
-        ("distanceradius", 0),
-        ("cleanupradius", 100),
+        ("saferadius", saferadius),
+        ("distanceradius", distanceradius),
+        ("cleanupradius", cleanupradius),
     ]
     for tag, value in fields:
         child = ET.SubElement(event_node, tag)
@@ -22822,6 +22828,8 @@ def console_ce_records_for_event(event):
         lifetime = 1800
 
     use_eventgroup = event_type in {"airdrop", "loot_crate"}
+    if use_eventgroup and class_name in {"WoodenCrate", "SupplyCrate", "Crate"}:
+        class_name = "StaticObj_Misc_WoodenCrate_5x"
     family = "Static" if use_eventgroup else ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
     child_lootmin = 0
@@ -22844,6 +22852,13 @@ def console_ce_records_for_event(event):
         "limit_type": limit_type,
         "child_lootmin": child_lootmin,
         "child_lootmax": child_lootmax,
+        "nominal": 1 if use_eventgroup else None,
+        "min_count": 0 if use_eventgroup else None,
+        "max_count": 0 if use_eventgroup else None,
+        "restock": 3600 if use_eventgroup else 0,
+        "saferadius": 0,
+        "distanceradius": 1000 if use_eventgroup else 0,
+        "cleanupradius": 1500 if use_eventgroup else 100,
     })
 
     if event_type == "airdrop":
@@ -22955,10 +22970,17 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             record["class_name"],
             record["count"],
             record["lifetime"],
+            restock=record.get("restock", 0),
             use_eventgroup=bool(record.get("use_eventgroup")),
             limit_type=record.get("limit_type") or "child",
             child_lootmin=record.get("child_lootmin", 0),
             child_lootmax=record.get("child_lootmax", 0),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+            saferadius=record.get("saferadius", 0),
+            distanceradius=record.get("distanceradius", 0),
+            cleanupradius=record.get("cleanupradius", 100),
         )
         add_console_ce_event_spawn(
             spawns_root,
@@ -23170,12 +23192,41 @@ def validate_console_ce_xml_bundle(built):
     return True, [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
 
 
+def backup_remote_ce_sources_before_upload(config, built):
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_messages = []
+    targets = [
+        ("events.xml", built.get("events_path")),
+        ("cfgeventspawns.xml", built.get("spawns_path")),
+        ("cfgspawnabletypes.xml", built.get("spawnabletypes_path") if built.get("spawnabletypes_text") else ""),
+        ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
+        ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
+    ]
+    for label, path in targets:
+        if not path:
+            continue
+        ok, message, content = download_text_file_from_nitrado(config, path)
+        if not ok or not str(content or "").strip():
+            return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {message}"]
+        backup_path = f"{path}.wanderingbot-backup-{timestamp}"
+        backup_ok, backup_message = upload_text_file_to_nitrado(config, backup_path, content)
+        backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
+        if not backup_ok:
+            return False, backup_messages
+    return True, backup_messages
+
+
 def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
     built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
     messages = list(built["messages"])
     validation_ok, validation_messages = validate_console_ce_xml_bundle(built)
     messages.extend(validation_messages)
     if not validation_ok:
+        return False, built, messages
+
+    backup_ok, backup_messages = backup_remote_ce_sources_before_upload(config, built)
+    messages.extend(backup_messages)
+    if not backup_ok:
         return False, built, messages
 
     events_ok, events_message = upload_text_file_to_nitrado(config, built["events_path"], built["events_text"])
