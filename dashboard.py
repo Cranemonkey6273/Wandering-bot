@@ -1326,10 +1326,11 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>
                   <div class="scenario-actions">
                     {% for action, label in [('upload', 'Upload XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
-                    <form class="admin-form inline-action" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
+                    <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="event_id" value="{{ event.id }}">
                       <input class="hidden-field" name="action" value="{{ action }}">
+                      <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
                       <button type="submit">{{ label }}</button><span class="result muted"></span>
                     </form>
                     {% endfor %}
@@ -2529,6 +2530,19 @@ def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
     if payload.get("_scope_denied"):
         return None, (jsonify({"ok": False, "error": "server is not in this admin scope"}), 403)
     return payload, None
+
+
+def wants_json_response() -> bool:
+    return request.is_json or "application/json" in str(request.headers.get("Accept") or "")
+
+
+def safe_dashboard_return(value: Any, fallback: str = "/admin?section=pve") -> str:
+    target = str(value or "").strip()
+    if not target.startswith("/admin"):
+        return fallback
+    if "\n" in target or "\r" in target:
+        return fallback
+    return target
 
 
 def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
@@ -4002,6 +4016,7 @@ def api_scenario_event_action():
     guild_id = normalize_guild_id(payload.get("guild_id"))
     event_id = safe_int(payload.get("event_id") or payload.get("id"), 0)
     action = str(payload.get("action") or "approve").strip().lower()
+    return_to = safe_dashboard_return(payload.get("return_to"), f"/admin?section=pve&guild_id={guild_id}#pve-workshop")
     if action not in {"approve", "upload", "pause", "cancel", "delete"}:
         return jsonify({"ok": False, "error": "action must be upload, approve, pause, cancel, or delete"}), 400
     if event_id <= 0:
@@ -4024,6 +4039,8 @@ def api_scenario_event_action():
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
             upload_result = run_runtime_scenario_xml_upload(guild_id)
+            if not wants_json_response():
+                return redirect(return_to)
             return jsonify({"ok": True, "deleted": removed, "cancelled": action == "cancel", "upload": upload_result})
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
@@ -4096,7 +4113,11 @@ def api_scenario_event_action():
                     if is_target:
                         returned_event = queued_event
                 save_store("guild_configs", guild_configs)
+                if not wants_json_response():
+                    return redirect(return_to)
                 return jsonify({"ok": True, "event": returned_event or event, "upload": upload_result})
+        if not wants_json_response():
+            return redirect(return_to)
         return jsonify({"ok": True, "event": event})
 
     return jsonify({"ok": False, "error": "scenario event not found for this guild"}), 404
