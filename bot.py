@@ -33202,10 +33202,10 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
         ephemeral=True
     )
 bot.tree.add_command(extra_tools_group)
-@bot.tree.command(name="rentvehicle", description="Rent a vehicle")
+@extra_tools_group.command(name="rentvehicle", description="Rent a vehicle")
 @app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
-@bot.tree.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
+@extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(vehicle_name="DayZ vehicle class name", x="Map X", y="Map Y", radius="Delete matching old vehicles within this many meters")
 async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35):
@@ -33213,7 +33213,7 @@ async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius)
-@bot.tree.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
+@console_group.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
 @app_commands.default_permissions(administrator=True)
 async def slash_resetvehicles(interaction: discord.Interaction):
     if not has_interaction_admin_power(interaction):
