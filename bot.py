@@ -25177,7 +25177,8 @@ def pending_dashboard_scenario_xml_events(config):
 
 async def process_dashboard_scenario_xml_upload(guild_id, config):
     pending_events = pending_dashboard_scenario_xml_events(config)
-    if not pending_events:
+    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    if not pending_events and not cleanup_pending:
         return False
 
     try:
@@ -25201,6 +25202,12 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         status_text = f"Native CE XML upload failed: {ce_error}"
 
     now_text = datetime.now(UTC).isoformat()
+    if upload_success and cleanup_pending:
+        config["scenario_events_cleanup_pending"] = False
+        config["scenario_events_cleanup_completed_at"] = now_text
+        config.pop("scenario_events_cleanup_error", None)
+    elif cleanup_pending:
+        config["scenario_events_cleanup_error"] = status_text
     for event in pending_events:
         attempts = int(event.get("upload_attempts") or 0) + 1
         event["upload_attempts"] = attempts

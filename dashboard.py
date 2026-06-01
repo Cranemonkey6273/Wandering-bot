@@ -4413,12 +4413,19 @@ def api_scenario_event_action():
             continue
         if action in {"delete", "cancel"}:
             removed = events.pop(index)
+            config["scenario_events_cleanup_pending"] = True
+            config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
-            upload_result = run_runtime_scenario_xml_upload(guild_id)
             if not wants_json_response():
                 return redirect(return_to)
-            return jsonify({"ok": True, "deleted": removed, "cancelled": action == "cancel", "upload": upload_result})
+            return jsonify({
+                "ok": True,
+                "deleted": removed,
+                "cancelled": action == "cancel",
+                "cleanup_queued": True,
+                "note": "event removed from dashboard; native CE XML cleanup queued for the bot background uploader",
+            })
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
             "approve": "Accepted / waiting for native CE XML upload",
@@ -4498,7 +4505,10 @@ def api_scenario_event_action():
         return jsonify({"ok": True, "event": event})
 
     if action in {"delete", "cancel"}:
-        upload_result = run_runtime_scenario_xml_upload(guild_id)
+        config["scenario_events_cleanup_pending"] = True
+        config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({
@@ -4507,7 +4517,7 @@ def api_scenario_event_action():
             "deleted": None,
             "cancelled": action == "cancel",
             "note": "scenario event was already gone for this guild",
-            "upload": upload_result,
+            "cleanup_queued": True,
         })
 
     if not wants_json_response():
