@@ -22464,10 +22464,63 @@ def console_mission_folder_for_map(map_key):
 def console_ce_default_paths(guild_id):
     mission_folder = console_mission_folder_for_map(server_map_key(guild_id))
     return {
-        "events_path": f"/dayzxb/mpmissions/{mission_folder}/db/events.xml",
-        "spawns_path": f"/dayzxb/mpmissions/{mission_folder}/cfgeventspawns.xml",
-        "spawnabletypes_path": f"/dayzxb/mpmissions/{mission_folder}/cfgspawnabletypes.xml",
+        "events_path": f"/dayzxb_missions/{mission_folder}/db/events.xml",
+        "spawns_path": f"/dayzxb_missions/{mission_folder}/cfgeventspawns.xml",
+        "spawnabletypes_path": f"/dayzxb_missions/{mission_folder}/cfgspawnabletypes.xml",
     }
+
+
+def console_ce_path_suffix(key):
+    if key == "events_path":
+        return "db/events.xml"
+    if key == "spawnabletypes_path":
+        return "cfgspawnabletypes.xml"
+    return "cfgeventspawns.xml"
+
+
+def console_ce_path_candidates(config, guild_id, key, requested_path="", configured_path=""):
+    candidates = []
+
+    def add(path):
+        clean = canonical_remote_path(path)
+        if clean and clean not in candidates:
+            candidates.append(clean)
+
+    add(requested_path)
+    add(configured_path)
+    add(console_ce_default_paths(guild_id)[key])
+
+    map_key = server_map_key(guild_id)
+    mission_names = []
+    configured_mission = str(config.get("active_mission_dir") or "").strip().strip("/")
+    if configured_mission:
+        mission_names.append(configured_mission)
+    mission_names.extend(map_mission_folder_names(map_key))
+
+    mission_bases = [
+        "/dayzxb_missions",
+        "/dayzxb_missions/mpmissions",
+        "/dayzxb/mpmissions",
+        "/dayzps_missions",
+        "/dayzps_missions/mpmissions",
+        "/dayzps/mpmissions",
+        "/dayz_missions",
+        "/dayz_missions/mpmissions",
+        "/dayz/mpmissions",
+        "/dayzserver/mpmissions",
+        "/dayzxbserver/mpmissions",
+        "/mpmissions",
+    ]
+    suffix = console_ce_path_suffix(key)
+    seen_missions = []
+    for mission in mission_names:
+        mission = str(mission or "").strip().strip("/")
+        if mission and mission not in seen_missions:
+            seen_missions.append(mission)
+    for base in mission_bases:
+        for mission in seen_missions:
+            add(f"{base}/{mission}/{suffix}")
+    return candidates
 
 
 def console_ce_event_config(config):
@@ -22729,9 +22782,14 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     defaults = console_ce_default_paths(guild_id)
     settings = console_ce_event_config(config)
     target_path = requested_path or settings.get(key) or defaults[key]
-    ok, message, text = download_text_file_from_nitrado(config, target_path)
-    if ok and text:
-        return text, target_path, message
+    messages = []
+    for candidate_path in console_ce_path_candidates(config, guild_id, key, requested_path, settings.get(key)):
+        ok, message, text = download_text_file_from_nitrado(config, candidate_path)
+        messages.append(f"{candidate_path}: {message}")
+        if ok and text:
+            return text, candidate_path, message
+
+    message = " | ".join(messages[-4:]) if messages else f"{target_path}: no path candidates were available"
 
     map_key = server_map_key(guild_id)
     if key == "events_path":
