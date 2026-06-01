@@ -5780,25 +5780,26 @@ def merge_guild_config_records(base, override):
     merged.update(override)
     base_events = base.get("scenario_events")
     override_events = override.get("scenario_events")
-    if isinstance(base_events, list) and isinstance(override_events, list):
-        events_by_id = {}
-        for event in base_events + override_events:
-            if not isinstance(event, dict):
-                continue
-            event_id = str(event.get("id") or event.get("name") or len(events_by_id))
-            existing = events_by_id.get(event_id)
-            if not existing:
-                events_by_id[event_id] = event
-                continue
-            event_time = str(event.get("updated_at") or event.get("created_at") or "")
-            existing_time = str(existing.get("updated_at") or existing.get("created_at") or "")
-            if event_time >= existing_time:
-                events_by_id[event_id] = event
-        merged["scenario_events"] = list(events_by_id.values())
-    elif isinstance(override_events, list):
-        merged["scenario_events"] = override_events
+    base_tombstones = base.get("scenario_event_tombstones")
+    override_tombstones = override.get("scenario_event_tombstones")
+    tombstones = {}
+    if isinstance(base_tombstones, dict):
+        tombstones.update(base_tombstones)
+    if isinstance(override_tombstones, dict):
+        tombstones.update(override_tombstones)
+    if tombstones:
+        merged["scenario_event_tombstones"] = tombstones
+
+    def event_is_visible(event):
+        if not isinstance(event, dict):
+            return False
+        event_id = str(event.get("id") or event.get("name") or "").strip()
+        return not event_id or event_id not in tombstones
+
+    if isinstance(override_events, list):
+        merged["scenario_events"] = [event for event in override_events if event_is_visible(event)]
     elif isinstance(base_events, list):
-        merged["scenario_events"] = base_events
+        merged["scenario_events"] = [event for event in base_events if event_is_visible(event)]
     return merged
 
 
@@ -22430,6 +22431,19 @@ def scenario_events_for_config(config):
     if not isinstance(events, list):
         events = []
         config["scenario_events"] = events
+    tombstones = config.get("scenario_event_tombstones")
+    if isinstance(tombstones, dict) and tombstones:
+        kept = []
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or event.get("name") or "").strip()
+            if event_id and event_id in tombstones:
+                continue
+            kept.append(event)
+        if len(kept) != len(events):
+            events = kept
+            config["scenario_events"] = events
     return events
 
 
@@ -22440,6 +22454,13 @@ def next_scenario_event_id(config):
             existing_ids.append(int(event.get("id", 0)))
         except Exception:
             pass
+    tombstones = config.get("scenario_event_tombstones")
+    if isinstance(tombstones, dict):
+        for event_id in tombstones:
+            try:
+                existing_ids.append(int(event_id))
+            except Exception:
+                pass
     return (max(existing_ids) if existing_ids else 0) + 1
 
 

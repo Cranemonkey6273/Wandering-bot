@@ -1720,9 +1720,9 @@ Event pings | bell | 1234567890</textarea></label>
         <article class="admin-panel full" data-shop-list>
           <h3>All Shop Items</h3>
           <div class="shop-toolbar">
-            <label>Search items <input data-shop-search placeholder="type item/category/status"></label>
+            <label>Search items <input data-shop-search oninput="window.filterShopItems && window.filterShopItems(this)" placeholder="type item/category/status"></label>
             <label>Category
-              <select data-shop-category>
+              <select data-shop-category onchange="window.filterShopItems && window.filterShopItems(this)">
                 <option value="">All categories</option>
                 {% for category in (server.shop_categories.keys() if server else []) %}<option value="{{ category|lower }}">{{ category }}</option>{% endfor %}
               </select>
@@ -1846,7 +1846,7 @@ Event pings | bell | 1234567890</textarea></label>
               <div>
                 <h4>Player Slots</h4>
                 <div class="loadout-slots">
-                  {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Gloves", "Armband"] %}
+                  {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"] %}
                   <span class="loadout-slot">{{ slot }}</span>
                   {% endfor %}
                 </div>
@@ -1861,7 +1861,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <label>Find item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                 <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option><option>Gloves</option><option>Armband</option></select></label>
+                <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
                 <button type="button" data-picker-add>Add</button>
               </div>
               <label>Attachment for weapon/item <input data-picker-attachment list="xml-item-options" placeholder="optional parent classname"></label>
@@ -2329,6 +2329,7 @@ Event pings | bell | 1234567890</textarea></label>
       });
       if (count) count.textContent = visible;
     }
+    window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]"));
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-shop-search]")) {
         filterShopPanel(event.target.closest("[data-shop-list]"));
@@ -2984,26 +2985,62 @@ def merge_guild_config_records(base: Any, override: Any) -> Any:
     merged.update(override)
     base_events = base.get("scenario_events")
     override_events = override.get("scenario_events")
-    if isinstance(base_events, list) and isinstance(override_events, list):
-        events_by_id = {}
-        for event in base_events + override_events:
-            if not isinstance(event, dict):
-                continue
-            event_id = str(event.get("id") or event.get("name") or len(events_by_id))
-            existing = events_by_id.get(event_id)
-            if not existing:
-                events_by_id[event_id] = event
-                continue
-            event_time = str(event.get("updated_at") or event.get("created_at") or "")
-            existing_time = str(existing.get("updated_at") or existing.get("created_at") or "")
-            if event_time >= existing_time:
-                events_by_id[event_id] = event
-        merged["scenario_events"] = list(events_by_id.values())
-    elif isinstance(override_events, list):
-        merged["scenario_events"] = override_events
+    base_tombstones = base.get("scenario_event_tombstones")
+    override_tombstones = override.get("scenario_event_tombstones")
+    tombstones: dict[str, Any] = {}
+    if isinstance(base_tombstones, dict):
+        tombstones.update(base_tombstones)
+    if isinstance(override_tombstones, dict):
+        tombstones.update(override_tombstones)
+    if tombstones:
+        merged["scenario_event_tombstones"] = tombstones
+
+    def event_is_visible(event: Any) -> bool:
+        if not isinstance(event, dict):
+            return False
+        event_id = str(event.get("id") or event.get("name") or "").strip()
+        return not event_id or event_id not in tombstones
+
+    if isinstance(override_events, list):
+        merged["scenario_events"] = [event for event in override_events if event_is_visible(event)]
     elif isinstance(base_events, list):
-        merged["scenario_events"] = base_events
+        merged["scenario_events"] = [event for event in base_events if event_is_visible(event)]
     return merged
+
+
+def scenario_event_key(event: Any) -> str:
+    if not isinstance(event, dict):
+        return ""
+    return str(event.get("id") or event.get("name") or "").strip()
+
+
+def scenario_event_tombstones(config: Any) -> dict[str, Any]:
+    tombstones = config.get("scenario_event_tombstones") if isinstance(config, dict) else {}
+    return tombstones if isinstance(tombstones, dict) else {}
+
+
+def mark_scenario_event_deleted(config: dict[str, Any], event_id: int, action: str, event: Any = None) -> None:
+    tombstones = config.setdefault("scenario_event_tombstones", {})
+    if not isinstance(tombstones, dict):
+        tombstones = {}
+        config["scenario_event_tombstones"] = tombstones
+    tombstones[str(event_id)] = {
+        "deleted_at": datetime.now(UTC).isoformat(),
+        "action": action,
+        "name": str(event.get("name") or "") if isinstance(event, dict) else "",
+    }
+
+
+def visible_scenario_events(config: Any) -> list[dict[str, Any]]:
+    events = config.get("scenario_events", []) if isinstance(config, dict) else []
+    if not isinstance(events, list):
+        return []
+    tombstones = scenario_event_tombstones(config)
+    return [
+        event
+        for event in events
+        if isinstance(event, dict) and scenario_event_key(event) not in tombstones
+    ]
 
 
 def sync_runtime_store(store_name: str, data: Any) -> None:
@@ -4442,7 +4479,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "zones": redact(zones),
-                "scenario_events": redact(config.get("scenario_events", [])) if isinstance(config.get("scenario_events", []), list) else [],
+                "scenario_events": redact(visible_scenario_events(config)),
                 "dashboard_access": access,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
@@ -5075,7 +5112,14 @@ def api_scenario_event():
             if requested_event_id > 0 and current_id == requested_event_id:
                 existing_index = index
                 existing_event = dict(event)
+    for deleted_id in scenario_event_tombstones(config):
+        deleted_int = safe_int(deleted_id, 0)
+        if deleted_int > 0:
+            existing_ids.append(deleted_int)
     event_id = requested_event_id if existing_index is not None else max(existing_ids or [0]) + 1
+    tombstones = config.get("scenario_event_tombstones")
+    if isinstance(tombstones, dict):
+        tombstones.pop(str(event_id), None)
     restarts = safe_int(payload.get("restarts"), 1)
     permanent = safe_bool(payload.get("permanent"), False) or restarts <= 0
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
@@ -5200,6 +5244,7 @@ def api_scenario_event_action():
             continue
         if action in {"delete", "cancel"}:
             removed = events.pop(index)
+            mark_scenario_event_deleted(config, event_id, action, removed)
             config["scenario_events_cleanup_pending"] = True
             config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
             save_store("guild_configs", guild_configs)
@@ -5292,6 +5337,12 @@ def api_scenario_event_action():
         return jsonify({"ok": True, "event": event})
 
     if action in {"delete", "cancel"}:
+        mark_scenario_event_deleted(config, event_id, action)
+        config["scenario_events"] = [
+            event
+            for event in events
+            if not isinstance(event, dict) or safe_int(event.get("id"), 0) != event_id
+        ]
         config["scenario_events_cleanup_pending"] = True
         config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
