@@ -563,7 +563,7 @@ PAGE_TEMPLATE = """
     </nav>
     <div class="theme-picker" aria-label="Theme picker">
       <label>Theme
-        <select data-theme-select>
+        <select data-theme-select onchange="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice(this.value)">
           <option value="default">Wandering</option>
           <option value="forest">Forest</option>
           <option value="amber">Amber</option>
@@ -580,21 +580,48 @@ PAGE_TEMPLATE = """
           <option value="rose">Rose</option>
         </select>
       </label>
-      <button type="button" data-theme-choice="default" title="Wandering"></button>
-      <button type="button" data-theme-choice="forest" title="Forest"></button>
-      <button type="button" data-theme-choice="amber" title="Amber"></button>
-      <button type="button" data-theme-choice="steel" title="Steel"></button>
-      <button type="button" data-theme-choice="highland" title="Highland"></button>
-      <button type="button" data-theme-choice="daylight" title="Daylight"></button>
-      <button type="button" data-theme-choice="sandstorm" title="Sandstorm"></button>
-      <button type="button" data-theme-choice="midnight" title="Midnight"></button>
-      <button type="button" data-theme-choice="bloodmoon" title="Blood Moon"></button>
-      <button type="button" data-theme-choice="radioactive" title="Radioactive"></button>
-      <button type="button" data-theme-choice="arctic" title="Arctic"></button>
-      <button type="button" data-theme-choice="toxic" title="Toxic"></button>
-      <button type="button" data-theme-choice="violet" title="Violet"></button>
-      <button type="button" data-theme-choice="rose" title="Rose"></button>
+      <button type="button" data-theme-choice="default" title="Wandering" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('default')"></button>
+      <button type="button" data-theme-choice="forest" title="Forest" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('forest')"></button>
+      <button type="button" data-theme-choice="amber" title="Amber" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('amber')"></button>
+      <button type="button" data-theme-choice="steel" title="Steel" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('steel')"></button>
+      <button type="button" data-theme-choice="highland" title="Highland" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('highland')"></button>
+      <button type="button" data-theme-choice="daylight" title="Daylight" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('daylight')"></button>
+      <button type="button" data-theme-choice="sandstorm" title="Sandstorm" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('sandstorm')"></button>
+      <button type="button" data-theme-choice="midnight" title="Midnight" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('midnight')"></button>
+      <button type="button" data-theme-choice="bloodmoon" title="Blood Moon" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('bloodmoon')"></button>
+      <button type="button" data-theme-choice="radioactive" title="Radioactive" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('radioactive')"></button>
+      <button type="button" data-theme-choice="arctic" title="Arctic" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('arctic')"></button>
+      <button type="button" data-theme-choice="toxic" title="Toxic" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('toxic')"></button>
+      <button type="button" data-theme-choice="violet" title="Violet" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('violet')"></button>
+      <button type="button" data-theme-choice="rose" title="Rose" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('rose')"></button>
     </div>
+    <script>
+      (function () {
+        const serverTheme = "{{ dashboard_theme }}";
+        const initialTheme = serverTheme && serverTheme !== "default" ? serverTheme : (localStorage.getItem("wanderingDashboardTheme") || "default");
+        function apply(theme, persist) {
+          const safeTheme = theme || "default";
+          document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
+          document.querySelectorAll("[data-theme-select]").forEach((select) => { select.value = safeTheme; });
+          document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+            button.classList.toggle("active", button.dataset.themeChoice === safeTheme);
+          });
+          localStorage.setItem("wanderingDashboardTheme", safeTheme);
+          if (persist) {
+            const token = new URLSearchParams(window.location.search).get("token");
+            const guildId = new URLSearchParams(window.location.search).get("guild_id") || "{{ server.guild_id if server else '' }}";
+            fetch(`/api/admin/theme${token ? `?token=${encodeURIComponent(token)}` : ""}`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json", "Accept": "application/json"},
+              credentials: "same-origin",
+              body: JSON.stringify({theme: safeTheme, guild_id: guildId})
+            }).catch(function () {});
+          }
+        }
+        window.wanderingApplyThemeChoice = function (theme) { apply(theme, true); };
+        apply(initialTheme, false);
+      })();
+    </script>
   </header>
   <main>
     <section class="hero">
@@ -2219,7 +2246,7 @@ Event pings | bell | 1234567890</textarea></label>
       }
       if (label) label.textContent = name ? `${name}${info.category ? ` · ${info.category}` : ""}` : "Pick an item to preview it.";
     }
-    applyTheme(DASHBOARD_THEME || localStorage.getItem("wanderingDashboardTheme") || "default");
+    applyTheme(DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : (localStorage.getItem("wanderingDashboardTheme") || "default"));
     document.addEventListener("click", (event) => {
       const themeButton = event.target.closest("[data-theme-choice]");
       if (themeButton) {
