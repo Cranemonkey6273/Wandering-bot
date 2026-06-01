@@ -449,6 +449,10 @@ PAGE_TEMPLATE = """
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
     .picker-select { min-width: 0; width: 100%; }
+    .save-preview { white-space: pre-wrap; max-height: 22rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; color: var(--text); }
+    .recipe-list { display: grid; gap: .65rem; margin-top: .85rem; }
+    .recipe-row { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
+    .recipe-row strong { display: block; color: var(--gold); margin-bottom: .25rem; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -1905,6 +1909,7 @@ Event pings | bell | 1234567890</textarea></label>
               <textarea name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
             </label>
             <div class="full embed-preview"><strong>cfggameplay.json</strong><span>This loadout will be referenced from PlayerData.spawnGearPresetFiles using the custom file path above.</span></div>
+            <pre class="full save-preview" data-save-preview hidden></pre>
             <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -1954,6 +1959,29 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="mini-card"><span class="muted">Status</span><strong>Draft</strong></div>
           </div>
           <p class="tool-note" style="margin-top:.75rem">{{ server.xml_workshop.status if server else 'No recipes saved yet.' }}</p>
+          <div class="recipe-list">
+            {% for recipe in (server.xml_workshop.player_loadouts if server else []) %}
+            <div class="recipe-row">
+              <strong>Player: {{ recipe.name }}</strong>
+              <span class="muted">{{ recipe.custom_path or recipe.cfggameplay_reference }}</span>
+              <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if item.slot %} -> {{ item.slot }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            </div>
+            {% endfor %}
+            {% for recipe in (server.xml_workshop.container_recipes if server else []) %}
+            <div class="recipe-row">
+              <strong>Container: {{ recipe.name }}</strong>
+              <span class="muted">{{ recipe.container_class }} · {{ recipe.damage }}</span>
+              <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            </div>
+            {% endfor %}
+            {% for recipe in (server.xml_workshop.vehicle_loadouts if server else []) %}
+            <div class="recipe-row">
+              <strong>Vehicle: {{ recipe.name }}</strong>
+              <span class="muted">{{ recipe.vehicle_class }} · {{ recipe.vehicle_mode }}</span>
+              <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            </div>
+            {% endfor %}
+          </div>
         </article>
         {% endif %}
       </div>
@@ -2291,7 +2319,33 @@ Event pings | bell | 1234567890</textarea></label>
         image.src = info.image_url || fallbackThumb(info.category);
         image.onerror = () => { image.onerror = null; image.src = info.fallback_image_url || fallbackThumb(info.category); };
       }
-      if (label) label.textContent = name ? `${name}${info.category ? ` · ${info.category}` : ""}` : "Pick an item to preview it.";
+      if (label) label.textContent = name ? `${name}${info.category ? ` - ${info.category}` : ""}` : "Pick an item to preview it.";
+    }
+    function pickerLine(picker) {
+      const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
+      const item = itemInput ? itemInput.value.trim() : "";
+      if (!item) return "";
+      const qty = Math.max(1, Math.min(999, Number(picker.querySelector("[data-picker-qty]")?.value || 1) || 1));
+      const mode = picker.dataset.pickerMode || "xml";
+      const quantity = picker.querySelector("[data-picker-quantity]")?.value || "-1";
+      const damage = picker.querySelector("[data-picker-damage]")?.value || "pristine";
+      const slot = picker.querySelector("[data-picker-slot]")?.value || "";
+      const attachment = picker.querySelector("[data-picker-attachment]")?.value || "";
+      return mode === "bundle"
+        ? `${qty}x ${item}`
+        : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
+    }
+    function appendPickerLine(picker, output) {
+      const line = pickerLine(picker);
+      const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
+      if (!line || !output) return false;
+      output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
+      if (itemInput) {
+        itemInput.value = "";
+        itemInput.focus();
+      }
+      if (picker) syncPickerPreview(picker);
+      return true;
     }
     applyTheme(DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : (localStorage.getItem("wanderingDashboardTheme") || "default"));
     document.addEventListener("click", (event) => {
@@ -2323,22 +2377,7 @@ Event pings | bell | 1234567890</textarea></label>
         const picker = pickerButton.closest("[data-item-picker]");
         const form = picker ? picker.closest("form") : null;
         const output = form ? form.querySelector("[data-picker-output]") : null;
-        const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
-        const item = itemInput ? itemInput.value.trim() : "";
-        if (!item || !output) return;
-        const qty = Math.max(1, Math.min(999, Number(picker.querySelector("[data-picker-qty]")?.value || 1) || 1));
-        const mode = picker.dataset.pickerMode || "xml";
-        const quantity = picker.querySelector("[data-picker-quantity]")?.value || "-1";
-        const damage = picker.querySelector("[data-picker-damage]")?.value || "pristine";
-        const slot = picker.querySelector("[data-picker-slot]")?.value || "";
-        const attachment = picker.querySelector("[data-picker-attachment]")?.value || "";
-        const line = mode === "bundle"
-          ? `${qty}x ${item}`
-          : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
-        output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
-        itemInput.value = "";
-        if (picker) syncPickerPreview(picker);
-        itemInput.focus();
+        appendPickerLine(picker, output);
       }
     });
     document.addEventListener("input", (event) => {
@@ -2478,6 +2517,11 @@ Event pings | bell | 1234567890</textarea></label>
           window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
           return;
         }
+        form.querySelectorAll("[data-item-picker]").forEach((picker) => {
+          const output = form.querySelector("[data-picker-output]");
+          const selected = picker.querySelector("[data-picker-item]")?.value?.trim();
+          if (output && selected && !output.value.trim()) appendPickerLine(picker, output);
+        });
         const data = new FormData(form);
         const result = form.querySelector(".result");
         const button = event.submitter || form.querySelector('button[type="submit"]');
@@ -2511,7 +2555,14 @@ Event pings | bell | 1234567890</textarea></label>
           });
           let body = {};
           try { body = await response.json(); } catch (error) {}
-          if (result) result.textContent = response.ok ? "Saved" : (body.error || "Rejected");
+          if (result) result.textContent = response.ok ? (body.note || "Saved") : (body.error || "Rejected");
+          if (response.ok) {
+            const preview = form.querySelector("[data-save-preview]");
+            if (preview && body.recipe) {
+              preview.hidden = false;
+              preview.textContent = JSON.stringify(body.recipe.generated_json || body.recipe, null, 2);
+            }
+          }
           if (response.ok && form.dataset.scenarioActionForm) {
             const action = String(payload.action || "").toLowerCase();
             const row = form.closest("[data-scenario-event-row]");
