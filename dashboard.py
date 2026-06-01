@@ -231,6 +231,11 @@ PAGE_TEMPLATE = """
     body[data-theme="sandstorm"] { color-scheme: light; --bg: #efe3c9; --panel: #fff7e7; --panel-2: #e6d0a3; --panel-3: #f6eddc; --line: rgba(121, 87, 43, .34); --text: #261b0f; --muted: #6b5132; --dim: #8d7652; --olive: #8d7b39; --gold: #b77c2c; --accent: #b77c2c; }
     body[data-theme="midnight"] { --bg: #05070d; --panel: #121726; --panel-2: #202940; --panel-3: #0b1020; --line: rgba(130, 153, 216, .34); --text: #f3f7ff; --muted: #bec8e4; --olive: #6878b8; --gold: #94b4ff; --accent: #94b4ff; }
     body[data-theme="bloodmoon"] { --bg: #100607; --panel: #241012; --panel-2: #38191a; --panel-3: #180a0c; --line: rgba(226, 92, 92, .34); --text: #fff0ed; --muted: #dfb7b2; --olive: #a94444; --gold: #ffb45d; --accent: #ff866d; }
+    body[data-theme="radioactive"] { --bg: #061006; --panel: #10210c; --panel-2: #18300f; --panel-3: #0a1708; --line: rgba(159, 255, 74, .32); --text: #f2ffe8; --muted: #c4ddb1; --olive: #5f9b36; --gold: #b6ff4d; --accent: #7cff5b; }
+    body[data-theme="arctic"] { --bg: #071014; --panel: #10212a; --panel-2: #183444; --panel-3: #0b1820; --line: rgba(164, 225, 255, .34); --text: #edfaff; --muted: #bbd9e6; --olive: #4f91a8; --gold: #a7e5ff; --accent: #6fd3ff; }
+    body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
+    body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
+    body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
     html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
@@ -271,6 +276,11 @@ PAGE_TEMPLATE = """
     .theme-picker button[data-theme-choice="sandstorm"] { background: linear-gradient(135deg, #fff7e7 0 50%, #b77c2c 50%); }
     .theme-picker button[data-theme-choice="midnight"] { background: linear-gradient(135deg, #121726 0 50%, #94b4ff 50%); }
     .theme-picker button[data-theme-choice="bloodmoon"] { background: linear-gradient(135deg, #38191a 0 50%, #ff866d 50%); }
+    .theme-picker button[data-theme-choice="radioactive"] { background: linear-gradient(135deg, #10210c 0 50%, #b6ff4d 50%); }
+    .theme-picker button[data-theme-choice="arctic"] { background: linear-gradient(135deg, #10212a 0 50%, #a7e5ff 50%); }
+    .theme-picker button[data-theme-choice="toxic"] { background: linear-gradient(135deg, #1b2109 0 50%, #e1f25a 50%); }
+    .theme-picker button[data-theme-choice="violet"] { background: linear-gradient(135deg, #1c1228 0 50%, #d6a2ff 50%); }
+    .theme-picker button[data-theme-choice="rose"] { background: linear-gradient(135deg, #26111a 0 50%, #ff9abc 50%); }
     .theme-picker button.active { box-shadow: 0 0 0 2px var(--text); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
     nav a, button, .button, .tab-link {
@@ -339,6 +349,20 @@ PAGE_TEMPLATE = """
     .mobile-section-picker { display: none; position: sticky; top: 4.5rem; z-index: 2; padding: .6rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); backdrop-filter: blur(14px); }
     .mobile-section-picker label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
     .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
+    body[data-section="leaderboards"] { --accent: #f1c40f; }
+    body[data-section="automations"] { --accent: #6fd3ff; }
+    body[data-section="factions"] { --accent: #d6a2ff; }
+    body[data-section="zones"] { --accent: #75d89a; }
+    body[data-section="members"] { --accent: #ff9abc; }
+    body[data-section="heatmaps"] { --accent: #ff866d; }
+    body[data-section="pve"] { --accent: #e1f25a; }
+    body[data-section="economy"] { --accent: #d5b45f; }
+    body[data-section="shop"] { --accent: #79c7dd; }
+    body[data-section="xml-workshop"] { --accent: #7cff5b; }
+    body[data-section="server-rules"] { --accent: #ff9f43; }
+    body[data-section="server-control"] { --accent: #94b4ff; }
+    .section-panel { border-top-color: color-mix(in srgb, var(--accent) 72%, var(--line)); }
+    .section-panel .section-head h2 { color: var(--accent); }
     .section-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: .85rem; }
     .server-lock { display: grid; grid-template-columns: 1fr; gap: .35rem; margin-bottom: .75rem; }
     .server-lock span { color: var(--muted); font-size: .85rem; }
@@ -403,6 +427,14 @@ PAGE_TEMPLATE = """
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
+    .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; }
+    .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); }
+    .shop-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shop-picker-card span { color: var(--muted); font-size: .78rem; }
+    .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; }
+    .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
+    .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
+    .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -528,6 +560,11 @@ PAGE_TEMPLATE = """
       <button type="button" data-theme-choice="sandstorm" title="Sandstorm"></button>
       <button type="button" data-theme-choice="midnight" title="Midnight"></button>
       <button type="button" data-theme-choice="bloodmoon" title="Blood Moon"></button>
+      <button type="button" data-theme-choice="radioactive" title="Radioactive"></button>
+      <button type="button" data-theme-choice="arctic" title="Arctic"></button>
+      <button type="button" data-theme-choice="toxic" title="Toxic"></button>
+      <button type="button" data-theme-choice="violet" title="Violet"></button>
+      <button type="button" data-theme-choice="rose" title="Rose"></button>
     </div>
   </header>
   <main>
@@ -1696,10 +1733,26 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
             <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
+            <label>Custom file path <input name="custom_path" value="./custom/WanderingLoadout.json"></label>
             <label>Role restriction <input name="role_ids" placeholder="optional Discord role IDs"></label>
+            <div class="full loadout-builder">
+              <div>
+                <h4>Player Slots</h4>
+                <div class="loadout-slots">
+                  {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Gloves", "Armband"] %}
+                  <span class="loadout-slot">{{ slot }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+              <div>
+                <h4>Item Line Format</h4>
+                <p class="tool-note">Item, amount, quantity %, damage, slot, attachment-for. Example: WaterBottle, 1, 100, pristine, Back</p>
+              </div>
+            </div>
             <label class="full">Loadout items
-              <textarea name="items" placeholder="BandageDressing, 2, -1, pristine&#10;WaterBottle, 1, 100, pristine"></textarea>
+              <textarea name="items" placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
             </label>
+            <div class="full embed-preview"><strong>cfggameplay.json</strong><span>This loadout will be referenced from PlayerData.spawnGearPresetFiles using the custom file path above.</span></div>
             <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -2019,6 +2072,7 @@ Event pings | bell | 1234567890</textarea></label>
   </main>
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
+    document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
       const fallback = window.location.origin;
       const base = DASHBOARD_PUBLIC_URL || fallback;
@@ -2031,6 +2085,66 @@ Event pings | bell | 1234567890</textarea></label>
     if (window.location.protocol === "http:" && !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)) {
       window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
     }
+    function applyTheme(theme) {
+      const safeTheme = theme || "default";
+      document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
+      document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.themeChoice === safeTheme);
+      });
+    }
+    applyTheme(localStorage.getItem("wanderingDashboardTheme") || "default");
+    document.addEventListener("click", (event) => {
+      const themeButton = event.target.closest("[data-theme-choice]");
+      if (themeButton) {
+        const theme = themeButton.dataset.themeChoice || "default";
+        localStorage.setItem("wanderingDashboardTheme", theme);
+        applyTheme(theme);
+        return;
+      }
+      const bundleButton = event.target.closest("[data-bundle-add-item]");
+      if (bundleButton) {
+        const form = bundleButton.closest("form");
+        if (!form) return;
+        const itemInput = form.querySelector("[data-bundle-item-search]");
+        const qtyInput = form.querySelector("[data-bundle-item-qty]");
+        const textarea = form.querySelector("[data-bundle-items]");
+        const item = itemInput ? itemInput.value.trim() : "";
+        const qty = Math.max(1, Math.min(999, Number(qtyInput ? qtyInput.value : 1) || 1));
+        if (!item || !textarea) return;
+        const line = `${qty}x ${item}`;
+        textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${line}` : line;
+        itemInput.value = "";
+        itemInput.focus();
+      }
+    });
+    function filterShopPanel(panel) {
+      if (!panel) return;
+      const input = panel.querySelector("[data-shop-search]");
+      const category = panel.querySelector("[data-shop-category]");
+      const count = panel.querySelector("[data-shop-count]");
+      const query = input ? input.value.trim().toLowerCase() : "";
+      const categoryValue = category ? category.value.trim().toLowerCase() : "";
+      let visible = 0;
+      panel.querySelectorAll("[data-shop-row]").forEach((row) => {
+        const search = row.dataset.search || "";
+        const rowCategory = row.dataset.category || "";
+        const show = (!query || search.includes(query)) && (!categoryValue || rowCategory === categoryValue);
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (count) count.textContent = visible;
+    }
+    document.addEventListener("input", (event) => {
+      if (event.target.matches("[data-shop-search]")) {
+        filterShopPanel(event.target.closest("[data-shop-list]"));
+      }
+    });
+    document.addEventListener("change", (event) => {
+      if (event.target.matches("[data-shop-category]")) {
+        filterShopPanel(event.target.closest("[data-shop-list]"));
+      }
+    });
+    document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
     function formValue(value) {
       const text = String(value || "").trim();
       if (text === "true") return true;
@@ -2161,24 +2275,6 @@ Event pings | bell | 1234567890</textarea></label>
       input.addEventListener("input", filterShop);
       if (category) category.addEventListener("change", filterShop);
       filterShop();
-    });
-    document.querySelectorAll("[data-bundle-add-item]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const form = button.closest("form");
-        if (!form) return;
-        const itemInput = form.querySelector("[data-bundle-item-search]");
-        const qtyInput = form.querySelector("[data-bundle-item-qty]");
-        const textarea = form.querySelector("[data-bundle-items]");
-        const item = itemInput ? itemInput.value.trim() : "";
-        const qty = Math.max(1, Math.min(999, Number(qtyInput ? qtyInput.value : 1) || 1));
-        if (!item || !textarea) return;
-        const line = `${qty}x ${item}`;
-        textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${line}` : line;
-        if (itemInput) {
-          itemInput.value = "";
-          itemInput.focus();
-        }
-      });
     });
     document.querySelectorAll("[data-event-search]").forEach((input) => {
       const section = input.closest("article") || document;
@@ -2504,21 +2600,6 @@ Event pings | bell | 1234567890</textarea></label>
       notice.querySelector("[data-dismiss-plan-notice]")?.addEventListener("click", () => {
         localStorage.setItem(key, "1");
         notice.style.display = "none";
-      });
-    });
-    const savedTheme = localStorage.getItem("wanderingDashboardTheme") || "default";
-    function applyTheme(theme) {
-      document.body.dataset.theme = theme === "default" ? "" : theme;
-      document.querySelectorAll("[data-theme-choice]").forEach((button) => {
-        button.classList.toggle("active", button.dataset.themeChoice === theme);
-      });
-    }
-    applyTheme(savedTheme);
-    document.querySelectorAll("[data-theme-choice]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const theme = button.dataset.themeChoice || "default";
-        localStorage.setItem("wanderingDashboardTheme", theme);
-        applyTheme(theme);
       });
     });
   </script>
@@ -3063,6 +3144,8 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
             quantity = safe_int(raw.get("quantity"), 1)
             quantity_percent = safe_int(raw.get("quantity_percent"), safe_int(raw.get("quantityPercent"), -1))
             damage = str(raw.get("damage") or "pristine").strip().lower()
+            slot = str(raw.get("slot") or "").strip()
+            attachment_for = str(raw.get("attachment_for") or raw.get("attachmentFor") or "").strip()
         else:
             parts = [part.strip() for part in re.split(r"[|,]", str(raw or "")) if part.strip()]
             if not parts:
@@ -3071,6 +3154,8 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
             quantity = safe_int(parts[1], 1) if len(parts) > 1 else 1
             quantity_percent = safe_int(parts[2], -1) if len(parts) > 2 else -1
             damage = str(parts[3] if len(parts) > 3 else "pristine").strip().lower()
+            slot = str(parts[4] if len(parts) > 4 else "").strip()
+            attachment_for = str(parts[5] if len(parts) > 5 else "").strip()
         if not item_name:
             continue
         if damage not in {"pristine", "worn", "damaged", "badly_damaged", "ruined", "random"}:
@@ -3080,8 +3165,72 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
             "quantity": max(1, min(999, quantity)),
             "quantity_percent": max(-1, min(100, quantity_percent)),
             "damage": damage,
+            "slot": slot[:40],
+            "attachment_for": safe_dayz_class(attachment_for),
         })
     return rows
+
+
+def safe_custom_json_path(value: Any, fallback_name: str) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    if not text:
+        text = f"./custom/{fallback_name}.json"
+    if not text.startswith("./custom/"):
+        text = "./custom/" + text.lstrip("/").removeprefix("custom/")
+    if not text.lower().endswith(".json"):
+        text += ".json"
+    safe = re.sub(r"[^A-Za-z0-9_./-]+", "_", text)
+    return safe[:160]
+
+
+def loadout_item_attributes(item: dict[str, Any]) -> dict[str, Any]:
+    damage = str(item.get("damage") or "pristine")
+    health = {
+        "pristine": (1.0, 1.0),
+        "worn": (0.7, 1.0),
+        "damaged": (0.45, 0.7),
+        "badly_damaged": (0.2, 0.45),
+        "ruined": (0.0, 0.2),
+        "random": (0.2, 1.0),
+    }.get(damage, (1.0, 1.0))
+    attrs: dict[str, Any] = {"healthMin": health[0], "healthMax": health[1]}
+    quantity = safe_int(item.get("quantity_percent"), -1)
+    if quantity >= 0:
+        attrs["quantityMin"] = quantity / 100
+        attrs["quantityMax"] = quantity / 100
+    return attrs
+
+
+def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
+    slot_items: dict[str, list[dict[str, Any]]] = {}
+    unsorted = []
+    for item in record.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        entry = {
+            "itemType": item.get("item"),
+            "spawnWeight": max(1, safe_int(item.get("quantity"), 1)),
+            "attributes": loadout_item_attributes(item),
+        }
+        attachment_for = str(item.get("attachment_for") or "")
+        if attachment_for:
+            entry["attachmentFor"] = attachment_for
+        slot = str(item.get("slot") or "").strip()
+        if slot:
+            slot_items.setdefault(slot, []).append(entry)
+        else:
+            unsorted.append(entry)
+    return {
+        "presets": [{
+            "name": record.get("name") or "Wandering Bot Loadout",
+            "spawnWeight": 1,
+            "attachmentSlotItemSets": [
+                {"slotName": slot, "discreteItemSets": [{"spawnWeight": 1, "items": items}]}
+                for slot, items in sorted(slot_items.items())
+            ],
+            "discreteUnsortedItemSets": [{"spawnWeight": 1, "items": unsorted}] if unsorted else [],
+        }]
+    }
 
 
 def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
@@ -4530,6 +4679,9 @@ def api_xml_workshop():
             return jsonify({"ok": False, "error": "container_class must be a valid DayZ classname"}), 400
     elif kind == "player_loadout":
         record["role_ids"] = csv_list(payload.get("role_ids"))
+        record["custom_path"] = safe_custom_json_path(payload.get("custom_path"), record["id"])
+        record["cfggameplay_reference"] = record["custom_path"]
+        record["generated_json"] = build_player_loadout_json(record)
     elif kind == "vehicle_loadout":
         record.update({
             "vehicle_class": safe_dayz_class(payload.get("vehicle_class")),
