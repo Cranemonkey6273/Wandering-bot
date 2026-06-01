@@ -2178,6 +2178,27 @@ def sync_runtime_store(store_name: str, data: Any) -> None:
         target[:] = data
 
 
+def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
+    if not CUSTOM_STATE_PROVIDER:
+        return None
+    try:
+        state = CUSTOM_STATE_PROVIDER()
+    except Exception as error:
+        return {"ok": False, "messages": [f"Dashboard runtime state unavailable: {error}"]}
+    uploader = state.get("scenario_xml_uploader") if isinstance(state, dict) else None
+    if not callable(uploader):
+        return None
+    try:
+        result = uploader(str(guild_id))
+    except Exception as error:
+        return {"ok": False, "messages": [f"Native CE XML upload failed: {error}"]}
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, (list, tuple)) and len(result) >= 3:
+        return {"ok": bool(result[0]), "built": result[1], "messages": result[2]}
+    return {"ok": False, "messages": ["Native CE XML uploader returned an unexpected result."]}
+
+
 def load_store(name: str, default: Any) -> Any:
     data = read_json_file(FILES[name], default)
     if name == "guild_configs" and isinstance(data, dict):
@@ -3847,6 +3868,55 @@ def api_scenario_event_action():
             event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
+
+        if action == "upload":
+            upload_result = run_runtime_scenario_xml_upload(guild_id)
+            if upload_result is not None:
+                guild_configs = load_store("guild_configs", {})
+                config = guild_configs.setdefault(guild_id, {"channels": {}})
+                events = config.get("scenario_events", [])
+                if not isinstance(events, list):
+                    events = []
+                    config["scenario_events"] = events
+                built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
+                messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
+                upload_ok = bool(upload_result.get("ok"))
+                now_text = datetime.now(UTC).isoformat()
+                status_text = (
+                    f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+                    if upload_ok
+                    else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+                )
+                returned_event = None
+                for queued_event in events:
+                    if not isinstance(queued_event, dict):
+                        continue
+                    is_target = safe_int(queued_event.get("id"), 0) == event_id
+                    is_pending_dashboard_event = (
+                        queued_event.get("enabled", True)
+                        and str(queued_event.get("created_by") or "") == "dashboard"
+                        and str(queued_event.get("event_type") or "") != "vehicle_reset_all"
+                        and str(queued_event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed", "uploaded"}
+                    )
+                    if not is_target and not (upload_ok and is_pending_dashboard_event):
+                        continue
+                    queued_event["updated_at"] = now_text
+                    if upload_ok:
+                        queued_event["native_ce_uploaded_at"] = now_text
+                        queued_event["native_ce_events_path"] = built.get("events_path", "")
+                        queued_event["native_ce_spawns_path"] = built.get("spawns_path", "")
+                        queued_event["upload_status"] = "uploaded"
+                        queued_event["status"] = "Native CE XML uploaded / waiting for restart"
+                        queued_event.pop("upload_error", None)
+                    else:
+                        queued_event["upload_attempts"] = int(queued_event.get("upload_attempts") or 0) + 1
+                        queued_event["upload_status"] = "failed"
+                        queued_event["upload_error"] = status_text
+                        queued_event["status"] = "Native CE XML upload failed"
+                    if is_target:
+                        returned_event = queued_event
+                save_store("guild_configs", guild_configs)
+                return jsonify({"ok": True, "event": returned_event or event, "upload": upload_result})
         return jsonify({"ok": True, "event": event})
 
     return jsonify({"ok": False, "error": "scenario event not found for this guild"}), 404

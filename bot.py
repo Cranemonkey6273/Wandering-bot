@@ -22866,6 +22866,23 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     return success, built, messages
 
 
+def dashboard_upload_console_ce_event_files(guild_id):
+    guild_id = str(guild_id)
+    load_guild_configs()
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
+    success, built, messages = upload_console_ce_event_files(
+        guild_id,
+        config,
+        "",
+        "",
+        "",
+        False,
+    )
+    return {"ok": success, "built": built, "messages": messages}
+
+
 def scenario_location_from_choice(location_key, x=None, z=None, y=0, map_key="chernarus"):
     presets = scenario_location_presets_for_map(map_key)
     location = presets.get(str(location_key or "").lower())
@@ -32373,6 +32390,7 @@ try:
             "factions": factions,
             "wages": wages,
             "delivery_queue": delivery_queue,
+            "scenario_xml_uploader": dashboard_upload_console_ce_event_files,
         }
     )
     start_dashboard_server()
