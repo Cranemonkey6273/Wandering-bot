@@ -22470,6 +22470,7 @@ def console_ce_default_paths(guild_id):
         "eventgroups_path": f"/dayzxb_missions/{mission_folder}/cfgeventgroups.xml",
         "mapgroupproto_path": f"/dayzxb_missions/{mission_folder}/mapgroupproto.xml",
         "spawnabletypes_path": f"/dayzxb_missions/{mission_folder}/cfgspawnabletypes.xml",
+        "cfgenvironment_path": f"/dayzxb_missions/{mission_folder}/cfgenvironment.xml",
     }
 
 
@@ -22482,6 +22483,8 @@ def console_ce_path_suffix(key):
         return "cfgeventgroups.xml"
     if key == "mapgroupproto_path":
         return "mapgroupproto.xml"
+    if key == "cfgenvironment_path":
+        return "cfgenvironment.xml"
     return "cfgeventspawns.xml"
 
 
@@ -22538,6 +22541,7 @@ def console_ce_event_config(config):
     settings.setdefault("eventgroups_path", "")
     settings.setdefault("mapgroupproto_path", "")
     settings.setdefault("spawnabletypes_path", "")
+    settings.setdefault("cfgenvironment_path", "")
     return settings
 
 
@@ -22763,8 +22767,10 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     return group_node, True
 
 
-def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name=""):
+def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
     event_node = ET.SubElement(root, "event", {"name": event_name})
+    if empty:
+        return event_node
     count = max(1, int(count or 1))
     radius = max(1, int(radius or 45))
     if group_name:
@@ -22794,6 +22800,157 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     return event_node
 
 
+ANIMAL_TERRITORY_PROFILES = {
+    "Animal_UrsusArctos": {
+        "species": "Bear",
+        "behavior": "BlissBearGroupBeh",
+        "zone": "Graze",
+        "color": "4294923520",
+    },
+    "Animal_CanisLupus_Grey": {
+        "species": "Wolf",
+        "behavior": "DZWolfGroupBeh",
+        "zone": "HuntingGround",
+        "color": "4291611852",
+    },
+    "Animal_CanisLupus_White": {
+        "species": "Wolf",
+        "behavior": "DZWolfGroupBeh",
+        "zone": "HuntingGround",
+        "color": "4291611852",
+    },
+    "Animal_CervusElaphus": {
+        "species": "Deer",
+        "behavior": "DZDeerGroupBeh",
+        "zone": "Graze",
+        "color": "4286611584",
+    },
+    "Animal_SusScrofa": {
+        "species": "WildBoar",
+        "behavior": "DZDeerGroupBeh",
+        "zone": "Graze",
+        "color": "4286611584",
+    },
+}
+
+
+def animal_territory_profile(class_name):
+    class_name = str(class_name or "").strip()
+    if class_name in ANIMAL_TERRITORY_PROFILES:
+        return dict(ANIMAL_TERRITORY_PROFILES[class_name])
+    if "Ursus" in class_name:
+        return dict(ANIMAL_TERRITORY_PROFILES["Animal_UrsusArctos"])
+    if "CanisLupus" in class_name:
+        return dict(ANIMAL_TERRITORY_PROFILES["Animal_CanisLupus_Grey"])
+    if "Cervus" in class_name or "Capreolus" in class_name:
+        return dict(ANIMAL_TERRITORY_PROFILES["Animal_CervusElaphus"])
+    if "SusScrofa" in class_name:
+        return dict(ANIMAL_TERRITORY_PROFILES["Animal_SusScrofa"])
+    return {
+        "species": "Animal",
+        "behavior": "DZDeerGroupBeh",
+        "zone": "Graze",
+        "color": "4286611584",
+    }
+
+
+def remote_mission_base_from_ce_paths(built):
+    for key, suffix in (
+        ("spawns_path", "/cfgeventspawns.xml"),
+        ("events_path", "/db/events.xml"),
+        ("cfgenvironment_path", "/cfgenvironment.xml"),
+    ):
+        path = canonical_remote_path(built.get(key) or "")
+        if path.lower().endswith(suffix.lower()):
+            return path[:-len(suffix)]
+    return ""
+
+
+def animal_territory_file_name(record):
+    safe = normalize_discord_name(record.get("territory_name") or record.get("name") or "animal")
+    return f"wanderingbot_{safe}_territories.xml"[:96]
+
+
+def animal_territory_remote_path(mission_base, record):
+    return canonical_remote_path(f"{mission_base}/env/{animal_territory_file_name(record)}")
+
+
+def animal_territory_usable_name(record):
+    return os.path.splitext(animal_territory_file_name(record))[0]
+
+
+def remove_wandering_environment_nodes(root):
+    territories = root.find("territories") if root.tag != "territories" else root
+    if territories is None:
+        return 0, 0
+
+    removed_files = 0
+    removed_territories = 0
+    for child in list(territories):
+        if child.tag == "file":
+            path = str(child.get("path") or "").lower()
+            if "wanderingbot_" in path or CONSOLE_CE_EVENT_MARKER.lower() in path:
+                territories.remove(child)
+                removed_files += 1
+        elif child.tag == "territory":
+            name = str(child.get("name") or "").lower()
+            usable_names = [
+                str(file_node.get("usable") or "").lower()
+                for file_node in child.findall("file")
+            ]
+            if (
+                "wanderingbot_" in name
+                or CONSOLE_CE_EVENT_MARKER.lower() in name
+                or any("wanderingbot_" in usable or CONSOLE_CE_EVENT_MARKER.lower() in usable for usable in usable_names)
+            ):
+                territories.remove(child)
+                removed_territories += 1
+    return removed_files, removed_territories
+
+
+def add_animal_environment_entry(root, record):
+    territories = root.find("territories") if root.tag != "territories" else root
+    if territories is None:
+        territories = ET.SubElement(root, "territories")
+
+    usable = animal_territory_usable_name(record)
+    file_path = f"env/{animal_territory_file_name(record)}"
+    ET.SubElement(territories, "file", {"path": file_path})
+    territory_node = ET.SubElement(territories, "territory", {
+        "type": "Herd",
+        "name": str(record.get("territory_name") or record.get("name")),
+        "behavior": str(record.get("animal_behavior") or "DZDeerGroupBeh"),
+    })
+    ET.SubElement(territory_node, "file", {"usable": usable})
+    count = max(1, int(record.get("count") or 1))
+    for name, value in (
+        ("globalCountMax", max(count, 1)),
+        ("zoneCountMin", count),
+        ("zoneCountMax", count),
+        ("playerSpawnRadiusNear", 1),
+        ("playerSpawnRadiusFar", max(2, int(record.get("radius") or 20))),
+    ):
+        ET.SubElement(territory_node, "item", {"name": name, "val": str(int(value))})
+
+
+def build_animal_territory_text(record):
+    root = ET.Element("territory-type")
+    territory = ET.SubElement(root, "territory", {"color": str(record.get("territory_color") or "4286611584")})
+    count = max(1, int(record.get("count") or 1))
+    radius = max(1, int(record.get("radius") or 20))
+    ET.SubElement(territory, "zone", {
+        "name": str(record.get("territory_zone") or "Graze"),
+        "smin": str(count),
+        "smax": str(count),
+        "dmin": "0",
+        "dmax": "0",
+        "x": ce_decimal(record.get("x")),
+        "z": ce_decimal(record.get("z")),
+        "r": str(radius),
+    })
+    return xml_text_from_root(root)
+
+
 def console_ce_records_for_event(event):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
@@ -22810,12 +22967,6 @@ def console_ce_records_for_event(event):
         warnings.append(f"`{event.get('id')}` has no classname, so it was skipped.")
         return records, warnings
 
-    if event_type == "animal_pack":
-        warnings.append(
-            f"`{event.get('id')}` is an animal pack. Direct custom animal events are not uploaded because DayZ animals use native Animal* events and territory XML; this upload will remove any old WanderingBot animal event entries."
-        )
-        return records, warnings
-
     count = ce_event_nominal_count(event)
     lifetime = 3600
     if event_type == "vehicle_spawn":
@@ -22826,6 +22977,8 @@ def console_ce_records_for_event(event):
         lifetime = 7200
     elif event_type == "zombie_horde":
         lifetime = 1800
+    elif event_type == "animal_pack":
+        lifetime = 180
 
     use_eventgroup = event_type in {"airdrop", "loot_crate"}
     if use_eventgroup and class_name in {"WoodenCrate", "SupplyCrate", "Crate"}:
@@ -22838,8 +22991,14 @@ def console_ce_records_for_event(event):
         family = "Item"
         limit_type = "custom"
         child_lootmax = 5
+    animal_profile = animal_territory_profile(class_name) if event_type == "animal_pack" else {}
+    territory_name = ""
+    if event_type == "animal_pack":
+        family = "Animal"
+        limit_type = "custom"
+        territory_name = f"{animal_profile.get('species', 'Animal')}{CONSOLE_CE_EVENT_MARKER}{int(event.get('id', 0) or 0)}"
 
-    records.append({
+    record = {
         "name": ce_event_name(event, family=family),
         "class_name": class_name,
         "count": count,
@@ -22859,7 +23018,23 @@ def console_ce_records_for_event(event):
         "saferadius": 0,
         "distanceradius": 1000 if use_eventgroup else 0,
         "cleanupradius": 1500 if use_eventgroup else 100,
-    })
+    }
+    if event_type == "animal_pack":
+        record.update({
+            "name": f"Animal{territory_name}"[:64],
+            "empty_spawn": True,
+            "animal_territory": True,
+            "territory_name": territory_name,
+            "animal_behavior": animal_profile.get("behavior", "DZDeerGroupBeh"),
+            "territory_zone": animal_profile.get("zone", "Graze"),
+            "territory_color": animal_profile.get("color", "4286611584"),
+            "nominal": 0,
+            "min_count": count,
+            "max_count": count,
+            "saferadius": 2,
+            "cleanupradius": 0,
+        })
+    records.append(record)
 
     if event_type == "airdrop":
         guard_class = str(event.get("guard_class") or "").strip()
@@ -22926,6 +23101,9 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     elif key == "mapgroupproto_path":
         reference_parts = ("mapgroupproto.xml",)
         fallback_root = "mapgroupproto"
+    elif key == "cfgenvironment_path":
+        reference_parts = ("cfgenvironment.xml",)
+        fallback_root = "env"
     else:
         reference_parts = ("cfgeventspawns.xml",)
         fallback_root = "eventposdef"
@@ -22991,6 +23169,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             count=record["count"],
             radius=record.get("radius") or 45,
             group_name=record["name"] if record.get("use_eventgroup") else "",
+            empty=bool(record.get("empty_spawn")),
         )
 
     messages = [
@@ -23016,10 +23195,51 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "mapgroupproto_text": "",
         "spawnabletypes_path": "",
         "spawnabletypes_text": "",
+        "cfgenvironment_path": "",
+        "cfgenvironment_text": "",
+        "animal_territory_files": [],
         "record_count": len(records),
         "messages": messages,
         "source_fallbacks": source_fallbacks,
     }
+
+    animal_records = [record for record in records if record.get("animal_territory")]
+    if animal_records:
+        mission_base = remote_mission_base_from_ce_paths(output)
+        if not mission_base:
+            output.setdefault("source_fallbacks", []).append(
+                "cfgenvironment.xml: could not infer mission folder from resolved CE paths."
+            )
+        env_path = canonical_remote_path(f"{mission_base}/cfgenvironment.xml") if mission_base else console_ce_default_paths(guild_id)["cfgenvironment_path"]
+        env_text, resolved_env_path, env_source = download_console_ce_source(
+            config,
+            guild_id,
+            "cfgenvironment_path",
+            env_path
+        )
+        env_root, env_parse_warning = parse_xml_root_or_new(env_text, "env")
+        if env_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {env_parse_warning}")
+        removed_files, removed_territories = remove_wandering_environment_nodes(env_root)
+        for record in animal_records:
+            add_animal_environment_entry(env_root, record)
+            territory_path = animal_territory_remote_path(mission_base, record) if mission_base else ""
+            output["animal_territory_files"].append({
+                "path": territory_path,
+                "text": build_animal_territory_text(record),
+                "name": record.get("name"),
+            })
+        output["cfgenvironment_path"] = resolved_env_path
+        output["cfgenvironment_text"] = xml_text_from_root(env_root)
+        output["messages"].append(env_source)
+        source_text = str(env_source or "")
+        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
+            output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {source_text}")
+        output["messages"].append(
+            f"Updated `cfgenvironment.xml` for `{len(animal_records)}` animal territory event(s), removed `{removed_files}` old Wandering Bot file reference(s) and `{removed_territories}` old territory block(s)."
+        )
+        if env_parse_warning:
+            output["messages"].append(env_parse_warning)
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
     if eventgroup_records:
@@ -23111,8 +23331,20 @@ def validate_console_ce_xml_bundle(built):
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
         mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<mapgroupproto></mapgroupproto>").encode("utf-8"))
+        cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
     except Exception as error:
         return False, [f"XML validation failed before upload: {error}"]
+
+    territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
+    for territory_file in territory_files:
+        try:
+            territory_root = ET.fromstring(str(territory_file.get("text") or "").encode("utf-8"))
+        except Exception as error:
+            return False, [f"XML validation failed for `{territory_file.get('path')}`: {error}"]
+        if territory_root.tag != "territory-type":
+            messages.append(f"`{territory_file.get('path')}` must use `<territory-type>` as the root tag.")
+        if not territory_root.findall(".//zone"):
+            messages.append(f"`{territory_file.get('path')}` has no animal territory `<zone>`.")
 
     allowed_families = ("Ambient", "Animal", "Infected", "Item", "Static", "Trajectory", "Vehicle")
     generated_events = {}
@@ -23151,10 +23383,13 @@ def validate_console_ce_xml_bundle(built):
         if spawn_node is None:
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue
-        if not spawn_node.findall("pos"):
+        is_animal_territory_event = name.startswith("Animal") and any(
+            name == str(item.get("name") or "") for item in territory_files
+        )
+        if not spawn_node.findall("pos") and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
         has_group_pos = any(str(pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
-        if not spawn_node.findall("zone") and not has_group_pos:
+        if not spawn_node.findall("zone") and not has_group_pos and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")
 
     for name in generated_spawns:
@@ -23187,6 +23422,30 @@ def validate_console_ce_xml_bundle(built):
             elif child_type not in proto_names:
                 messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
 
+    if territory_files:
+        territories_node = cfgenvironment_root.find("territories") if cfgenvironment_root.tag != "territories" else cfgenvironment_root
+        if territories_node is None:
+            messages.append("`cfgenvironment.xml` has no `<territories>` block for animal territory events.")
+        else:
+            env_paths = {
+                str(file_node.get("path") or "").replace("\\", "/").lower()
+                for file_node in territories_node.findall("file")
+            }
+            env_usables = {
+                str(file_node.get("usable") or "").lower()
+                for territory_node in territories_node.findall("territory")
+                for file_node in territory_node.findall("file")
+            }
+            for territory_file in territory_files:
+                path = str(territory_file.get("path") or "")
+                file_name = os.path.basename(path).lower()
+                expected_path = f"env/{file_name}"
+                usable = os.path.splitext(file_name)[0]
+                if expected_path not in env_paths:
+                    messages.append(f"`cfgenvironment.xml` is missing `<file path=\"{expected_path}\" />`.")
+                if usable not in env_usables:
+                    messages.append(f"`cfgenvironment.xml` is missing a territory using `{usable}`.")
+
     if messages:
         return False, messages
     return True, [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
@@ -23200,7 +23459,15 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("cfgspawnabletypes.xml", built.get("spawnabletypes_path") if built.get("spawnabletypes_text") else ""),
         ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
+        ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
     ]
+    for territory_file in built.get("animal_territory_files") or []:
+        # New Wandering Bot territory files are additive; back them up only if they already exist.
+        path = territory_file.get("path")
+        if path:
+            ok, _, content = download_text_file_from_nitrado(config, path)
+            if ok and str(content or "").strip():
+                targets.append((os.path.basename(path), path))
     for label, path in targets:
         if not path:
             continue
@@ -23260,7 +23527,28 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
-    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok
+    cfgenvironment_ok = True
+    if built.get("cfgenvironment_text"):
+        cfgenvironment_ok, cfgenvironment_message = upload_text_file_to_nitrado(
+            config,
+            built["cfgenvironment_path"],
+            built["cfgenvironment_text"]
+        )
+        messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
+
+    territory_ok = True
+    for territory_file in built.get("animal_territory_files") or []:
+        path = territory_file.get("path")
+        text = territory_file.get("text")
+        if not path or not text:
+            territory_ok = False
+            messages.append("Animal territory upload skipped because the target path or content was missing.")
+            continue
+        one_ok, one_message = upload_text_file_to_nitrado(config, path, text)
+        territory_ok = territory_ok and one_ok
+        messages.append(f"`{os.path.basename(path)}`: {one_message}")
+
+    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and territory_ok
     if success:
         settings = console_ce_event_config(config)
         settings["enabled"] = True
@@ -23272,6 +23560,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             settings["mapgroupproto_path"] = built["mapgroupproto_path"]
         if built.get("spawnabletypes_path"):
             settings["spawnabletypes_path"] = built["spawnabletypes_path"]
+        if built.get("cfgenvironment_path"):
+            settings["cfgenvironment_path"] = built["cfgenvironment_path"]
         if consume_restart:
             mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
