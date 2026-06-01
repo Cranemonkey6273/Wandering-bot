@@ -16649,7 +16649,11 @@ def build_messages_xml_from_config(config):
         ET.SubElement(message, "delay").text = str(delay_seconds)
         ET.SubElement(message, "repeat").text = str(repeat_minutes * 60 if repeat_minutes else 0)
         ET.SubElement(message, "display_time").text = str(display_seconds)
-    return ET.tostring(root, encoding="unicode")
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + ET.tostring(root, encoding="unicode")
 
 
 def upload_messages_xml_to_nitrado(config):
@@ -16670,6 +16674,16 @@ def upload_messages_xml_to_nitrado(config):
             return True, f"messages.xml uploaded to {target_path}. {msg}"
         errors.append(f"{target_path}: {msg}")
     return False, "messages.xml upload failed: " + " | ".join(errors[:4])
+
+
+def dashboard_upload_messages_xml(guild_id):
+    guild_id = str(guild_id)
+    load_guild_configs()
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        return {"ok": False, "messages": [f"No guild config found for {guild_id}."]}
+    ok, message = upload_messages_xml_to_nitrado(config)
+    return {"ok": ok, "messages": [message]}
 
 
 def linked_discord_member_for_gamertag(guild, guild_id, gamertag):
@@ -22593,7 +22607,15 @@ def parse_xml_root_or_new(text, fallback_root):
     try:
         return ET.fromstring(text.encode("utf-8")), None
     except Exception as error:
-        return ET.Element(fallback_root), f"Created new `{fallback_root}` template because XML parsing failed: {error}"
+        detail = str(error)
+        line_text = ""
+        position = getattr(error, "position", None)
+        if isinstance(position, tuple) and position:
+            line_no = int(position[0] or 0)
+            lines = text.splitlines()
+            if 1 <= line_no <= len(lines):
+                line_text = f" Problem line {line_no}: {lines[line_no - 1][:220]}"
+        return ET.Element(fallback_root), f"Created new `{fallback_root}` template because XML parsing failed: {detail}.{line_text}"
 
 
 def remove_wandering_ce_nodes(root):
@@ -33104,6 +33126,7 @@ try:
             "wages": wages,
             "delivery_queue": delivery_queue,
             "scenario_xml_uploader": dashboard_upload_console_ce_event_files,
+            "messages_xml_uploader": dashboard_upload_messages_xml,
         }
     )
     start_dashboard_server()

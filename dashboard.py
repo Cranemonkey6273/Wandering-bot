@@ -1533,10 +1533,9 @@ Event pings | bell | 1234567890</textarea></label>
             <label>When to show
               <select name="trigger">
                 <option value="server_restart">After restart</option>
-                <option value="player_join">Player joins</option>
-                <option value="discord_required">Discord link reminder</option>
                 <option value="scheduled">Timed schedule</option>
-                <option value="custom">Custom</option>
+                <option value="discord_required">Discord link reminder timer</option>
+                <option value="custom">Custom timer</option>
               </select>
             </label>
             <label>Start delay seconds <input name="delay_seconds" type="number" value="30" min="0"></label>
@@ -1546,7 +1545,7 @@ Event pings | bell | 1234567890</textarea></label>
             <label class="full">Message text <textarea name="text">Join the Discord and link your gamertag with /linkgamer to keep playing.</textarea></label>
             <div class="full embed-preview">
               <strong>Restart required</strong>
-              <span>DayZ reads messages.xml on server start. The bot stores this for the server file workflow, then the change applies after the next restart.</span>
+              <span>The bot uploads this server's messages.xml only. DayZ reads it on server start, so the change applies after the next restart.</span>
             </div>
             <div class="full"><button type="submit">Save On-Screen Message</button> <span class="result muted"></span></div>
           </form>
@@ -2234,6 +2233,27 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     if isinstance(result, (list, tuple)) and len(result) >= 3:
         return {"ok": bool(result[0]), "built": result[1], "messages": result[2]}
     return {"ok": False, "messages": ["Native CE XML uploader returned an unexpected result."]}
+
+
+def run_runtime_messages_xml_upload(guild_id: str) -> dict[str, Any] | None:
+    if not CUSTOM_STATE_PROVIDER:
+        return None
+    try:
+        state = CUSTOM_STATE_PROVIDER()
+    except Exception as error:
+        return {"ok": False, "messages": [f"Dashboard runtime state unavailable: {error}"]}
+    uploader = state.get("messages_xml_uploader") if isinstance(state, dict) else None
+    if not callable(uploader):
+        return None
+    try:
+        result = uploader(str(guild_id))
+    except Exception as error:
+        return {"ok": False, "messages": [f"messages.xml upload failed: {error}"]}
+    if isinstance(result, dict):
+        return result
+    if isinstance(result, (list, tuple)) and len(result) >= 2:
+        return {"ok": bool(result[0]), "messages": [str(result[1])]}
+    return {"ok": False, "messages": ["messages.xml uploader returned an unexpected result."]}
 
 
 def load_store(name: str, default: Any) -> Any:
@@ -4251,7 +4271,7 @@ def api_on_screen_message():
         config["onscreen_messages"] = messages
     record = {
         "message_id": message_id,
-        "enabled": bool(payload.get("enabled", True)),
+        "enabled": safe_bool(payload.get("enabled"), True),
         "trigger": str(payload.get("trigger") or "scheduled"),
         "delay_seconds": max(0, safe_int(payload.get("delay_seconds"), 30)),
         "repeat_minutes": max(0, safe_int(payload.get("repeat_minutes"), 30)),
@@ -4266,7 +4286,24 @@ def api_on_screen_message():
     if isinstance(pending, list) and "messages.xml" not in pending:
         pending.append("messages.xml")
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "message": record, "note": "messages.xml changes take effect after a server restart"})
+    sync_runtime_store("guild_configs", guild_configs)
+    upload_result = run_runtime_messages_xml_upload(guild_id)
+    if upload_result is not None:
+        messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
+        if upload_result.get("ok"):
+            return jsonify({
+                "ok": True,
+                "message": record,
+                "note": "messages.xml uploaded. Restart the DayZ server for it to take effect.",
+                "upload": upload_result,
+            })
+        return jsonify({
+            "ok": False,
+            "message": record,
+            "error": "messages.xml upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details"),
+            "upload": upload_result,
+        }), 502
+    return jsonify({"ok": True, "message": record, "note": "messages.xml saved and queued for upload; restart required after upload"})
 
 
 @APP.post("/api/admin/server-control")
