@@ -5771,6 +5771,35 @@ async def apply_chat_reward_punishment_rules(message, lower):
 # LOADERS
 # =========================================================
 
+def merge_guild_config_records(base, override):
+    if not isinstance(base, dict):
+        return override
+    if not isinstance(override, dict):
+        return base
+    merged = dict(base)
+    merged.update(override)
+    base_events = base.get("scenario_events")
+    override_events = override.get("scenario_events")
+    if isinstance(base_events, list) and isinstance(override_events, list):
+        events_by_id = {}
+        for event in base_events + override_events:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or event.get("name") or len(events_by_id))
+            existing = events_by_id.get(event_id)
+            if not existing:
+                events_by_id[event_id] = event
+                continue
+            event_time = str(event.get("updated_at") or event.get("created_at") or "")
+            existing_time = str(existing.get("updated_at") or existing.get("created_at") or "")
+            if event_time >= existing_time:
+                events_by_id[event_id] = event
+        merged["scenario_events"] = list(events_by_id.values())
+    elif isinstance(base_events, list) and not override_events:
+        merged["scenario_events"] = base_events
+    return merged
+
+
 def load_guild_configs():
     global guild_configs
 
@@ -5782,8 +5811,12 @@ def load_guild_configs():
                 continue
 
             guild_id = config_file[:-5]
-            guild_configs[guild_id] = load_json(
+            split_config = load_json(
                 os.path.join(GUILD_CONFIG_FOLDER, config_file)
+            )
+            guild_configs[guild_id] = merge_guild_config_records(
+                guild_configs.get(guild_id),
+                split_config
             )
 
 

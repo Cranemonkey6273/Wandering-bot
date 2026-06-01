@@ -2113,9 +2113,54 @@ def read_json_file(filename: str, default: Any) -> Any:
 
 
 def write_json_file(filename: str, data: Any) -> None:
-    os.makedirs(DATA_ROOT, exist_ok=True)
-    with open(data_path(filename), "w", encoding="utf-8") as handle:
+    path = data_path(filename)
+    os.makedirs(os.path.dirname(path) or DATA_ROOT, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=2, sort_keys=True)
+
+
+def write_split_guild_configs(data: Any) -> None:
+    if not isinstance(data, dict):
+        return
+    for guild_id, config in data.items():
+        if not isinstance(config, dict):
+            continue
+        safe_guild_id = "".join(
+            char for char in str(guild_id)
+            if char.isalnum() or char in {"-", "_"}
+        )
+        if not safe_guild_id:
+            continue
+        write_json_file(os.path.join("guilds", f"{safe_guild_id}.json"), config)
+
+
+def merge_guild_config_records(base: Any, override: Any) -> Any:
+    if not isinstance(base, dict):
+        return override
+    if not isinstance(override, dict):
+        return base
+    merged = dict(base)
+    merged.update(override)
+    base_events = base.get("scenario_events")
+    override_events = override.get("scenario_events")
+    if isinstance(base_events, list) and isinstance(override_events, list):
+        events_by_id = {}
+        for event in base_events + override_events:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or event.get("name") or len(events_by_id))
+            existing = events_by_id.get(event_id)
+            if not existing:
+                events_by_id[event_id] = event
+                continue
+            event_time = str(event.get("updated_at") or event.get("created_at") or "")
+            existing_time = str(existing.get("updated_at") or existing.get("created_at") or "")
+            if event_time >= existing_time:
+                events_by_id[event_id] = event
+        merged["scenario_events"] = list(events_by_id.values())
+    elif isinstance(base_events, list) and not override_events:
+        merged["scenario_events"] = base_events
+    return merged
 
 
 def sync_runtime_store(store_name: str, data: Any) -> None:
@@ -2134,11 +2179,24 @@ def sync_runtime_store(store_name: str, data: Any) -> None:
 
 
 def load_store(name: str, default: Any) -> Any:
-    return read_json_file(FILES[name], default)
+    data = read_json_file(FILES[name], default)
+    if name == "guild_configs" and isinstance(data, dict):
+        guild_dir = data_path("guilds")
+        if os.path.isdir(guild_dir):
+            for filename in os.listdir(guild_dir):
+                if not filename.endswith(".json"):
+                    continue
+                guild_id = filename[:-5]
+                config = read_json_file(os.path.join("guilds", filename), None)
+                if isinstance(config, dict):
+                    data[guild_id] = merge_guild_config_records(data.get(guild_id), config)
+    return data
 
 
 def save_store(name: str, data: Any) -> None:
     write_json_file(FILES[name], data)
+    if name == "guild_configs":
+        write_split_guild_configs(data)
     sync_runtime_store(name, data)
 
 
