@@ -22668,7 +22668,18 @@ def ce_decimal(value, default=0):
     return f"{float(parsed):.2f}".rstrip("0").rstrip(".")
 
 
-def add_console_ce_event_definition(root, event_name, child_type, count, lifetime, restock=0, use_eventgroup=False):
+def add_console_ce_event_definition(
+    root,
+    event_name,
+    child_type,
+    count,
+    lifetime,
+    restock=0,
+    use_eventgroup=False,
+    limit_type="child",
+    child_lootmin=0,
+    child_lootmax=0,
+):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
         ("nominal", count),
@@ -22692,15 +22703,15 @@ def add_console_ce_event_definition(root, event_name, child_type, count, lifetim
     position = ET.SubElement(event_node, "position")
     position.text = "fixed"
     limit = ET.SubElement(event_node, "limit")
-    limit.text = "child"
+    limit.text = str(limit_type or "child")
     active = ET.SubElement(event_node, "active")
     active.text = "1"
 
     children = ET.SubElement(event_node, "children")
     if not use_eventgroup:
         ET.SubElement(children, "child", {
-            "lootmax": "0",
-            "lootmin": "0",
+            "lootmax": str(int(child_lootmax)),
+            "lootmin": str(int(child_lootmin)),
             "max": str(int(count)),
             "min": str(int(count)),
             "type": str(child_type),
@@ -22746,10 +22757,22 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     return group_node, True
 
 
-def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45):
+def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name=""):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     count = max(1, int(count or 1))
     radius = max(1, int(radius or 45))
+    if group_name:
+        attrs = {
+            "x": ce_decimal(x),
+            "z": ce_decimal(z),
+            "a": ce_decimal(angle),
+            "group": str(group_name),
+        }
+        if y is not None:
+            attrs["y"] = ce_decimal(y)
+        ET.SubElement(event_node, "pos", attrs)
+        return event_node
+
     ET.SubElement(event_node, "zone", {
         "smin": "1",
         "smax": str(count),
@@ -22781,6 +22804,12 @@ def console_ce_records_for_event(event):
         warnings.append(f"`{event.get('id')}` has no classname, so it was skipped.")
         return records, warnings
 
+    if event_type == "animal_pack":
+        warnings.append(
+            f"`{event.get('id')}` is an animal pack. Direct custom animal events are not uploaded because DayZ animals use native Animal* events and territory XML; this upload will remove any old WanderingBot animal event entries."
+        )
+        return records, warnings
+
     count = ce_event_nominal_count(event)
     lifetime = 3600
     if event_type == "vehicle_spawn":
@@ -22793,15 +22822,28 @@ def console_ce_records_for_event(event):
         lifetime = 1800
 
     use_eventgroup = event_type in {"airdrop", "loot_crate"}
+    family = "Static" if use_eventgroup else ce_event_family_for_record(event_type, class_name)
+    limit_type = "child"
+    child_lootmin = 0
+    child_lootmax = 0
+    if event_type == "zombie_horde":
+        family = "Item"
+        limit_type = "custom"
+        child_lootmax = 5
+
     records.append({
-        "name": ce_event_name(event, family="Static" if use_eventgroup else ce_event_family_for_record(event_type, class_name)),
+        "name": ce_event_name(event, family=family),
         "class_name": class_name,
         "count": count,
         "lifetime": lifetime,
         "x": event.get("x"),
+        "y": event.get("y"),
         "z": event.get("z"),
         "radius": event.get("radius"),
         "use_eventgroup": use_eventgroup,
+        "limit_type": limit_type,
+        "child_lootmin": child_lootmin,
+        "child_lootmax": child_lootmax,
     })
 
     if event_type == "airdrop":
@@ -22883,9 +22925,18 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
 def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path=""):
     events_text, resolved_events_path, events_source = download_console_ce_source(config, guild_id, "events_path", events_path)
     spawns_text, resolved_spawns_path, spawns_source = download_console_ce_source(config, guild_id, "spawns_path", spawns_path)
+    source_fallbacks = []
+    for label, source in (("events.xml", events_source), ("cfgeventspawns.xml", spawns_source)):
+        source_text = str(source or "")
+        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
+            source_fallbacks.append(f"{label}: {source_text}")
 
     events_root, events_parse_warning = parse_xml_root_or_new(events_text, "events")
     spawns_root, spawns_parse_warning = parse_xml_root_or_new(spawns_text, "eventposdef")
+    if events_parse_warning:
+        source_fallbacks.append(f"events.xml: {events_parse_warning}")
+    if spawns_parse_warning:
+        source_fallbacks.append(f"cfgeventspawns.xml: {spawns_parse_warning}")
 
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
@@ -22905,14 +22956,19 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             record["count"],
             record["lifetime"],
             use_eventgroup=bool(record.get("use_eventgroup")),
+            limit_type=record.get("limit_type") or "child",
+            child_lootmin=record.get("child_lootmin", 0),
+            child_lootmax=record.get("child_lootmax", 0),
         )
         add_console_ce_event_spawn(
             spawns_root,
             record["name"],
             record["x"],
             record["z"],
+            y=record.get("y"),
             count=record["count"],
             radius=record.get("radius") or 45,
+            group_name=record["name"] if record.get("use_eventgroup") else "",
         )
 
     messages = [
@@ -22940,6 +22996,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "spawnabletypes_text": "",
         "record_count": len(records),
         "messages": messages,
+        "source_fallbacks": source_fallbacks,
     }
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
@@ -22958,6 +23015,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         eventgroups_root, eventgroups_parse_warning = parse_xml_root_or_new(eventgroups_text, "eventgroupdef")
         mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "mapgroupproto")
+        if eventgroups_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"cfgeventgroups.xml: {eventgroups_parse_warning}")
+        if mapgroupproto_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"mapgroupproto.xml: {mapgroupproto_parse_warning}")
         removed_groups = remove_wandering_ce_nodes(eventgroups_root)
         added_proto = 0
         for record in eventgroup_records:
@@ -22971,6 +23032,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
         output["messages"].append(eventgroups_source)
         output["messages"].append(mapgroupproto_source)
+        for label, source in (("cfgeventgroups.xml", eventgroups_source), ("mapgroupproto.xml", mapgroupproto_source)):
+            source_text = str(source or "")
+            if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
+                output.setdefault("source_fallbacks", []).append(f"{label}: {source_text}")
         output["messages"].append(
             f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` crate group(s), removed `{removed_groups}` old Wandering Bot group(s)."
         )
@@ -22988,10 +23053,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             spawnabletypes_path
         )
         spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
+        if spawnable_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {spawnable_parse_warning}")
         changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
         output["spawnabletypes_path"] = resolved_spawnable_path
         output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
         output["messages"].append(spawnable_source)
+        source_text = str(spawnable_source or "")
+        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
+            output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {source_text}")
         output["messages"].append(
             f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` airdrop cargo block(s) for: "
             + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
@@ -23007,6 +23077,13 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
 def validate_console_ce_xml_bundle(built):
     messages = []
+    source_fallbacks = built.get("source_fallbacks") if isinstance(built.get("source_fallbacks"), list) else []
+    if source_fallbacks:
+        return False, [
+            "Native CE XML upload blocked because the bot could not download the existing server file(s). "
+            "Refusing to upload a fallback/minimal template over a live Nitrado XML file."
+        ] + [str(item) for item in source_fallbacks[-6:]]
+
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
@@ -23027,8 +23104,9 @@ def validate_console_ce_xml_bundle(built):
             )
         if (event_node.findtext("position") or "").strip() != "fixed":
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
-        if (event_node.findtext("limit") or "").strip() != "child":
-            messages.append(f"`{name}` must use `<limit>child</limit>` for direct child spawns.")
+        limit_text = (event_node.findtext("limit") or "").strip()
+        if limit_text not in {"child", "custom"}:
+            messages.append(f"`{name}` must use `<limit>child</limit>` or `<limit>custom</limit>`.")
         if (event_node.findtext("active") or "").strip() != "1":
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
@@ -23053,7 +23131,8 @@ def validate_console_ce_xml_bundle(built):
             continue
         if not spawn_node.findall("pos"):
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
-        if not spawn_node.findall("zone"):
+        has_group_pos = any(str(pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
+        if not spawn_node.findall("zone") and not has_group_pos:
             messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")
 
     for name in generated_spawns:
