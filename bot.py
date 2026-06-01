@@ -22094,7 +22094,8 @@ DAYZ_REFERENCE_MAP_FOLDERS = {
 }
 dayz_reference_cache = {}
 
-CONSOLE_CE_EVENT_PREFIX = "WanderingBot_"
+CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
+CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 
 
 def dayz_reference_path(map_key, *parts):
@@ -22532,11 +22533,26 @@ def console_ce_event_config(config):
     return settings
 
 
-def ce_event_name(event, suffix=""):
+def ce_event_family_for_record(event_type, class_name=""):
+    event_type = str(event_type or "").strip().lower()
+    class_name = str(class_name or "").strip()
+    if class_name.startswith("Animal_") or event_type == "animal_pack":
+        return "Animal"
+    if class_name.startswith("Zmb") or event_type == "zombie_horde":
+        return "Infected"
+    if event_type == "vehicle_spawn":
+        return "Vehicle"
+    if event_type in {"airdrop", "loot_crate"}:
+        return "Item"
+    return "Static"
+
+
+def ce_event_name(event, suffix="", family=""):
     event_id = int(event.get("id", 0) or 0)
     kind = normalize_discord_name(event.get("event_type", "event")) or "event"
     tail = f"_{normalize_discord_name(suffix)}" if suffix else ""
-    return f"{CONSOLE_CE_EVENT_PREFIX}{event_id}_{kind}{tail}"[:64]
+    event_family = str(family or ce_event_family_for_record(kind, event.get("class_name"))).strip() or "Static"
+    return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{event_id}_{kind}{tail}"[:64]
 
 
 def ce_event_nominal_count(event, override_count=None):
@@ -22570,7 +22586,7 @@ def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
         name = str(child.get("name") or "")
-        if name.startswith(CONSOLE_CE_EVENT_PREFIX):
+        if CONSOLE_CE_EVENT_MARKER in name or name.startswith(CONSOLE_CE_EVENT_PREFIX):
             root.remove(child)
             removed += 1
     return removed
@@ -22668,14 +22684,14 @@ def add_console_ce_event_definition(root, event_name, child_type, count, lifetim
     position = ET.SubElement(event_node, "position")
     position.text = "fixed"
     limit = ET.SubElement(event_node, "limit")
-    limit.text = "custom"
+    limit.text = "child"
     active = ET.SubElement(event_node, "active")
     active.text = "1"
 
     children = ET.SubElement(event_node, "children")
     ET.SubElement(children, "child", {
-        "lootmax": "-1",
-        "lootmin": "-1",
+        "lootmax": "0",
+        "lootmin": "0",
         "max": str(int(count)),
         "min": str(int(count)),
         "type": str(child_type),
@@ -22730,7 +22746,7 @@ def console_ce_records_for_event(event):
         lifetime = 1800
 
     records.append({
-        "name": ce_event_name(event),
+        "name": ce_event_name(event, family=ce_event_family_for_record(event_type, class_name)),
         "class_name": class_name,
         "count": count,
         "lifetime": lifetime,
@@ -22744,7 +22760,7 @@ def console_ce_records_for_event(event):
         guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
         if guard_class and guard_count:
             records.append({
-                "name": ce_event_name(event, "guards"),
+                "name": ce_event_name(event, "guards", family="Infected"),
                 "class_name": guard_class,
                 "count": guard_count,
                 "lifetime": 1800,
@@ -22756,7 +22772,7 @@ def console_ce_records_for_event(event):
         marker_class = str(event.get("marker_class") or "").strip()
         if event.get("visual_marker") and marker_class:
             records.append({
-                "name": ce_event_name(event, "marker"),
+                "name": ce_event_name(event, "marker", family="Static"),
                 "class_name": marker_class,
                 "count": 1,
                 "lifetime": 7200,
@@ -22891,9 +22907,71 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     return output
 
 
+def validate_console_ce_xml_bundle(built):
+    messages = []
+    try:
+        events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
+        spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
+    except Exception as error:
+        return False, [f"XML validation failed before upload: {error}"]
+
+    allowed_families = ("Ambient", "Animal", "Infected", "Item", "Static", "Trajectory", "Vehicle")
+    generated_events = {}
+    for event_node in events_root.findall("event"):
+        name = str(event_node.get("name") or "")
+        if CONSOLE_CE_EVENT_MARKER not in name:
+            continue
+        if not name.startswith(allowed_families):
+            messages.append(
+                f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
+            )
+        if (event_node.findtext("position") or "").strip() != "fixed":
+            messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
+        if (event_node.findtext("limit") or "").strip() != "child":
+            messages.append(f"`{name}` must use `<limit>child</limit>` for direct child spawns.")
+        if (event_node.findtext("active") or "").strip() != "1":
+            messages.append(f"`{name}` is not active.")
+        children = event_node.find("children")
+        child_nodes = list(children.findall("child")) if children is not None else []
+        if not child_nodes:
+            messages.append(f"`{name}` has no `<child>` classname to spawn.")
+        for child in child_nodes:
+            if not str(child.get("type") or "").strip():
+                messages.append(f"`{name}` has a child with no `type` classname.")
+        generated_events[name] = event_node
+
+    generated_spawns = {
+        str(event_node.get("name") or ""): event_node
+        for event_node in spawns_root.findall("event")
+        if CONSOLE_CE_EVENT_MARKER in str(event_node.get("name") or "")
+    }
+
+    for name in generated_events:
+        spawn_node = generated_spawns.get(name)
+        if spawn_node is None:
+            messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
+            continue
+        if not spawn_node.findall("pos"):
+            messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
+        if not spawn_node.findall("zone"):
+            messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")
+
+    for name in generated_spawns:
+        if name not in generated_events:
+            messages.append(f"`{name}` is in cfgeventspawns.xml but missing from events.xml.")
+
+    if messages:
+        return False, messages
+    return True, [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
+
+
 def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
     built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
     messages = list(built["messages"])
+    validation_ok, validation_messages = validate_console_ce_xml_bundle(built)
+    messages.extend(validation_messages)
+    if not validation_ok:
+        return False, built, messages
 
     events_ok, events_message = upload_text_file_to_nitrado(config, built["events_path"], built["events_text"])
     spawns_ok, spawns_message = upload_text_file_to_nitrado(config, built["spawns_path"], built["spawns_text"])
