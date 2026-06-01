@@ -11228,7 +11228,7 @@ async def setup_command(
             value=(
                 "Use `/installdayzbridge` after setup if you want the bot to install the restart delivery hook for you. "
                 "If Nitrado shows a specific FTP host/IP, include it with `ftp_host:` or save it with `/bridge setftphost`. "
-                "It downloads `init.c`, uploads a timestamped backup, inserts `SpawnWanderingDeliveries();` only if missing, "
+                "It downloads `init.c`, keeps one WanderingBot backup, inserts `SpawnWanderingDeliveries();` only if missing, "
                 "and uploads a starter `deliveries.xml`. It is owner-only because changing `init.c` can affect server boot. "
                 "This is for PC/custom hosts only; console packages should use the XML/JSON config workflow."
             ),
@@ -11864,6 +11864,44 @@ def download_text_file_from_nitrado(config, target_path):
         return False, str(error), None
 
 
+def delete_remote_file_from_nitrado_ftp(config, target_path, timeout_seconds=20):
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config, timeout_seconds=timeout_seconds)
+    if ftp_error:
+        return False, ftp_error
+
+    clean = canonical_remote_path(target_path)
+    errors = []
+    try:
+        for ftp_path in nitrado_ftp_path_candidates(config, clean):
+            try:
+                ftp.delete(ftp_path)
+                return True, f"Deleted `{clean}` via {ftp_host}."
+            except Exception as error:
+                errors.append(f"{ftp_path}: {error}")
+
+            folder = os.path.dirname(str(ftp_path).replace("\\", "/")) or "/"
+            filename = os.path.basename(str(ftp_path).replace("\\", "/"))
+            if not filename:
+                continue
+            try:
+                ftp.cwd(canonical_remote_path(folder))
+                ftp.delete(filename)
+                return True, f"Deleted `{clean}` via {ftp_host}."
+            except Exception as error:
+                errors.append(f"{folder}/{filename}: {error}")
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+
+    return False, "; ".join(errors[-4:]) or "FTP delete failed."
+
+
+def delete_remote_file_from_nitrado(config, target_path):
+    return delete_remote_file_from_nitrado_ftp(config, target_path)
+
+
 def canonical_remote_path(path):
     clean = str(path or "").replace("\\", "/").strip().strip("`'\"<>")
     if not clean:
@@ -12063,6 +12101,60 @@ def remote_directory_entries(config, folder, timeout_seconds=8):
         entry["path"] = path
         deduped.append(entry)
     return deduped
+
+
+def is_wanderingbot_backup_name_for(base_name, candidate_name):
+    base_name = str(base_name or "").strip()
+    candidate_name = str(candidate_name or "").strip()
+    if not base_name or not candidate_name:
+        return False
+    backup_prefixes = (
+        f"{base_name}.wanderingbot-backup-",
+        f"{base_name}.wandering-backup-",
+    )
+    return any(candidate_name.startswith(prefix) for prefix in backup_prefixes)
+
+
+def cleanup_wanderingbot_backups_for_path(config, target_path, keep_paths=None, timeout_seconds=8):
+    clean = canonical_remote_path(target_path)
+    folder = os.path.dirname(clean) or "/"
+    base_name = os.path.basename(clean)
+    keep = {canonical_remote_path(path) for path in (keep_paths or []) if path}
+    deleted = []
+    failed = []
+
+    for entry in remote_directory_entries(config, folder, timeout_seconds=timeout_seconds):
+        name = str(entry.get("name") or os.path.basename(str(entry.get("path") or "")))
+        path = canonical_remote_path(entry.get("path") or f"{folder}/{name}")
+        if path in keep:
+            continue
+        if not is_wanderingbot_backup_name_for(base_name, name):
+            continue
+        ok, message = delete_remote_file_from_nitrado(config, path)
+        if ok:
+            deleted.append(path)
+        else:
+            failed.append(f"{path}: {message}")
+
+    return deleted, failed
+
+
+def cleanup_wanderingbot_backups_for_folder(config, folder, timeout_seconds=8):
+    deleted = []
+    failed = []
+    for entry in remote_directory_entries(config, folder, timeout_seconds=timeout_seconds):
+        name = str(entry.get("name") or os.path.basename(str(entry.get("path") or "")))
+        if ".wanderingbot-backup-" not in name and ".wandering-backup-" not in name:
+            continue
+        path = canonical_remote_path(entry.get("path") or f"{folder}/{name}")
+        if path.endswith(".wanderingbot-backup-latest"):
+            continue
+        ok, message = delete_remote_file_from_nitrado(config, path)
+        if ok:
+            deleted.append(path)
+        else:
+            failed.append(f"{path}: {message}")
+    return deleted, failed
 
 
 def init_search_roots(config):
@@ -23615,6 +23707,11 @@ def backup_remote_ce_sources_before_upload(config, built):
         backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
         if not backup_ok:
             return False, backup_messages
+        deleted, failed = cleanup_wanderingbot_backups_for_path(config, path, keep_paths=[backup_path])
+        if deleted:
+            backup_messages.append(f"`{label}` old WanderingBot backups removed: {len(deleted)}")
+        if failed:
+            backup_messages.append(f"`{label}` old backup cleanup skipped for {len(failed)} file(s): {' | '.join(failed[:2])}")
     return True, backup_messages
 
 
@@ -28178,7 +28275,7 @@ async def installdayzbridge(
             name="What install:true does",
             value=(
                 "1. Downloads `init.c` from FTP.\n"
-                "2. Uploads a timestamped backup next to it.\n"
+                "2. Uploads one rolling WanderingBot backup next to it.\n"
                 "3. Adds `SpawnWanderingDeliveries()` only if missing.\n"
                 "4. Adds `SpawnWanderingDeliveries();` only if missing.\n"
                 "5. Uploads a starter `deliveries.xml`."
@@ -28189,7 +28286,7 @@ async def installdayzbridge(
         await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
         return
 
-    backup_path = f"{init_path}.wandering-backup-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
+    backup_path = f"{init_path}.wanderingbot-backup-latest"
     await interaction.followup.send(f"Creating backup at `{backup_path}`...", ephemeral=True)
     try:
         backup_ok, backup_message = await run_bridge_blocking_io(
@@ -28213,6 +28310,12 @@ async def installdayzbridge(
             ephemeral=True
         )
         return
+    deleted_backups, failed_backup_cleanup = await asyncio.to_thread(
+        cleanup_wanderingbot_backups_for_path,
+        config,
+        init_path,
+        [backup_path],
+    )
 
     if changed:
         await interaction.followup.send("Backup created. Uploading patched `init.c`...", ephemeral=True)
@@ -28277,6 +28380,10 @@ async def installdayzbridge(
     )
     embed.add_field(name="init.c", value=f"`{init_path}`", inline=False)
     embed.add_field(name="Backup", value=f"`{backup_path}`", inline=False)
+    if deleted_backups:
+        embed.add_field(name="Old Backups Removed", value=str(len(deleted_backups)), inline=True)
+    if failed_backup_cleanup:
+        embed.add_field(name="Backup Cleanup Warnings", value="\n".join(failed_backup_cleanup[:2])[:1000], inline=False)
     embed.add_field(name="Delivery XML", value=f"`{delivery_path}`", inline=False)
     embed.add_field(name="Changed init.c", value="Yes" if changed else "Already installed", inline=True)
     embed.add_field(name="Starter XML", value="Uploaded" if delivery_ok else f"Failed: {delivery_message}", inline=True)
@@ -32955,6 +33062,68 @@ async def slash_givepennies(interaction: discord.Interaction, member: discord.Me
 @extra_tools_group.command(name="shopcategories", description="Show shop categories")
 async def slash_shopcategories(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "shopcategories")
+
+
+@extra_tools_group.command(name="cleanupbackups", description="Admin: remove old WanderingBot backup files, keeping latest only")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(folder="Optional exact Nitrado folder to clean. Leave blank to clean this server's usual mission folders.")
+async def slash_cleanupbackups(interaction: discord.Interaction, folder: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.get(guild_id, {})
+    folders = []
+    if folder:
+        folders.append(canonical_remote_path(folder))
+    else:
+        ce_paths = console_ce_default_paths(guild_id)
+        ce_settings = console_ce_event_config(config)
+        for key in ("events_path", "spawns_path", "spawnabletypes_path", "eventgroups_path", "mapgroupproto_path", "cfgenvironment_path"):
+            path = ce_settings.get(key) or ce_paths.get(key)
+            if path:
+                folders.append(os.path.dirname(canonical_remote_path(path)) or "/")
+        bridge = config.get("dayz_delivery_bridge") if isinstance(config.get("dayz_delivery_bridge"), dict) else {}
+        for path in (bridge.get("init_path"), bridge.get("delivery_path")):
+            if path:
+                folders.append(os.path.dirname(canonical_remote_path(path)) or "/")
+
+    deduped_folders = []
+    for item in folders:
+        item = canonical_remote_path(item)
+        if item and item not in deduped_folders:
+            deduped_folders.append(item)
+
+    deleted_all = []
+    failed_all = []
+    for one_folder in deduped_folders:
+        deleted, failed = await asyncio.to_thread(
+            cleanup_wanderingbot_backups_for_folder,
+            config,
+            one_folder,
+        )
+        deleted_all.extend(deleted)
+        failed_all.extend(failed)
+
+    embed = discord.Embed(
+        title="WANDERING BOT BACKUP CLEANUP",
+        description=(
+            "Only WanderingBot backup filenames were targeted. "
+            "`*.wanderingbot-backup-latest` files were kept."
+        ),
+        color=0x2ECC71 if not failed_all else 0xF1C40F,
+    )
+    embed.add_field(name="Folders Checked", value=str(len(deduped_folders)), inline=True)
+    embed.add_field(name="Old Backups Removed", value=str(len(deleted_all)), inline=True)
+    if deleted_all:
+        embed.add_field(name="Removed", value="\n".join(f"`{path}`" for path in deleted_all[:10])[:1000], inline=False)
+    if failed_all:
+        embed.add_field(name="Warnings", value="\n".join(failed_all[:5])[:1000], inline=False)
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
 @extra_tools_group.command(name="channelstatus", description="Admin: show bot channels disabled by deletion")
 @app_commands.default_permissions(administrator=True)
 async def slash_channelstatus(interaction: discord.Interaction):
