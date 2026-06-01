@@ -265,7 +265,9 @@ PAGE_TEMPLATE = """
     .brand img { width: 3rem; height: 3rem; border-radius: .75rem; object-fit: cover; }
     .brand strong { display: block; text-transform: uppercase; letter-spacing: .08em; }
     .brand span, .muted { color: var(--muted); }
-    .theme-picker { display: flex; gap: .35rem; align-items: center; flex-wrap: wrap; }
+    .theme-picker { display: flex; gap: .35rem; align-items: center; justify-content: flex-end; flex-wrap: wrap; max-width: min(42rem, 100%); }
+    .theme-picker label { display: flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .85rem; }
+    .theme-picker select { min-height: 2rem; padding: .25rem .55rem; width: 9.5rem; }
     .theme-picker button { width: 2rem; height: 2rem; padding: 0; border-radius: 999px; border-color: var(--line); color: transparent; overflow: hidden; }
     .theme-picker button[data-theme-choice="default"] { background: linear-gradient(135deg, #8d963e 0 50%, #d5b45f 50%); }
     .theme-picker button[data-theme-choice="forest"] { background: linear-gradient(135deg, #7ca45a 0 50%, #c8d46a 50%); }
@@ -427,10 +429,12 @@ PAGE_TEMPLATE = """
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
-    .item-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .55rem; }
-    .item-picker-controls { display: grid; grid-template-columns: minmax(12rem, 1fr) 5rem minmax(8rem, .45fr) minmax(8rem, .45fr) auto; gap: .45rem; align-items: end; }
+    .item-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .55rem; min-width: 0; overflow: hidden; }
+    .item-picker label { min-width: 0; }
+    .item-picker-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .45rem; align-items: end; min-width: 0; }
+    .item-picker-controls button { align-self: end; min-width: 5rem; }
     .item-picker-preview { display: flex; gap: .5rem; align-items: center; color: var(--muted); min-width: 0; }
-    .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; }
+    .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .35rem; }
     .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); min-width: 0; }
     .shop-picker-card img, .item-thumb { width: 2rem; height: 2rem; border-radius: .4rem; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }
     .shop-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -528,7 +532,7 @@ PAGE_TEMPLATE = """
       .leader-name { white-space: normal; }
       .item-table { min-width: 40rem; }
       .item-table th, .item-table td { padding: .55rem .5rem; font-size: .88rem; }
-      .item-picker-controls { grid-template-columns: 1fr 5rem; }
+      .item-picker-controls { grid-template-columns: 1fr; }
       .table-scroll .item-table { min-width: 40rem; }
       .category-link, .option-card, .help-card { padding: .75rem; }
       .trial-notice { align-items: stretch; flex-direction: column; }
@@ -558,6 +562,24 @@ PAGE_TEMPLATE = """
       <a href="/logout">Logout</a>
     </nav>
     <div class="theme-picker" aria-label="Theme picker">
+      <label>Theme
+        <select data-theme-select>
+          <option value="default">Wandering</option>
+          <option value="forest">Forest</option>
+          <option value="amber">Amber</option>
+          <option value="steel">Steel</option>
+          <option value="highland">Highland</option>
+          <option value="daylight">Daylight</option>
+          <option value="sandstorm">Sandstorm</option>
+          <option value="midnight">Midnight</option>
+          <option value="bloodmoon">Blood Moon</option>
+          <option value="radioactive">Radioactive</option>
+          <option value="arctic">Arctic</option>
+          <option value="toxic">Toxic</option>
+          <option value="violet">Violet</option>
+          <option value="rose">Rose</option>
+        </select>
+      </label>
       <button type="button" data-theme-choice="default" title="Wandering"></button>
       <button type="button" data-theme-choice="forest" title="Forest"></button>
       <button type="button" data-theme-choice="amber" title="Amber"></button>
@@ -2173,6 +2195,9 @@ Event pings | bell | 1234567890</textarea></label>
       document.querySelectorAll("[data-theme-choice]").forEach((button) => {
         button.classList.toggle("active", button.dataset.themeChoice === safeTheme);
       });
+      document.querySelectorAll("[data-theme-select]").forEach((select) => {
+        select.value = safeTheme;
+      });
     }
     const itemLookup = new Map((ITEM_LOOKUP || []).map((item) => [String(item.name || "").toLowerCase(), item]));
     function itemInfo(name) {
@@ -2182,6 +2207,7 @@ Event pings | bell | 1234567890</textarea></label>
       return `/item-thumb/${encodeURIComponent(category || "General")}`;
     }
     function syncPickerPreview(picker) {
+      if (!picker) return;
       const input = picker.querySelector("[data-picker-item]");
       const image = picker.querySelector("[data-picker-image]");
       const label = picker.querySelector("[data-picker-label]");
@@ -2215,7 +2241,7 @@ Event pings | bell | 1234567890</textarea></label>
         const picker = pickerCard.closest("[data-item-picker]");
         const input = picker ? picker.querySelector("[data-picker-item]") : null;
         if (input) input.value = pickerCard.dataset.item || "";
-        syncPickerPreview(picker);
+        if (picker) syncPickerPreview(picker);
         return;
       }
       const pickerButton = event.target.closest("[data-picker-add]");
@@ -2237,12 +2263,27 @@ Event pings | bell | 1234567890</textarea></label>
           : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
         output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
         itemInput.value = "";
-        syncPickerPreview(picker);
+        if (picker) syncPickerPreview(picker);
         itemInput.focus();
       }
     });
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
+    });
+    document.addEventListener("change", (event) => {
+      if (event.target.matches("[data-theme-select]")) {
+        const theme = event.target.value || "default";
+        localStorage.setItem("wanderingDashboardTheme", theme);
+        applyTheme(theme);
+        const token = new URLSearchParams(window.location.search).get("token");
+        const guildId = new URLSearchParams(window.location.search).get("guild_id") || "{{ server.guild_id if server else '' }}";
+        fetch(secureDashboardUrl(`/api/admin/theme${token ? `?token=${encodeURIComponent(token)}` : ""}`), {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json"},
+          credentials: "same-origin",
+          body: JSON.stringify({theme, guild_id: guildId})
+        }).catch(() => {});
+      }
     });
     function filterShopPanel(panel) {
       if (!panel) return;
