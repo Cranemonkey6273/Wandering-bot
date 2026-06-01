@@ -427,10 +427,16 @@ PAGE_TEMPLATE = """
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
+    .item-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .55rem; }
+    .item-picker-controls { display: grid; grid-template-columns: minmax(12rem, 1fr) 5rem minmax(8rem, .45fr) minmax(8rem, .45fr) auto; gap: .45rem; align-items: end; }
+    .item-picker-preview { display: flex; gap: .5rem; align-items: center; color: var(--muted); min-width: 0; }
     .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; }
-    .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); }
+    .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); min-width: 0; }
+    .shop-picker-card img, .item-thumb { width: 2rem; height: 2rem; border-radius: .4rem; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }
     .shop-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shop-picker-card span { color: var(--muted); font-size: .78rem; }
+    .item-table .item-name-cell { display: flex; align-items: center; gap: .55rem; min-width: 0; }
+    .item-table .item-name-cell strong { overflow-wrap: anywhere; }
     .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; }
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
     .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
@@ -522,6 +528,7 @@ PAGE_TEMPLATE = """
       .leader-name { white-space: normal; }
       .item-table { min-width: 40rem; }
       .item-table th, .item-table td { padding: .55rem .5rem; font-size: .88rem; }
+      .item-picker-controls { grid-template-columns: 1fr 5rem; }
       .table-scroll .item-table { min-width: 40rem; }
       .category-link, .option-card, .help-card { padding: .75rem; }
       .trial-notice { align-items: stretch; flex-direction: column; }
@@ -535,7 +542,7 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body>
+<body data-theme="{{ dashboard_theme if dashboard_theme != 'default' else '' }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   <header>
@@ -804,6 +811,37 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <div class="panel-grid">
+        <datalist id="xml-item-options">
+          {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.category }}</option>{% endfor %}
+        </datalist>
+        <article class="admin-panel full" data-types-tool>
+          <h3>Types XML Tools</h3>
+          <p class="tool-note">Paste a types.xml file, choose a tool, then generate a safe edited copy. This does not overwrite the server file until the guarded uploader is used.</p>
+          <div class="panel-grid">
+            <label class="full">Paste types.xml
+              <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot;?><types><type name=&quot;AKM&quot;>...</type></types>"></textarea>
+            </label>
+            <label>Tool
+              <select data-types-action>
+                <option value="reduce">Types Reducer</option>
+                <option value="boost">Types Booster</option>
+                <option value="lifetime_reduce">Lifetime Reducer</option>
+                <option value="tier_boost">Tier Booster</option>
+                <option value="organize">Types Organizer</option>
+              </select>
+            </label>
+            <label>Factor <input data-types-factor type="number" step="0.05" value="0.5"></label>
+            <label>Filter <input data-types-filter placeholder="classname/category/tier"></label>
+            <label class="check"><input data-types-field value="nominal" type="checkbox" checked> Nominal</label>
+            <label class="check"><input data-types-field value="min" type="checkbox"> Min</label>
+            <label class="check"><input data-types-field value="lifetime" type="checkbox"> Lifetime</label>
+            <label class="check"><input data-types-field value="restock" type="checkbox"> Restock</label>
+            <div class="full"><button type="button" data-types-process>Generate XML</button> <button type="button" data-types-copy>Copy Output</button> <span class="result muted" data-types-result></span></div>
+            <label class="full">Generated XML
+              <textarea data-types-output readonly placeholder="Processed XML appears here"></textarea>
+            </label>
+          </div>
+        </article>
         <article class="admin-panel">
           <h3>Embed & Timed Message Builder</h3>
           <form class="admin-form" data-route="/api/admin/embed-template">
@@ -1601,19 +1639,29 @@ Event pings | bell | 1234567890</textarea></label>
             <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
             <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
             <div class="full">
-              <label>Find item from this server's shop/types list
-                <input data-bundle-item-search list="bundle-item-options" placeholder="Search item classname">
-              </label>
+              <div class="item-picker" data-item-picker data-picker-mode="bundle">
+                <div class="item-picker-controls">
+                  <label>Find item from this server's shop/types list
+                    <input data-picker-item list="bundle-item-options" placeholder="Search item classname">
+                  </label>
+                  <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                  <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                  <label>Slot <select data-picker-slot><option value="">Any</option><option>Head</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option></select></label>
+                  <button type="button" data-picker-add>Add</button>
+                </div>
+                <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick an item to preview it.</span></div>
+                <div class="shop-picker-list">
+                  {% for item in (server.shop_items[:12] if server else []) %}
+                  <button type="button" class="shop-picker-card" data-picker-card data-item="{{ item.name }}" data-image="{{ item.image_url }}" data-fallback="{{ item.fallback_image_url }}"><img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong><span>{{ item.category }}</span></span></button>
+                  {% endfor %}
+                </div>
+              </div>
               <datalist id="bundle-item-options">
                 {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.category }}</option>{% endfor %}
               </datalist>
-              <div class="shop-toolbar" style="margin-top:.5rem">
-                <label>Qty <input data-bundle-item-qty type="number" min="1" max="999" value="1"></label>
-                <button type="button" data-bundle-add-item>Add To Bundle</button>
-              </div>
             </div>
             <label class="full">Bundle items
-              <textarea name="bundle_items" data-bundle-items placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
+              <textarea name="bundle_items" data-picker-output placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
             </label>
             <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full"><button type="submit">Save Bundle</button> <span class="result muted"></span></div>
@@ -1637,7 +1685,7 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for item in (server.shop_items if server else []) %}
               <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
-                <td>{{ item.name }}{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</td>
+                <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
                 <td>{{ item.category }}</td>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
@@ -1658,7 +1706,7 @@ Event pings | bell | 1234567890</textarea></label>
             <tbody>
               {% for item in items %}
               <tr>
-                <td>{{ item.name }}{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</td>
+                <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
                 <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
@@ -1718,11 +1766,21 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="container">
             <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
-            <label>Container classname <input name="container_class" list="bundle-item-options" value="DryBag_Black"></label>
+            <label>Container classname <input name="container_class" list="xml-item-options" value="DryBag_Black"></label>
             <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
             <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
+            <div class="full item-picker" data-item-picker data-picker-mode="xml">
+              <div class="item-picker-controls">
+                <label>Find item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option><option value="25">25%</option></select></label>
+                <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                <button type="button" data-picker-add>Add</button>
+              </div>
+              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose items without typing classnames by hand.</span></div>
+            </div>
             <label class="full">Items inside
-              <textarea name="items" placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
+              <textarea name="items" data-picker-output placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
             </label>
             <div class="full"><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
           </form>
@@ -1749,8 +1807,20 @@ Event pings | bell | 1234567890</textarea></label>
                 <p class="tool-note">Item, amount, quantity %, damage, slot, attachment-for. Example: WaterBottle, 1, 100, pristine, Back</p>
               </div>
             </div>
+            <div class="full item-picker" data-item-picker data-picker-mode="loadout">
+              <div class="item-picker-controls">
+                <label>Find item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option><option>Gloves</option><option>Armband</option></select></label>
+                <button type="button" data-picker-add>Add</button>
+              </div>
+              <label>Attachment for weapon/item <input data-picker-attachment list="xml-item-options" placeholder="optional parent classname"></label>
+              <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
+            </div>
             <label class="full">Loadout items
-              <textarea name="items" placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
+              <textarea name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
             </label>
             <div class="full embed-preview"><strong>cfggameplay.json</strong><span>This loadout will be referenced from PlayerData.spawnGearPresetFiles using the custom file path above.</span></div>
             <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
@@ -1762,10 +1832,20 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
             <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
-            <label>Vehicle classname <input name="vehicle_class" list="bundle-item-options" value="Truck_01_Covered"></label>
+            <label>Vehicle classname <input name="vehicle_class" list="xml-item-options" value="Truck_01_Covered"></label>
             <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
+            <div class="full item-picker" data-item-picker data-picker-mode="xml">
+              <div class="item-picker-controls">
+                <label>Find cargo item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                <button type="button" data-picker-add>Add</button>
+              </div>
+              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Build vehicle cargo from server item data.</span></div>
+            </div>
             <label class="full">Cargo items
-              <textarea name="items" placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
+              <textarea name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
             </label>
             <div class="full"><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
           </form>
@@ -2072,6 +2152,8 @@ Event pings | bell | 1234567890</textarea></label>
   </main>
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
+    const DASHBOARD_THEME = "{{ dashboard_theme }}";
+    const ITEM_LOOKUP = {{ (server.shop_items if server else [])|tojson }};
     document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
       const fallback = window.location.origin;
@@ -2092,30 +2174,75 @@ Event pings | bell | 1234567890</textarea></label>
         button.classList.toggle("active", button.dataset.themeChoice === safeTheme);
       });
     }
-    applyTheme(localStorage.getItem("wanderingDashboardTheme") || "default");
+    const itemLookup = new Map((ITEM_LOOKUP || []).map((item) => [String(item.name || "").toLowerCase(), item]));
+    function itemInfo(name) {
+      return itemLookup.get(String(name || "").trim().toLowerCase()) || {};
+    }
+    function fallbackThumb(category) {
+      return `/item-thumb/${encodeURIComponent(category || "General")}`;
+    }
+    function syncPickerPreview(picker) {
+      const input = picker.querySelector("[data-picker-item]");
+      const image = picker.querySelector("[data-picker-image]");
+      const label = picker.querySelector("[data-picker-label]");
+      const name = input ? input.value.trim() : "";
+      const info = itemInfo(name);
+      if (image) {
+        image.src = info.image_url || fallbackThumb(info.category);
+        image.onerror = () => { image.onerror = null; image.src = info.fallback_image_url || fallbackThumb(info.category); };
+      }
+      if (label) label.textContent = name ? `${name}${info.category ? ` · ${info.category}` : ""}` : "Pick an item to preview it.";
+    }
+    applyTheme(DASHBOARD_THEME || localStorage.getItem("wanderingDashboardTheme") || "default");
     document.addEventListener("click", (event) => {
       const themeButton = event.target.closest("[data-theme-choice]");
       if (themeButton) {
         const theme = themeButton.dataset.themeChoice || "default";
         localStorage.setItem("wanderingDashboardTheme", theme);
         applyTheme(theme);
+        const token = new URLSearchParams(window.location.search).get("token");
+        const guildId = new URLSearchParams(window.location.search).get("guild_id") || "{{ server.guild_id if server else '' }}";
+        fetch(secureDashboardUrl(`/api/admin/theme${token ? `?token=${encodeURIComponent(token)}` : ""}`), {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json"},
+          credentials: "same-origin",
+          body: JSON.stringify({theme, guild_id: guildId})
+        }).catch(() => {});
         return;
       }
-      const bundleButton = event.target.closest("[data-bundle-add-item]");
-      if (bundleButton) {
-        const form = bundleButton.closest("form");
-        if (!form) return;
-        const itemInput = form.querySelector("[data-bundle-item-search]");
-        const qtyInput = form.querySelector("[data-bundle-item-qty]");
-        const textarea = form.querySelector("[data-bundle-items]");
+      const pickerCard = event.target.closest("[data-picker-card]");
+      if (pickerCard) {
+        const picker = pickerCard.closest("[data-item-picker]");
+        const input = picker ? picker.querySelector("[data-picker-item]") : null;
+        if (input) input.value = pickerCard.dataset.item || "";
+        syncPickerPreview(picker);
+        return;
+      }
+      const pickerButton = event.target.closest("[data-picker-add]");
+      if (pickerButton) {
+        const picker = pickerButton.closest("[data-item-picker]");
+        const form = picker ? picker.closest("form") : null;
+        const output = form ? form.querySelector("[data-picker-output]") : null;
+        const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
         const item = itemInput ? itemInput.value.trim() : "";
-        const qty = Math.max(1, Math.min(999, Number(qtyInput ? qtyInput.value : 1) || 1));
-        if (!item || !textarea) return;
-        const line = `${qty}x ${item}`;
-        textarea.value = textarea.value.trim() ? `${textarea.value.trim()}\n${line}` : line;
+        if (!item || !output) return;
+        const qty = Math.max(1, Math.min(999, Number(picker.querySelector("[data-picker-qty]")?.value || 1) || 1));
+        const mode = picker.dataset.pickerMode || "xml";
+        const quantity = picker.querySelector("[data-picker-quantity]")?.value || "-1";
+        const damage = picker.querySelector("[data-picker-damage]")?.value || "pristine";
+        const slot = picker.querySelector("[data-picker-slot]")?.value || "";
+        const attachment = picker.querySelector("[data-picker-attachment]")?.value || "";
+        const line = mode === "bundle"
+          ? `${qty}x ${item}`
+          : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
+        output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
         itemInput.value = "";
+        syncPickerPreview(picker);
         itemInput.focus();
       }
+    });
+    document.addEventListener("input", (event) => {
+      if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
     });
     function filterShopPanel(panel) {
       if (!panel) return;
@@ -2145,6 +2272,75 @@ Event pings | bell | 1234567890</textarea></label>
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
+    function prettyXml(xmlDoc) {
+      const raw = new XMLSerializer().serializeToString(xmlDoc);
+      return raw.replace(/></g, ">\n<");
+    }
+    function processTypesTool(panel) {
+      const input = panel.querySelector("[data-types-input]");
+      const output = panel.querySelector("[data-types-output]");
+      const result = panel.querySelector("[data-types-result]");
+      const xmlText = input ? input.value.trim() : "";
+      if (!xmlText) {
+        if (result) result.textContent = "Paste types.xml first.";
+        return;
+      }
+      const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+      if (doc.querySelector("parsererror")) {
+        if (result) result.textContent = "XML parse failed. Fix the pasted XML first.";
+        return;
+      }
+      const action = panel.querySelector("[data-types-action]")?.value || "reduce";
+      const factor = Number(panel.querySelector("[data-types-factor]")?.value || 1);
+      const filter = String(panel.querySelector("[data-types-filter]")?.value || "").trim().toLowerCase();
+      const fields = Array.from(panel.querySelectorAll("[data-types-field]:checked")).map((box) => box.value);
+      const typesRoot = doc.querySelector("types");
+      const types = Array.from(doc.querySelectorAll("type"));
+      let changed = 0;
+      function matches(type) {
+        if (!filter) return true;
+        return (type.getAttribute("name") || "").toLowerCase().includes(filter)
+          || Array.from(type.children).some((child) => (`${child.tagName} ${child.getAttribute("name") || ""}`).toLowerCase().includes(filter));
+      }
+      function updateField(type, field, multiplier) {
+        const node = Array.from(type.children).find((child) => child.tagName === field);
+        if (!node) return;
+        const value = Number(node.textContent || 0);
+        if (!Number.isFinite(value)) return;
+        node.textContent = String(Math.max(0, Math.round(value * multiplier)));
+        changed += 1;
+      }
+      if (action === "organize" && typesRoot) {
+        types.sort((a, b) => String(a.getAttribute("name") || "").localeCompare(String(b.getAttribute("name") || "")));
+        types.forEach((type) => typesRoot.appendChild(type));
+        changed = types.length;
+      } else {
+        types.filter(matches).forEach((type) => {
+          const multiplier = action === "boost" || action === "tier_boost" ? factor : factor;
+          const wanted = action === "lifetime_reduce" ? ["lifetime"] : (fields.length ? fields : ["nominal"]);
+          wanted.forEach((field) => updateField(type, field, multiplier));
+        });
+      }
+      if (output) output.value = prettyXml(doc);
+      if (result) result.textContent = `${changed} value${changed === 1 ? "" : "s"} updated. Copy or download before uploading.`;
+    }
+    document.addEventListener("click", async (event) => {
+      const processButton = event.target.closest("[data-types-process]");
+      if (processButton) {
+        processTypesTool(processButton.closest("[data-types-tool]"));
+        return;
+      }
+      const copyButton = event.target.closest("[data-types-copy]");
+      if (copyButton) {
+        const panel = copyButton.closest("[data-types-tool]");
+        const output = panel ? panel.querySelector("[data-types-output]") : null;
+        if (output && output.value) {
+          await navigator.clipboard.writeText(output.value).catch(() => {});
+          const result = panel.querySelector("[data-types-result]");
+          if (result) result.textContent = "Copied output.";
+        }
+      }
+    });
     function formValue(value) {
       const text = String(value || "").trim();
       if (text === "true") return true;
@@ -2614,6 +2810,7 @@ ADMIN_ROUTES = [
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/shop-bundle",
+    "/api/admin/theme",
     "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
     "/api/admin/scenario-event-action",
@@ -3119,7 +3316,7 @@ def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
                 continue
             quantity = safe_int(match.group(1) or match.group(3), 1)
             item_name = match.group(2).strip()
-        quantity = max(1, min(100, quantity))
+        quantity = max(1, min(999, quantity))
         if item_name and is_shop_sellable_item(item_name, ""):
             rows.append({"item": item_name, "quantity": quantity})
     return rows
@@ -3785,6 +3982,29 @@ def dashboard_admin_records(dashboard_admin: Any, section: str, guild_id: str) -
     return [item for item in list_records(section_data.get(guild_id, {})) if isinstance(item, dict)]
 
 
+VALID_DASHBOARD_THEMES = {
+    "default", "forest", "amber", "steel", "highland", "daylight", "sandstorm",
+    "midnight", "bloodmoon", "radioactive", "arctic", "toxic", "violet", "rose",
+}
+
+
+def dashboard_theme_from_config(config: dict[str, Any]) -> str:
+    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    theme = str(dashboard.get("theme") or config.get("dashboard_theme") or "default").strip().lower()
+    return theme if theme in VALID_DASHBOARD_THEMES else "default"
+
+
+def item_image_url(item_name: Any) -> str:
+    item = safe_dayz_class(item_name)
+    if not item:
+        return ""
+    return f"https://db.mydayz.eu/wp-content/uploads/2025/08/{urllib.parse.quote(item)}.png.webp"
+
+
+def item_thumb_fallback(category: Any = "General") -> str:
+    return f"/item-thumb/{urllib.parse.quote(str(category or 'General'))}"
+
+
 def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
     categories: dict[str, list[dict[str, Any]]] = {}
     if not isinstance(shop, dict):
@@ -3801,6 +4021,8 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
             {
                 "name": str(item_name),
                 "category": category,
+                "image_url": item_image_url(item_name),
+                "fallback_image_url": item_thumb_fallback(category),
                 "type": "bundle" if is_bundle else "item",
                 "price": safe_int(data.get("price")),
                 "enabled": bool(data.get("enabled", True)),
@@ -4254,6 +4476,7 @@ def page(mode: str, auth: dict[str, Any]):
             state["servers"] = focused + others
     selected_server = state["servers"][0] if state.get("servers") else {}
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
+    dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
 
     def section_allowed(section: str) -> bool:
         if auth.get("kind") == "owner":
@@ -4267,6 +4490,7 @@ def page(mode: str, auth: dict[str, Any]):
         PAGE_TEMPLATE,
         mode=mode,
         active_section=active_section,
+        dashboard_theme=dashboard_theme,
         section_allowed=section_allowed,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
         auth=auth,
@@ -4391,6 +4615,30 @@ def map_image(map_key: str):
             return redirect(source)
         return APP.response_class(image_bytes, mimetype=content_type)
     return ("", 404)
+
+
+@APP.get("/item-thumb/<category>")
+def item_thumb(category: str):
+    label = str(category or "Item").strip()[:18] or "Item"
+    colours = {
+        "weapons": ("#2a3240", "#79c7dd"),
+        "medical": ("#2f1620", "#ff719e"),
+        "food": ("#2f2612", "#ffb45d"),
+        "building": ("#1e2d1b", "#b6ff4d"),
+        "tools": ("#1a2630", "#a7e5ff"),
+        "clothing": ("#21182d", "#d6a2ff"),
+        "containers": ("#2d2418", "#d9b779"),
+        "bundles": ("#10210c", "#7cff5b"),
+    }
+    bg, fg = colours.get(label.lower(), ("#172016", "#d5b45f"))
+    initial = re.sub(r"[^A-Za-z0-9]", "", label[:1].upper()) or "I"
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+<rect width="96" height="96" rx="14" fill="{bg}"/>
+<circle cx="48" cy="36" r="17" fill="{fg}" opacity=".88"/>
+<rect x="22" y="58" width="52" height="12" rx="6" fill="{fg}" opacity=".55"/>
+<text x="48" y="43" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#071008">{initial}</text>
+</svg>"""
+    return APP.response_class(svg, mimetype="image/svg+xml")
 
 
 @APP.get("/")
@@ -4603,6 +4851,30 @@ def api_shop_bundle():
     guild_shop[bundle_name] = existing
     save_store("shop", shop)
     return jsonify({"ok": True, "bundle": {bundle_name: existing}})
+
+
+@APP.post("/api/admin/theme")
+def api_admin_theme():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    theme = str(payload.get("theme") or "default").strip().lower()
+    if theme not in VALID_DASHBOARD_THEMES:
+        return jsonify({"ok": False, "error": "unknown dashboard theme"}), 400
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    dashboard = config.setdefault("dashboard", {})
+    if not isinstance(dashboard, dict):
+        dashboard = {}
+        config["dashboard"] = dashboard
+    dashboard["theme"] = theme
+    dashboard["theme_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "theme": theme})
 
 
 @APP.post("/api/admin/xml-workshop")
