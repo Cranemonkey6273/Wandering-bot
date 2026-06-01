@@ -231,6 +231,7 @@ PAGE_TEMPLATE = """
     body[data-theme="sandstorm"] { color-scheme: light; --bg: #efe3c9; --panel: #fff7e7; --panel-2: #e6d0a3; --panel-3: #f6eddc; --line: rgba(121, 87, 43, .34); --text: #261b0f; --muted: #6b5132; --dim: #8d7652; --olive: #8d7b39; --gold: #b77c2c; --accent: #b77c2c; }
     body[data-theme="midnight"] { --bg: #05070d; --panel: #121726; --panel-2: #202940; --panel-3: #0b1020; --line: rgba(130, 153, 216, .34); --text: #f3f7ff; --muted: #bec8e4; --olive: #6878b8; --gold: #94b4ff; --accent: #94b4ff; }
     body[data-theme="bloodmoon"] { --bg: #100607; --panel: #241012; --panel-2: #38191a; --panel-3: #180a0c; --line: rgba(226, 92, 92, .34); --text: #fff0ed; --muted: #dfb7b2; --olive: #a94444; --gold: #ffb45d; --accent: #ff866d; }
+    html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -238,6 +239,7 @@ PAGE_TEMPLATE = """
       color: var(--text);
       background: linear-gradient(180deg, #10150d 0%, var(--bg) 100%);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow-x: hidden;
     }
     a { color: var(--gold); text-decoration: none; }
     h1, h2, h3, p { margin-top: 0; }
@@ -324,7 +326,7 @@ PAGE_TEMPLATE = """
     .route-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; }
     .route-list code { display: block; overflow-wrap: anywhere; }
     .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; align-items: start; }
-    .admin-panel { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel-3); }
+    .admin-panel { min-width: 0; border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel-3); }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
@@ -334,7 +336,9 @@ PAGE_TEMPLATE = """
     .table th, .table td { border-bottom: 1px solid var(--line); padding: .55rem; text-align: left; color: var(--muted); }
     .table th { color: var(--text); font-size: .8rem; text-transform: uppercase; }
     .section-nav { position: sticky; top: 5rem; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); backdrop-filter: blur(14px); }
-    .section-panel { padding: 1rem; scroll-margin-top: 8rem; }
+    .mobile-section-picker { display: none; position: sticky; top: 4.5rem; z-index: 2; padding: .6rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); backdrop-filter: blur(14px); }
+    .mobile-section-picker label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+    .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
     .section-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: .85rem; }
     .server-lock { display: grid; grid-template-columns: 1fr; gap: .35rem; margin-bottom: .75rem; }
     .server-lock span { color: var(--muted); font-size: .85rem; }
@@ -379,7 +383,9 @@ PAGE_TEMPLATE = """
     .bar { height: .65rem; border-radius: 999px; background: rgba(213, 180, 95, .18); overflow: hidden; }
     .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--olive), var(--gold)); }
     .item-table { width: 100%; border-collapse: collapse; }
-    .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; }
+    .item-table th, .item-table td { padding: .45rem; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; overflow-wrap: anywhere; }
+    .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll .item-table { min-width: 44rem; }
     input[type="color"] { min-height: 2.8rem; padding: .25rem; cursor: pointer; }
     .item-table button { padding: .35rem .5rem; font-size: .85rem; }
     .scenario-actions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 18rem; }
@@ -446,6 +452,54 @@ PAGE_TEMPLATE = """
       .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
       nav { display: none; }
+    }
+    @media (max-width: 720px) {
+      header { position: static; display: grid; grid-template-columns: 1fr; align-items: start; padding: .75rem; gap: .75rem; }
+      .brand img { width: 2.55rem; height: 2.55rem; }
+      .brand strong { font-size: .95rem; }
+      .brand span { font-size: .85rem; }
+      .theme-picker { gap: .28rem; }
+      .theme-picker button { width: 1.65rem; height: 1.65rem; }
+      main { width: 100%; padding: .65rem .55rem 1.25rem; gap: .75rem; }
+      .hero { display: block; padding: .85rem; }
+      .hero img { display: none; }
+      h1 { font-size: clamp(1.8rem, 10vw, 2.75rem); line-height: 1; }
+      h2 { font-size: 1.35rem; }
+      h3 { font-size: 1.05rem; }
+      p, li, .tool-note { font-size: .92rem; }
+      .stat, .card, .admin-panel, .section-panel { padding: .8rem; }
+      .admin-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .section-nav { display: none; }
+      .mobile-section-picker { display: block; top: 0; }
+      .mobile-section-picker select { min-height: 2.9rem; }
+      .section-panel { scroll-margin-top: 5.25rem; }
+      .server-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(13rem, 82vw); overflow-x: auto; flex-wrap: nowrap; padding-bottom: .25rem; -webkit-overflow-scrolling: touch; }
+      .server-tab { min-width: 0; overflow-wrap: anywhere; }
+      .shop-toolbar { grid-template-columns: 1fr; align-items: stretch; }
+      .scenario-actions, .owner-server-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; width: 100%; }
+      .scenario-actions .inline-action, .owner-server-actions .inline-action { width: 100%; }
+      .scenario-actions button, .owner-server-actions button, .owner-server-actions .button { width: 100%; white-space: normal; }
+      .inline-action { grid-template-columns: 1fr; }
+      .inline-action button { width: 100%; }
+      button, .button, .tab-link, nav a { min-height: 2.65rem; padding: .62rem .7rem; font-size: .95rem; }
+      input, textarea, select { min-height: 2.75rem; font-size: 16px; }
+      .zone-map { min-height: 18rem; aspect-ratio: 1 / .86; }
+      .zone-map::after { font-size: .76rem; right: .45rem; bottom: .45rem; }
+      .map-missing { font-size: .8rem; }
+      .leader-row { gap: .4rem; }
+      .leader-name { white-space: normal; }
+      .item-table { min-width: 40rem; }
+      .item-table th, .item-table td { padding: .55rem .5rem; font-size: .88rem; }
+      .table-scroll .item-table { min-width: 40rem; }
+      .category-link, .option-card, .help-card { padding: .75rem; }
+      .trial-notice { align-items: stretch; flex-direction: column; }
+    }
+    @media (max-width: 430px) {
+      .scenario-actions, .owner-server-actions { grid-template-columns: 1fr; }
+      .item-table { min-width: 36rem; }
+      .table-scroll .item-table { min-width: 36rem; }
+      .zone-map { min-height: 15rem; }
+      .pill { font-size: .76rem; }
     }
   </style>
 </head>
@@ -541,6 +595,29 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
+    </section>
+    <section class="mobile-section-picker" aria-label="Dashboard section picker">
+      <label>
+        Jump to section
+        <select onchange="if (this.value) window.location.href = this.value;">
+          <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Overview</option>
+          {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
+          <option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>
+          <option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Embeds & Welcome</option>
+          <option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>
+          <option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones</option>
+          <option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>
+          <option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Heatmaps</option>
+          <option value="/admin?section=pve{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>PVE & Workshop</option>
+          <option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>
+          <option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>
+          <option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>
+          <option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>
+          <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
+          {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
+          {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
+        </select>
+      </label>
     </section>
 
     {% if active_section == "overview" %}
