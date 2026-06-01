@@ -445,6 +445,10 @@ PAGE_TEMPLATE = """
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
     .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
+    .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
+    .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
+    .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
+    .picker-select { min-width: 0; width: 100%; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -1779,7 +1783,13 @@ Event pings | bell | 1234567890</textarea></label>
           <p class="tool-note">Build safe loot and loadout recipes for this server. These are saved as dashboard drafts first; live XML upload will only be added through the guarded injector path.</p>
         </div>
       </div>
+      <nav class="tool-switcher" aria-label="XML workshop tools">
+        {% for key, label in [("loot", "Loot Rules"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
+        <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
       <div class="panel-grid">
+        {% if xml_tool == "loot" %}
         <article class="admin-panel">
           <h3>Loot Quality Rules</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
@@ -1809,18 +1819,29 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Loot Rules</button> <span class="result muted"></span></div>
           </form>
         </article>
+        {% endif %}
+        {% if xml_tool == "container" %}
         <article class="admin-panel">
           <h3>Filled Bag / Container Generator</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="container">
             <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
-            <label>Container classname <input name="container_class" list="xml-item-options" value="DryBag_Black"></label>
+            <label>Container classname
+              <select class="picker-select" name="container_class">
+                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'DryBag_Black' else '' }}>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
             <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
             <div class="full item-picker" data-item-picker data-picker-mode="xml">
               <div class="item-picker-controls">
-                <label>Find item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Find item
+                  <select class="picker-select" data-picker-item>
+                    <option value="">Choose item</option>
+                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                  </select>
+                </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                 <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option><option value="25">25%</option></select></label>
                 <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
@@ -1834,6 +1855,8 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
           </form>
         </article>
+        {% endif %}
+        {% if xml_tool == "player-loadout" %}
         <article class="admin-panel">
           <h3>Player Loadout</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
@@ -1858,13 +1881,23 @@ Event pings | bell | 1234567890</textarea></label>
             </div>
             <div class="full item-picker" data-item-picker data-picker-mode="loadout">
               <div class="item-picker-controls">
-                <label>Find item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Find item
+                  <select class="picker-select" data-picker-item>
+                    <option value="">Choose item</option>
+                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                  </select>
+                </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                 <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
                 <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
                 <button type="button" data-picker-add>Add</button>
               </div>
-              <label>Attachment for weapon/item <input data-picker-attachment list="xml-item-options" placeholder="optional parent classname"></label>
+              <label>Attachment for weapon/item
+                <select class="picker-select" data-picker-attachment>
+                  <option value="">None</option>
+                  {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                </select>
+              </label>
               <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
               <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
             </div>
@@ -1875,17 +1908,28 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
+        {% endif %}
+        {% if xml_tool == "vehicle-loadout" %}
         <article class="admin-panel">
           <h3>Vehicle Loadout</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
             <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
-            <label>Vehicle classname <input name="vehicle_class" list="xml-item-options" value="Truck_01_Covered"></label>
+            <label>Vehicle classname
+              <select class="picker-select" name="vehicle_class">
+                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} · {{ item.category }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
             <div class="full item-picker" data-item-picker data-picker-mode="xml">
               <div class="item-picker-controls">
-                <label>Find cargo item <input data-picker-item list="xml-item-options" placeholder="Search item classname"></label>
+                <label>Find cargo item
+                  <select class="picker-select" data-picker-item>
+                    <option value="">Choose item</option>
+                    {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.name }} · {{ item.category }}</option>{% endfor %}
+                  </select>
+                </label>
                 <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                 <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
                 <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
@@ -1899,6 +1943,8 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
+        {% endif %}
+        {% if xml_tool == "saved" %}
         <article class="admin-panel full">
           <h3>Saved XML Recipes</h3>
           <div class="mini-grid">
@@ -1909,6 +1955,7 @@ Event pings | bell | 1234567890</textarea></label>
           </div>
           <p class="tool-note" style="margin-top:.75rem">{{ server.xml_workshop.status if server else 'No recipes saved yet.' }}</p>
         </article>
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -2298,6 +2345,7 @@ Event pings | bell | 1234567890</textarea></label>
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
     });
     document.addEventListener("change", (event) => {
+      if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
       if (event.target.matches("[data-theme-select]")) {
         const theme = event.target.value || "default";
         localStorage.setItem("wanderingDashboardTheme", theme);
@@ -4591,10 +4639,14 @@ def page(mode: str, auth: dict[str, Any]):
 
     if not section_allowed(active_section):
         active_section = "overview"
+    xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
+    if xml_tool not in {"loot", "container", "player-loadout", "vehicle-loadout", "saved"}:
+        xml_tool = "player-loadout"
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
         active_section=active_section,
+        xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
         section_allowed=section_allowed,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
