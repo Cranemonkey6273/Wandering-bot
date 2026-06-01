@@ -18068,14 +18068,31 @@ async def scheduled_restart_loop():
                                 print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
                             continue
 
-                        if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or bridge_scenario_events(config):
+                        normal_scenario_events = bridge_scenario_events(config)
+                        console_ce_enabled = console_ce_event_config(config).get("enabled")
+                        has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
+                        if has_delivery_work or (normal_scenario_events and not console_ce_enabled):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
                                 guild_id,
                                 config,
-                                now
+                                now,
+                                None,
+                                not console_ce_enabled,
                             )
                             print(f"PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
+
+                        if normal_scenario_events and console_ce_enabled:
+                            success, _, messages = await asyncio.to_thread(
+                                upload_console_ce_event_files,
+                                guild_id,
+                                config,
+                                "",
+                                "",
+                                "",
+                                True,
+                            )
+                            print(f"PRE-RESTART NATIVE CE XML UPLOAD {guild_id}: {success} {' | '.join(messages[-4:])}")
 
                         url = (
                             f"https://api.nitrado.net/services/"
