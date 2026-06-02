@@ -59,9 +59,9 @@ SCENARIO_SPAWN_PRESETS = {
     "wooden_crate": {"label": "Wooden crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "survival"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate", "loot_preset": "survival"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate", "loot_preset": "survival"},
-    "medical_crate": {"label": "Medical crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "medical"},
-    "building_crate": {"label": "Building crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "building"},
-    "food_crate": {"label": "Food crate", "class": "WoodenCrate", "event_type": "loot_crate", "loot_preset": "food"},
+    "medical_crate": {"label": "Medical crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "medical"},
+    "building_crate": {"label": "Building crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "building"},
+    "food_crate": {"label": "Food crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "food"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
 SCENARIO_LOOT_PRESETS = {
@@ -436,6 +436,14 @@ PAGE_TEMPLATE = """
     .item-picker-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .45rem; align-items: end; min-width: 0; }
     .item-picker-controls button { align-self: end; min-width: 5rem; }
     .item-picker-preview { display: flex; gap: .5rem; align-items: center; color: var(--muted); min-width: 0; }
+    .visual-picker { display: grid; gap: .45rem; }
+    .visual-picker input { width: 100%; }
+    .visual-picker-grid { max-height: 22rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; padding: .15rem; }
+    .visual-picker-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; min-width: 0; }
+    .visual-picker-card:hover, .visual-picker-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .visual-picker-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
+    .visual-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .visual-picker-card small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .35rem; }
     .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); min-width: 0; }
     .shop-picker-card img, .item-thumb { width: 2rem; height: 2rem; border-radius: .4rem; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }
@@ -1477,7 +1485,7 @@ Event pings | bell | 1234567890</textarea></label>
               <select name="vehicle_cargo_mode"><option value="normal_with_loot">Full vehicle with selected loot</option><option value="normal_no_loot">Full vehicle with no bot-added loot</option><option value="native_only">Use my server files only</option></select>
             </label>
             <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"></label>
-            <label>Visual marker <select name="visual_marker"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Visual marker <select name="visual_marker"><option value="false">Off</option><option value="true">On</option></select></label>
             <label>Guard class <input name="guard_class" value="ZmbM_SoldierNormal" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="0"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
@@ -1570,7 +1578,8 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>
                   <div class="scenario-actions">
                     <button type="button" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</button>
-                    {% for action, label in [('upload', 'Upload XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
+                    {% for action, label in [('upload', 'Retry XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
+                    {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="event_id" value="{{ event.id }}">
@@ -1578,6 +1587,7 @@ Event pings | bell | 1234567890</textarea></label>
                       <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
                       <button type="submit">{{ label }}</button><span class="result muted"></span>
                     </form>
+                    {% endif %}
                     {% endfor %}
                   </div>
                 </td>
@@ -2375,6 +2385,7 @@ Event pings | bell | 1234567890</textarea></label>
       const select = picker ? picker.querySelector("[data-picker-item]") : null;
       if (!select || select.tagName !== "SELECT") return;
       const items = XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      picker.dataset.pickerGroup = groupName || "cargo";
       select.innerHTML = '<option value="">Choose item</option>';
       items.forEach((item) => {
         const option = document.createElement("option");
@@ -2383,6 +2394,59 @@ Event pings | bell | 1234567890</textarea></label>
         select.appendChild(option);
       });
       syncPickerPreview(picker);
+      renderVisualPicker(picker);
+    }
+    function imageForItem(item) {
+      return item.image_url || itemInfo(item.name).image_url || fallbackThumb(item.category);
+    }
+    function renderVisualPicker(picker) {
+      if (!picker) return;
+      const select = picker.querySelector("[data-picker-item]");
+      if (!select || select.tagName !== "SELECT") return;
+      let visual = picker.querySelector("[data-visual-picker]");
+      if (!visual) {
+        visual = document.createElement("div");
+        visual.className = "visual-picker";
+        visual.dataset.visualPicker = "true";
+        visual.innerHTML = '<input type="search" data-visual-search placeholder="Search visible items"><div class="visual-picker-grid" data-visual-grid></div>';
+        const controls = picker.querySelector(".item-picker-controls");
+        if (controls && controls.nextSibling) {
+          picker.insertBefore(visual, controls.nextSibling);
+        } else {
+          picker.appendChild(visual);
+        }
+      }
+      const grid = visual.querySelector("[data-visual-grid]");
+      const query = (visual.querySelector("[data-visual-search]")?.value || "").trim().toLowerCase();
+      const group = picker.dataset.pickerGroup || picker.querySelector("[data-picker-slot]")?.value || "cargo";
+      const sourceItems = XML_PICKER_GROUPS[group] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      const selected = String(select.value || "").toLowerCase();
+      const items = sourceItems
+        .filter((item) => {
+          const text = `${item.name || ""} ${item.category || ""}`.toLowerCase();
+          return !query || text.includes(query);
+        })
+        .slice(0, 72);
+      grid.innerHTML = "";
+      items.forEach((item) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "visual-picker-card";
+        card.dataset.visualItem = item.name || "";
+        card.classList.toggle("active", selected && selected === String(item.name || "").toLowerCase());
+        const img = document.createElement("img");
+        img.src = imageForItem(item);
+        img.alt = "";
+        img.onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
+        const title = document.createElement("strong");
+        title.textContent = item.name || "";
+        const meta = document.createElement("small");
+        meta.textContent = item.category || "General";
+        card.appendChild(img);
+        card.appendChild(title);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      });
     }
     function syncLoadoutPickerSlot(slotSelect) {
       const picker = slotSelect ? slotSelect.closest("[data-item-picker]") : null;
@@ -2500,6 +2564,17 @@ Event pings | bell | 1234567890</textarea></label>
         if (picker) syncPickerPreview(picker);
         return;
       }
+      const visualCard = event.target.closest("[data-visual-item]");
+      if (visualCard) {
+        const picker = visualCard.closest("[data-item-picker]");
+        const input = picker ? picker.querySelector("[data-picker-item]") : null;
+        if (input) input.value = visualCard.dataset.visualItem || "";
+        if (picker) {
+          syncPickerPreview(picker);
+          renderVisualPicker(picker);
+        }
+        return;
+      }
       const pickerButton = event.target.closest("[data-picker-add]");
       if (pickerButton) {
         const picker = pickerButton.closest("[data-item-picker]");
@@ -2563,10 +2638,14 @@ Event pings | bell | 1234567890</textarea></label>
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
       if (event.target.matches("[data-picker-output]")) syncSelectedItems(event.target);
+      if (event.target.matches("[data-visual-search]")) renderVisualPicker(event.target.closest("[data-item-picker]"));
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
-      if (event.target.matches("[data-picker-slot]")) syncLoadoutPickerSlot(event.target);
+      if (event.target.matches("[data-picker-slot]")) {
+        syncLoadoutPickerSlot(event.target);
+        renderVisualPicker(event.target.closest("[data-item-picker]"));
+      }
       if (event.target.matches("[data-theme-select]")) {
         const theme = event.target.value || "default";
         localStorage.setItem("wanderingDashboardTheme", theme);
@@ -2783,6 +2862,15 @@ Event pings | bell | 1234567890</textarea></label>
           }
         }
       });
+    });
+    document.querySelectorAll("[data-item-picker]").forEach((picker) => {
+      const slotSelect = picker.querySelector("[data-picker-slot]");
+      if (slotSelect && slotSelect.value) {
+        picker.dataset.pickerGroup = slotSelect.value;
+      } else if (!picker.dataset.pickerGroup) {
+        picker.dataset.pickerGroup = "cargo";
+      }
+      renderVisualPicker(picker);
     });
     document.querySelectorAll("[data-wage-target]").forEach((select) => {
       const form = select.closest("form");
@@ -3383,6 +3471,68 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     if isinstance(result, (list, tuple)) and len(result) >= 3:
         return {"ok": bool(result[0]), "built": result[1], "messages": result[2]}
     return {"ok": False, "messages": ["Native CE XML uploader returned an unexpected result."]}
+
+
+def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> dict[str, Any] | None:
+    upload_result = run_runtime_scenario_xml_upload(guild_id)
+    if upload_result is None:
+        return None
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return upload_result
+    config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+    events = config.get("scenario_events", [])
+    if not isinstance(events, list):
+        events = []
+        config["scenario_events"] = events
+
+    built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
+    messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
+    upload_ok = bool(upload_result.get("ok"))
+    now_text = datetime.now(UTC).isoformat()
+    status_text = (
+        f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+        if upload_ok
+        else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+    )
+
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        is_target = safe_int(event.get("id"), 0) == safe_int(event_id, 0)
+        is_dashboard_scenario = (
+            str(event.get("created_by") or "") == "dashboard"
+            and str(event.get("event_type") or "") != "vehicle_reset_all"
+            and str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed", "uploaded"}
+        )
+        if event_id and not is_target and not (upload_ok and is_dashboard_scenario):
+            continue
+        event["updated_at"] = now_text
+        if upload_ok:
+            event["native_ce_uploaded_at"] = now_text
+            event["native_ce_events_path"] = built.get("events_path", "")
+            event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["upload_status"] = "removed" if removed and is_target else "uploaded"
+            event["status"] = "Removed from native CE XML" if removed and is_target else "Native CE XML uploaded / waiting for restart"
+            event.pop("upload_error", None)
+        else:
+            event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
+            event["upload_status"] = "failed"
+            event["upload_error"] = status_text
+            event["status"] = "Native CE XML upload failed"
+
+    if removed:
+        config["scenario_events_cleanup_pending"] = not upload_ok
+        if upload_ok:
+            config["scenario_events_cleanup_completed_at"] = now_text
+            config.pop("scenario_events_cleanup_error", None)
+        else:
+            config["scenario_events_cleanup_error"] = status_text
+
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return upload_result
 
 
 def run_runtime_messages_xml_upload(guild_id: str) -> dict[str, Any] | None:
@@ -5641,8 +5791,8 @@ def api_scenario_event():
         "reset_method": str(payload.get("reset_method") or "bridge"),
         "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
         "vehicle_cargo_mode": vehicle_cargo_mode,
-        "visual_marker": safe_bool(payload.get("visual_marker"), event_type == "airdrop"),
-        "marker_class": "Land_Wreck_Caravan_MGreen" if safe_bool(payload.get("visual_marker"), event_type == "airdrop") else "",
+        "visual_marker": safe_bool(payload.get("visual_marker"), False),
+        "marker_class": "",
         "guard_class": str(payload.get("guard_class") or "").strip(),
         "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
         "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
@@ -5663,9 +5813,24 @@ def api_scenario_event():
         events[existing_index] = event
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
+    upload_result = None
+    if event_type not in {"vehicle_reset_all", "vehicle_reset_point"}:
+        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id)
+        if upload_result is not None:
+            guild_configs = load_store("guild_configs", {})
+            config = guild_configs.setdefault(guild_id, {"channels": {}}) if isinstance(guild_configs, dict) else config
+            events = config.get("scenario_events", []) if isinstance(config, dict) else events
+            if isinstance(events, list):
+                for saved_event in events:
+                    if isinstance(saved_event, dict) and safe_int(saved_event.get("id"), 0) == event_id:
+                        event = saved_event
+                        break
     if not wants_json_response():
         return redirect(return_to)
-    return jsonify({"ok": True, "event": event, "updated": existing_index is not None, "note": "queued for bot restart/event processing"})
+    note = "saved and queued for bot restart/event processing"
+    if upload_result is not None:
+        note = "saved and native CE XML uploaded; restart the server for it to appear" if upload_result.get("ok") else "saved, but native CE XML upload failed"
+    return jsonify({"ok": True, "event": event, "updated": existing_index is not None, "upload": upload_result, "note": note})
 
 
 @APP.post("/api/admin/scenario-event-action")
@@ -5702,14 +5867,16 @@ def api_scenario_event_action():
             config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
+            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=True)
             if not wants_json_response():
                 return redirect(return_to)
             return jsonify({
                 "ok": True,
                 "deleted": removed,
                 "cancelled": action == "cancel",
-                "cleanup_queued": True,
-                "note": "event removed from dashboard; native CE XML cleanup queued for the bot background uploader",
+                "cleanup_queued": not (upload_result and upload_result.get("ok")),
+                "upload": upload_result,
+                "note": "event removed and native CE XML rebuilt" if upload_result and upload_result.get("ok") else "event removed; native CE XML cleanup is queued",
             })
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
@@ -5729,8 +5896,8 @@ def api_scenario_event_action():
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
 
-        if action in {"upload", "pause", "cancel"}:
-            upload_result = run_runtime_scenario_xml_upload(guild_id)
+        if action in {"upload", "pause"}:
+            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
             if upload_result is not None:
                 guild_configs = load_store("guild_configs", {})
                 config = guild_configs.setdefault(guild_id, {"channels": {}})
@@ -5800,6 +5967,7 @@ def api_scenario_event_action():
         config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
+        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=True)
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({
@@ -5808,7 +5976,8 @@ def api_scenario_event_action():
             "deleted": None,
             "cancelled": action == "cancel",
             "note": "scenario event was already gone for this guild",
-            "cleanup_queued": True,
+            "cleanup_queued": not (upload_result and upload_result.get("ok")),
+            "upload": upload_result,
         })
 
     if not wants_json_response():

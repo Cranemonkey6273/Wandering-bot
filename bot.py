@@ -22394,13 +22394,13 @@ SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
-    "military_crate": {"label": "Military loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
-    "wooden_crate": {"label": "Wooden crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "military_crate": {"label": "Military airdrop crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "wooden_crate": {"label": "Wooden crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate"},
-    "medical_crate": {"label": "Medical loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
-    "survival_crate": {"label": "Survival loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
-    "building_crate": {"label": "Building loot crate", "class": "WoodenCrate", "event_type": "loot_crate"},
+    "medical_crate": {"label": "Medical loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "survival_crate": {"label": "Survival loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "building_crate": {"label": "Building loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
 
@@ -22436,7 +22436,7 @@ SCENARIO_VEHICLE_CONDITIONS = {
     "random_parts": "Random chance of common parts",
 }
 
-SCENARIO_AIRDROP_MARKER_CLASS = "Land_Wreck_Caravan_MGreen"
+SCENARIO_AIRDROP_MARKER_CLASS = ""
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
     "chernarus": "dayzOffline.chernarusplus",
@@ -23493,15 +23493,9 @@ def console_ce_records_for_event(event):
 
         marker_class = str(event.get("marker_class") or "").strip()
         if event.get("visual_marker") and marker_class:
-            records.append({
-                "name": ce_event_name(event, "marker", family="Static"),
-                "class_name": marker_class,
-                "count": 1,
-                "lifetime": 7200,
-                "x": event.get("x"),
-                "z": event.get("z"),
-                "radius": event.get("radius"),
-            })
+            warnings.append(
+                f"`{event.get('id')}` has a visual marker set, but marker objects are disabled for native CE uploads so only the requested event spawns."
+            )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none":
             warnings.append(
