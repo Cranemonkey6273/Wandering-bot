@@ -225,19 +225,19 @@ PAGE_TEMPLATE = """
       --accent: var(--gold);
       --map-image: linear-gradient(transparent, transparent);
     }
-    body[data-theme="forest"] { --bg: #07100b; --panel: #18251a; --panel-2: #26351f; --panel-3: #101910; --line: rgba(143, 201, 128, .34); --text: #f1f7e9; --muted: #c8d8bb; --olive: #7ca45a; --gold: #c8d46a; --accent: #9fcd73; }
-    body[data-theme="amber"] { --bg: #120d06; --panel: #241b10; --panel-2: #342514; --panel-3: #1a130b; --line: rgba(225, 178, 94, .36); --text: #fff1d8; --muted: #dec8a4; --olive: #a47d3a; --gold: #e3b65f; --accent: #e3b65f; }
-    body[data-theme="steel"] { --bg: #071014; --panel: #142027; --panel-2: #1f3038; --panel-3: #0d171c; --line: rgba(134, 191, 210, .34); --text: #edf7fb; --muted: #b9ced6; --olive: #5b8ea0; --gold: #79c7dd; --accent: #79c7dd; }
-    body[data-theme="highland"] { --bg: #0f0d0b; --panel: #211d18; --panel-2: #302a21; --panel-3: #17130f; --line: rgba(198, 169, 121, .35); --text: #f8eddd; --muted: #d4c0a4; --olive: #8b7652; --gold: #d9b779; --accent: #d9b779; }
-    body[data-theme="daylight"] { color-scheme: light; --bg: #e9edde; --panel: #fbfff5; --panel-2: #dfe8ce; --panel-3: #f4f8eb; --line: rgba(74, 98, 55, .32); --text: #182013; --muted: #4e6044; --dim: #6f7d65; --olive: #718948; --gold: #9f7c2c; --accent: #6f8f3f; }
-    body[data-theme="sandstorm"] { color-scheme: light; --bg: #efe3c9; --panel: #fff7e7; --panel-2: #e6d0a3; --panel-3: #f6eddc; --line: rgba(121, 87, 43, .34); --text: #261b0f; --muted: #6b5132; --dim: #8d7652; --olive: #8d7b39; --gold: #b77c2c; --accent: #b77c2c; }
-    body[data-theme="midnight"] { --bg: #05070d; --panel: #121726; --panel-2: #202940; --panel-3: #0b1020; --line: rgba(130, 153, 216, .34); --text: #f3f7ff; --muted: #bec8e4; --olive: #6878b8; --gold: #94b4ff; --accent: #94b4ff; }
-    body[data-theme="bloodmoon"] { --bg: #100607; --panel: #241012; --panel-2: #38191a; --panel-3: #180a0c; --line: rgba(226, 92, 92, .34); --text: #fff0ed; --muted: #dfb7b2; --olive: #a94444; --gold: #ffb45d; --accent: #ff866d; }
-    body[data-theme="radioactive"] { --bg: #061006; --panel: #10210c; --panel-2: #18300f; --panel-3: #0a1708; --line: rgba(159, 255, 74, .32); --text: #f2ffe8; --muted: #c4ddb1; --olive: #5f9b36; --gold: #b6ff4d; --accent: #7cff5b; }
-    body[data-theme="arctic"] { --bg: #071014; --panel: #10212a; --panel-2: #183444; --panel-3: #0b1820; --line: rgba(164, 225, 255, .34); --text: #edfaff; --muted: #bbd9e6; --olive: #4f91a8; --gold: #a7e5ff; --accent: #6fd3ff; }
-    body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
-    body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
-    body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
+    html[data-theme="forest"], body[data-theme="forest"] { --bg: #07100b; --panel: #18251a; --panel-2: #26351f; --panel-3: #101910; --line: rgba(143, 201, 128, .34); --text: #f1f7e9; --muted: #c8d8bb; --olive: #7ca45a; --gold: #c8d46a; --accent: #9fcd73; }
+    html[data-theme="amber"], body[data-theme="amber"] { --bg: #120d06; --panel: #241b10; --panel-2: #342514; --panel-3: #1a130b; --line: rgba(225, 178, 94, .36); --text: #fff1d8; --muted: #dec8a4; --olive: #a47d3a; --gold: #e3b65f; --accent: #e3b65f; }
+    html[data-theme="steel"], body[data-theme="steel"] { --bg: #071014; --panel: #142027; --panel-2: #1f3038; --panel-3: #0d171c; --line: rgba(134, 191, 210, .34); --text: #edf7fb; --muted: #b9ced6; --olive: #5b8ea0; --gold: #79c7dd; --accent: #79c7dd; }
+    html[data-theme="highland"], body[data-theme="highland"] { --bg: #0f0d0b; --panel: #211d18; --panel-2: #302a21; --panel-3: #17130f; --line: rgba(198, 169, 121, .35); --text: #f8eddd; --muted: #d4c0a4; --olive: #8b7652; --gold: #d9b779; --accent: #d9b779; }
+    html[data-theme="daylight"], body[data-theme="daylight"] { color-scheme: light; --bg: #e9edde; --panel: #fbfff5; --panel-2: #dfe8ce; --panel-3: #f4f8eb; --line: rgba(74, 98, 55, .32); --text: #182013; --muted: #4e6044; --dim: #6f7d65; --olive: #718948; --gold: #9f7c2c; --accent: #6f8f3f; }
+    html[data-theme="sandstorm"], body[data-theme="sandstorm"] { color-scheme: light; --bg: #efe3c9; --panel: #fff7e7; --panel-2: #e6d0a3; --panel-3: #f6eddc; --line: rgba(121, 87, 43, .34); --text: #261b0f; --muted: #6b5132; --dim: #8d7652; --olive: #8d7b39; --gold: #b77c2c; --accent: #b77c2c; }
+    html[data-theme="midnight"], body[data-theme="midnight"] { --bg: #05070d; --panel: #121726; --panel-2: #202940; --panel-3: #0b1020; --line: rgba(130, 153, 216, .34); --text: #f3f7ff; --muted: #bec8e4; --olive: #6878b8; --gold: #94b4ff; --accent: #94b4ff; }
+    html[data-theme="bloodmoon"], body[data-theme="bloodmoon"] { --bg: #100607; --panel: #241012; --panel-2: #38191a; --panel-3: #180a0c; --line: rgba(226, 92, 92, .34); --text: #fff0ed; --muted: #dfb7b2; --olive: #a94444; --gold: #ffb45d; --accent: #ff866d; }
+    html[data-theme="radioactive"], body[data-theme="radioactive"] { --bg: #061006; --panel: #10210c; --panel-2: #18300f; --panel-3: #0a1708; --line: rgba(159, 255, 74, .32); --text: #f2ffe8; --muted: #c4ddb1; --olive: #5f9b36; --gold: #b6ff4d; --accent: #7cff5b; }
+    html[data-theme="arctic"], body[data-theme="arctic"] { --bg: #071014; --panel: #10212a; --panel-2: #183444; --panel-3: #0b1820; --line: rgba(164, 225, 255, .34); --text: #edfaff; --muted: #bbd9e6; --olive: #4f91a8; --gold: #a7e5ff; --accent: #6fd3ff; }
+    html[data-theme="toxic"], body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
+    html[data-theme="violet"], body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
+    html[data-theme="rose"], body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
     html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
@@ -440,6 +440,12 @@ PAGE_TEMPLATE = """
     .xml-tool-layout > * { min-width: 0; }
     .xml-output-panel { display: grid; gap: .65rem; align-content: start; position: sticky; top: .75rem; }
     .xml-output-panel .save-preview { min-height: 18rem; max-height: 34rem; }
+    .xml-file-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
+    .xml-file-tabs button { min-height: 2.2rem; padding: .45rem .6rem; font-size: .78rem; background: #070b08; color: var(--muted); }
+    .xml-file-tabs button.active { background: var(--panel-2); color: var(--gold); border-color: var(--accent); }
+    .flag-grid { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .flag-grid label { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--line); border-radius: .45rem; padding: .4rem .55rem; background: #070b08; color: var(--muted); }
+    .flag-grid input { width: auto; min-height: 0; }
     .visual-select-grid { margin-top: .45rem; max-height: 16rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .45rem; }
     .visual-select-card { display: grid; grid-template-rows: 3.5rem auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
     .visual-select-card.active, .visual-select-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -584,7 +590,16 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body data-theme="{{ dashboard_theme if dashboard_theme != 'default' else '' }}">
+<script>
+  (function () {
+    try {
+      var serverTheme = "{{ dashboard_theme }}";
+      var theme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
+      document.documentElement.dataset.theme = theme === "default" ? "" : theme;
+    } catch (error) {}
+  })();
+</script>
+<body>
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   <header>
@@ -639,6 +654,7 @@ PAGE_TEMPLATE = """
         const initialTheme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
         function apply(theme, persist) {
           const safeTheme = theme || "default";
+          document.documentElement.dataset.theme = safeTheme === "default" ? "" : safeTheme;
           document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
           document.querySelectorAll("[data-theme-select]").forEach((select) => { select.value = safeTheme; });
           document.querySelectorAll("[data-theme-choice]").forEach((button) => {
@@ -1867,7 +1883,7 @@ Event pings | bell | 1234567890</textarea></label>
         </div>
       </div>
       <nav class="tool-switcher" aria-label="XML workshop tools">
-        {% for key, label in [("loot", "Loot Rules"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
+        {% for key, label in [("loot", "Loot Rules"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
         <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -1901,6 +1917,91 @@ Event pings | bell | 1234567890</textarea></label>
             <label class="full">Notes <input name="notes" placeholder="What this rule pack is for"></label>
             <div class="full embed-preview"><strong>Safe mode</strong><span>This saves the intent only. The injector must download current XML, validate it, show a diff, keep one latest backup, then upload.</span></div>
             <div class="full"><button type="submit">Save Loot Rules</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        {% endif %}
+        {% if xml_tool == "airdrop" %}
+        <article class="admin-panel full">
+          <h3>Airdrop Builder</h3>
+          <form class="admin-form" data-route="/api/admin/xml-workshop">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="recipe_kind" value="airdrop">
+            <div class="full xml-tool-layout">
+              <div class="stack">
+                <label>Recipe name <input name="recipe_name" value="Military Airdrop"></label>
+                <div class="mini-grid">
+                  <label>Event name <input name="event_name" value="Static_WanderingAirdrop"></label>
+                  <label>Group name <input name="group_name" value="WanderingAirdropGrp"></label>
+                </div>
+                <label>Container
+                  <select class="picker-select" name="container_class" data-visual-select="containers">
+                    {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'StaticObj_Misc_WoodenCrate_5x' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                  </select>
+                </label>
+                <div class="mini-grid">
+                  <label>Nominal <input name="nominal" type="number" min="0" value="1"></label>
+                  <label>Min <input name="min_count" type="number" min="0" value="0"></label>
+                  <label>Max <input name="max_count" type="number" min="0" value="0"></label>
+                  <label>Lifetime seconds <input name="lifetime" type="number" min="1" value="1800"></label>
+                  <label>Restock seconds <input name="restock" type="number" min="0" value="3600"></label>
+                  <label>Safe radius <input name="saferadius" type="number" min="0" value="0"></label>
+                  <label>Distance radius <input name="distanceradius" type="number" min="0" value="1000"></label>
+                  <label>Cleanup radius <input name="cleanupradius" type="number" min="0" value="1500"></label>
+                  <label>Loot min <input name="lootmin" type="number" min="0" value="40"></label>
+                  <label>Loot max <input name="lootmax" type="number" min="0" value="40"></label>
+                  <label>Proto max <input name="proto_max" type="number" min="0" value="80"></label>
+                </div>
+                <label>Spawn positions
+                  <textarea name="positions" placeholder="10869, 10937&#10;9621, 10184"></textarea>
+                </label>
+                <div>
+                  <strong>Usage flags</strong>
+                  <div class="flag-grid" data-airdrop-flags>
+                    {% for flag in ["Military", "Medic", "Police", "Firefighter", "Civilian", "Farm", "Coast", "Town", "Village", "Hospital"] %}
+                    <label><input type="checkbox" name="usage_flags" value="{{ flag }}" {{ 'checked' if flag == 'Military' else '' }}> {{ flag }}</label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div>
+                  <strong>Loot categories</strong>
+                  <div class="flag-grid" data-airdrop-categories>
+                    {% for category in ["weapons", "explosives", "containers", "clothes", "food", "tools", "medicine", "vehiclesparts", "books", "money"] %}
+                    <label><input type="checkbox" name="loot_categories" value="{{ category }}" {{ 'checked' if category in ['weapons', 'explosives', 'containers', 'clothes'] else '' }}> {{ category }}</label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
+                  <div class="item-picker-controls">
+                    <label>Optional fixed cargo
+                      <select class="picker-select" data-picker-item>
+                        <option value="">Choose item</option>
+                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                      </select>
+                    </label>
+                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                    <button type="button" data-picker-add>Add</button>
+                  </div>
+                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Optional fixed cargo is added as a draft cargo block.</span></div>
+                </div>
+                <label>Fixed cargo draft
+                  <div class="selected-items" data-selected-items data-empty-text="No fixed cargo added yet"></div>
+                  <textarea class="raw-output" name="items" data-picker-output placeholder="Ammo_762x39Tracer, 1, -1, pristine"></textarea>
+                </label>
+                <div><button type="submit">Save Airdrop Package</button> <span class="result muted"></span></div>
+              </div>
+              <aside class="xml-output-panel">
+                <div class="xml-file-tabs" data-airdrop-tabs>
+                  <button type="button" class="active" data-airdrop-file="events">events.xml</button>
+                  <button type="button" data-airdrop-file="spawns">cfgeventspawns.xml</button>
+                  <button type="button" data-airdrop-file="groups">cfgeventgroups.xml</button>
+                  <button type="button" data-airdrop-file="proto">mapgroupproto.xml</button>
+                </div>
+                <pre class="save-preview" data-live-output data-airdrop-output-file="events"></pre>
+                <div class="embed-preview"><strong>Console airdrop package</strong><span>These four files must agree on event name, group name, container classname, positions and loot pool. Save this draft first; live upload should go through guarded diff/validation.</span></div>
+              </aside>
+            </div>
           </form>
         </article>
         {% endif %}
@@ -2077,9 +2178,9 @@ Event pings | bell | 1234567890</textarea></label>
           <h3>Saved XML Recipes</h3>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Containers</span><strong>{{ server.xml_workshop.container_recipes|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Airdrops</span><strong>{{ server.xml_workshop.airdrop_recipes|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Player loadouts</span><strong>{{ server.xml_workshop.player_loadouts|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Vehicle loadouts</span><strong>{{ server.xml_workshop.vehicle_loadouts|length if server else 0 }}</strong></div>
-            <div class="mini-card"><span class="muted">Status</span><strong>Draft</strong></div>
           </div>
           <p class="tool-note" style="margin-top:.75rem">{{ server.xml_workshop.status if server else 'No recipes saved yet.' }}</p>
           <div class="recipe-list">
@@ -2095,6 +2196,13 @@ Event pings | bell | 1234567890</textarea></label>
               <strong>Container: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.container_class }} · {{ recipe.damage }}</span>
               <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+            </div>
+            {% endfor %}
+            {% for recipe in (server.xml_workshop.airdrop_recipes if server else []) %}
+            <div class="recipe-row">
+              <strong>Airdrop: {{ recipe.name }}</strong>
+              <span class="muted">{{ recipe.event_name }} · {{ recipe.container_class }} · {{ recipe.positions|length }} position(s)</span>
+              <div>{% for category in recipe.loot_categories[:10] %}{{ category }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
             </div>
             {% endfor %}
             {% for recipe in (server.xml_workshop.vehicle_loadouts if server else []) %}
@@ -2419,6 +2527,7 @@ Event pings | bell | 1234567890</textarea></label>
     }
     function applyTheme(theme) {
       const safeTheme = theme || "default";
+      document.documentElement.dataset.theme = safeTheme === "default" ? "" : safeTheme;
       document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
       document.querySelectorAll("[data-theme-choice]").forEach((button) => {
         button.classList.toggle("active", button.dataset.themeChoice === safeTheme);
@@ -2706,6 +2815,84 @@ Event pings | bell | 1234567890</textarea></label>
       if (unsorted.length) preset.discreteUnsortedItemSets = [{spawnWeight: 1, items: unsorted}];
       return JSON.stringify({presets: [preset]}, null, 2);
     }
+    function safeXmlName(value, fallback) {
+      const text = String(value || "").trim().replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
+      return text || fallback;
+    }
+    function checkedValues(form, name) {
+      return Array.from(form.querySelectorAll(`input[name="${name}"]:checked`)).map((item) => item.value);
+    }
+    function airdropPositions(form) {
+      const raw = String(form.elements.positions?.value || "").trim();
+      if (!raw) return [{x: "10869", z: "10937"}];
+      return raw.split(/\n+/).map((line) => {
+        const parts = line.split(/[,\\s]+/).map((part) => part.trim()).filter(Boolean);
+        return {x: parts[0] || "0", z: parts[1] || "0"};
+      }).filter((pos) => pos.x && pos.z).slice(0, 80);
+    }
+    function buildAirdropPackage(form, items) {
+      const eventName = safeXmlName(form.elements.event_name?.value, "Static_WanderingAirdrop");
+      const groupName = safeXmlName(form.elements.group_name?.value, `${eventName}Grp`);
+      const containerClass = safeXmlName(form.elements.container_class?.value, "StaticObj_Misc_WoodenCrate_5x");
+      const numberValue = (name, fallback) => Math.max(0, Number(form.elements[name]?.value || fallback) || 0);
+      const positions = airdropPositions(form);
+      const usageFlags = checkedValues(form, "usage_flags");
+      const lootCategories = checkedValues(form, "loot_categories");
+      const childLootMin = numberValue("lootmin", 40);
+      const childLootMax = numberValue("lootmax", 40);
+      const protoMax = numberValue("proto_max", 80);
+      const cargoXml = items.map((item) => `        <cargo chance="1.00">\n            <item name="${xmlEscape(item.item)}" chance="1.00" />\n        </cargo>`).join("\n");
+      return {
+        events: [
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
+          `<events>`,
+          `    <event name="${xmlEscape(eventName)}">`,
+          `        <nominal>${numberValue("nominal", 1)}</nominal>`,
+          `        <min>${numberValue("min_count", 0)}</min>`,
+          `        <max>${numberValue("max_count", 0)}</max>`,
+          `        <lifetime>${numberValue("lifetime", 1800)}</lifetime>`,
+          `        <restock>${numberValue("restock", 3600)}</restock>`,
+          `        <saferadius>${numberValue("saferadius", 0)}</saferadius>`,
+          `        <distanceradius>${numberValue("distanceradius", 1000)}</distanceradius>`,
+          `        <cleanupradius>${numberValue("cleanupradius", 1500)}</cleanupradius>`,
+          `        <flags deletable="1" init_random="0" remove_damaged="0" />`,
+          `        <position>fixed</position>`,
+          `        <limit>child</limit>`,
+          `        <active>1</active>`,
+          `        <children/>`,
+          `    </event>`,
+          `</events>`,
+        ].join("\n"),
+        spawns: [
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
+          `<eventposdef>`,
+          `    <event name="${xmlEscape(eventName)}">`,
+          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" group="${xmlEscape(groupName)}" />`),
+          `    </event>`,
+          `</eventposdef>`,
+        ].join("\n"),
+        groups: [
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
+          `<eventgroupdef>`,
+          `    <group name="${xmlEscape(groupName)}">`,
+          `        <child type="${xmlEscape(containerClass)}" deloot="1" lootmax="${childLootMax}" lootmin="${childLootMin}" x="0.0" y="0.0" z="0.0" />`,
+          `    </group>`,
+          `</eventgroupdef>`,
+        ].join("\n"),
+        proto: [
+          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
+          `<map>`,
+          `    <group name="${xmlEscape(containerClass)}" lootmax="${protoMax}">`,
+          ...usageFlags.map((flag) => `        <usage name="${xmlEscape(flag)}" />`),
+          `        <container name="lootFloor" lootmax="${protoMax}">`,
+          ...lootCategories.map((category) => `            <category name="${xmlEscape(category)}" />`),
+          cargoXml,
+          `        </container>`,
+          `    </group>`,
+          `</map>`,
+        ].filter(Boolean).join("\n"),
+      };
+    }
     function syncLiveOutput(form) {
       if (!form) return;
       const preview = form.querySelector("[data-live-output]");
@@ -2718,6 +2905,10 @@ Event pings | bell | 1234567890</textarea></label>
         preview.textContent = buildCargoXml(form.elements.vehicle_class?.value || "VehicleClass", items);
       } else if (kind === "container") {
         preview.textContent = buildCargoXml(form.elements.container_class?.value || "ContainerClass", items);
+      } else if (kind === "airdrop") {
+        const packageOutput = buildAirdropPackage(form, items);
+        const activeFile = preview.dataset.airdropOutputFile || "events";
+        preview.textContent = packageOutput[activeFile] || packageOutput.events;
       }
     }
     document.querySelectorAll("[data-picker-output]").forEach(syncSelectedItems);
@@ -2765,6 +2956,19 @@ Event pings | bell | 1234567890</textarea></label>
           select.value = visualSelectCard.dataset.visualSelectValue || "";
           renderVisualSelect(select);
           syncLiveOutput(select.closest("form"));
+        }
+        return;
+      }
+      const airdropTab = event.target.closest("[data-airdrop-file]");
+      if (airdropTab) {
+        const form = airdropTab.closest("form");
+        const preview = form ? form.querySelector("[data-airdrop-output-file]") : null;
+        if (preview) {
+          preview.dataset.airdropOutputFile = airdropTab.dataset.airdropFile || "events";
+          form.querySelectorAll("[data-airdrop-file]").forEach((button) => {
+            button.classList.toggle("active", button === airdropTab);
+          });
+          syncLiveOutput(form);
         }
         return;
       }
@@ -2986,7 +3190,13 @@ Event pings | bell | 1234567890</textarea></label>
         const originalButtonText = button ? button.textContent : "";
         let payload = {};
         data.forEach((value, key) => {
-          if (value !== "") payload[key] = formValue(value);
+          if (value === "") return;
+          const parsed = formValue(value);
+          if (payload[key] !== undefined) {
+            payload[key] = Array.isArray(payload[key]) ? payload[key].concat([parsed]) : [payload[key], parsed];
+          } else {
+            payload[key] = parsed;
+          }
         });
         payload.dashboard_mode = "{{ mode }}";
         const featureBoxes = form.querySelectorAll('input[name^="feature_"]');
@@ -4087,6 +4297,34 @@ def safe_dayz_class(value: Any) -> str:
     return text if re.fullmatch(r"[A-Za-z0-9_]{2,80}", text) else ""
 
 
+def xml_attr(value: Any) -> str:
+    text = str(value if value is not None else "")
+    return (
+        text.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def parse_airdrop_positions(value: Any) -> list[dict[str, str]]:
+    rows = []
+    for raw in re.split(r"[\n;]+", str(value or "")):
+        parts = [part.strip() for part in re.split(r"[,\s]+", raw) if part.strip()]
+        if len(parts) < 2:
+            continue
+        try:
+            x = f"{float(parts[0]):.2f}".rstrip("0").rstrip(".")
+            z = f"{float(parts[1]):.2f}".rstrip("0").rstrip(".")
+        except ValueError:
+            continue
+        rows.append({"x": x, "z": z})
+        if len(rows) >= 80:
+            break
+    return rows or [{"x": "10869", "z": "10937"}]
+
+
 def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if isinstance(value, list):
@@ -4206,6 +4444,78 @@ def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> st
     return "\n".join(lines)
 
 
+def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
+    event_name = safe_dayz_class(record.get("event_name")) or "Static_WanderingAirdrop"
+    group_name = safe_dayz_class(record.get("group_name")) or f"{event_name}Grp"
+    container_class = safe_dayz_class(record.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x"
+    positions = record.get("positions")
+    if not isinstance(positions, list) or not positions:
+        positions = [{"x": "10869", "z": "10937"}]
+    usage_flags = [safe_dayz_class(item) for item in record.get("usage_flags", []) if safe_dayz_class(item)]
+    loot_categories = [safe_dayz_class(item) for item in record.get("loot_categories", []) if safe_dayz_class(item)]
+    items = record.get("items") if isinstance(record.get("items"), list) else []
+    loot_min = max(0, safe_int(record.get("lootmin"), 40))
+    loot_max = max(0, safe_int(record.get("lootmax"), 40))
+    proto_max = max(0, safe_int(record.get("proto_max"), 80))
+    events = "\n".join([
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<events>",
+        f'    <event name="{xml_attr(event_name)}">',
+        f'        <nominal>{max(0, safe_int(record.get("nominal"), 1))}</nominal>',
+        f'        <min>{max(0, safe_int(record.get("min_count"), 0))}</min>',
+        f'        <max>{max(0, safe_int(record.get("max_count"), 0))}</max>',
+        f'        <lifetime>{max(1, safe_int(record.get("lifetime"), 1800))}</lifetime>',
+        f'        <restock>{max(0, safe_int(record.get("restock"), 3600))}</restock>',
+        f'        <saferadius>{max(0, safe_int(record.get("saferadius"), 0))}</saferadius>',
+        f'        <distanceradius>{max(0, safe_int(record.get("distanceradius"), 1000))}</distanceradius>',
+        f'        <cleanupradius>{max(0, safe_int(record.get("cleanupradius"), 1500))}</cleanupradius>',
+        '        <flags deletable="1" init_random="0" remove_damaged="0" />',
+        "        <position>fixed</position>",
+        "        <limit>child</limit>",
+        "        <active>1</active>",
+        "        <children/>",
+        "    </event>",
+        "</events>",
+    ])
+    spawns = "\n".join([
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<eventposdef>",
+        f'    <event name="{xml_attr(event_name)}">',
+        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" group="{xml_attr(group_name)}" />' for pos in positions if isinstance(pos, dict)],
+        "    </event>",
+        "</eventposdef>",
+    ])
+    groups = "\n".join([
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<eventgroupdef>",
+        f'    <group name="{xml_attr(group_name)}">',
+        f'        <child type="{xml_attr(container_class)}" deloot="1" lootmax="{loot_max}" lootmin="{loot_min}" x="0.0" y="0.0" z="0.0" />',
+        "    </group>",
+        "</eventgroupdef>",
+    ])
+    proto_lines = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<map>",
+        f'    <group name="{xml_attr(container_class)}" lootmax="{proto_max}">',
+    ]
+    proto_lines.extend(f'        <usage name="{xml_attr(flag)}" />' for flag in usage_flags)
+    proto_lines.append(f'        <container name="lootFloor" lootmax="{proto_max}">')
+    proto_lines.extend(f'            <category name="{xml_attr(category)}" />' for category in loot_categories)
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_name = safe_dayz_class(item.get("item"))
+        if not item_name:
+            continue
+        proto_lines.extend([
+            '            <cargo chance="1.00">',
+            f'                <item name="{xml_attr(item_name)}" chance="1.00" />',
+            "            </cargo>",
+        ])
+    proto_lines.extend(["        </container>", "    </group>", "</map>"])
+    return {"events": events, "spawns": spawns, "groups": groups, "proto": "\n".join(proto_lines)}
+
+
 def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
     workshop = config.get("xml_workshop")
     if not isinstance(workshop, dict):
@@ -4213,6 +4523,7 @@ def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
     recipes = workshop.get("recipes") if isinstance(workshop.get("recipes"), dict) else {}
     return {
         "settings": workshop.get("settings") if isinstance(workshop.get("settings"), dict) else {},
+        "airdrop_recipes": recipes.get("airdrops") if isinstance(recipes.get("airdrops"), list) else [],
         "container_recipes": recipes.get("containers") if isinstance(recipes.get("containers"), list) else [],
         "player_loadouts": recipes.get("players") if isinstance(recipes.get("players"), list) else [],
         "vehicle_loadouts": recipes.get("vehicles") if isinstance(recipes.get("vehicles"), list) else [],
@@ -5455,7 +5766,7 @@ def page(mode: str, auth: dict[str, Any]):
     if not section_allowed(active_section):
         active_section = "overview"
     xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
-    if xml_tool not in {"loot", "container", "player-loadout", "vehicle-loadout", "saved"}:
+    if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
     return render_template_string(
         PAGE_TEMPLATE,
@@ -5895,18 +6206,19 @@ def api_xml_workshop():
         return jsonify({"ok": True, "settings": record, "note": workshop["status"]})
 
     target_key = {
+        "airdrop": "airdrops",
         "container": "containers",
         "player_loadout": "players",
         "vehicle_loadout": "vehicles",
     }.get(kind)
     if not target_key:
-        return jsonify({"ok": False, "error": "recipe_kind must be settings, container, player_loadout, or vehicle_loadout"}), 400
+        return jsonify({"ok": False, "error": "recipe_kind must be settings, airdrop, container, player_loadout, or vehicle_loadout"}), 400
 
     recipe_name = str(payload.get("recipe_name") or payload.get("name") or "").strip()
     if not recipe_name:
         return jsonify({"ok": False, "error": "recipe_name is required"}), 400
     items = parse_xml_workshop_items(payload.get("items"))
-    if not items:
+    if not items and kind != "airdrop":
         return jsonify({"ok": False, "error": "add at least one valid item line"}), 400
     record = {
         "id": re.sub(r"[^a-z0-9_]+", "_", recipe_name.lower()).strip("_")[:80] or f"{target_key}_{len(recipes.get(target_key, [])) + 1}",
@@ -5923,6 +6235,27 @@ def api_xml_workshop():
         if not record["container_class"]:
             return jsonify({"ok": False, "error": "container_class must be a valid DayZ classname"}), 400
         record["generated_xml"] = build_spawnable_cargo_xml(record["container_class"], items)
+    elif kind == "airdrop":
+        record.update({
+            "event_name": safe_dayz_class(payload.get("event_name")) or "Static_WanderingAirdrop",
+            "group_name": safe_dayz_class(payload.get("group_name")) or "WanderingAirdropGrp",
+            "container_class": safe_dayz_class(payload.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x",
+            "positions": parse_airdrop_positions(payload.get("positions")),
+            "nominal": max(0, safe_int(payload.get("nominal"), 1)),
+            "min_count": max(0, safe_int(payload.get("min_count"), 0)),
+            "max_count": max(0, safe_int(payload.get("max_count"), 0)),
+            "lifetime": max(1, safe_int(payload.get("lifetime"), 1800)),
+            "restock": max(0, safe_int(payload.get("restock"), 3600)),
+            "saferadius": max(0, safe_int(payload.get("saferadius"), 0)),
+            "distanceradius": max(0, safe_int(payload.get("distanceradius"), 1000)),
+            "cleanupradius": max(0, safe_int(payload.get("cleanupradius"), 1500)),
+            "lootmin": max(0, safe_int(payload.get("lootmin"), 40)),
+            "lootmax": max(0, safe_int(payload.get("lootmax"), 40)),
+            "proto_max": max(0, safe_int(payload.get("proto_max"), 80)),
+            "usage_flags": [safe_dayz_class(item) for item in csv_list(payload.get("usage_flags")) if safe_dayz_class(item)],
+            "loot_categories": [safe_dayz_class(item) for item in csv_list(payload.get("loot_categories")) if safe_dayz_class(item)],
+        })
+        record["generated_xml"] = build_airdrop_xml_package(record)
     elif kind == "player_loadout":
         record["role_ids"] = csv_list(payload.get("role_ids"))
         record["custom_path"] = safe_custom_json_path(payload.get("custom_path"), record["id"])
