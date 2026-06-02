@@ -22053,19 +22053,40 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
 
     lower = item_name.lower()
 
-    if any(word in lower for word in ["car", "truck", "sedan", "hatchback", "offroad", "ada", "olga", "sarka", "gunter"]):
+    if any(word in lower for word in ["animal_", "zmbm_", "zmbf_", "infected"]):
+        return "NPCs"
+
+    if any(word in lower for word in ["wheel", "hood", "trunk", "door", "battery", "radiator", "sparkplug", "headlight"]):
+        return "Vehicle Parts"
+
+    if any(word in lower for word in ["car", "truck", "sedan", "hatchback", "offroad", "ada", "olga", "sarka", "gunter", "humvee", "boat"]):
         return "Vehicles"
 
-    if any(word in lower for word in ["rifle", "ak", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "ammo", "mag_"]):
+    if any(word in lower for word in ["ammo", "mag_", "magazine", "bullet", "cartridge", "shell"]):
+        return "Ammo"
+
+    if any(word in lower for word in ["grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive"]):
+        return "Explosives"
+
+    if any(word in lower for word in ["rifle", "ak", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "sks", "svd", "fal", "winchester", "knife", "spear"]):
         return "Weapons"
 
-    if any(word in lower for word in ["jacket", "pants", "boots", "gloves", "helmet", "vest", "backpack", "cap"]):
+    if any(word in lower for word in ["jacket", "pants", "boots", "gloves", "helmet", "vest", "backpack", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes"]):
         return "Clothing"
+
+    if any(word in lower for word in ["barrel", "crate", "chest", "case", "container", "drybag", "pouch", "pot", "protectorcase", "sea_chest", "tent"]):
+        return "Containers"
+
+    if any(word in lower for word in ["nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camo net", "flag_base", "territory", "fence", "watchtower", "generator"]):
+        return "Building"
+
+    if any(word in lower for word in ["hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod"]):
+        return "Tools"
 
     if any(word in lower for word in ["bandage", "saline", "morphine", "epinephrine", "vitamin", "charcoal", "tetracycline"]):
         return "Medical"
 
-    if any(word in lower for word in ["apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds"]):
+    if any(word in lower for word in ["apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds", "canteen", "bottle", "rice", "cereal"]):
         return "Food"
 
     if usage:
@@ -23124,31 +23145,38 @@ def add_console_ce_event_definition(
     active.text = "1"
 
     children = ET.SubElement(event_node, "children")
-    if not use_eventgroup:
-        child_records = child_records if isinstance(child_records, list) and child_records else [{
-            "type": child_type,
-            "count": count,
-            "lootmin": child_lootmin,
-            "lootmax": child_lootmax,
-        }]
-        for child_record in child_records:
-            child_count = max(1, int(child_record.get("count") or count or 1))
-            ET.SubElement(children, "child", {
-                "lootmax": str(int(child_record.get("lootmax", child_lootmax) or 0)),
-                "lootmin": str(int(child_record.get("lootmin", child_lootmin) or 0)),
-                "max": str(child_count),
-                "min": str(child_count),
-                "type": str(child_record.get("type") or child_type),
-            })
+    child_records = child_records if isinstance(child_records, list) and child_records else [{
+        "type": child_type,
+        "count": count,
+        "lootmin": child_lootmin,
+        "lootmax": child_lootmax,
+    }]
+    for child_record in child_records:
+        child_count = max(1, int(child_record.get("count") or count or 1))
+        child_max = child_count
+        if use_eventgroup:
+            child_max = max(1, int(max_count if max_count is not None else child_count))
+        ET.SubElement(children, "child", {
+            "lootmax": str(int(child_record.get("lootmax", child_lootmax) or 0)),
+            "lootmin": str(int(child_record.get("lootmin", child_lootmin) or 0)),
+            "max": str(child_max),
+            "min": str(max(0, min(child_count, child_max))),
+            "type": str(child_record.get("type") or child_type),
+        })
     return event_node
 
 
-def add_console_ce_event_group(root, group_name, child_type, lootmax=80):
+def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80):
     group_node = ET.SubElement(root, "group", {"name": str(group_name)})
     ET.SubElement(group_node, "child", {
         "type": str(child_type),
         "deloot": "1",
+        "lootmin": str(int(lootmin)),
         "lootmax": str(int(lootmax)),
+        "x": "0.0",
+        "z": "0.0",
+        "a": "0.0",
+        "y": "0.0",
     })
     return group_node
 
@@ -23430,12 +23458,9 @@ def console_ce_records_for_event(event):
             child_records = None
     else:
         child_records = None
-    animal_profile = animal_territory_profile(class_name) if event_type == "animal_pack" else {}
-    territory_name = ""
     if event_type == "animal_pack":
         family = "Animal"
-        limit_type = "custom"
-        territory_name = f"{animal_profile.get('species', 'Animal')}{CONSOLE_CE_EVENT_MARKER}{int(event.get('id', 0) or 0)}"
+        limit_type = "child"
 
     record = {
         "name": ce_event_name(event, family=family),
@@ -23453,7 +23478,7 @@ def console_ce_records_for_event(event):
         "child_records": child_records,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 0 if use_eventgroup else None,
-        "max_count": 0 if use_eventgroup else None,
+        "max_count": 1 if use_eventgroup else None,
         "restock": 3600 if use_eventgroup else 0,
         "saferadius": 0,
         "distanceradius": 1000 if use_eventgroup else 0,
@@ -23461,18 +23486,11 @@ def console_ce_records_for_event(event):
     }
     if event_type == "animal_pack":
         record.update({
-            "name": f"Animal{territory_name}"[:64],
-            "empty_spawn": True,
-            "animal_territory": True,
-            "territory_name": territory_name,
-            "animal_behavior": animal_profile.get("behavior", "DZDeerGroupBeh"),
-            "territory_zone": animal_profile.get("zone", "Graze"),
-            "territory_color": animal_profile.get("color", "4286611584"),
-            "nominal": 0,
+            "nominal": count,
             "min_count": count,
             "max_count": count,
             "saferadius": 2,
-            "cleanupradius": 0,
+            "cleanupradius": 100,
         })
     records.append(record)
 
@@ -23715,7 +23733,13 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         removed_groups = remove_wandering_ce_nodes(eventgroups_root)
         added_proto = 0
         for record in eventgroup_records:
-            add_console_ce_event_group(eventgroups_root, record["name"], record["class_name"])
+            add_console_ce_event_group(
+                eventgroups_root,
+                record["name"],
+                record["class_name"],
+                lootmin=record.get("child_lootmin", 40) or 40,
+                lootmax=record.get("child_lootmax", 80) or 80,
+            )
             _, created = add_mapgroupproto_loot_group(mapgroupproto_root, record["class_name"])
             if created:
                 added_proto += 1
@@ -23816,11 +23840,17 @@ def validate_console_ce_xml_bundle(built):
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
-        if not child_nodes and not name.startswith("Static"):
+        if not child_nodes:
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
             if not str(child.get("type") or "").strip():
                 messages.append(f"`{name}` has a child with no `type` classname.")
+            try:
+                child_max = int(str(child.get("max") or "0"))
+            except Exception:
+                child_max = 0
+            if child_max <= 0:
+                messages.append(f"`{name}` has a child with `max` 0, so CE will disable or ignore the event.")
         generated_events[name] = event_node
 
     generated_spawns = {
@@ -23879,6 +23909,15 @@ def validate_console_ce_xml_bundle(built):
                 messages.append(f"`{name}` has an eventgroup child with no type.")
             elif child_type not in proto_names:
                 messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
+            for attr in ("x", "y", "z", "a"):
+                if str(child.get(attr) or "").strip() == "":
+                    messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` is missing `{attr}` placement data.")
+            try:
+                group_lootmax = int(str(child.get("lootmax") or "0"))
+            except Exception:
+                group_lootmax = 0
+            if group_lootmax <= 0:
+                messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
 
     if territory_files:
         territories_node = cfgenvironment_root.find("territories") if cfgenvironment_root.tag != "territories" else cfgenvironment_root
