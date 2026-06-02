@@ -97,6 +97,8 @@ FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "f
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_SECONDS", "300"))
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
+DISCORD_ROLE_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
+DISCORD_MEMBER_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
@@ -1601,13 +1603,27 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Wage</h3>
-          <form class="admin-form" data-route="/api/admin/wage">
+          <form class="admin-form" data-route="/api/admin/wage" id="wage-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Pay who?
               <select name="target_type"><option value="user">One player</option><option value="role">Discord role</option><option value="faction">Whole faction</option></select>
             </label>
-            <label>Target ID or faction name <input name="target_id" placeholder="user id, role id, or faction"></label>
+            <label>Target
+              <select name="target_id" data-wage-target>
+                <option value="">Choose member, role, or faction</option>
+                <optgroup label="Discord members">
+                  {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}" data-target-type="user">{{ member.label }}</option>{% endfor %}
+                </optgroup>
+                <optgroup label="Discord roles">
+                  {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" data-target-type="role">{{ role.label }}</option>{% endfor %}
+                </optgroup>
+                <optgroup label="Factions">
+                  {% for faction in (server.factions.values() if server and server.factions else []) %}<option value="{{ faction.name }}" data-target-type="faction">{{ faction.name }}</option>{% endfor %}
+                </optgroup>
+              </select>
+            </label>
             <label>Amount <input name="amount" type="number" value="250"></label>
             <label>Cadence <select name="cadence"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label>
             <label>Active <select name="active"><option value="true">On</option><option value="false">Off</option></select></label>
@@ -1619,7 +1635,12 @@ Event pings | bell | 1234567890</textarea></label>
           <form class="admin-form" data-route="/api/admin/wallet-adjustment">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Player Discord ID <input name="user_id" placeholder="Discord user id"></label>
+            <label>Player
+              <select name="user_id">
+                <option value="">Choose Discord member</option>
+                {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}">{{ member.label }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Amount <input name="amount" type="number" value="100"></label>
             <label>Reason
               <select name="reason">
@@ -1631,6 +1652,34 @@ Event pings | bell | 1234567890</textarea></label>
             </label>
             <div class="full"><button type="submit">Adjust Wallet</button> <span class="result muted"></span></div>
           </form>
+        </article>
+        <article class="admin-panel full">
+          <h3>Active Wages</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Target</th><th>Amount</th><th>Cadence</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for wage in (server.wages if server else []) %}
+              <tr>
+                <td>{{ wage.id }}</td>
+                <td>{{ wage.target_type }} · {{ wage.target_id }}</td>
+                <td>{{ wage.amount }}</td>
+                <td>{{ wage.cadence }}</td>
+                <td>{{ 'On' if wage.active else 'Off' }}</td>
+                <td>
+                  <button type="button" data-wage-edit data-id="{{ wage.id }}" data-target-type="{{ wage.target_type }}" data-target-id="{{ wage.target_id }}" data-amount="{{ wage.amount }}" data-cadence="{{ wage.cadence }}" data-active="{{ 'true' if wage.active else 'false' }}">Edit</button>
+                  <form class="admin-form inline-action" data-route="/api/admin/wage" data-confirm="Delete wage {{ wage.id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="id" value="{{ wage.id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No wages set for this server yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </article>
         <article class="admin-panel">
           <h3>Reward / Punishment Rule</h3>
@@ -2715,7 +2764,7 @@ Event pings | bell | 1234567890</textarea></label>
           if (response.ok && form.classList.contains("inline-action")) {
             const action = String(payload.action || "").toLowerCase();
             if (action === "delete") {
-              const row = form.closest("[data-scenario-event-row]");
+              const row = form.closest("[data-scenario-event-row]") || form.closest("tr");
               if (row) row.remove();
               return;
             }
@@ -2733,6 +2782,31 @@ Event pings | bell | 1234567890</textarea></label>
             button.textContent = originalButtonText;
           }
         }
+      });
+    });
+    document.querySelectorAll("[data-wage-target]").forEach((select) => {
+      const form = select.closest("form");
+      function syncTargetType() {
+        const selected = select.selectedOptions && select.selectedOptions[0];
+        if (form && form.elements.target_type && selected && selected.dataset.targetType) {
+          form.elements.target_type.value = selected.dataset.targetType;
+        }
+      }
+      select.addEventListener("change", syncTargetType);
+      syncTargetType();
+    });
+    document.querySelectorAll("[data-wage-edit]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const form = document.getElementById("wage-form");
+        if (!form) return;
+        form.elements.id.value = button.dataset.id || "";
+        form.elements.target_type.value = button.dataset.targetType || "user";
+        form.elements.target_id.value = button.dataset.targetId || "";
+        form.elements.amount.value = button.dataset.amount || 0;
+        form.elements.cadence.value = button.dataset.cadence || "weekly";
+        form.elements.active.value = button.dataset.active || "true";
+        form.scrollIntoView({behavior: "smooth", block: "center"});
+        form.elements.amount.focus();
       });
     });
     document.querySelectorAll("[data-shop-edit]").forEach((button) => {
@@ -3852,6 +3926,90 @@ def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
     return channels
 
 
+def discord_guild_roles(guild_id: str) -> list[dict[str, str]]:
+    if not DISCORD_TOKEN or not guild_id:
+        return []
+    now = datetime.now(UTC)
+    cached = DISCORD_ROLE_CACHE.get(str(guild_id))
+    if cached and (now - cached[0]).total_seconds() < DISCORD_CHANNEL_CACHE_SECONDS:
+        return cached[1]
+    request = urllib.request.Request(
+        f"https://discord.com/api/v10/guilds/{guild_id}/roles",
+        headers={"Authorization": f"Bot {DISCORD_TOKEN}", "User-Agent": "WanderingBotDashboard/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    roles = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        role_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not role_id or not name or name == "@everyone":
+            continue
+        roles.append(
+            {
+                "id": role_id,
+                "name": name,
+                "value": role_id,
+                "label": f"@{name}",
+                "position": safe_int(item.get("position"), 0),
+            }
+        )
+    roles.sort(key=lambda role: (-safe_int(role.get("position"), 0), role["name"].lower()))
+    DISCORD_ROLE_CACHE[str(guild_id)] = (now, roles)
+    return roles
+
+
+def discord_guild_members(guild_id: str, limit: int = 1000) -> list[dict[str, str]]:
+    if not DISCORD_TOKEN or not guild_id:
+        return []
+    now = datetime.now(UTC)
+    cached = DISCORD_MEMBER_CACHE.get(str(guild_id))
+    if cached and (now - cached[0]).total_seconds() < DISCORD_CHANNEL_CACHE_SECONDS:
+        return cached[1]
+    request = urllib.request.Request(
+        f"https://discord.com/api/v10/guilds/{guild_id}/members?limit={max(1, min(1000, int(limit or 1000)))}",
+        headers={"Authorization": f"Bot {DISCORD_TOKEN}", "User-Agent": "WanderingBotDashboard/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    members = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        user = item.get("user") if isinstance(item.get("user"), dict) else {}
+        user_id = str(user.get("id") or "").strip()
+        username = str(user.get("global_name") or user.get("username") or "").strip()
+        nick = str(item.get("nick") or "").strip()
+        label_name = nick or username or user_id
+        if not user_id or not label_name:
+            continue
+        members.append(
+            {
+                "id": user_id,
+                "name": label_name,
+                "username": username,
+                "nick": nick,
+                "value": user_id,
+                "label": f"{label_name} ({user_id})",
+            }
+        )
+    members.sort(key=lambda member: member["name"].lower())
+    DISCORD_MEMBER_CACHE[str(guild_id)] = (now, members)
+    return members
+
+
 def discord_member_action(guild_id: str, member_id: str, action: str, reason: str) -> tuple[bool, str]:
     if not DISCORD_TOKEN:
         return False, "DISCORD_TOKEN is not configured for dashboard member actions."
@@ -4736,6 +4894,8 @@ def load_dashboard_state() -> dict[str, Any]:
         server_wallets = wallet_records_for_guild(wallets, guild_id)
         server_wages = guild_block(wages, guild_id, [])
         channels = public_channels(config.get("channels", {}), guild_id)
+        discord_roles = discord_guild_roles(guild_id)
+        discord_members = discord_guild_members(guild_id)
         server_heatmap = heatmap_summary(heatmap, guild_id)
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels)
         totals = {
@@ -4761,6 +4921,8 @@ def load_dashboard_state() -> dict[str, Any]:
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
                 "members": redact(server_members),
+                "discord_members": redact(discord_members),
+                "discord_roles": redact(discord_roles),
                 "channels": channels,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
@@ -6283,7 +6445,7 @@ def api_wage():
             "target_id": str(payload.get("target_id") or record.get("target_id") or ""),
             "amount": safe_int(payload.get("amount", record.get("amount", 0))),
             "cadence": str(payload.get("cadence") or record.get("cadence") or "weekly"),
-            "active": bool(payload.get("active", record.get("active", True))),
+            "active": safe_bool(payload.get("active", record.get("active", True))),
             "updated_at": datetime.now(UTC).isoformat(),
         }
     )

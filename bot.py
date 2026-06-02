@@ -76,6 +76,8 @@ GUILD_CONFIG_FILE = data_path("guild_configs.json")
 GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
+PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
+PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
@@ -110,6 +112,8 @@ DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "
 
 guild_configs = {}
 processed_lines = {}
+processed_adm_events = {}
+processed_kill_events = {}
 # Wall-clock UTC time the bot process started. Used by the ADM age guard
 # to ONLY filter "old" events during a short cold-start window — after
 # that, the hash dedupe on its own is sufficient to prevent replay, and
@@ -134,6 +138,8 @@ _adm_history_swept = {}
 # window remain in cache between scans, even on a quiet server where
 # the same lines linger in that window for a long time.
 PROCESSED_ADM_CACHE_LIMIT = 5000
+PROCESSED_ADM_EVENT_CACHE_LIMIT = 10000
+PROCESSED_KILL_EVENT_CACHE_LIMIT = 10000
 online_players = {}
 player_last_coords = {}
 player_online_times = {}
@@ -1000,6 +1006,57 @@ def pvp_kill_signature(guild_id, details):
     )
 
 
+def pvp_kill_event_fingerprint(guild_id, details, line=None, event_time=None):
+    """Stable kill-event fingerprint used to stop ADM replay duplicates.
+
+    The raw ADM line hash is still useful, but Nitrado can expose the same
+    event through a different log/download path. This key anchors on the
+    actual kill facts and ADM clock, so replayed events cannot inflate stats.
+    """
+    clock = ""
+    if event_time:
+        try:
+            clock = event_time.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            clock = ""
+    if not clock and line:
+        match = _ADM_TIME_PREFIX_RE.match(line)
+        if match:
+            clock = f"{int(match.group(1)):02d}:{match.group(2)}:{match.group(3)}"
+
+    parts = [
+        str(guild_id),
+        clock,
+        normalize_discord_name(details.get("killer", "")),
+        normalize_discord_name(details.get("victim", "")),
+        normalize_discord_name(details.get("weapon", "")),
+        normalize_discord_name(details.get("ammo", "")),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8", errors="ignore")).hexdigest()
+
+
+def adm_event_fingerprint(guild_id, event_type, line, event_time=None):
+    clock = ""
+    if event_time:
+        try:
+            clock = event_time.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            clock = ""
+    player = extract_player_name(line)
+    coords = extract_adm_coords(line) or ""
+    compact_line = re.sub(r"\bid=[^) ]+", "id=", str(line or ""), flags=re.IGNORECASE)
+    compact_line = re.sub(r"\s+", " ", compact_line).strip().lower()
+    parts = [
+        str(guild_id),
+        str(event_type or ""),
+        clock,
+        normalize_discord_name(player),
+        str(coords).strip(),
+        hashlib.sha1(compact_line.encode("utf-8", errors="ignore")).hexdigest()[:16],
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8", errors="ignore")).hexdigest()
+
+
 def is_duplicate_pvp_kill(guild_id, details, ttl_seconds=45):
     signature = pvp_kill_signature(guild_id, details)
     now_ts = datetime.now(UTC).timestamp()
@@ -1608,7 +1665,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
     # when the bot got around to processing it. Falls back to "now" if
     # the ADM line has no parseable HH:MM:SS prefix.
     if event_time is None:
-        event_time = extract_adm_event_time(line) or datetime.now(UTC)
+        event_time = extract_adm_event_time(line, config=config) or datetime.now(UTC)
 
     feed_map = {
         "flag_raise": ("flag_feed", DEFAULT_CHANNEL_NAMES["flag_feed"], True, "🚩 FLAG RAISED", 0x2ECC71),
@@ -9017,7 +9074,23 @@ def stable_line_hash(line):
 _ADM_TIME_PREFIX_RE = re.compile(r"^\s*(\d{1,2}):(\d{2}):(\d{2})\b")
 
 
-def extract_adm_event_time(line, *, now=None):
+def adm_timezone_for_config(config=None):
+    timezone_name = ""
+    if isinstance(config, dict):
+        timezone_name = str(
+            config.get("adm_timezone")
+            or config.get("timezone")
+            or config.get("server_timezone")
+            or ""
+        ).strip()
+    timezone_name = timezone_name or os.getenv("WANDERING_ADM_TIMEZONE", "Europe/Dublin")
+    try:
+        return ZoneInfo(timezone_name)
+    except Exception:
+        return UTC
+
+
+def extract_adm_event_time(line, *, now=None, config=None):
     """Extract the in-game wall-clock time from an ADM log line and return
     a timezone-aware UTC datetime, or None if the line has no recognisable
     `HH:MM:SS` prefix.
@@ -9043,13 +9116,16 @@ def extract_adm_event_time(line, *, now=None):
     except Exception:
         return None
 
-    reference = now or datetime.now(UTC)
-    candidate = reference.replace(hour=hh, minute=mm, second=ss, microsecond=0)
-    # ADM lines are always written in the past relative to "now". If the
-    # parsed time appears to be more than 5 minutes in the future (a small
-    # buffer for clock skew between the game server and the bot), it must
-    # actually be from yesterday's log.
-    if candidate > reference + timedelta(minutes=5):
+    tz = adm_timezone_for_config(config)
+    reference_utc = now or datetime.now(UTC)
+    reference_local = reference_utc.astimezone(tz)
+    candidate_local = reference_local.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+    # ADM lines only contain wall-clock time. Compare in the server's own
+    # timezone so live UK/EU summer-time logs are not mislabelled yesterday.
+    if candidate_local > reference_local + timedelta(minutes=5):
+        candidate_local -= timedelta(days=1)
+    candidate = candidate_local.astimezone(UTC)
+    if candidate > reference_utc + timedelta(minutes=5):
         candidate -= timedelta(days=1)
     return candidate
 
@@ -9109,6 +9185,54 @@ def save_processed_adm_lines():
     save_json(PROCESSED_ADM_FILE, data)
 
 
+def load_processed_adm_events():
+    global processed_adm_events
+
+    data = load_json(PROCESSED_ADM_EVENTS_FILE)
+    processed_adm_events = {}
+
+    for guild_id, fingerprints in data.items():
+        if isinstance(fingerprints, list):
+            ordered = OrderedDict()
+            for item in fingerprints:
+                ordered[str(item)] = None
+            processed_adm_events[str(guild_id)] = ordered
+
+
+def save_processed_adm_events():
+    data = {}
+
+    for guild_id, fingerprints in processed_adm_events.items():
+        keys = list(fingerprints.keys()) if isinstance(fingerprints, OrderedDict) else list(fingerprints)
+        data[guild_id] = keys[-PROCESSED_ADM_EVENT_CACHE_LIMIT:]
+
+    save_json(PROCESSED_ADM_EVENTS_FILE, data)
+
+
+def load_processed_kill_events():
+    global processed_kill_events
+
+    data = load_json(PROCESSED_KILL_EVENTS_FILE)
+    processed_kill_events = {}
+
+    for guild_id, fingerprints in data.items():
+        if isinstance(fingerprints, list):
+            ordered = OrderedDict()
+            for item in fingerprints:
+                ordered[str(item)] = None
+            processed_kill_events[str(guild_id)] = ordered
+
+
+def save_processed_kill_events():
+    data = {}
+
+    for guild_id, fingerprints in processed_kill_events.items():
+        keys = list(fingerprints.keys()) if isinstance(fingerprints, OrderedDict) else list(fingerprints)
+        data[guild_id] = keys[-PROCESSED_KILL_EVENT_CACHE_LIMIT:]
+
+    save_json(PROCESSED_KILL_EVENTS_FILE, data)
+
+
 def remember_processed_line(guild_id, line_hash):
     ensure_guild_runtime(guild_id)
     cache = processed_lines[guild_id]
@@ -9126,6 +9250,40 @@ def remember_processed_line(guild_id, line_hash):
         cache.popitem(last=False)
 
     save_processed_adm_lines()
+
+
+def remember_processed_adm_event(guild_id, fingerprint):
+    ensure_guild_runtime(guild_id)
+    cache = processed_adm_events[guild_id]
+    if fingerprint in cache:
+        cache.move_to_end(fingerprint)
+    else:
+        cache[fingerprint] = None
+    while len(cache) > PROCESSED_ADM_EVENT_CACHE_LIMIT:
+        cache.popitem(last=False)
+    save_processed_adm_events()
+
+
+def is_processed_adm_event(guild_id, fingerprint):
+    ensure_guild_runtime(guild_id)
+    return fingerprint in processed_adm_events.get(str(guild_id), {})
+
+
+def remember_processed_kill_event(guild_id, fingerprint):
+    ensure_guild_runtime(guild_id)
+    cache = processed_kill_events[guild_id]
+    if fingerprint in cache:
+        cache.move_to_end(fingerprint)
+    else:
+        cache[fingerprint] = None
+    while len(cache) > PROCESSED_KILL_EVENT_CACHE_LIMIT:
+        cache.popitem(last=False)
+    save_processed_kill_events()
+
+
+def is_processed_kill_event(guild_id, fingerprint):
+    ensure_guild_runtime(guild_id)
+    return fingerprint in processed_kill_events.get(str(guild_id), {})
 
 
 def active_guild_ids():
@@ -9222,6 +9380,18 @@ def ensure_guild_runtime(guild_id):
         # Migrate any legacy `set` cache to OrderedDict on the fly.
         legacy = processed_lines[guild_id]
         processed_lines[guild_id] = OrderedDict((str(item), None) for item in legacy)
+
+    if guild_id not in processed_adm_events:
+        processed_adm_events[guild_id] = OrderedDict()
+    elif not isinstance(processed_adm_events[guild_id], OrderedDict):
+        legacy_events = processed_adm_events[guild_id]
+        processed_adm_events[guild_id] = OrderedDict((str(item), None) for item in legacy_events)
+
+    if guild_id not in processed_kill_events:
+        processed_kill_events[guild_id] = OrderedDict()
+    elif not isinstance(processed_kill_events[guild_id], OrderedDict):
+        legacy_kills = processed_kill_events[guild_id]
+        processed_kill_events[guild_id] = OrderedDict((str(item), None) for item in legacy_kills)
 
     if guild_id not in online_players:
         online_players[guild_id] = set()
@@ -10500,7 +10670,7 @@ def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None, 
     # Anchor the embed to the in-game event time so Discord shows "when
     # the kill actually happened" rather than "when the bot processed it".
     if event_time is None and line:
-        event_time = extract_adm_event_time(line)
+        event_time = extract_adm_event_time(line, config=guild_configs.get(str(guild_id), {}) if guild_id else None)
     embed.timestamp = event_time or datetime.now(UTC)
     return embed
 
@@ -13043,7 +13213,7 @@ async def parse_adm(guild_id, config):
         # Discord shows "when the event actually happened in-game", not
         # "when the bot got around to processing it". Falls back to "now"
         # if the line has no parseable HH:MM:SS prefix.
-        parsed_event_time = extract_adm_event_time(line)
+        parsed_event_time = extract_adm_event_time(line, config=config)
         event_time = parsed_event_time or datetime.now(UTC)
 
         # NOTE: No age guard. The previous PR #27 age guard was over-engineered
@@ -13066,12 +13236,21 @@ async def parse_adm(guild_id, config):
                 await check_safe_zones_for_adm(guild_id, config, "position", line)
             continue
 
+        event_fingerprint = adm_event_fingerprint(guild_id, event_type, line, event_time=event_time)
+        if is_processed_adm_event(guild_id, event_fingerprint):
+            continue
+        remember_processed_adm_event(guild_id, event_fingerprint)
+
         if event_type == "kill":
             kill_details = extract_pvp_kill_details(line)
             if not kill_details:
                 continue
+            kill_fingerprint = pvp_kill_event_fingerprint(guild_id, kill_details, line=line, event_time=event_time)
+            if is_processed_kill_event(guild_id, kill_fingerprint):
+                continue
             if is_duplicate_pvp_kill(guild_id, kill_details):
                 continue
+            remember_processed_kill_event(guild_id, kill_fingerprint)
             await process_cheat_check_from_kill(guild_id, config, kill_details, line)
 
         print(f"EVENT: {event_type} | {line}")
@@ -17380,6 +17559,8 @@ async def reloadguilds(ctx):
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_processed_adm_events()
+    load_processed_kill_events()
     bootstrap_runtime_from_connected_guilds()
     await start_background_tasks()
 
@@ -17516,15 +17697,19 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
                 continue
 
             line_hash = stable_line_hash(line)
+            event_time = extract_adm_event_time(line, config=config)
+            fingerprint = pvp_kill_event_fingerprint(guild_id, details, line=line, event_time=event_time)
+            if not force and is_processed_kill_event(guild_id, fingerprint):
+                continue
             if not force and line_hash in history_hashes:
                 continue
 
-            signature = pvp_kill_signature(guild_id, details)
+            signature = fingerprint
             if signature in seen_signatures:
                 continue
 
             seen_signatures.add(signature)
-            selected.append((line, line_hash))
+            selected.append((line, line_hash, fingerprint))
 
             if len(selected) >= limit:
                 break
@@ -17541,8 +17726,8 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
     longshots_posted = 0
     stats_added = 0
 
-    for line, line_hash in selected:
-        already_counted = line_hash in processed_lines[guild_id]
+    for line, line_hash, fingerprint in selected:
+        already_counted = line_hash in processed_lines[guild_id] or is_processed_kill_event(guild_id, fingerprint)
         sent, sent_longshot = await send_pvp_kill_feed_message(guild_id, config, line, history=True)
         if sent:
             posted += 1
@@ -17553,9 +17738,11 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
                 stats_added += 1
             history_hashes.add(line_hash)
             remember_processed_line(guild_id, line_hash)
+            remember_processed_kill_event(guild_id, fingerprint)
 
     save_player_stats()
     save_processed_adm_lines()
+    save_processed_kill_events()
     config["killfeed_history_hashes"] = list(history_hashes)[-500:]
     save_guild_configs()
 
@@ -17632,23 +17819,41 @@ async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, f
             if not event_type:
                 continue
 
-            if event_type == "kill" and not extract_pvp_kill_details(line):
-                continue
+            kill_fingerprint = ""
+            if event_type == "kill":
+                kill_details = extract_pvp_kill_details(line)
+                if not kill_details:
+                    continue
+                event_time = extract_adm_event_time(line, config=config)
+                kill_fingerprint = pvp_kill_event_fingerprint(guild_id, kill_details, line=line, event_time=event_time)
+                if not force and is_processed_kill_event(guild_id, kill_fingerprint):
+                    skipped_existing += 1
+                    continue
 
             line_hash = stable_line_hash(line)
             if not force and line_hash in processed_lines[guild_id]:
+                skipped_existing += 1
+                continue
+            event_time = extract_adm_event_time(line, config=config)
+            event_fingerprint = adm_event_fingerprint(guild_id, event_type, line, event_time=event_time)
+            if not force and is_processed_adm_event(guild_id, event_fingerprint):
                 skipped_existing += 1
                 continue
 
             remember_player_location_from_adm(guild_id, line)
             update_player_stats_from_adm(guild_id, event_type, line)
             remember_processed_line(guild_id, line_hash)
+            remember_processed_adm_event(guild_id, event_fingerprint)
+            if kill_fingerprint:
+                remember_processed_kill_event(guild_id, kill_fingerprint)
             counted_events += 1
             if event_type == "kill":
                 counted_kills += 1
 
     save_player_stats()
     save_processed_adm_lines()
+    save_processed_adm_events()
+    save_processed_kill_events()
 
     await interaction.followup.send(
         f"Backfilled leaderboard stats from `{scanned_logs}` ADM files over `{hours}` hours. Counted `{counted_events}` events including `{counted_kills}` PvP kills. Skipped `{skipped_existing}` already-processed events. Failed downloads: `{failed_downloads}`.",
