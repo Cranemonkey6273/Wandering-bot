@@ -208,6 +208,15 @@ PAGE_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Bot Dashboard</title>
+  <script>
+    (function () {
+      try {
+        var serverTheme = "{{ dashboard_theme }}";
+        var theme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
+        document.documentElement.dataset.theme = theme === "default" ? "" : theme;
+      } catch (error) {}
+    })();
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -446,6 +455,8 @@ PAGE_TEMPLATE = """
     .flag-grid { display: flex; flex-wrap: wrap; gap: .35rem; }
     .flag-grid label { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--line); border-radius: .45rem; padding: .4rem .55rem; background: #070b08; color: var(--muted); }
     .flag-grid input { width: auto; min-height: 0; }
+    .airdrop-map-tools { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+    .airdrop-dot { position: absolute; transform: translate(-50%, -50%); z-index: 3; width: 1.4rem; height: 1.4rem; border-radius: 999px; display: grid; place-items: center; background: var(--gold); color: #080b06; border: 2px solid rgba(255,255,255,.78); font-size: .75rem; font-weight: 900; box-shadow: 0 .25rem .8rem rgba(0,0,0,.45); }
     .visual-select-grid { margin-top: .45rem; max-height: 16rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .45rem; }
     .visual-select-card { display: grid; grid-template-rows: 3.5rem auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
     .visual-select-card.active, .visual-select-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -590,15 +601,6 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<script>
-  (function () {
-    try {
-      var serverTheme = "{{ dashboard_theme }}";
-      var theme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
-      document.documentElement.dataset.theme = theme === "default" ? "" : theme;
-    } catch (error) {}
-  })();
-</script>
 <body>
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
@@ -1950,10 +1952,52 @@ Event pings | bell | 1234567890</textarea></label>
                   <label>Loot min <input name="lootmin" type="number" min="0" value="40"></label>
                   <label>Loot max <input name="lootmax" type="number" min="0" value="40"></label>
                   <label>Proto max <input name="proto_max" type="number" min="0" value="80"></label>
+                  <label>Spawn radius <input name="spawn_radius" type="number" min="1" value="20"></label>
+                  <label>Zombie guard event
+                    <select name="secondary_event">
+                      <option value="">No guards</option>
+                      <option value="InfectedArmy">Military infected</option>
+                      <option value="InfectedPolice">Police infected</option>
+                      <option value="InfectedMedic">Medical infected</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="mini-grid">
+                  <label>Duration
+                    <select name="duration_mode">
+                      <option value="permanent">Permanent event</option>
+                      <option value="temporary">Temporary event</option>
+                    </select>
+                  </label>
+                  <label>Temporary restarts <input name="temporary_restarts" type="number" min="1" value="2"></label>
+                  <label>Placement
+                    <select name="placement_mode">
+                      <option value="manual">Use map-picked positions</option>
+                      <option value="random_inland">Random inland positions</option>
+                      <option value="random_military">Random military/high-tier positions</option>
+                    </select>
+                  </label>
+                  <label>Random count
+                    <select name="random_count">
+                      <option value="2">2 drops</option>
+                      <option value="4">4 drops</option>
+                      <option value="6">6 drops</option>
+                    </select>
+                  </label>
                 </div>
                 <label>Spawn positions
                   <textarea name="positions" placeholder="10869, 10937&#10;9621, 10184"></textarea>
                 </label>
+                <div class="full zone-map" data-airdrop-map data-map-size="{{ server.map_size if server else 15360 }}" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+                  {% if server and not server.map_image_available %}
+                  <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and the airdrop picker will use it automatically.</div>
+                  {% endif %}
+                </div>
+                <div class="airdrop-map-tools">
+                  <button type="button" data-airdrop-clear>Clear Locations</button>
+                  <button type="button" data-airdrop-undo>Undo Location</button>
+                  <span class="muted" data-airdrop-readout>Click the map to add airdrop positions.</span>
+                </div>
                 <div>
                   <strong>Usage flags</strong>
                   <div class="flag-grid" data-airdrop-flags>
@@ -2824,11 +2868,56 @@ Event pings | bell | 1234567890</textarea></label>
     }
     function airdropPositions(form) {
       const raw = String(form.elements.positions?.value || "").trim();
-      if (!raw) return [{x: "10869", z: "10937"}];
+      if (!raw) return [];
       return raw.split(/\n+/).map((line) => {
         const parts = line.split(/[,\\s]+/).map((part) => part.trim()).filter(Boolean);
         return {x: parts[0] || "0", z: parts[1] || "0"};
       }).filter((pos) => pos.x && pos.z).slice(0, 80);
+    }
+    function setAirdropPositions(form, positions) {
+      if (!form || !form.elements.positions) return;
+      form.elements.positions.value = positions.map((pos) => `${Math.round(Number(pos.x) || 0)}, ${Math.round(Number(pos.z) || 0)}`).join("\n");
+      renderAirdropMap(form);
+      syncLiveOutput(form);
+    }
+    function airdropMapSize(map) {
+      const size = Number(map?.dataset.mapSize || 15360);
+      return Number.isFinite(size) && size > 0 ? size : 15360;
+    }
+    function renderAirdropMap(form) {
+      const map = form?.querySelector("[data-airdrop-map]");
+      if (!map) return;
+      const size = airdropMapSize(map);
+      map.querySelectorAll(".airdrop-dot").forEach((dot) => dot.remove());
+      const positions = airdropPositions(form).filter((pos) => Number(pos.x) > 0 && Number(pos.z) > 0);
+      positions.forEach((pos, index) => {
+        const dot = document.createElement("span");
+        dot.className = "airdrop-dot";
+        dot.textContent = String(index + 1);
+        dot.title = `Airdrop ${index + 1}: ${Math.round(Number(pos.x) || 0)}, ${Math.round(Number(pos.z) || 0)}`;
+        dot.style.left = `${Math.max(0, Math.min(100, (Number(pos.x) / size) * 100))}%`;
+        dot.style.top = `${Math.max(0, Math.min(100, 100 - ((Number(pos.z) / size) * 100)))}%`;
+        map.appendChild(dot);
+      });
+      const readout = form.querySelector("[data-airdrop-readout]");
+      if (readout) {
+        readout.textContent = positions.length
+          ? `${positions.length} airdrop location${positions.length === 1 ? "" : "s"} selected.`
+          : "Click the map to add airdrop positions.";
+      }
+    }
+    function randomAirdropPositions(form) {
+      const map = form?.querySelector("[data-airdrop-map]");
+      const size = airdropMapSize(map);
+      const count = Math.max(2, Math.min(6, Number(form?.elements.random_count?.value || 2) || 2));
+      const mode = String(form?.elements.placement_mode?.value || "manual");
+      const ranges = mode === "random_military"
+        ? {xMin: 0.12, xMax: 0.78, zMin: 0.55, zMax: 0.92}
+        : {xMin: 0.16, xMax: 0.82, zMin: 0.20, zMax: 0.88};
+      return Array.from({length: count}, () => ({
+        x: Math.round(size * (ranges.xMin + Math.random() * (ranges.xMax - ranges.xMin))),
+        z: Math.round(size * (ranges.zMin + Math.random() * (ranges.zMax - ranges.zMin))),
+      }));
     }
     function buildAirdropPackage(form, items) {
       const eventName = safeXmlName(form.elements.event_name?.value, "Static_WanderingAirdrop");
@@ -2841,6 +2930,8 @@ Event pings | bell | 1234567890</textarea></label>
       const childLootMin = numberValue("lootmin", 40);
       const childLootMax = numberValue("lootmax", 40);
       const protoMax = numberValue("proto_max", 80);
+      const spawnRadius = Math.max(1, numberValue("spawn_radius", 20));
+      const secondaryEvent = safeXmlName(form.elements.secondary_event?.value, "");
       const cargoXml = items.map((item) => `        <cargo chance="1.00">\n            <item name="${xmlEscape(item.item)}" chance="1.00" />\n        </cargo>`).join("\n");
       return {
         events: [
@@ -2855,6 +2946,7 @@ Event pings | bell | 1234567890</textarea></label>
           `        <saferadius>${numberValue("saferadius", 0)}</saferadius>`,
           `        <distanceradius>${numberValue("distanceradius", 1000)}</distanceradius>`,
           `        <cleanupradius>${numberValue("cleanupradius", 1500)}</cleanupradius>`,
+          secondaryEvent ? `        <secondary>${xmlEscape(secondaryEvent)}</secondary>` : "",
           `        <flags deletable="1" init_random="0" remove_damaged="0" />`,
           `        <position>fixed</position>`,
           `        <limit>child</limit>`,
@@ -2867,7 +2959,8 @@ Event pings | bell | 1234567890</textarea></label>
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<eventposdef>`,
           `    <event name="${xmlEscape(eventName)}">`,
-          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" group="${xmlEscape(groupName)}" />`),
+          `        <zone smin="0" smax="0" dmin="15" dmax="20" r="${spawnRadius}" />`,
+          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" y="0" group="${xmlEscape(groupName)}" />`),
           `    </event>`,
           `</eventposdef>`,
         ].join("\n"),
@@ -2875,7 +2968,7 @@ Event pings | bell | 1234567890</textarea></label>
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<eventgroupdef>`,
           `    <group name="${xmlEscape(groupName)}">`,
-          `        <child type="${xmlEscape(containerClass)}" deloot="1" lootmax="${childLootMax}" lootmin="${childLootMin}" x="0.0" y="0.0" z="0.0" />`,
+          `        <child type="${xmlEscape(containerClass)}" deloot="0" lootmax="${childLootMax}" lootmin="${childLootMin}" x="0" z="0" a="0" y="0" dechance="1.00" />`,
           `    </group>`,
           `</eventgroupdef>`,
         ].join("\n"),
@@ -2972,6 +3065,32 @@ Event pings | bell | 1234567890</textarea></label>
         }
         return;
       }
+      const airdropClear = event.target.closest("[data-airdrop-clear]");
+      if (airdropClear) {
+        const form = airdropClear.closest("form");
+        setAirdropPositions(form, []);
+        return;
+      }
+      const airdropUndo = event.target.closest("[data-airdrop-undo]");
+      if (airdropUndo) {
+        const form = airdropUndo.closest("form");
+        const positions = airdropPositions(form);
+        positions.pop();
+        setAirdropPositions(form, positions);
+        return;
+      }
+      const airdropMap = event.target.closest("[data-airdrop-map]");
+      if (airdropMap) {
+        const form = airdropMap.closest("form");
+        const rect = airdropMap.getBoundingClientRect();
+        const size = airdropMapSize(airdropMap);
+        const x = Math.round(((event.clientX - rect.left) / Math.max(1, rect.width)) * size);
+        const z = Math.round((1 - ((event.clientY - rect.top) / Math.max(1, rect.height))) * size);
+        const positions = airdropPositions(form).filter((pos) => Number(pos.x) > 0 && Number(pos.z) > 0);
+        positions.push({x: Math.max(0, Math.min(size, x)), z: Math.max(0, Math.min(size, z))});
+        setAirdropPositions(form, positions);
+        return;
+      }
       const pickerButton = event.target.closest("[data-picker-add]");
       if (pickerButton) {
         const picker = pickerButton.closest("[data-item-picker]");
@@ -3059,6 +3178,12 @@ Event pings | bell | 1234567890</textarea></label>
         }).catch(() => {});
       }
       if (event.target.matches("select[data-visual-select]")) renderVisualSelect(event.target);
+      if (event.target.matches('select[name="placement_mode"], select[name="random_count"]')) {
+        const form = event.target.closest("form");
+        const placement = String(form?.elements.placement_mode?.value || "manual");
+        if (placement.startsWith("random_")) setAirdropPositions(form, randomAirdropPositions(form));
+        else renderAirdropMap(form);
+      }
       if (event.target.closest("form")) syncLiveOutput(event.target.closest("form"));
     });
     function filterShopPanel(panel) {
@@ -3090,6 +3215,7 @@ Event pings | bell | 1234567890</textarea></label>
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
+    document.querySelectorAll("[data-airdrop-map]").forEach((map) => renderAirdropMap(map.closest("form")));
     function prettyXml(xmlDoc) {
       const raw = new XMLSerializer().serializeToString(xmlDoc);
       return raw.replace(/></g, ">\n<");
@@ -4322,7 +4448,7 @@ def parse_airdrop_positions(value: Any) -> list[dict[str, str]]:
         rows.append({"x": x, "z": z})
         if len(rows) >= 80:
             break
-    return rows or [{"x": "10869", "z": "10937"}]
+    return rows
 
 
 def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, Any]]:
@@ -4457,7 +4583,8 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
     loot_min = max(0, safe_int(record.get("lootmin"), 40))
     loot_max = max(0, safe_int(record.get("lootmax"), 40))
     proto_max = max(0, safe_int(record.get("proto_max"), 80))
-    events = "\n".join([
+    secondary_event = safe_dayz_class(record.get("secondary_event"))
+    events_lines = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<events>",
         f'    <event name="{xml_attr(event_name)}">',
@@ -4469,6 +4596,10 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         f'        <saferadius>{max(0, safe_int(record.get("saferadius"), 0))}</saferadius>',
         f'        <distanceradius>{max(0, safe_int(record.get("distanceradius"), 1000))}</distanceradius>',
         f'        <cleanupradius>{max(0, safe_int(record.get("cleanupradius"), 1500))}</cleanupradius>',
+    ]
+    if secondary_event:
+        events_lines.append(f"        <secondary>{xml_attr(secondary_event)}</secondary>")
+    events_lines.extend([
         '        <flags deletable="1" init_random="0" remove_damaged="0" />',
         "        <position>fixed</position>",
         "        <limit>child</limit>",
@@ -4477,11 +4608,14 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         "    </event>",
         "</events>",
     ])
+    events = "\n".join(events_lines)
+    spawn_radius = max(1, safe_int(record.get("spawn_radius"), 20))
     spawns = "\n".join([
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<eventposdef>",
         f'    <event name="{xml_attr(event_name)}">',
-        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" group="{xml_attr(group_name)}" />' for pos in positions if isinstance(pos, dict)],
+        f'        <zone smin="0" smax="0" dmin="15" dmax="20" r="{spawn_radius}" />',
+        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" y="0" group="{xml_attr(group_name)}" />' for pos in positions if isinstance(pos, dict)],
         "    </event>",
         "</eventposdef>",
     ])
@@ -4489,7 +4623,7 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<eventgroupdef>",
         f'    <group name="{xml_attr(group_name)}">',
-        f'        <child type="{xml_attr(container_class)}" deloot="1" lootmax="{loot_max}" lootmin="{loot_min}" x="0.0" y="0.0" z="0.0" />',
+        f'        <child type="{xml_attr(container_class)}" deloot="0" lootmax="{loot_max}" lootmin="{loot_min}" x="0" z="0" a="0" y="0" dechance="1.00" />',
         "    </group>",
         "</eventgroupdef>",
     ])
@@ -6236,11 +6370,24 @@ def api_xml_workshop():
             return jsonify({"ok": False, "error": "container_class must be a valid DayZ classname"}), 400
         record["generated_xml"] = build_spawnable_cargo_xml(record["container_class"], items)
     elif kind == "airdrop":
+        duration_mode = str(payload.get("duration_mode") or "permanent").strip().lower()
+        if duration_mode not in {"permanent", "temporary"}:
+            duration_mode = "permanent"
+        placement_mode = str(payload.get("placement_mode") or "manual").strip().lower()
+        if placement_mode not in {"manual", "random_inland", "random_military"}:
+            placement_mode = "manual"
+        positions = parse_airdrop_positions(payload.get("positions"))
+        if not positions:
+            return jsonify({"ok": False, "error": "pick at least one airdrop position on the map or use random placement"}), 400
         record.update({
             "event_name": safe_dayz_class(payload.get("event_name")) or "Static_WanderingAirdrop",
             "group_name": safe_dayz_class(payload.get("group_name")) or "WanderingAirdropGrp",
             "container_class": safe_dayz_class(payload.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x",
-            "positions": parse_airdrop_positions(payload.get("positions")),
+            "positions": positions,
+            "duration_mode": duration_mode,
+            "temporary_restarts": max(1, safe_int(payload.get("temporary_restarts"), 2)),
+            "placement_mode": placement_mode,
+            "random_count": max(2, min(6, safe_int(payload.get("random_count"), 2))),
             "nominal": max(0, safe_int(payload.get("nominal"), 1)),
             "min_count": max(0, safe_int(payload.get("min_count"), 0)),
             "max_count": max(0, safe_int(payload.get("max_count"), 0)),
@@ -6252,6 +6399,8 @@ def api_xml_workshop():
             "lootmin": max(0, safe_int(payload.get("lootmin"), 40)),
             "lootmax": max(0, safe_int(payload.get("lootmax"), 40)),
             "proto_max": max(0, safe_int(payload.get("proto_max"), 80)),
+            "spawn_radius": max(1, safe_int(payload.get("spawn_radius"), 20)),
+            "secondary_event": safe_dayz_class(payload.get("secondary_event")),
             "usage_flags": [safe_dayz_class(item) for item in csv_list(payload.get("usage_flags")) if safe_dayz_class(item)],
             "loot_categories": [safe_dayz_class(item) for item in csv_list(payload.get("loot_categories")) if safe_dayz_class(item)],
         })
