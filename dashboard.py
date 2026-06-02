@@ -436,6 +436,15 @@ PAGE_TEMPLATE = """
     .item-picker-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .45rem; align-items: end; min-width: 0; }
     .item-picker-controls button { align-self: end; min-width: 5rem; }
     .item-picker-preview { display: flex; gap: .5rem; align-items: center; color: var(--muted); min-width: 0; }
+    .xml-tool-layout { display: grid; grid-template-columns: minmax(18rem, .95fr) minmax(22rem, 1.35fr); gap: .85rem; align-items: start; }
+    .xml-tool-layout > * { min-width: 0; }
+    .xml-output-panel { display: grid; gap: .65rem; align-content: start; position: sticky; top: .75rem; }
+    .xml-output-panel .save-preview { min-height: 18rem; max-height: 34rem; }
+    .visual-select-grid { margin-top: .45rem; max-height: 16rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .45rem; }
+    .visual-select-card { display: grid; grid-template-rows: 3.5rem auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
+    .visual-select-card.active, .visual-select-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .visual-select-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
+    .visual-select-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .visual-picker { display: grid; gap: .45rem; }
     .visual-picker input { width: 100%; }
     .visual-picker-grid { max-height: 22rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; padding: .15rem; }
@@ -455,6 +464,7 @@ PAGE_TEMPLATE = """
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
     .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
+    .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
@@ -514,7 +524,8 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .loadout-builder { grid-template-columns: 1fr; }
+      .xml-output-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
       .zone-map { min-height: 22rem; }
       .metric { text-align: left; }
@@ -558,6 +569,8 @@ PAGE_TEMPLATE = """
       .item-table { min-width: 40rem; }
       .item-table th, .item-table td { padding: .55rem .5rem; font-size: .88rem; }
       .item-picker-controls { grid-template-columns: 1fr; }
+      .visual-picker-grid, .visual-select-grid { max-height: 18rem; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); }
+      .xml-output-panel { position: static; }
       .table-scroll .item-table { min-width: 40rem; }
       .category-link, .option-card, .help-card { padding: .75rem; }
       .trial-notice { align-items: stretch; flex-direction: column; }
@@ -1892,130 +1905,170 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         {% endif %}
         {% if xml_tool == "container" %}
-        <article class="admin-panel">
+        <article class="admin-panel full">
           <h3>Filled Bag / Container Generator</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="container">
-            <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
-            <label>Container classname
-              <select class="picker-select" name="container_class">
-                {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'DryBag_Black' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-            <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
-            <div class="full item-picker" data-item-picker data-picker-mode="xml">
-              <div class="item-picker-controls">
-                <label>Find item
-                  <select class="picker-select" data-picker-item>
-                    <option value="">Choose item</option>
-                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+            <div class="full xml-tool-layout">
+              <div class="stack">
+                <label>Recipe name <input name="recipe_name" value="Starter Builder Bag"></label>
+                <label>Container classname
+                  <select class="picker-select" name="container_class" data-visual-select="containers">
+                    {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'DryBag_Black' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
-                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option><option value="25">25%</option></select></label>
-                <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                <button type="button" data-picker-add>Add</button>
+                <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
+                <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
+                  <div class="item-picker-controls">
+                    <label>Find item
+                      <select class="picker-select" data-picker-item>
+                        <option value="">Choose item</option>
+                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                      </select>
+                    </label>
+                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option><option value="25">25%</option></select></label>
+                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                    <button type="button" data-picker-add>Add</button>
+                  </div>
+                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose items without typing classnames by hand.</span></div>
+                </div>
+                <label>Items inside
+                  <div class="selected-items" data-selected-items data-empty-text="No items added yet"></div>
+                  <textarea class="raw-output" name="items" data-picker-output placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
+                </label>
+                <div><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
               </div>
-              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose items without typing classnames by hand.</span></div>
+              <aside class="xml-output-panel">
+                <div class="mini-grid">
+                  <div class="mini-card"><span class="muted">Output</span><strong>cfgspawnabletypes</strong></div>
+                  <div class="mini-card"><span class="muted">Mode</span><strong>Draft</strong></div>
+                </div>
+                <pre class="save-preview" data-live-output></pre>
+                <div class="embed-preview"><strong>Where this goes</strong><span>This generates a safe draft for `cfgspawnabletypes.xml`. Live upload should use the guarded injector after preview/diff validation.</span></div>
+              </aside>
             </div>
-            <label class="full">Items inside
-              <div class="selected-items" data-selected-items data-empty-text="No items added yet"></div>
-              <textarea class="raw-output" name="items" data-picker-output placeholder="Nail, 32, -1, pristine&#10;Hatchet, 1, -1, pristine"></textarea>
-            </label>
-            <div class="full"><button type="submit">Save Container Recipe</button> <span class="result muted"></span></div>
           </form>
         </article>
         {% endif %}
         {% if xml_tool == "player-loadout" %}
-        <article class="admin-panel">
+        <article class="admin-panel full">
           <h3>Player Loadout</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
-            <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
-            <label>Custom file path <input name="custom_path" value="./custom/WanderingLoadout.json"></label>
-            <label>Role restriction <input name="role_ids" placeholder="optional Discord role IDs"></label>
-            <div class="full loadout-builder">
-              <div>
-                <h4>Player Slots</h4>
-                <div class="loadout-slots">
-                  {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"] %}
-                  <button class="loadout-slot" type="button" data-loadout-slot="{{ slot }}">{{ slot }}</button>
-                  {% endfor %}
-                </div>
-              </div>
-              <div>
-                <h4>Item Line Format</h4>
-                <p class="tool-note">Item, amount, quantity %, damage, slot, attachment-for. Example: WaterBottle, 1, 100, pristine, Back</p>
-              </div>
-            </div>
-            <div class="full item-picker" data-item-picker data-picker-mode="loadout">
-              <div class="item-picker-controls">
-                <label>Find item
-                  <select class="picker-select" data-picker-item>
-                    <option value="">Choose item</option>
-                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+            <div class="full xml-tool-layout">
+              <div class="stack">
+                <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
+                <label>Custom file path <input name="custom_path" value="./custom/WanderingLoadout.json"></label>
+                <label>Role restriction
+                  <select name="role_ids">
+                    <option value="">No role restriction</option>
+                    {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}">{{ role.label }}</option>{% endfor %}
                   </select>
                 </label>
-                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
-                <button type="button" data-picker-add>Add</button>
+                <div class="loadout-builder">
+                  <div>
+                    <h4>Player Slots</h4>
+                    <div class="loadout-slots">
+                      {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"] %}
+                      <button class="loadout-slot" type="button" data-loadout-slot="{{ slot }}">{{ slot }}</button>
+                      {% endfor %}
+                    </div>
+                  </div>
+                  <div class="loadout-selected-slot">
+                    <strong data-active-slot-label>Pick a slot</strong>
+                    <p class="tool-note">The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.</p>
+                  </div>
+                </div>
+                <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="cargo">
+                  <div class="item-picker-controls">
+                    <label>Find item
+                      <select class="picker-select" data-picker-item>
+                        <option value="">Choose item</option>
+                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                      </select>
+                    </label>
+                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                    <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
+                    <button type="button" data-picker-add>Add</button>
+                  </div>
+                  <label>Attachment for weapon/item
+                    <select class="picker-select" data-picker-attachment>
+                      <option value="">None</option>
+                      {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                    </select>
+                  </label>
+                  <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
+                </div>
+                <label>Loadout items
+                  <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
+                  <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
+                </label>
+                <div><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
               </div>
-              <label>Attachment for weapon/item
-                <select class="picker-select" data-picker-attachment>
-                  <option value="">None</option>
-                  {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                </select>
-              </label>
-              <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
+              <aside class="xml-output-panel">
+                <div class="mini-grid">
+                  <div class="mini-card"><span class="muted">Output</span><strong>loadout JSON</strong></div>
+                  <div class="mini-card"><span class="muted">File</span><strong>custom</strong></div>
+                </div>
+                <pre class="save-preview" data-live-output></pre>
+                <div class="embed-preview"><strong>Where this goes</strong><span>Save this as the custom JSON file, then reference it in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.</span></div>
+              </aside>
             </div>
-            <label class="full">Loadout items
-              <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
-              <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
-            </label>
-            <div class="full embed-preview"><strong>cfggameplay.json</strong><span>This loadout will be referenced from PlayerData.spawnGearPresetFiles using the custom file path above.</span></div>
             <pre class="full save-preview" data-save-preview hidden></pre>
-            <div class="full"><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
         {% endif %}
         {% if xml_tool == "vehicle-loadout" %}
-        <article class="admin-panel">
+        <article class="admin-panel full">
           <h3>Vehicle Loadout</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
-            <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
-            <label>Vehicle classname
-              <select class="picker-select" name="vehicle_class">
-                {% for item in xml_picker_groups.vehicles %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
-            <div class="full item-picker" data-item-picker data-picker-mode="xml">
-              <div class="item-picker-controls">
-                <label>Find cargo item
-                  <select class="picker-select" data-picker-item>
-                    <option value="">Choose item</option>
-                    {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+            <div class="full xml-tool-layout">
+              <div class="stack">
+                <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
+                <label>Vehicle classname
+                  <select class="picker-select" name="vehicle_class" data-visual-select="vehicles">
+                    {% for item in xml_picker_groups.vehicles %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
-                <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                <button type="button" data-picker-add>Add</button>
+                <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
+                <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
+                  <div class="item-picker-controls">
+                    <label>Find cargo item
+                      <select class="picker-select" data-picker-item>
+                        <option value="">Choose item</option>
+                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                      </select>
+                    </label>
+                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                    <button type="button" data-picker-add>Add</button>
+                  </div>
+                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Build vehicle cargo from server item data.</span></div>
+                </div>
+                <label>Cargo items
+                  <div class="selected-items" data-selected-items data-empty-text="No cargo items added yet"></div>
+                  <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
+                </label>
+                <div><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
               </div>
-              <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Build vehicle cargo from server item data.</span></div>
+              <aside class="xml-output-panel">
+                <div class="mini-grid">
+                  <div class="mini-card"><span class="muted">Output</span><strong>spawnabletypes</strong></div>
+                  <div class="mini-card"><span class="muted">Vehicle</span><strong>cargo</strong></div>
+                </div>
+                <pre class="save-preview" data-live-output></pre>
+                <div class="embed-preview"><strong>Where this goes</strong><span>This drafts the vehicle `cfgspawnabletypes.xml` cargo/attachment block. Parts and cargo should be previewed before live upload.</span></div>
+              </aside>
             </div>
-            <label class="full">Cargo items
-              <div class="selected-items" data-selected-items data-empty-text="No cargo items added yet"></div>
-              <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
-            </label>
-            <div class="full"><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
           </form>
         </article>
         {% endif %}
@@ -2399,6 +2452,46 @@ Event pings | bell | 1234567890</textarea></label>
     function imageForItem(item) {
       return item.image_url || itemInfo(item.name).image_url || fallbackThumb(item.category);
     }
+    function selectOptionItem(option) {
+      const value = option ? String(option.value || "").trim() : "";
+      const text = option ? String(option.textContent || value) : value;
+      const category = text.includes(" - ") ? text.split(" - ").slice(1).join(" - ") : itemInfo(value).category || "General";
+      return Object.assign({name: value, category}, itemInfo(value));
+    }
+    function renderVisualSelect(select) {
+      if (!select || !select.dataset.visualSelect) return;
+      let visual = select.parentElement.querySelector("[data-visual-select-grid]");
+      if (!visual) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "visual-picker";
+        wrapper.innerHTML = '<input type="search" data-visual-select-search placeholder="Search choices"><div class="visual-select-grid" data-visual-select-grid></div>';
+        select.parentElement.appendChild(wrapper);
+        visual = wrapper.querySelector("[data-visual-select-grid]");
+      }
+      const query = (select.parentElement.querySelector("[data-visual-select-search]")?.value || "").trim().toLowerCase();
+      const options = Array.from(select.options || [])
+        .filter((option) => option.value)
+        .map(selectOptionItem)
+        .filter((item) => !query || `${item.name} ${item.category}`.toLowerCase().includes(query))
+        .slice(0, 48);
+      visual.innerHTML = "";
+      options.forEach((item) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "visual-select-card";
+        card.dataset.visualSelectValue = item.name;
+        card.classList.toggle("active", String(select.value).toLowerCase() === String(item.name).toLowerCase());
+        const img = document.createElement("img");
+        img.src = imageForItem(item);
+        img.alt = "";
+        img.onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
+        const title = document.createElement("strong");
+        title.textContent = item.name;
+        card.appendChild(img);
+        card.appendChild(title);
+        visual.appendChild(card);
+      });
+    }
     function renderVisualPicker(picker) {
       if (!picker) return;
       const select = picker.querySelector("[data-picker-item]");
@@ -2451,7 +2544,16 @@ Event pings | bell | 1234567890</textarea></label>
     function syncLoadoutPickerSlot(slotSelect) {
       const picker = slotSelect ? slotSelect.closest("[data-item-picker]") : null;
       if (!picker || picker.dataset.pickerMode !== "loadout") return;
-      rebuildPickerOptions(picker, slotSelect.value || "cargo");
+      const form = picker.closest("form");
+      const slot = slotSelect.value || "";
+      rebuildPickerOptions(picker, slot || "cargo");
+      if (form) {
+        const label = form.querySelector("[data-active-slot-label]");
+        if (label) label.textContent = slot ? `Selected slot: ${slot}` : "Pick a slot";
+        form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
+          button.classList.toggle("active", button.dataset.loadoutSlot === slot);
+        });
+      }
     }
     function syncPickerPreview(picker) {
       if (!picker) return;
@@ -2502,6 +2604,7 @@ Event pings | bell | 1234567890</textarea></label>
         empty.className = "muted";
         empty.textContent = board.dataset.emptyText || "No items added yet";
         board.appendChild(empty);
+        syncLiveOutput(form);
         return;
       }
       lines.forEach((line, index) => {
@@ -2517,10 +2620,12 @@ Event pings | bell | 1234567890</textarea></label>
         row.querySelector("img").onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
         board.appendChild(row);
       });
+      syncLiveOutput(form);
     }
     function setOutputLines(output, lines) {
       output.value = lines.filter(Boolean).join("\n");
       syncSelectedItems(output);
+      syncLiveOutput(output.closest("form"));
     }
     function outputLines(output) {
       return output.value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
@@ -2531,12 +2636,89 @@ Event pings | bell | 1234567890</textarea></label>
       if (!line || !output) return false;
       output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
       syncSelectedItems(output);
+      syncLiveOutput(output.closest("form"));
       if (itemInput) {
         itemInput.value = "";
         itemInput.focus();
       }
       if (picker) syncPickerPreview(picker);
       return true;
+    }
+    function xmlEscape(value) {
+      return String(value ?? "").replace(/[<>&"']/g, (char) => ({"<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&apos;"}[char]));
+    }
+    function parsedOutputItems(form) {
+      const output = form ? form.querySelector("[data-picker-output]") : null;
+      return outputLines(output).map((line) => {
+        const parts = String(line || "").split(",").map((part) => part.trim());
+        return {
+          item: parts[0] || "",
+          quantity: Math.max(1, Number(parts[1] || 1) || 1),
+          quantityPercent: Number(parts[2] || -1),
+          damage: parts[3] || "pristine",
+          slot: parts[4] || "",
+          attachmentFor: parts[5] || "",
+        };
+      }).filter((item) => item.item);
+    }
+    function damageRange(damage) {
+      return {pristine: [1, 1], worn: [0.7, 1], damaged: [0.45, 0.7], badly_damaged: [0.2, 0.45], ruined: [0, 0.2], random: [0.2, 1]}[damage] || [1, 1];
+    }
+    function buildCargoXml(typeName, items) {
+      const lines = [`<type name="${xmlEscape(typeName || "Classname")}">`];
+      items.forEach((item) => {
+        lines.push(`    <cargo chance="1.00">`);
+        lines.push(`        <item name="${xmlEscape(item.item)}" chance="1.00" />`);
+        lines.push(`    </cargo>`);
+      });
+      lines.push(`</type>`);
+      return lines.join("\n");
+    }
+    function buildLoadoutPreview(form, items) {
+      const bySlot = {};
+      const unsorted = [];
+      items.forEach((item) => {
+        const range = damageRange(item.damage);
+        const entry = {
+          itemType: item.item,
+          spawnWeight: item.quantity,
+          attributes: {healthMin: range[0], healthMax: range[1]},
+        };
+        if (item.quantityPercent >= 0) {
+          entry.attributes.quantityMin = item.quantityPercent / 100;
+          entry.attributes.quantityMax = item.quantityPercent / 100;
+        }
+        if (item.attachmentFor) entry.attachmentFor = item.attachmentFor;
+        if (item.slot) {
+          (bySlot[item.slot] ||= []).push(entry);
+        } else {
+          unsorted.push(entry);
+        }
+      });
+      const preset = {
+        name: form?.elements.recipe_name?.value || "Wandering Bot Loadout",
+        spawnWeight: 1,
+        attachmentSlotItemSets: Object.keys(bySlot).sort().map((slot) => ({
+          slotName: slot,
+          discreteItemSets: [{spawnWeight: 1, items: bySlot[slot]}],
+        })),
+      };
+      if (unsorted.length) preset.discreteUnsortedItemSets = [{spawnWeight: 1, items: unsorted}];
+      return JSON.stringify({presets: [preset]}, null, 2);
+    }
+    function syncLiveOutput(form) {
+      if (!form) return;
+      const preview = form.querySelector("[data-live-output]");
+      if (!preview) return;
+      const kind = form.elements.recipe_kind ? String(form.elements.recipe_kind.value || "") : "";
+      const items = parsedOutputItems(form);
+      if (kind === "player_loadout") {
+        preview.textContent = buildLoadoutPreview(form, items);
+      } else if (kind === "vehicle_loadout") {
+        preview.textContent = buildCargoXml(form.elements.vehicle_class?.value || "VehicleClass", items);
+      } else if (kind === "container") {
+        preview.textContent = buildCargoXml(form.elements.container_class?.value || "ContainerClass", items);
+      }
     }
     document.querySelectorAll("[data-picker-output]").forEach(syncSelectedItems);
     applyTheme(localStorage.getItem("wanderingDashboardTheme") || (DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : "default"));
@@ -2575,6 +2757,17 @@ Event pings | bell | 1234567890</textarea></label>
         }
         return;
       }
+      const visualSelectCard = event.target.closest("[data-visual-select-value]");
+      if (visualSelectCard) {
+        const label = visualSelectCard.closest("label");
+        const select = label ? label.querySelector("select[data-visual-select]") : null;
+        if (select) {
+          select.value = visualSelectCard.dataset.visualSelectValue || "";
+          renderVisualSelect(select);
+          syncLiveOutput(select.closest("form"));
+        }
+        return;
+      }
       const pickerButton = event.target.closest("[data-picker-add]");
       if (pickerButton) {
         const picker = pickerButton.closest("[data-item-picker]");
@@ -2589,9 +2782,6 @@ Event pings | bell | 1234567890</textarea></label>
         if (slotSelect) {
           slotSelect.value = slotButton.dataset.loadoutSlot || "";
           syncLoadoutPickerSlot(slotSelect);
-          form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
-            button.classList.toggle("active", button === slotButton);
-          });
         }
       }
       const removeSelected = event.target.closest("[data-remove-selected]");
@@ -2639,6 +2829,11 @@ Event pings | bell | 1234567890</textarea></label>
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
       if (event.target.matches("[data-picker-output]")) syncSelectedItems(event.target);
       if (event.target.matches("[data-visual-search]")) renderVisualPicker(event.target.closest("[data-item-picker]"));
+      if (event.target.matches("[data-visual-select-search]")) {
+        const select = event.target.closest("label")?.querySelector("select[data-visual-select]");
+        renderVisualSelect(select);
+      }
+      if (event.target.closest("form")) syncLiveOutput(event.target.closest("form"));
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-picker-item]")) syncPickerPreview(event.target.closest("[data-item-picker]"));
@@ -2659,6 +2854,8 @@ Event pings | bell | 1234567890</textarea></label>
           body: JSON.stringify({theme, guild_id: guildId})
         }).catch(() => {});
       }
+      if (event.target.matches("select[data-visual-select]")) renderVisualSelect(event.target);
+      if (event.target.closest("form")) syncLiveOutput(event.target.closest("form"));
     });
     function filterShopPanel(panel) {
       if (!panel) return;
@@ -2872,6 +3069,8 @@ Event pings | bell | 1234567890</textarea></label>
       }
       renderVisualPicker(picker);
     });
+    document.querySelectorAll("select[data-visual-select]").forEach((select) => renderVisualSelect(select));
+    document.querySelectorAll("[data-live-output]").forEach((preview) => syncLiveOutput(preview.closest("form")));
     document.querySelectorAll("[data-wage-target]").forEach((select) => {
       const form = select.closest("form");
       function syncTargetType() {
@@ -3991,6 +4190,22 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> str:
+    safe_type = safe_dayz_class(type_name) or "Classname"
+    lines = [f'<type name="{safe_type}">']
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_name = safe_dayz_class(item.get("item"))
+        if not item_name:
+            continue
+        lines.append('    <cargo chance="1.00">')
+        lines.append(f'        <item name="{item_name}" chance="1.00" />')
+        lines.append('    </cargo>')
+    lines.append("</type>")
+    return "\n".join(lines)
+
+
 def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
     workshop = config.get("xml_workshop")
     if not isinstance(workshop, dict):
@@ -4701,9 +4916,18 @@ def item_not_matching_terms(item: dict[str, Any], terms: tuple[str, ...]) -> boo
 
 
 def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
-    vehicle_terms = ("car", "truck", "vehicle", "hatchback", "sedan", "ada", "olga", "sarka", "gunter", "humvee", "m3s", "bus")
+    def fallback_item(name: str, category: str) -> dict[str, Any]:
+        return {
+            "name": name,
+            "category": category,
+            "label": name,
+            "image_url": item_image_url(name),
+            "fallback_image_url": "",
+        }
+
+    vehicle_terms = ("offroadhatchback", "civiliansedan", "hatchback_02", "sedan_02", "truck_01", "offroad_02", "boat_01", "olga", "sarka", "gunter", "humvee", "m3s")
     container_terms = ("bag", "backpack", "barrel", "crate", "sea chest", "seachest", "case", "container", "drybag", "protectorcase")
-    head_terms = ("helmet", "hat", "cap", "beanie", "balaclava", "head", "beret", "ushanka", "boonie")
+    head_terms = ("helmet", "cap", "beanie", "balaclava", "head", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap")
     eye_terms = ("glasses", "eyewear", "nvg", "goggles")
     mask_terms = ("mask", "respirator", "bandana", "balaclava")
     body_terms = ("jacket", "shirt", "hoodie", "coat", "torso", "body", "sweater")
@@ -4713,10 +4937,50 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
     feet_terms = ("boots", "shoes", "sneakers", "feet")
     gloves_terms = ("glove", "gloves")
     armband_terms = ("armband",)
-    weapon_terms = ("weapon", "firearm", "rifle", "gun", "pistol", "shotgun", "smg", "ak", "m4", "mosin", "sks", "knife", "axe", "sword", "melee")
-    hands_terms = weapon_terms + ("tool", "hammer", "hatchet", "saw", "shovel", "pickaxe", "wrench")
-    excluded_loot_terms = ("animal", "infected", "zombie", "wreck")
+    firearm_terms = (
+        "weapon",
+        "firearm",
+        "rifle",
+        "gun",
+        "pistol",
+        "shotgun",
+        "smg",
+        "akm",
+        "ak74",
+        "ak101",
+        "m4a1",
+        "mosin",
+        "sks",
+        "svd",
+        "fal",
+        "aug",
+        "vss",
+        "vikh",
+        "crossbow",
+    )
+    hands_terms = firearm_terms + ("tool", "hammer", "hatchet", "saw", "shovel", "pickaxe", "wrench", "knife", "axe", "sword", "melee")
+    excluded_loot_terms = ("animal", "infected", "zombie", "wreck", "offroadhatchback", "civiliansedan", "hatchback_02", "sedan_02", "truck_01", "offroad_02", "boat_01")
 
+    known_vehicles = [
+        fallback_item("OffroadHatchback", "Vehicles"),
+        fallback_item("CivilianSedan", "Vehicles"),
+        fallback_item("Hatchback_02", "Vehicles"),
+        fallback_item("Sedan_02", "Vehicles"),
+        fallback_item("Truck_01_Covered", "Vehicles"),
+        fallback_item("Offroad_02", "Vehicles"),
+        fallback_item("Boat_01", "Vehicles"),
+    ]
+    known_containers = [
+        fallback_item("AliceBag_Black", "Containers"),
+        fallback_item("AliceBag_Camo", "Containers"),
+        fallback_item("DryBag_Black", "Containers"),
+        fallback_item("DryBag_Camo", "Containers"),
+        fallback_item("SeaChest", "Containers"),
+        fallback_item("Barrel_Green", "Containers"),
+        fallback_item("WoodenCrate", "Containers"),
+        fallback_item("StaticObj_Misc_WoodenCrate_5x", "Containers"),
+        fallback_item("ProtectorCase", "Containers"),
+    ]
     groups = {
         "all": items,
         "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
@@ -4732,13 +4996,14 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "Legs": [item for item in items if item_matches_terms(item, legs_terms)],
         "Feet": [item for item in items if item_matches_terms(item, feet_terms)],
         "Hands": [item for item in items if item_matches_terms(item, hands_terms)],
-        "Left Shoulder": [item for item in items if item_matches_terms(item, weapon_terms)],
-        "Right Shoulder": [item for item in items if item_matches_terms(item, weapon_terms)],
+        "Left Shoulder": [item for item in items if item_matches_terms(item, firearm_terms)],
+        "Right Shoulder": [item for item in items if item_matches_terms(item, firearm_terms)],
         "Gloves": [item for item in items if item_matches_terms(item, gloves_terms)],
         "Armband": [item for item in items if item_matches_terms(item, armband_terms)],
     }
-    for key, value in list(groups.items()):
-        groups[key] = value or items
+    groups["vehicles"] = groups["vehicles"] or known_vehicles
+    groups["containers"] = groups["containers"] or known_containers
+    groups["cargo"] = groups["cargo"] or items
     return groups
 
 
@@ -5657,6 +5922,7 @@ def api_xml_workshop():
         })
         if not record["container_class"]:
             return jsonify({"ok": False, "error": "container_class must be a valid DayZ classname"}), 400
+        record["generated_xml"] = build_spawnable_cargo_xml(record["container_class"], items)
     elif kind == "player_loadout":
         record["role_ids"] = csv_list(payload.get("role_ids"))
         record["custom_path"] = safe_custom_json_path(payload.get("custom_path"), record["id"])
@@ -5669,6 +5935,7 @@ def api_xml_workshop():
         })
         if not record["vehicle_class"]:
             return jsonify({"ok": False, "error": "vehicle_class must be a valid DayZ classname"}), 400
+        record["generated_xml"] = build_spawnable_cargo_xml(record["vehicle_class"], items)
 
     collection = recipes.setdefault(target_key, [])
     if not isinstance(collection, list):
