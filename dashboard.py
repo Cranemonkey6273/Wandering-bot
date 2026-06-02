@@ -2664,7 +2664,10 @@ Event pings | bell | 1234567890</textarea></label>
       }
       const grid = visual.querySelector("[data-visual-grid]");
       const query = (visual.querySelector("[data-visual-search]")?.value || "").trim().toLowerCase();
-      const group = picker.dataset.pickerGroup || picker.querySelector("[data-picker-slot]")?.value || "cargo";
+      const slotValue = picker.querySelector("[data-picker-slot]")?.value || "";
+      const group = picker.dataset.pickerMode === "loadout"
+        ? (slotValue || "cargo")
+        : (picker.dataset.pickerGroup || slotValue || "cargo");
       const sourceItems = XML_PICKER_GROUPS[group] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
       const selected = String(select.value || "").toLowerCase();
       const items = sourceItems
@@ -2700,6 +2703,8 @@ Event pings | bell | 1234567890</textarea></label>
       const form = picker.closest("form");
       const slot = slotSelect.value || "";
       rebuildPickerOptions(picker, slot || "cargo");
+      syncPickerPreview(picker);
+      renderVisualPicker(picker);
       if (form) {
         const label = form.querySelector("[data-active-slot-label]");
         if (label) label.textContent = slot ? `Selected slot: ${slot}` : "Pick a slot";
@@ -3105,6 +3110,12 @@ Event pings | bell | 1234567890</textarea></label>
         if (slotSelect) {
           slotSelect.value = slotButton.dataset.loadoutSlot || "";
           syncLoadoutPickerSlot(slotSelect);
+          const picker = slotSelect.closest("[data-item-picker]");
+          if (picker) {
+            picker.scrollIntoView({behavior: "smooth", block: "center"});
+            const search = picker.querySelector("[data-visual-search]");
+            if (search) search.focus({preventScroll: true});
+          }
         }
       }
       const removeSelected = event.target.closest("[data-remove-selected]");
@@ -3781,6 +3792,8 @@ Event pings | bell | 1234567890</textarea></label>
           const readout = form.querySelector("[data-map-readout]");
           if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
           form.scrollIntoView({behavior: "smooth", block: "center"});
+          const submitButton = form.querySelector('button[type="submit"]');
+          if (submitButton) submitButton.textContent = "Save Zone Changes";
           form.elements.name.focus();
         });
       });
@@ -5371,6 +5384,42 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     vehicle_terms = ("offroadhatchback", "civiliansedan", "hatchback_02", "sedan_02", "truck_01", "offroad_02", "boat_01", "olga", "sarka", "gunter", "humvee", "m3s")
+    whole_vehicle_names = {
+        "offroadhatchback",
+        "offroadhatchback_sand",
+        "offroadhatchback_red",
+        "offroadhatchback_white",
+        "civiliansedan",
+        "hatchback_02",
+        "sedan_02",
+        "truck_01",
+        "truck_01_covered",
+        "truck_01_cargo",
+        "offroad_02",
+        "boat_01",
+        "vehicleoffroadhatchback",
+        "vehicleciviliansedan",
+        "vehiclehatchback_02",
+        "vehiclesedan_02",
+        "vehicletruck_01",
+        "vehicletruck_01_covered",
+        "vehicletruck_01_cargo",
+        "vehicleoffroad_02",
+        "vehicleboat_01",
+    }
+    vehicle_part_terms = (
+        "hood",
+        "trunk",
+        "wheel",
+        "door",
+        "battery",
+        "radiator",
+        "sparkplug",
+        "tire",
+        "tyre",
+        "headlight",
+        "mirror",
+    )
     container_terms = ("bag", "backpack", "barrel", "crate", "sea chest", "seachest", "case", "container", "drybag", "protectorcase")
     head_terms = ("helmet", "cap", "beanie", "balaclava", "head", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap")
     eye_terms = ("glasses", "eyewear", "nvg", "goggles")
@@ -5426,11 +5475,35 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         fallback_item("StaticObj_Misc_WoodenCrate_5x", "Containers"),
         fallback_item("ProtectorCase", "Containers"),
     ]
+
+    def unique_named(values: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen = set()
+        unique = []
+        for item in values:
+            name = str(item.get("name", "")).strip()
+            key = name.lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return sorted(unique, key=lambda item: str(item.get("name", "")).lower())
+
+    def is_whole_vehicle(item: dict[str, Any]) -> bool:
+        name = str(item.get("name", "")).strip().lower()
+        category = str(item.get("category", "")).lower()
+        if not name:
+            return False
+        if "lootdispatch" in category:
+            return False
+        if any(term in name for term in vehicle_part_terms):
+            return False
+        return name in whole_vehicle_names
+
     groups = {
         "all": items,
         "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
         "containers": [item for item in items if item_matches_terms(item, container_terms)],
-        "vehicles": [item for item in items if item_matches_terms(item, vehicle_terms)],
+        "vehicles": [item for item in items if is_whole_vehicle(item)],
         "Head": [item for item in items if item_matches_terms(item, head_terms)],
         "Eyes": [item for item in items if item_matches_terms(item, eye_terms)],
         "Mask": [item for item in items if item_matches_terms(item, mask_terms)],
@@ -5446,7 +5519,7 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "Gloves": [item for item in items if item_matches_terms(item, gloves_terms)],
         "Armband": [item for item in items if item_matches_terms(item, armband_terms)],
     }
-    groups["vehicles"] = groups["vehicles"] or known_vehicles
+    groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
     groups["containers"] = groups["containers"] or known_containers
     groups["cargo"] = groups["cargo"] or items
     return groups

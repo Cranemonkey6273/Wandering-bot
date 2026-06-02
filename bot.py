@@ -18182,9 +18182,9 @@ async def scheduled_restart_loop():
 
     # ────────────────────────────────────────────────────────────────
     # PRE-RESTART COUNTDOWN WARNINGS in general_chat
-    # Fires at 30, 15, 5 and 1 minutes before each scheduled restart.
-    # Each new warning deletes the previous one so chat never gets
-    # spammed with multiple countdowns from the same cycle.
+    # Fires once at 30 minutes before each scheduled restart.
+    # The warning is deleted when the restart triggers so chat does not
+    # fill up with old restart notices.
     # ────────────────────────────────────────────────────────────────
     for guild_id, config in active_guild_config_items():
         try:
@@ -18201,6 +18201,8 @@ async def scheduled_restart_loop():
 
             minutes_until = _minutes_until_next_restart(now, restart_offset, restart_interval)
             if minutes_until is None:
+                continue
+            if minutes_until != 30:
                 continue
 
             warning = RESTART_COUNTDOWN_WARNINGS.get(minutes_until)
@@ -18317,10 +18319,7 @@ async def scheduled_restart_loop():
                     except Exception:
                         pass
 
-                sent_alert = await announce_channel.send(
-                    embed=style_embed(embed)
-                )
-                last_restart_message_ids[guild_id] = sent_alert.id
+                last_restart_message_ids.pop(guild_id, None)
 
                 # Post the "go touch grass" follow-up to the same channel
                 # the countdown was using (honours the per-guild override).
@@ -18339,7 +18338,7 @@ async def scheduled_restart_loop():
                     final_embed.set_footer(text="Wandering Bot Alpha — Restart Notice")
                     final_embed.timestamp = now
 
-                    previous_countdown_id = last_restart_countdown_message_ids.get(guild_id)
+                    previous_countdown_id = last_restart_countdown_message_ids.pop(guild_id, None)
                     if previous_countdown_id:
                         try:
                             previous_countdown = await chat_channel.fetch_message(previous_countdown_id)
@@ -18347,8 +18346,8 @@ async def scheduled_restart_loop():
                         except Exception:
                             pass
 
-                    sent_final = await chat_channel.send(embed=style_embed(final_embed))
-                    last_restart_countdown_message_ids[guild_id] = sent_final.id
+                    # The 30-minute warning is self-cleaned above. Do not
+                    # send extra restart messages into Discord.
 
                 restart_warning_tracker[guild_id] = {}
 
