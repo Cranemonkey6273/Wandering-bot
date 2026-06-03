@@ -731,6 +731,69 @@ def server_map_key(guild_id):
     return "chernarus"
 
 
+SERVER_PLATFORM_VALUES = {"xbox", "playstation", "pc"}
+
+
+def normalize_server_platform(value):
+    text = normalize_discord_name(value or "")
+    if text in {"ps", "ps4", "ps5", "playstation", "dayzps"}:
+        return "playstation"
+    if text in {"pc", "steam", "windows", "dayzpc"}:
+        return "pc"
+    if text in {"xb", "xbox", "xboxone", "seriesx", "seriess", "dayzxb"}:
+        return "xbox"
+    return "xbox"
+
+
+def server_platform_key(guild_id):
+    config = guild_configs.get(str(guild_id), {})
+    return normalize_server_platform(config.get("server_platform") or config.get("platform"))
+
+
+def mission_root_candidates_for_platform(platform_key):
+    platform_key = normalize_server_platform(platform_key)
+    if platform_key == "playstation":
+        preferred = [
+            "/dayzps_missions",
+            "/dayzps_missions/mpmissions",
+            "/dayzps/mpmissions",
+        ]
+    elif platform_key == "pc":
+        preferred = [
+            "/dayz_missions",
+            "/dayz_missions/mpmissions",
+            "/dayz/mpmissions",
+            "/dayzserver/mpmissions",
+            "/mpmissions",
+        ]
+    else:
+        preferred = [
+            "/dayzxb_missions",
+            "/dayzxb_missions/mpmissions",
+            "/dayzxb/mpmissions",
+            "/dayzxbserver/mpmissions",
+        ]
+    fallback = [
+        "/dayzxb_missions",
+        "/dayzxb_missions/mpmissions",
+        "/dayzxb/mpmissions",
+        "/dayzps_missions",
+        "/dayzps_missions/mpmissions",
+        "/dayzps/mpmissions",
+        "/dayz_missions",
+        "/dayz_missions/mpmissions",
+        "/dayz/mpmissions",
+        "/dayzserver/mpmissions",
+        "/dayzxbserver/mpmissions",
+        "/mpmissions",
+    ]
+    out = []
+    for root in [*preferred, *fallback]:
+        if root not in out:
+            out.append(root)
+    return out
+
+
 def server_map_size(guild_id):
     map_key = server_map_key(guild_id)
 
@@ -4484,6 +4547,7 @@ def new_guild_config(guild):
         "ftp_user": "",
         "ftp_password": "",
         "ftp_host": "",
+        "server_platform": "xbox",
         "roasts_enabled": False,
         "channels": {}
     }
@@ -11095,11 +11159,17 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     nitrado_user="Example: ni12248929_2",
     ftp_user="Your Nitrado FTP username",
     ftp_password="Your Nitrado FTP password",
+    server_platform="Console/host platform: Xbox, PlayStation, or PC",
     server_mode="Server style: PVP only, PVE only, or Hybrid",
     restore_deleted_channels="Recreate bot channels that server owners deleted",
     ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
 )
 @app_commands.choices(
+    server_platform=[
+        app_commands.Choice(name="Xbox - DayZXB files", value="xbox"),
+        app_commands.Choice(name="PlayStation - DayZPS files", value="playstation"),
+        app_commands.Choice(name="PC - DayZPC/MP missions", value="pc"),
+    ],
     server_mode=[
         app_commands.Choice(name="Hybrid - PVP and PVE", value="hybrid"),
         app_commands.Choice(name="PVP only", value="pvp"),
@@ -11113,6 +11183,7 @@ async def setup_command(
     nitrado_user: str,
     ftp_user: str,
     ftp_password: str,
+    server_platform: str = "xbox",
     server_mode: str = "hybrid",
     restore_deleted_channels: bool = False,
     ftp_host: str = ""
@@ -11139,7 +11210,9 @@ async def setup_command(
         }
 
     selected_server_mode = normalize_server_mode(server_mode)
+    selected_server_platform = normalize_server_platform(server_platform)
     guild_configs[guild_id]["server_mode"] = selected_server_mode
+    guild_configs[guild_id]["server_platform"] = selected_server_platform
 
     def normalize_discord_name(name):
         return re.sub(r"[^a-z0-9]+", "", name.lower())
@@ -11352,6 +11425,7 @@ async def setup_command(
     guild_configs[guild_id]["ftp_user"] = ftp_user
     guild_configs[guild_id]["ftp_password"] = ftp_password
     guild_configs[guild_id]["server_mode"] = selected_server_mode
+    guild_configs[guild_id]["server_platform"] = selected_server_platform
     if supplied_ftp_host:
         guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
@@ -12215,8 +12289,10 @@ def canonical_remote_path(path):
     if not clean.startswith("/"):
         clean = "/" + clean
 
-    clean = re.sub(r"(/dayzxb_missions)(?:/dayzxb_missions)+/", r"\1/", clean)
-    clean = re.sub(r"(/dayzxb)(?:/dayzxb)+/", r"\1/", clean)
+    for root in ("dayzxb_missions", "dayzps_missions", "dayz_missions"):
+        clean = re.sub(rf"(/(?:{root}))(?:/{root})+/", r"\1/", clean)
+    for root in ("dayzxb", "dayzps", "dayz"):
+        clean = re.sub(rf"(/(?:{root}))(?:/{root})+/", r"\1/", clean)
     return clean.rstrip("/") or "/"
 
 
@@ -23004,13 +23080,20 @@ def console_mission_folder_for_map(map_key):
 
 def console_ce_default_paths(guild_id):
     mission_folder = console_mission_folder_for_map(server_map_key(guild_id))
+    platform_key = server_platform_key(guild_id)
+    if platform_key == "playstation":
+        root = "/dayzps_missions"
+    elif platform_key == "pc":
+        root = "/mpmissions"
+    else:
+        root = "/dayzxb_missions"
     return {
-        "events_path": f"/dayzxb_missions/{mission_folder}/db/events.xml",
-        "spawns_path": f"/dayzxb_missions/{mission_folder}/cfgeventspawns.xml",
-        "eventgroups_path": f"/dayzxb_missions/{mission_folder}/cfgeventgroups.xml",
-        "mapgroupproto_path": f"/dayzxb_missions/{mission_folder}/mapgroupproto.xml",
-        "spawnabletypes_path": f"/dayzxb_missions/{mission_folder}/cfgspawnabletypes.xml",
-        "cfgenvironment_path": f"/dayzxb_missions/{mission_folder}/cfgenvironment.xml",
+        "events_path": f"{root}/{mission_folder}/db/events.xml",
+        "spawns_path": f"{root}/{mission_folder}/cfgeventspawns.xml",
+        "eventgroups_path": f"{root}/{mission_folder}/cfgeventgroups.xml",
+        "mapgroupproto_path": f"{root}/{mission_folder}/mapgroupproto.xml",
+        "spawnabletypes_path": f"{root}/{mission_folder}/cfgspawnabletypes.xml",
+        "cfgenvironment_path": f"{root}/{mission_folder}/cfgenvironment.xml",
     }
 
 
@@ -23047,20 +23130,7 @@ def console_ce_path_candidates(config, guild_id, key, requested_path="", configu
         mission_names.append(configured_mission)
     mission_names.extend(map_mission_folder_names(map_key))
 
-    mission_bases = [
-        "/dayzxb_missions",
-        "/dayzxb_missions/mpmissions",
-        "/dayzxb/mpmissions",
-        "/dayzps_missions",
-        "/dayzps_missions/mpmissions",
-        "/dayzps/mpmissions",
-        "/dayz_missions",
-        "/dayz_missions/mpmissions",
-        "/dayz/mpmissions",
-        "/dayzserver/mpmissions",
-        "/dayzxbserver/mpmissions",
-        "/mpmissions",
-    ]
+    mission_bases = mission_root_candidates_for_platform(server_platform_key(guild_id))
     suffix = console_ce_path_suffix(key)
     seen_missions = []
     for mission in mission_names:
@@ -28127,7 +28197,8 @@ def default_init_path_for_guild(guild_id):
         "livonia": "dayzOffline.enoch",
         "sakhal": "dayzOffline.sakhal",
     }.get(map_key, "dayzOffline.chernarusplus")
-    return f"/dayzxb_missions/{mission}/init.c"
+    root = mission_root_candidates_for_platform(server_platform_key(guild_id))[0]
+    return f"{root}/{mission}/init.c"
 
 
 def map_mission_folder_names(map_key):
@@ -28160,15 +28231,7 @@ def sort_init_paths_for_guild(guild_id, paths):
     map_key = server_map_key(guild_id)
     missions = map_mission_folder_names(map_key)
     mission_rank = {normalize_discord_name(mission): index for index, mission in enumerate(missions)}
-    preferred_roots = [
-        "/dayzxb_missions/",
-        "/dayzxb/mpmissions/",
-        "/dayzps_missions/",
-        "/dayzps/mpmissions/",
-        "/dayz_missions/",
-        "/dayz/mpmissions/",
-        "/mpmissions/",
-    ]
+    preferred_roots = [f"{root.rstrip('/')}/" for root in mission_root_candidates_for_platform(server_platform_key(guild_id))]
 
     def path_rank(path):
         clean = canonical_remote_path(path)
@@ -28196,20 +28259,7 @@ def init_path_candidates_for_guild(guild_id):
     preferred = default_init_path_for_guild(guild_id)
     saved = guild_configs.get(str(guild_id), {}).get("dayz_delivery_bridge", {}).get("init_path")
     candidates = [saved, preferred]
-    mission_bases = [
-        "/dayzxb_missions",
-        "/dayzxb/mpmissions",
-        "/dayzxb_missions/mpmissions",
-        "/dayzps_missions",
-        "/dayzps/mpmissions",
-        "/dayzps_missions/mpmissions",
-        "/dayz_missions",
-        "/dayz/mpmissions",
-        "/dayz_missions/mpmissions",
-        "/dayzserver/mpmissions",
-        "/dayzxbserver/mpmissions",
-        "/mpmissions",
-    ]
+    mission_bases = mission_root_candidates_for_platform(server_platform_key(guild_id))
     for mission in map_mission_folder_names(server_map_key(guild_id)):
         candidates.extend(f"{base}/{mission}/init.c" for base in mission_bases)
 
@@ -32326,6 +32376,35 @@ async def slash_server_setmission(interaction: discord.Interaction, name: str = 
     )
 
 
+@server_group.command(name="setplatform", description="Admin: set server file platform for Nitrado paths")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(platform="Xbox uses DayZXB, PlayStation uses DayZPS, PC uses PC mission roots")
+@app_commands.choices(platform=[
+    app_commands.Choice(name="Xbox - DayZXB files", value="xbox"),
+    app_commands.Choice(name="PlayStation - DayZPS files", value="playstation"),
+    app_commands.Choice(name="PC - DayZPC/MP missions", value="pc"),
+])
+async def slash_server_setplatform(interaction: discord.Interaction, platform: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    selected = normalize_server_platform(platform)
+    config["server_platform"] = selected
+    config.pop("_nitrado_banlist_working_path", None)
+    ce_settings = config.get("console_ce_events")
+    if isinstance(ce_settings, dict):
+        for key in ("events_path", "spawns_path", "spawnabletypes_path", "eventgroups_path", "mapgroupproto_path", "cfgenvironment_path"):
+            ce_settings.pop(key, None)
+    save_guild_configs()
+    label = {"xbox": "Xbox / DayZXB", "playstation": "PlayStation / DayZPS", "pc": "PC / DayZPC"}[selected]
+    await interaction.response.send_message(
+        f"Server platform set to `{label}`. XML tools will probe that platform's file roots first.",
+        ephemeral=True,
+    )
+
+
 @server_group.command(name="sendmessage", description="Admin: broadcast a chat message into the live DayZ server")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(message="Text to broadcast in-game (max 240 chars)")
@@ -33392,13 +33471,7 @@ def auto_fetch_types_xml_from_server(config, guild_id):
         "dayzOffline.sakhalplus",
         "dayzOffline.namalsk",
     ]
-    roots = [
-        "/dayzxb_missions",
-        "/dayzxb/mpmissions",
-        "/dayzps_missions",
-        "/dayzps/mpmissions",
-        "/mpmissions",
-    ]
+    roots = mission_root_candidates_for_platform(server_platform_key(guild_id)) if guild_id else mission_root_candidates_for_platform("xbox")
     tried = []
     for root in roots:
         for mission in missions:
