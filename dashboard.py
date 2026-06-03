@@ -6635,24 +6635,15 @@ def api_scenario_event():
         events[existing_index] = event
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
-    upload_result = None
-    if event_type not in {"vehicle_reset_all", "vehicle_reset_point"}:
-        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id)
-        if upload_result is not None:
-            guild_configs = load_store("guild_configs", {})
-            config = guild_configs.setdefault(guild_id, {"channels": {}}) if isinstance(guild_configs, dict) else config
-            events = config.get("scenario_events", []) if isinstance(config, dict) else events
-            if isinstance(events, list):
-                for saved_event in events:
-                    if isinstance(saved_event, dict) and safe_int(saved_event.get("id"), 0) == event_id:
-                        event = saved_event
-                        break
     if not wants_json_response():
         return redirect(return_to)
-    note = "saved and queued for bot restart/event processing"
-    if upload_result is not None:
-        note = "saved and native CE XML uploaded; restart the server for it to appear" if upload_result.get("ok") else "saved, but native CE XML upload failed"
-    return jsonify({"ok": True, "event": event, "updated": existing_index is not None, "upload": upload_result, "note": note})
+    return jsonify({
+        "ok": True,
+        "event": event,
+        "updated": existing_index is not None,
+        "upload": None,
+        "note": "saved; native CE XML upload is queued in the bot background worker",
+    })
 
 
 @APP.post("/api/admin/scenario-event-action")
@@ -6689,16 +6680,15 @@ def api_scenario_event_action():
             config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
-            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=True)
             if not wants_json_response():
                 return redirect(return_to)
             return jsonify({
                 "ok": True,
                 "deleted": removed,
                 "cancelled": action == "cancel",
-                "cleanup_queued": not (upload_result and upload_result.get("ok")),
-                "upload": upload_result,
-                "note": "event removed and native CE XML rebuilt" if upload_result and upload_result.get("ok") else "event removed; native CE XML cleanup is queued",
+                "cleanup_queued": True,
+                "upload": None,
+                "note": "event removed; native CE XML cleanup is queued in the bot background worker",
             })
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
@@ -6789,7 +6779,6 @@ def api_scenario_event_action():
         config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
-        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=True)
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({
@@ -6798,8 +6787,8 @@ def api_scenario_event_action():
             "deleted": None,
             "cancelled": action == "cancel",
             "note": "scenario event was already gone for this guild",
-            "cleanup_queued": not (upload_result and upload_result.get("ok")),
-            "upload": upload_result,
+            "cleanup_queued": True,
+            "upload": None,
         })
 
     if not wants_json_response():

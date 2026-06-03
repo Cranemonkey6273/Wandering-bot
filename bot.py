@@ -23301,28 +23301,78 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     wanted = str(class_name or "").strip()
     if not wanted:
         return None, False
+    changed = False
     for group_node in root.findall("group"):
         if str(group_node.get("name") or "").strip().lower() == wanted.lower():
-            return group_node, False
+            break
+    else:
+        group_node = ET.SubElement(root, "group", {"name": wanted})
+        changed = True
 
-    group_node = ET.SubElement(root, "group", {"name": wanted, "lootmax": str(int(lootmax))})
+    target_lootmax = str(max(1, int(lootmax or 80)))
+    if str(group_node.get("lootmax") or "") != target_lootmax:
+        group_node.set("lootmax", target_lootmax)
+        changed = True
+
+    # mapgroupproto.xml uses location usages such as Military/Town, while loot
+    # categories live inside a container block. Mixing those up makes CE reject
+    # the proto with "Unknown usage" and can leave airdrop groups unusable.
+    loot_categories = {"weapons", "explosives", "containers", "clothes"}
+    for usage in list(group_node.findall("usage")):
+        if str(usage.get("name") or "").strip().lower() in loot_categories:
+            group_node.remove(usage)
+            changed = True
+    if not group_node.findall("usage"):
+        ET.SubElement(group_node, "usage", {"name": "Military"})
+        changed = True
+
+    for direct_category in list(group_node.findall("category")):
+        group_node.remove(direct_category)
+        changed = True
+
+    container = None
+    for candidate in group_node.findall("container"):
+        if str(candidate.get("name") or "").strip().lower() == "lootfloor":
+            container = candidate
+            break
+    if container is None:
+        container = ET.SubElement(group_node, "container", {"name": "lootFloor"})
+        changed = True
+    if str(container.get("lootmax") or "") != target_lootmax:
+        container.set("lootmax", target_lootmax)
+        changed = True
+
+    existing_categories = {
+        str(category.get("name") or "").strip().lower()
+        for category in container.findall("category")
+    }
     for category in ("weapons", "explosives", "containers", "clothes"):
-        ET.SubElement(group_node, "usage", {"name": category})
+        if category not in existing_categories:
+            ET.SubElement(container, "category", {"name": category})
+            changed = True
+
+    for candidate in group_node.findall("container"):
+        for misplaced_point in list(candidate.findall("point")):
+            candidate.remove(misplaced_point)
+            changed = True
+
     # Generic crate loot points. Specific modded objects can still use their existing proto.
-    for x, y, z in [
-        ("0.0", "0.5", "0.0"),
-        ("0.4", "0.5", "0.4"),
-        ("-0.4", "0.5", "0.4"),
-        ("0.4", "0.5", "-0.4"),
-        ("-0.4", "0.5", "-0.4"),
-    ]:
-        ET.SubElement(group_node, "point", {
-            "pos": f"{x} {y} {z}",
-            "range": "0.5",
-            "height": "0.5",
-            "flags": "32",
-        })
-    return group_node, True
+    if not group_node.findall("point"):
+        for x, y, z in [
+            ("0.059926", "5.902591", "1.225610"),
+            ("-0.540074", "5.902591", "1.225610"),
+            ("1.059926", "5.902591", "0.725610"),
+            ("1.059926", "5.902591", "-0.074390"),
+            ("-0.540074", "5.902591", "-1.274390"),
+            ("-1.240075", "5.902591", "0.325610"),
+        ]:
+            ET.SubElement(group_node, "point", {
+                "pos": f"{x} {y} {z}",
+                "range": "0.5",
+                "height": "0.5",
+            })
+        changed = True
+    return group_node, changed
 
 
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
@@ -23789,7 +23839,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     }
 
     animal_records = [record for record in records if record.get("animal_territory")]
-    if animal_records:
+    should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
+    if should_cleanup_environment:
         mission_base = remote_mission_base_from_ce_paths(output)
         if not mission_base:
             output.setdefault("source_fallbacks", []).append(
@@ -23804,7 +23855,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         env_root, env_parse_warning = parse_xml_root_or_new(env_text, "env")
         if env_parse_warning:
-            output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {env_parse_warning}")
+            if animal_records:
+                output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {env_parse_warning}")
+            else:
+                output["messages"].append(f"cfgenvironment.xml cleanup skipped: {env_parse_warning}")
         removed_files, removed_territories = remove_wandering_environment_nodes(env_root)
         for record in animal_records:
             add_animal_environment_entry(env_root, record)
@@ -23814,12 +23868,16 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 "text": build_animal_territory_text(record),
                 "name": record.get("name"),
             })
-        output["cfgenvironment_path"] = resolved_env_path
-        output["cfgenvironment_text"] = xml_text_from_root(env_root)
+        if animal_records or removed_files or removed_territories:
+            output["cfgenvironment_path"] = resolved_env_path
+            output["cfgenvironment_text"] = xml_text_from_root(env_root)
         output["messages"].append(env_source)
         source_text = str(env_source or "")
         if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
-            output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {source_text}")
+            if animal_records:
+                output.setdefault("source_fallbacks", []).append(f"cfgenvironment.xml: {source_text}")
+            else:
+                output["messages"].append(f"cfgenvironment.xml cleanup skipped: {source_text}")
         output["messages"].append(
             f"Updated `cfgenvironment.xml` for `{len(animal_records)}` animal territory event(s), removed `{removed_files}` old Wandering Bot file reference(s) and `{removed_territories}` old territory block(s)."
         )
