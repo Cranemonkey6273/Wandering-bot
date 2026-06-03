@@ -487,6 +487,11 @@ PAGE_TEMPLATE = """
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
     .loadout-selected-slot strong { display: block; color: var(--gold); margin-bottom: .25rem; }
     .loadout-workbench { display: grid; gap: .75rem; }
+    .player-loadout-layout { grid-template-columns: 1fr; }
+    .player-loadout-layout .xml-output-panel { position: static; }
+    .player-loadout-layout .xml-output-panel .save-preview { min-height: 8rem; max-height: 18rem; }
+    .player-loadout-layout .loadout-workbench { margin-top: .35rem; }
+    .player-loadout-layout .visual-picker-grid { max-height: 30rem; grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr)); }
     .vehicle-workbench { display: grid; gap: .75rem; }
     .vehicle-cargo-board { min-height: 12rem; }
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
@@ -2108,10 +2113,10 @@ Event pings | bell | 1234567890</textarea></label>
         {% if xml_tool == "player-loadout" %}
         <article class="admin-panel full">
           <h3>Player Loadout</h3>
-          <form class="admin-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form player-loadout-form" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
-            <div class="full xml-tool-layout">
+            <div class="full xml-tool-layout player-loadout-layout">
               <div class="stack">
                 <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
                 <label>Custom file path <input name="custom_path" value="./custom/WanderingLoadout.json"></label>
@@ -2132,7 +2137,7 @@ Event pings | bell | 1234567890</textarea></label>
                   </div>
                   <div class="loadout-selected-slot">
                     <strong data-active-slot-label>Pick a slot</strong>
-                    <p class="tool-note">The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.</p>
+                    <p class="tool-note" data-active-slot-note>The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.</p>
                   </div>
                 </div>
                 <div class="loadout-workbench">
@@ -2719,6 +2724,12 @@ Event pings | bell | 1234567890</textarea></label>
       if (form) {
         const label = form.querySelector("[data-active-slot-label]");
         if (label) label.textContent = slot ? `Selected slot: ${slot}` : "Pick a slot";
+        const note = form.querySelector("[data-active-slot-note]");
+        if (note) {
+          note.textContent = slot
+            ? `Showing ${slot} options below. Pick a card or use the dropdown, then press Add.`
+            : "The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.";
+        }
         form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
           button.classList.toggle("active", button.dataset.loadoutSlot === slot);
         });
