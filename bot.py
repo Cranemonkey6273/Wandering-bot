@@ -23885,7 +23885,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["messages"].append(env_parse_warning)
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
-    if eventgroup_records:
+    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    if eventgroup_records or cleanup_pending:
         eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
             config,
             guild_id,
@@ -23930,7 +23931,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         output["messages"].append(
             f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` crate group(s), removed `{removed_groups}` old Wandering Bot group(s)."
         )
-        output["messages"].append(f"Updated `mapgroupproto.xml` with `{added_proto}` new crate proto group(s).")
+        output["messages"].append(f"Updated `mapgroupproto.xml` with `{added_proto}` new or repaired crate proto group(s).")
         if eventgroups_parse_warning:
             output["messages"].append(eventgroups_parse_warning)
         if mapgroupproto_parse_warning:

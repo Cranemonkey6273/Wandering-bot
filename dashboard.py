@@ -467,6 +467,7 @@ PAGE_TEMPLATE = """
     .visual-picker-grid { max-height: 22rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; padding: .15rem; }
     .visual-picker-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; min-width: 0; }
     .visual-picker-card:hover, .visual-picker-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .visual-picker-card::after { content: "Select"; display: inline-flex; justify-content: center; align-items: center; min-height: 2rem; border: 1px solid var(--line); border-radius: .35rem; color: var(--text); font-weight: 800; background: #070b08; }
     .visual-picker-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
     .visual-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .visual-picker-card small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -477,11 +478,12 @@ PAGE_TEMPLATE = """
     .shop-picker-card span { color: var(--muted); font-size: .78rem; }
     .item-table .item-name-cell { display: flex; align-items: center; gap: .55rem; min-width: 0; }
     .item-table .item-name-cell strong { overflow-wrap: anywhere; }
-    .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; }
+    .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; align-items: start; }
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
     .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
+    .loadout-selected-slot strong { display: block; color: var(--gold); margin-bottom: .25rem; }
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
@@ -496,7 +498,7 @@ PAGE_TEMPLATE = """
     .selected-row strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .selected-row small { color: var(--muted); }
     .selected-row button { min-height: 2rem; padding: .25rem .5rem; }
-    .raw-output { min-height: 4rem; font-size: .85rem; opacity: .72; }
+    .raw-output { display: none; min-height: 4rem; font-size: .85rem; opacity: .72; }
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
@@ -3043,6 +3045,11 @@ Event pings | bell | 1234567890</textarea></label>
         if (picker) {
           syncPickerPreview(picker);
           renderVisualPicker(picker);
+          if (picker.dataset.pickerMode === "loadout") {
+            const form = picker.closest("form");
+            const output = form ? form.querySelector("[data-picker-output]") : null;
+            appendPickerLine(picker, output);
+          }
         }
         return;
       }
@@ -5383,7 +5390,6 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             "fallback_image_url": "",
         }
 
-    vehicle_terms = ("offroadhatchback", "civiliansedan", "hatchback_02", "sedan_02", "truck_01", "offroad_02", "boat_01", "olga", "sarka", "gunter", "humvee", "m3s")
     whole_vehicle_names = {
         "offroadhatchback",
         "offroadhatchback_sand",
@@ -5406,6 +5412,16 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "vehicletruck_01_cargo",
         "vehicleoffroad_02",
         "vehicleboat_01",
+    }
+    whole_vehicle_aliases = {
+        "ada": "OffroadHatchback",
+        "ada4x4": "OffroadHatchback",
+        "olga": "CivilianSedan",
+        "olga24": "CivilianSedan",
+        "gunter": "Hatchback_02",
+        "sarka": "Sedan_02",
+        "m3s": "Truck_01_Covered",
+        "humvee": "Offroad_02",
     }
     vehicle_part_terms = (
         "hood",
@@ -5497,31 +5513,39 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             return False
         if any(term in name for term in vehicle_part_terms):
             return False
-        return name in whole_vehicle_names
+        if name in whole_vehicle_names:
+            return True
+        return whole_vehicle_aliases.get(name, "").lower() in whole_vehicle_names
+
+    def group_or_fallback(group_items: list[dict[str, Any]], fallback_names: list[str], category: str) -> list[dict[str, Any]]:
+        if group_items:
+            return group_items
+        return [fallback_item(name, category) for name in fallback_names]
 
     groups = {
         "all": items,
         "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
         "containers": [item for item in items if item_matches_terms(item, container_terms)],
         "vehicles": [item for item in items if is_whole_vehicle(item)],
-        "Head": [item for item in items if item_matches_terms(item, head_terms)],
-        "Eyes": [item for item in items if item_matches_terms(item, eye_terms)],
-        "Mask": [item for item in items if item_matches_terms(item, mask_terms)],
-        "Body": [item for item in items if item_matches_terms(item, body_terms)],
-        "Vest": [item for item in items if item_matches_terms(item, vest_terms)],
-        "Back": [item for item in items if item_matches_terms(item, ("backpack", "bag", "drybag", "back"))],
-        "Hips": [item for item in items if item_matches_terms(item, hips_terms)],
-        "Legs": [item for item in items if item_matches_terms(item, legs_terms)],
-        "Feet": [item for item in items if item_matches_terms(item, feet_terms)],
-        "Hands": [item for item in items if item_matches_terms(item, hands_terms)],
-        "Left Shoulder": [item for item in items if item_matches_terms(item, firearm_terms)],
-        "Right Shoulder": [item for item in items if item_matches_terms(item, firearm_terms)],
-        "Gloves": [item for item in items if item_matches_terms(item, gloves_terms)],
-        "Armband": [item for item in items if item_matches_terms(item, armband_terms)],
+        "Head": group_or_fallback([item for item in items if item_matches_terms(item, head_terms)], ["BallisticHelmet", "BaseballCap_Black", "BoonieHat_Green"], "Clothes"),
+        "Eyes": group_or_fallback([item for item in items if item_matches_terms(item, eye_terms)], ["SportGlasses_Black", "NVGoggles"], "Clothes"),
+        "Mask": group_or_fallback([item for item in items if item_matches_terms(item, mask_terms)], ["BalaclavaMask_Black", "SurgicalMask"], "Clothes"),
+        "Body": group_or_fallback([item for item in items if item_matches_terms(item, body_terms)], ["HikingJacket_Black", "TShirt_Black", "Hoodie_Black"], "Clothes"),
+        "Vest": group_or_fallback([item for item in items if item_matches_terms(item, vest_terms)], ["PlateCarrierVest", "HighCapacityVest_Black"], "Clothes"),
+        "Back": group_or_fallback([item for item in items if item_matches_terms(item, ("backpack", "bag", "drybag", "back"))], ["AliceBag_Black", "DryBag_Black", "MountainBag_Blue"], "Containers"),
+        "Hips": group_or_fallback([item for item in items if item_matches_terms(item, hips_terms)], ["MilitaryBelt", "CivilianBelt"], "Clothes"),
+        "Legs": group_or_fallback([item for item in items if item_matches_terms(item, legs_terms)], ["CargoPants_Black", "Jeans_Black"], "Clothes"),
+        "Feet": group_or_fallback([item for item in items if item_matches_terms(item, feet_terms)], ["MilitaryBoots_Black", "AthleticShoes_Black"], "Clothes"),
+        "Hands": group_or_fallback([item for item in items if item_matches_terms(item, hands_terms)], ["M4A1", "AKM", "Hatchet", "CombatKnife"], "Weapons"),
+        "Left Shoulder": group_or_fallback([item for item in items if item_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
+        "Right Shoulder": group_or_fallback([item for item in items if item_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
+        "Gloves": group_or_fallback([item for item in items if item_matches_terms(item, gloves_terms)], ["TacticalGloves_Black", "WorkingGloves_Black"], "Clothes"),
+        "Armband": group_or_fallback([item for item in items if item_matches_terms(item, armband_terms)], ["Armband_Black", "Armband_Red", "Armband_Green"], "Clothes"),
     }
     groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
-    groups["containers"] = groups["containers"] or known_containers
+    groups["containers"] = unique_named(groups["containers"] + known_containers)
     groups["cargo"] = groups["cargo"] or items
+    groups["Unsorted"] = groups["cargo"]
     return groups
 
 
