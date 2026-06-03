@@ -4443,6 +4443,7 @@ def new_guild_config(guild):
     return {
         "guild_name": guild.name,
         "guild_owner": str(guild.owner),
+        "server_mode": "hybrid",
         "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
         "nitrado_token": "",
         "service_id": "",
@@ -4453,6 +4454,68 @@ def new_guild_config(guild):
         "roasts_enabled": False,
         "channels": {}
     }
+
+
+SERVER_MODE_VALUES = {"pvp", "pve", "hybrid"}
+PVE_ONLY_CHANNEL_KEYS = {
+    "pve_quests",
+    "pve_hunting",
+    "pve_collection",
+    "pve_fishing",
+    "pve_crafting",
+    "pve_expeditions",
+    "pve_info",
+    "pve_help",
+    "pve_heatmap",
+    "pve_rewards_public",
+    "pve_rewards_private",
+    "quest_workshop",
+}
+PVP_ONLY_CHANNEL_KEYS = {
+    "pvp_intel",
+}
+
+
+def normalize_server_mode(value):
+    text = str(value or "hybrid").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "pvp_only": "pvp",
+        "pvp": "pvp",
+        "pve_only": "pve",
+        "pve": "pve",
+        "both": "hybrid",
+        "mixed": "hybrid",
+        "pvp_pve": "hybrid",
+        "pve_pvp": "hybrid",
+        "hybrid": "hybrid",
+    }
+    return aliases.get(text, "hybrid")
+
+
+def get_server_mode(config):
+    mode = normalize_server_mode(
+        config.get("server_mode")
+        or config.get("game_mode")
+        or config.get("playstyle")
+    )
+    config["server_mode"] = mode
+    return mode
+
+
+def server_allows_pve(config):
+    return get_server_mode(config) in {"pve", "hybrid"}
+
+
+def server_allows_pvp(config):
+    return get_server_mode(config) in {"pvp", "hybrid"}
+
+
+def channel_key_allowed_for_server_mode(key, config):
+    if key in PVE_ONLY_CHANNEL_KEYS:
+        return server_allows_pve(config)
+    if key in PVP_ONLY_CHANNEL_KEYS:
+        return server_allows_pvp(config)
+    return True
 
 
 PRIVATE_FEED_CHANNEL_KEYS = {
@@ -4936,6 +4999,9 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
 
     restored = []
     for key in keys_to_restore:
+        if not channel_key_allowed_for_server_mode(key, config):
+            continue
+
         name = DEFAULT_CHANNEL_NAMES.get(key)
         if not name:
             continue
@@ -4964,6 +5030,9 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
 
 
 async def ensure_pve_channels(guild, config, force=False):
+    if not server_allows_pve(config):
+        return {}
+
     channels = config.setdefault("channels", {})
     pve_channel_keys = [
         "pve_quests",
@@ -5539,6 +5608,8 @@ async def ensure_pve_channels_for_active_guilds():
         try:
             guild_id = str(guild.id)
             config = guild_configs.setdefault(guild_id, new_guild_config(guild))
+            if not server_allows_pve(config):
+                continue
             await ensure_pve_channels(guild, config)
         except Exception as error:
             print(f"PVE SETUP ERROR {guild.id}: {error}")
@@ -7712,6 +7783,8 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         target = guild.get_channel(channels.get(channel_key))
 
     if not target:
+        if not server_allows_pve(config):
+            return False, "PVE is disabled for this server mode."
         # Auto-create the PVE channel set if missing.
         await ensure_pve_channels(guild, config)
         target = guild.get_channel(channels.get(channel_key))
@@ -10780,7 +10853,7 @@ async def on_guild_join(guild):
     economy_category = await guild.create_category("💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await guild.create_category("🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await guild.create_category("❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
-    pve_category = await guild.create_category("🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
+    pve_category = None
 
     async def make_channel(name, *, cat=None):
 
@@ -10807,7 +10880,7 @@ async def on_guild_join(guild):
     suicide_feed = await guild.create_text_channel("💀🧠・suicide-feed・🧠💀", category=live_category, overwrites=staff_overwrites)
     flag_feed = await guild.create_text_channel("🚩🏴・flag-feed・🏴🚩", category=live_category, overwrites=staff_overwrites)
     placed_feed = await guild.create_text_channel("📦🧰・placed-feed・🧰📦", category=live_category, overwrites=staff_overwrites)
-    pvp_intel = await make_channel("⚔️📡・pvp-intel・📡⚔️", cat=live_category)
+    pvp_intel = None
 
     online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
     leaderboards = await make_channel("🏆📊・leaderboards・📊🏆", cat=info_category)
@@ -10835,15 +10908,15 @@ async def on_guild_join(guild):
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
     vehicle_rentals = await make_channel("🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
     rental_logs = await make_channel("🛻📒・rental-logs・📒🛻", cat=economy_category)
-    pve_quests = await make_channel("🧭📜・pve-quests・📜🧭", cat=pve_category)
-    pve_hunting = await make_channel("🦌🏹・pve-hunting・🏹🦌", cat=pve_category)
-    pve_collection = await make_channel("🎒🥫・pve-collection・🥫🎒", cat=pve_category)
-    pve_fishing = await make_channel("🎣🐟・pve-fishing・🐟🎣", cat=pve_category)
-    pve_crafting = await make_channel("🪓🛠️・pve-crafting・🛠️🪓", cat=pve_category)
-    pve_expeditions = await make_channel("🗺️⛺・pve-expeditions・⛺🗺️", cat=pve_category)
-    pve_info = await make_channel("📘🌿・pve-info・🌿📘", cat=pve_category)
-    pve_help = await make_channel("❔🌿・pve-help・🌿❔", cat=pve_category)
-    pve_heatmap = await make_channel("🦌🗺️・pve-heatmap・🗺️🦌", cat=pve_category)
+    pve_quests = None
+    pve_hunting = None
+    pve_collection = None
+    pve_fishing = None
+    pve_crafting = None
+    pve_expeditions = None
+    pve_info = None
+    pve_help = None
+    pve_heatmap = None
     owner_overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
         guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -10854,9 +10927,13 @@ async def on_guild_join(guild):
         overwrites=owner_overwrites
     )
 
+    def channel_id(channel):
+        return channel.id if channel else None
+
     guild_configs[guild_id] = {
         "guild_name": guild.name,
         "guild_owner": str(guild.owner),
+        "server_mode": "hybrid",
         "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
         "nitrado_token": "",
         "service_id": "",
@@ -10891,14 +10968,14 @@ async def on_guild_join(guild):
             "purchase_logs": purchase_logs.id,
             "vehicle_rentals": vehicle_rentals.id,
             "rental_logs": rental_logs.id,
-            "pve_quests": pve_quests.id,
-            "pve_hunting": pve_hunting.id,
-            "pve_collection": pve_collection.id,
-            "pve_fishing": pve_fishing.id,
-            "pve_crafting": pve_crafting.id,
-            "pve_expeditions": pve_expeditions.id,
-            "pve_info": pve_info.id,
-            "pve_heatmap": pve_heatmap.id,
+            "pve_quests": channel_id(pve_quests),
+            "pve_hunting": channel_id(pve_hunting),
+            "pve_collection": channel_id(pve_collection),
+            "pve_fishing": channel_id(pve_fishing),
+            "pve_crafting": channel_id(pve_crafting),
+            "pve_expeditions": channel_id(pve_expeditions),
+            "pve_info": channel_id(pve_info),
+            "pve_heatmap": channel_id(pve_heatmap),
             "faction_tickets": faction_tickets.id,
             "faction_staff": faction_staff.id,
             "zombie_feed": zombie_feed.id,
@@ -10907,8 +10984,8 @@ async def on_guild_join(guild):
             "suicide_feed": suicide_feed.id,
             "flag_feed": flag_feed.id,
             "placed_feed": placed_feed.id,
-            "pvp_intel": pvp_intel.id,
-            "pve_help": pve_help.id,
+            "pvp_intel": channel_id(pvp_intel),
+            "pve_help": channel_id(pve_help),
             "company_announcements": company_announcements.id
         }
     }
@@ -10985,8 +11062,16 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     nitrado_user="Example: ni12248929_2",
     ftp_user="Your Nitrado FTP username",
     ftp_password="Your Nitrado FTP password",
+    server_mode="Server style: PVP only, PVE only, or Hybrid",
     restore_deleted_channels="Recreate bot channels that server owners deleted",
     ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
+)
+@app_commands.choices(
+    server_mode=[
+        app_commands.Choice(name="Hybrid - PVP and PVE", value="hybrid"),
+        app_commands.Choice(name="PVP only", value="pvp"),
+        app_commands.Choice(name="PVE only", value="pve"),
+    ]
 )
 async def setup_command(
     interaction: discord.Interaction,
@@ -10995,6 +11080,7 @@ async def setup_command(
     nitrado_user: str,
     ftp_user: str,
     ftp_password: str,
+    server_mode: str = "hybrid",
     restore_deleted_channels: bool = False,
     ftp_host: str = ""
 ):
@@ -11014,9 +11100,13 @@ async def setup_command(
 
         guild_configs[guild_id] = {
             "guild_name": interaction.guild.name,
+            "server_mode": "hybrid",
             "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
             "channels": {}
         }
+
+    selected_server_mode = normalize_server_mode(server_mode)
+    guild_configs[guild_id]["server_mode"] = selected_server_mode
 
     def normalize_discord_name(name):
         return re.sub(r"[^a-z0-9]+", "", name.lower())
@@ -11058,7 +11148,9 @@ async def setup_command(
     economy_category = await ensure_category("economy", "💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
-    pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
+    pve_category = None
+    if server_allows_pve(guild_configs[guild_id]):
+        pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
 
     channel_aliases = {
         "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
@@ -11119,6 +11211,9 @@ async def setup_command(
         return normalized in aliases or any(alias and alias in normalized for alias in aliases)
 
     async def ensure_channel(key, name, *, cat=None, private=False):
+        if not channel_key_allowed_for_server_mode(key, guild_configs[guild_id]):
+            return None
+
         target_category = cat or category
         channels = guild_configs[guild_id].setdefault("channels", {})
         if is_channel_key_disabled(guild_configs[guild_id], key) and not restore_deleted_channels:
@@ -11210,17 +11305,20 @@ async def setup_command(
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
     await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
     await ensure_channel("rental_logs", "🛻📒・rental-logs・📒🛻", cat=economy_category)
-    pve_channels = await ensure_pve_channels(
-        interaction.guild,
-        guild_configs[guild_id],
-        force=restore_deleted_channels
-    )
+    pve_channels = {}
+    if server_allows_pve(guild_configs[guild_id]):
+        pve_channels = await ensure_pve_channels(
+            interaction.guild,
+            guild_configs[guild_id],
+            force=restore_deleted_channels
+        )
 
     guild_configs[guild_id]["nitrado_token"] = nitrado_token
     guild_configs[guild_id]["service_id"] = service_id
     guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
     guild_configs[guild_id]["ftp_user"] = ftp_user
     guild_configs[guild_id]["ftp_password"] = ftp_password
+    guild_configs[guild_id]["server_mode"] = selected_server_mode
     if supplied_ftp_host:
         guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
@@ -11424,7 +11522,7 @@ async def setup_command(
         )
 
     await interaction.followup.send(
-        "✅ Wandering Bot fully connected and operational.",
+        f"✅ Wandering Bot fully connected and operational. Server mode: `{selected_server_mode}`.",
         ephemeral=True
     )
 
@@ -20252,6 +20350,9 @@ async def _handle_pve_submit_button(interaction: discord.Interaction, quest_code
 
 
 async def post_pve_challenge(guild_id, config, *, manual=False):
+    if not server_allows_pve(config):
+        return False, "PVE is disabled for this server mode"
+
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
         return False, "Guild not found"
@@ -20341,6 +20442,9 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
 
 
 async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, difficulty=None):
+    if not server_allows_pve(config):
+        return False, "PVE is disabled for this server mode"
+
     guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
     if not guild:
         return False, "Guild not found"
@@ -20427,6 +20531,9 @@ async def post_pve_daily_pack(guild_id, config):
 
 
 async def ensure_pve_channel_quests(guild_id, config):
+    if not server_allows_pve(config):
+        return []
+
     posted = []
     for kind in PVE_THEMED_QUEST_KINDS.values():
         for difficulty in PVE_SLOT_DIFFICULTIES:
@@ -20721,7 +20828,7 @@ async def pve_pvp_advice_loop():
 
             pve_settings = pve_config(config)
             last_pve_help = float(pve_settings.get("last_help_ts", 0))
-            if now_ts - last_pve_help >= 24 * 3600:
+            if server_allows_pve(config) and now_ts - last_pve_help >= 24 * 3600:
                 guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
                 if guild and not channels.get("pve_help"):
                     await ensure_pve_channels(guild, config)
@@ -20742,7 +20849,7 @@ async def pve_pvp_advice_loop():
 
             pvp_settings = config.setdefault("pvp_intel", {})
             last_pvp_tip = float(pvp_settings.get("last_tip_ts", 0))
-            if now_ts - last_pvp_tip >= 24 * 3600:
+            if server_allows_pvp(config) and now_ts - last_pvp_tip >= 24 * 3600:
                 pvp_channel = bot.get_channel(channels.get("pvp_intel"))
                 if pvp_channel:
                     embed = discord.Embed(
@@ -20769,6 +20876,8 @@ async def pvesetup(interaction: discord.Interaction):
 
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    if not server_allows_pve(config):
+        config["server_mode"] = "hybrid"
     channels = await ensure_pve_channels(interaction.guild, config, force=True)
 
     info_channel = channels.get("pve_info")
@@ -20803,6 +20912,13 @@ async def pveconfig_command(interaction: discord.Interaction, enabled: bool = Tr
     interval_hours = max(6, min(168, int(interval_hours)))
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    if enabled and not server_allows_pve(config):
+        await interaction.response.send_message(
+            "PVE is disabled for this server mode. Run `/pvesetup` to switch this server to Hybrid and create the PVE channels.",
+            ephemeral=True
+        )
+        return
+
     settings = pve_config(config)
     settings["enabled"] = enabled
     settings["interval_hours"] = interval_hours
@@ -33649,7 +33765,7 @@ async def on_ready():
 
     for guild_id, config in active_guild_config_items():
         try:
-            if pve_config(config).get("enabled", True):
+            if server_allows_pve(config) and pve_config(config).get("enabled", True):
                 posted = await ensure_pve_channel_quests(guild_id, config)
                 if posted:
                     print(f"PVE QUEST SLOTS SEEDED {guild_display_name(guild_id)}: {len(posted)}")
