@@ -440,14 +440,15 @@ PAGE_TEMPLATE = """
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
+    .admin-panel form[data-route="/api/admin/xml-workshop"] { grid-template-columns: 1fr; }
     .item-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .55rem; min-width: 0; overflow: hidden; }
     .item-picker label { min-width: 0; }
     .item-picker-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .45rem; align-items: end; min-width: 0; }
     .item-picker-controls button { align-self: end; min-width: 5rem; }
     .item-picker-preview { display: flex; gap: .5rem; align-items: center; color: var(--muted); min-width: 0; }
-    .xml-tool-layout { display: grid; grid-template-columns: minmax(18rem, .95fr) minmax(22rem, 1.35fr); gap: .85rem; align-items: start; }
+    .xml-tool-layout { display: grid; grid-template-columns: minmax(20rem, .9fr) minmax(24rem, 1.1fr); gap: .85rem; align-items: start; }
     .xml-tool-layout > * { min-width: 0; }
-    .xml-output-panel { display: grid; gap: .65rem; align-content: start; position: sticky; top: .75rem; }
+    .xml-output-panel { display: grid; gap: .65rem; align-content: start; position: sticky; top: .75rem; min-width: 0; }
     .xml-output-panel .save-preview { min-height: 18rem; max-height: 34rem; }
     .xml-file-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
     .xml-file-tabs button { min-height: 2.2rem; padding: .45rem .6rem; font-size: .78rem; background: #070b08; color: var(--muted); }
@@ -458,8 +459,9 @@ PAGE_TEMPLATE = """
     .airdrop-map-tools { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
     .airdrop-dot { position: absolute; transform: translate(-50%, -50%); z-index: 3; width: 1.4rem; height: 1.4rem; border-radius: 999px; display: grid; place-items: center; background: var(--gold); color: #080b06; border: 2px solid rgba(255,255,255,.78); font-size: .75rem; font-weight: 900; box-shadow: 0 .25rem .8rem rgba(0,0,0,.45); }
     .visual-select-grid { margin-top: .45rem; max-height: 16rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .45rem; }
-    .visual-select-card { display: grid; grid-template-rows: 3.5rem auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
+    .visual-select-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
     .visual-select-card.active, .visual-select-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .visual-select-card::after { content: "Choose"; display: inline-flex; justify-content: center; align-items: center; min-height: 2rem; border: 1px solid var(--line); border-radius: .35rem; color: var(--text); font-weight: 800; background: #070b08; }
     .visual-select-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
     .visual-select-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .visual-picker { display: grid; gap: .45rem; }
@@ -484,6 +486,9 @@ PAGE_TEMPLATE = """
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
     .loadout-selected-slot strong { display: block; color: var(--gold); margin-bottom: .25rem; }
+    .loadout-workbench { display: grid; gap: .75rem; }
+    .vehicle-workbench { display: grid; gap: .75rem; }
+    .vehicle-cargo-board { min-height: 12rem; }
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
@@ -2130,32 +2135,34 @@ Event pings | bell | 1234567890</textarea></label>
                     <p class="tool-note">The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.</p>
                   </div>
                 </div>
-                <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="cargo">
-                  <div class="item-picker-controls">
-                    <label>Find item
-                      <select class="picker-select" data-picker-item>
-                        <option value="">Choose item</option>
+                <div class="loadout-workbench">
+                  <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="cargo">
+                    <div class="item-picker-controls">
+                      <label>Find item
+                        <select class="picker-select" data-picker-item>
+                          <option value="">Choose item</option>
+                          {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                        </select>
+                      </label>
+                      <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                      <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                      <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
+                      <button type="button" data-picker-add>Add</button>
+                    </div>
+                    <label>Attachment for weapon/item
+                      <select class="picker-select" data-picker-attachment>
+                        <option value="">None</option>
                         {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                       </select>
                     </label>
-                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                    <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
-                    <button type="button" data-picker-add>Add</button>
+                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
                   </div>
-                  <label>Attachment for weapon/item
-                    <select class="picker-select" data-picker-attachment>
-                      <option value="">None</option>
-                      {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                    </select>
+                  <label>Loadout items
+                    <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
+                    <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
                   </label>
-                  <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
                 </div>
-                <label>Loadout items
-                  <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
-                  <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
-                </label>
                 <div><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
               </div>
               <aside class="xml-output-panel">
@@ -2186,25 +2193,27 @@ Event pings | bell | 1234567890</textarea></label>
                   </select>
                 </label>
                 <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
-                <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
-                  <div class="item-picker-controls">
-                    <label>Find cargo item
-                      <select class="picker-select" data-picker-item>
-                        <option value="">Choose item</option>
-                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                      </select>
-                    </label>
-                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                    <button type="button" data-picker-add>Add</button>
+                <div class="vehicle-workbench">
+                  <div class="item-picker" data-item-picker data-picker-mode="vehicle_cargo" data-picker-group="cargo">
+                    <div class="item-picker-controls">
+                      <label>Find cargo item
+                        <select class="picker-select" data-picker-item>
+                          <option value="">Choose item</option>
+                          {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                        </select>
+                      </label>
+                      <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
+                      <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                      <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                      <button type="button" data-picker-add>Add</button>
+                    </div>
+                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Click cargo cards to add them, then drag the selected cargo rows into order.</span></div>
                   </div>
-                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Build vehicle cargo from server item data.</span></div>
+                  <label>Cargo items
+                    <div class="selected-items vehicle-cargo-board" data-selected-items data-empty-text="No cargo items added yet"></div>
+                    <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
+                  </label>
                 </div>
-                <label>Cargo items
-                  <div class="selected-items" data-selected-items data-empty-text="No cargo items added yet"></div>
-                  <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
-                </label>
                 <div><button type="submit">Save Vehicle Loadout</button> <span class="result muted"></span></div>
               </div>
               <aside class="xml-output-panel">
@@ -3045,7 +3054,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (picker) {
           syncPickerPreview(picker);
           renderVisualPicker(picker);
-          if (picker.dataset.pickerMode === "loadout") {
+          if (picker.dataset.pickerMode === "loadout" || picker.dataset.pickerMode === "vehicle_cargo") {
             const form = picker.closest("form");
             const output = form ? form.querySelector("[data-picker-output]") : null;
             appendPickerLine(picker, output);

@@ -14,6 +14,7 @@ import requests
 import tempfile
 import shutil
 import secrets
+import urllib.parse
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
@@ -884,6 +885,32 @@ def extract_flag_base_name(line, guild_id, x=None, z=None):
 def extract_flag_class_name(line):
     match = re.search(r"\b(TerritoryFlag[A-Za-z0-9_]*)\b", line)
     return match.group(1) if match else "TerritoryFlag"
+
+
+def extract_flag_cloth_class_name(line):
+    patterns = [
+        r"\bhas\s+raised\s+(Flag_[A-Za-z0-9_]+)\s+on\s+TerritoryFlag\b",
+        r"\bhas\s+lowered\s+(Flag_[A-Za-z0-9_]+)\s+on\s+TerritoryFlag\b",
+        r"\b(Flag_[A-Za-z0-9_]+)\s+on\s+TerritoryFlag\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def friendly_flag_name(flag_class):
+    if not flag_class:
+        return "Unknown flag cloth"
+    return str(flag_class).replace("Flag_", "").replace("_", " ").strip() or str(flag_class)
+
+
+def dayz_db_item_image_url(class_name):
+    class_name = str(class_name or "").strip()
+    if not class_name:
+        return ""
+    return f"https://db.mydayz.eu/wp-content/uploads/2025/08/{urllib.parse.quote(class_name)}.png.webp"
 
 
 def extract_placed_object(line):
@@ -1808,6 +1835,12 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         x, z, _ = split_adm_coords(coords)
         base_name = extract_flag_base_name(line, guild_id, x, z)
         flag_class = extract_flag_class_name(line)
+        flag_cloth_class = extract_flag_cloth_class_name(line)
+        flag_display = (
+            f"{flag_cloth_class}\n{friendly_flag_name(flag_cloth_class)}"
+            if flag_cloth_class
+            else flag_class
+        )
 
         if event_type == "flag_raise":
             description = (
@@ -1823,7 +1856,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
             )
 
         embed = discord.Embed(title=title, description=description, color=color)
-        embed.add_field(name="Flag", value=flag_class, inline=True)
+        embed.add_field(name="Flag", value=flag_display, inline=True)
         embed.add_field(name="🏴 Base", value=base_name, inline=True)
         embed.add_field(name="👤 Player", value=player, inline=True)
         embed.add_field(name="🎯 Action", value="Raised" if event_type == "flag_raise" else "Lowered", inline=True)
@@ -1839,7 +1872,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         if map_link:
             embed.add_field(name="🗺️ Map", value=f"[Open iZurvive]({map_link})", inline=True)
 
-        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_thumbnail(url=dayz_db_item_image_url(flag_cloth_class) if flag_cloth_class else BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - 🚩 Territory Flag Feed")
         embed.timestamp = event_time
         await channel.send(embed=style_embed(embed))
