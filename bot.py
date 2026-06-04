@@ -2021,7 +2021,8 @@ async def maybe_reply_to_bot_mention(message, lower):
         for word in ["quest", "mission", "where", "find", "hunt", "fish", "craft", "help", "reward"]
     )
 
-    if bot.user not in message.mentions and not in_ai_channel and not pve_help_request:
+    direct_mention = bool(bot.user and bot.user in message.mentions)
+    if not direct_mention and not in_ai_channel and not pve_help_request:
         return
 
     now_ts = datetime.now(UTC).timestamp()
@@ -2102,13 +2103,17 @@ async def maybe_owner_mention_remark(message):
     if not message.guild or not message.guild.owner:
         return
 
+    guild_id = str(message.guild.id)
+    behavior = owner_behavior_config(guild_id)
+    if not behavior.get("owner_mention_remarks_enabled", False):
+        return
+
     if message.guild.owner not in message.mentions:
         return
 
     now_ts = datetime.now(UTC).timestamp()
-    guild_id = str(message.guild.id)
 
-    if now_ts - last_owner_mention_time.get(guild_id, 0) < 900:
+    if now_ts - last_owner_mention_time.get(guild_id, 0) < 21600:
         return
 
     last_owner_mention_time[guild_id] = now_ts
@@ -3196,19 +3201,22 @@ async def showcase_handle_message(message, lower, guild_id, now_ts):
     # Always update style profile
     update_user_style_profile(str(message.author.id), message.content)
 
+    behavior = owner_behavior_config(guild_id)
+    bot_mentioned = bool(bot.user and bot.user in message.mentions)
+
     # React to messages
     await showcase_maybe_react(message, lower)
 
     # Check for greeting triggers (hi/hello/hey etc.)
     words = set(lower.split())
-    if words & SHOWCASE_GREETING_TRIGGERS:
+    if bot_mentioned and words & SHOWCASE_GREETING_TRIGGERS:
         await showcase_handle_greeting(message, guild_id)
         return
 
     # Check for explicit image/art requests
     is_image_request = any(trigger in lower for trigger in SHOWCASE_IMAGE_REQUEST_TRIGGERS)
     is_dayz_context = any(w in lower for w in ["dayz", "survivor", "chernarus", "image", "art", "picture", "pic", "photo"])
-    if is_image_request and (is_dayz_context or any(style in lower for style in SHOWCASE_STYLE_TRIGGERS)):
+    if bot_mentioned and is_image_request and (is_dayz_context or any(style in lower for style in SHOWCASE_STYLE_TRIGGERS)):
         # Respect a per-guild image cooldown for on-demand requests (shorter than random)
         last_img = last_showcase_greeting_image.get(guild_id, 0)
         on_demand_cooldown = int(os.getenv("SHOWCASE_ON_DEMAND_IMAGE_COOLDOWN", "300"))
@@ -3220,7 +3228,6 @@ async def showcase_handle_message(message, lower, guild_id, now_ts):
     channels = guild_configs.get(guild_id, {}).get("channels", {})
     ai_channel_id = channels.get("ai_chat")
     in_ai_channel = bool(ai_channel_id and message.channel.id == ai_channel_id)
-    bot_mentioned = bot.user in message.mentions
     looks_like_question = (
         "?" in message.content
         or any(
@@ -3241,7 +3248,7 @@ async def showcase_handle_message(message, lower, guild_id, now_ts):
         )
     )
 
-    if bot_mentioned or in_ai_channel or looks_like_question:
+    if bot_mentioned or (behavior.get("showcase_ai_autoreply_enabled", False) and (in_ai_channel or looks_like_question)):
         await showcase_handle_smart_response(message, lower, guild_id)
 
 
@@ -3260,6 +3267,10 @@ async def showcase_autonomous_loop():
             continue
 
         config = guild_configs.get(guild_id, {})
+        behavior = owner_behavior_config(guild_id)
+        if not behavior.get("showcase_autonomous_enabled", False):
+            continue
+
         channels_cfg = config.get("channels", {})
 
         # Find the best channel to post in (general_chat, ai_chat, or help_channel)
@@ -3725,12 +3736,16 @@ def describe_owner_voice(guild_id):
 def owner_behavior_config(guild_id):
     config = guild_configs.setdefault(str(guild_id), {"guild_name": "Unknown", "channels": {}})
     settings = config.setdefault("owner_behavior", {})
-    settings.setdefault("reply_cooldown_seconds", 120)
-    settings.setdefault("guild_reply_cooldown_seconds", 75)
-    settings.setdefault("channel_reply_cooldown_seconds", 90)
-    settings.setdefault("fun_chatter_cooldown_seconds", 3600)
-    settings.setdefault("fun_chatter_chance", 0.01)
-    settings.setdefault("showcase_interval_seconds", 3600)
+    settings.setdefault("reply_cooldown_seconds", 300)
+    settings.setdefault("guild_reply_cooldown_seconds", 240)
+    settings.setdefault("channel_reply_cooldown_seconds", 240)
+    settings.setdefault("fun_chatter_cooldown_seconds", 21600)
+    settings.setdefault("fun_chatter_chance", 0.0)
+    settings.setdefault("proactive_chatter_enabled", False)
+    settings.setdefault("owner_mention_remarks_enabled", False)
+    settings.setdefault("showcase_interval_seconds", 21600)
+    settings.setdefault("showcase_autonomous_enabled", False)
+    settings.setdefault("showcase_ai_autoreply_enabled", False)
     settings.setdefault("use_custom_emojis", True)
     settings.setdefault("recent_bot_replies", [])
     settings.setdefault("blocked_bot_reply_phrases", [])
@@ -3744,7 +3759,9 @@ def describe_owner_behavior(guild_id):
         f"guild cooldown `{int(settings.get('guild_reply_cooldown_seconds', 75))}s`, "
         f"channel cooldown `{int(settings.get('channel_reply_cooldown_seconds', 90))}s`, "
         f"chatter cooldown `{int(settings.get('fun_chatter_cooldown_seconds', 3600))}s`, "
-        f"chatter chance `{float(settings.get('fun_chatter_chance', 0.01)):.3f}`"
+        f"chatter chance `{float(settings.get('fun_chatter_chance', 0.0)):.3f}`, "
+        f"proactive `{bool(settings.get('proactive_chatter_enabled', False))}`, "
+        f"showcase auto `{bool(settings.get('showcase_autonomous_enabled', False))}`"
     )
 
 
@@ -3841,15 +3858,48 @@ def owner_reply_control_from_message(guild_id, message, lower):
     ]):
         changed = suppress_referenced_bot_reply(guild_id, message) or changed
 
-    if any(phrase in lower for phrase in [
+    quiet_phrases = [
         "reduce the amount you send", "sending too often", "reply too often",
         "talk less", "be quieter", "stop spamming", "too much bot",
+        "stop the tips", "stop tips", "no tips", "stop silly messages",
+        "stop random messages", "stop random chatter", "stop proactive",
+        "stop posting rubbish", "stop posting crap", "stop putting all the tips",
+        "quiet mode", "shut up bot", "shut up wandering", "less rubbish",
+        "do not keep replying", "don't keep replying", "dont keep replying",
+    ]
+    if any(phrase in lower for phrase in quiet_phrases):
+        settings["reply_cooldown_seconds"] = max(int(settings.get("reply_cooldown_seconds", 300)), 600)
+        settings["guild_reply_cooldown_seconds"] = max(int(settings.get("guild_reply_cooldown_seconds", 240)), 600)
+        settings["channel_reply_cooldown_seconds"] = max(int(settings.get("channel_reply_cooldown_seconds", 240)), 600)
+        settings["fun_chatter_cooldown_seconds"] = max(int(settings.get("fun_chatter_cooldown_seconds", 21600)), 86400)
+        settings["fun_chatter_chance"] = 0.0
+        settings["proactive_chatter_enabled"] = False
+        settings["owner_mention_remarks_enabled"] = False
+        settings["showcase_autonomous_enabled"] = False
+        settings["showcase_ai_autoreply_enabled"] = False
+        changed = True
+
+    if any(phrase in lower for phrase in [
+        "normal replies", "normal chat", "talk normally", "respond normally",
+        "normal bot", "normal behaviour", "normal behavior",
     ]):
-        settings["reply_cooldown_seconds"] = max(int(settings.get("reply_cooldown_seconds", 120)), 240)
-        settings["guild_reply_cooldown_seconds"] = max(int(settings.get("guild_reply_cooldown_seconds", 75)), 180)
-        settings["channel_reply_cooldown_seconds"] = max(int(settings.get("channel_reply_cooldown_seconds", 90)), 180)
-        settings["fun_chatter_cooldown_seconds"] = max(int(settings.get("fun_chatter_cooldown_seconds", 3600)), 7200)
-        settings["fun_chatter_chance"] = min(float(settings.get("fun_chatter_chance", 0.01)), 0.003)
+        settings["reply_cooldown_seconds"] = 300
+        settings["guild_reply_cooldown_seconds"] = 240
+        settings["channel_reply_cooldown_seconds"] = 240
+        settings["fun_chatter_cooldown_seconds"] = 21600
+        settings["fun_chatter_chance"] = 0.0
+        settings["proactive_chatter_enabled"] = False
+        settings["owner_mention_remarks_enabled"] = False
+        settings["showcase_ai_autoreply_enabled"] = False
+        changed = True
+
+    if any(phrase in lower for phrase in [
+        "showcase can talk", "showcase mode on", "enable showcase chatter",
+        "turn showcase chatter on", "enable proactive showcase",
+    ]):
+        settings["showcase_autonomous_enabled"] = True
+        settings["showcase_ai_autoreply_enabled"] = True
+        settings["showcase_interval_seconds"] = max(7200, int(settings.get("showcase_interval_seconds", 21600)))
         changed = True
 
     if any(phrase in lower for phrase in ["use your emojis", "use the bot emojis", "use more emojis"]):
@@ -3867,6 +3917,11 @@ def message_addresses_bot(message, lower):
 
     if bot.user and bot.user in message.mentions:
         return True
+
+    if getattr(message, "reference", None) and message.reference.resolved:
+        referenced = message.reference.resolved
+        if getattr(referenced, "author", None) == bot.user:
+            return True
 
     bot_name = normalize_discord_name(getattr(getattr(bot, "user", None), "name", ""))
     compact = normalize_discord_name(lower[:80])
@@ -4131,23 +4186,35 @@ def set_owner_behavior_from_message(guild_id, lower):
     talks_about_chatter = any(word in lower for word in ["chatter", "random", "proactive", "talk", "post"])
 
     if talks_about_replies and any(phrase in lower for phrase in ["more often", "reply more", "respond more", "answer more"]):
-        settings["reply_cooldown_seconds"] = 15
+        settings["reply_cooldown_seconds"] = 60
+        settings["guild_reply_cooldown_seconds"] = 60
+        settings["channel_reply_cooldown_seconds"] = 60
     elif talks_about_replies and any(phrase in lower for phrase in ["less often", "reply less", "respond less", "answer less"]):
-        settings["reply_cooldown_seconds"] = 120
+        settings["reply_cooldown_seconds"] = 600
+        settings["guild_reply_cooldown_seconds"] = 600
+        settings["channel_reply_cooldown_seconds"] = 600
+        settings["proactive_chatter_enabled"] = False
+        settings["showcase_autonomous_enabled"] = False
     elif talks_about_replies and any(phrase in lower for phrase in ["normal", "default"]):
-        settings["reply_cooldown_seconds"] = 45
+        settings["reply_cooldown_seconds"] = 300
+        settings["guild_reply_cooldown_seconds"] = 240
+        settings["channel_reply_cooldown_seconds"] = 240
 
     if talks_about_chatter and any(phrase in lower for phrase in ["more often", "post more", "talk more"]):
-        settings["fun_chatter_cooldown_seconds"] = 600
-        settings["fun_chatter_chance"] = 0.08
-    elif talks_about_chatter and any(phrase in lower for phrase in ["less often", "post less", "talk less"]):
-        settings["fun_chatter_cooldown_seconds"] = 3600
+        settings["proactive_chatter_enabled"] = True
+        settings["fun_chatter_cooldown_seconds"] = 7200
         settings["fun_chatter_chance"] = 0.01
+    elif talks_about_chatter and any(phrase in lower for phrase in ["less often", "post less", "talk less"]):
+        settings["proactive_chatter_enabled"] = False
+        settings["fun_chatter_cooldown_seconds"] = 86400
+        settings["fun_chatter_chance"] = 0.0
 
     if "showcase" in lower and any(phrase in lower for phrase in ["more often", "post more"]):
-        settings["showcase_interval_seconds"] = 1800
-    elif "showcase" in lower and any(phrase in lower for phrase in ["less often", "post less"]):
+        settings["showcase_autonomous_enabled"] = True
         settings["showcase_interval_seconds"] = 7200
+    elif "showcase" in lower and any(phrase in lower for phrase in ["less often", "post less"]):
+        settings["showcase_autonomous_enabled"] = False
+        settings["showcase_interval_seconds"] = 21600
 
     changed = before != dict(settings)
     if changed:
@@ -4252,12 +4319,17 @@ async def maybe_send_wandering_personality(message, now_ts):
     last_seen = last_emoji_showcase_time.get(guild_id, 0)
 
     behavior = owner_behavior_config(guild_id)
+    if not behavior.get("proactive_chatter_enabled", False):
+        return
+
     chatter_cooldown = int(behavior.get("fun_chatter_cooldown_seconds", 1800))
     if now_ts - last_seen < max(300, chatter_cooldown):
         return
 
     roll = random.random()
-    chatter_chance = max(0.001, min(0.2, float(behavior.get("fun_chatter_chance", 0.04))))
+    chatter_chance = max(0.0, min(0.05, float(behavior.get("fun_chatter_chance", 0.0))))
+    if chatter_chance <= 0:
+        return
 
     if roll < chatter_chance * 0.67:
         last_emoji_showcase_time[guild_id] = now_ts
@@ -4556,11 +4628,16 @@ async def maybe_showcase_guild_response(message, lower):
     if not config.get("is_showcase_guild"):
         return
 
+    behavior = owner_behavior_config(guild_id)
+    bot_mentioned = bool(bot.user and bot.user in message.mentions)
+    if not bot_mentioned and not behavior.get("showcase_ai_autoreply_enabled", False):
+        return
+
     now_ts = datetime.now(UTC).timestamp()
     key = f"{guild_id}:{message.author.id}"
 
     # Per-user cooldown: don't spam the same person
-    if now_ts - last_showcase_response_time.get(key, 0) < 60:
+    if now_ts - last_showcase_response_time.get(key, 0) < 300:
         return
 
     # Check for specific question keywords first (highest priority)
@@ -4570,14 +4647,17 @@ async def maybe_showcase_guild_response(message, lower):
             await message.channel.send(random.choice(responses))
             return
 
+    if not behavior.get("showcase_autonomous_enabled", False):
+        return
+
     # Proactively drop a command hint or feature promo at low frequency
     roll = random.random()
 
-    if roll < 0.25:
+    if roll < 0.08:
         # Command hint
         last_showcase_response_time[key] = now_ts
         await message.channel.send(random.choice(SHOWCASE_COMMAND_HINTS))
-    elif roll < 0.40:
+    elif roll < 0.12:
         # Feature promo
         last_showcase_response_time[key] = now_ts
         await message.channel.send(random.choice(SHOWCASE_FEATURE_PROMOS))
@@ -26654,6 +26734,16 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     # Mark this guild as a showcase/advertising guild so bot behaviour adapts
     guild_configs[guild_id]["is_showcase_guild"] = True
     guild_configs[guild_id]["showcase_mode"] = True
+    behavior = owner_behavior_config(guild_id)
+    behavior["reply_cooldown_seconds"] = 300
+    behavior["guild_reply_cooldown_seconds"] = 240
+    behavior["channel_reply_cooldown_seconds"] = 240
+    behavior["fun_chatter_chance"] = 0.0
+    behavior["proactive_chatter_enabled"] = False
+    behavior["owner_mention_remarks_enabled"] = False
+    behavior["showcase_autonomous_enabled"] = False
+    behavior["showcase_ai_autoreply_enabled"] = False
+    behavior["showcase_interval_seconds"] = 21600
     save_guild_configs()
 
     category_name = "🤖🌲┃WANDERING BOT SHOWCASE┃🌲🤖"
@@ -26703,12 +26793,21 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     if "📢・announcements" in made_channels:
         channels_cfg["company_announcements"] = made_channels["📢🎊・UPDATES & NEWS・🎊📢"].id
 
+    # Use the canonical ordered list for wiring too. Some Discord clients and
+    # older saved configs normalise emoji-heavy names differently, so the
+    # decorative lookup above can fail even when the channels were created.
+    channels_cfg["general_chat"] = made_channels[showcase_channels[0]].id
+    channels_cfg["ai_chat"] = made_channels[showcase_channels[1]].id
+    channels_cfg["help_channel"] = made_channels[showcase_channels[5]].id
+    channels_cfg["company_announcements"] = made_channels[showcase_channels[9]].id
+
     ai_settings = ai_image_config(guild_configs[guild_id])
     ai_settings["enabled"] = True
     ai_settings["style"] = "gritty"
     ai_settings["cooldown_seconds"] = 3600
     if "🎨・ai-image-lab" in made_channels:
         ai_settings["channel_id"] = made_channels["🎨🖼️・AI IMAGE LAB・🖼️🎨"].id
+    ai_settings["channel_id"] = made_channels[showcase_channels[1]].id
     save_guild_configs()
 
     # ── 💬・talk-to-the-bot ─────────────────────────────────────────────────
@@ -26740,8 +26839,18 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="Showcase Mode",
         value=(
-            "In this Discord I act like an autonomous host: I greet people, answer questions, "
-            "drop feature suggestions, react to chat, and adapt lightly to how people talk."
+            "In this Discord I answer direct mentions, show what the bot can do, and keep "
+            "the demo tidy. Proactive showcase chatter is owner-controlled so it does not "
+            "turn the server into a wall of repeated bot lines."
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="Current Highlights",
+        value=(
+            "Owner-only dashboard, guild-isolated admin access, live ADM feeds, economy, "
+            "factions, radar zones, XML workshop tools, Nitrado controls, map heatmaps, "
+            "subscription tiers, and owner natural-language controls."
         ),
         inline=False
     )
