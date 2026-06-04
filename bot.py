@@ -595,6 +595,15 @@ def discord_safe_content(text, limit=1900):
     return text[: max(0, limit - len(suffix))].rstrip() + suffix
 
 
+def trim_embed_field_values(embed, limit=1024):
+    """Keep embed fields inside Discord's per-field value limit."""
+    for field in getattr(embed, "_fields", []) or []:
+        value = str(field.get("value") or "\u200b")
+        if len(value) > limit:
+            field["value"] = discord_safe_content(value, limit)
+    return embed
+
+
 def resolve_guild_role(guild, role_name):
     wanted = str(role_name).strip().lower()
 
@@ -11638,15 +11647,25 @@ async def setup_command(
             text="Wandering System created by CraneMonkey6273"
         )
 
-        await help_channel.send(embed=style_embed(setup_embed))
-        await send_command_guide_pages(
-            help_channel,
-            title="WANDERING BOT FULL COMMAND LIST",
-            intro=(
-                "This is the live command guide for the bot. It lists every registered slash command, "
-                "what it does, and the required or optional options to type."
+        try:
+            await help_channel.send(embed=style_embed(trim_embed_field_values(setup_embed)))
+            await send_command_guide_pages(
+                help_channel,
+                title="WANDERING BOT FULL COMMAND LIST",
+                intro=(
+                    "This is the live command guide for the bot. It lists every registered slash command, "
+                    "what it does, and the required or optional options to type."
+                )
             )
-        )
+        except Exception as setup_help_error:
+            print(f"SETUP HELP CHANNEL POST ERROR {guild_id}: {setup_help_error}")
+            try:
+                await help_channel.send(
+                    "Wandering Bot setup is connected. I could not post the full help guide here, "
+                    "but slash commands are active. Use `/help` or the dashboard command guide."
+                )
+            except Exception as fallback_error:
+                print(f"SETUP HELP FALLBACK ERROR {guild_id}: {fallback_error}")
 
     await interaction.followup.send(
         f"✅ Wandering Bot fully connected and operational. Server mode: `{selected_server_mode}`.",
