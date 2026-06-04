@@ -10353,9 +10353,15 @@ def _build_rpt_event_embed(guild_id, state):
     if not events:
         embed.add_field(name="No active spawns detected", value="The next RPT pull will populate this.", inline=False)
     else:
+        hidden_events = 0
+        max_fields = 8
+        max_per_type = 5
         for kind, evs in sorted(buckets.items()):
+            if len(embed.fields) >= max_fields:
+                hidden_events += len(evs)
+                continue
             lines = []
-            for ev in evs[:8]:
+            for ev in evs[:max_per_type]:
                 link = _rpt_world_link(ev["x"], ev["z"], guild_id)
                 age_s = int(now_ts - float(ev.get("first_seen_ts", now_ts)))
                 lifetime = int(ev.get("lifetime_s", RPT_DEFAULT_EVENT_LIFETIME_SECONDS))
@@ -10363,8 +10369,17 @@ def _build_rpt_event_embed(guild_id, state):
                 coord_text = f"({int(ev['x'])}, {int(ev['z'])})"
                 if link:
                     coord_text = f"[{coord_text}]({link})"
-                lines.append(f"• {coord_text} · age {format_duration_seconds(age_s)} · expires in {format_duration_seconds(remaining)}")
+                lines.append(f"- {coord_text} · age {format_duration_seconds(age_s)} · expires in {format_duration_seconds(remaining)}")
+            if len(evs) > max_per_type:
+                hidden_events += len(evs) - max_per_type
+                lines.append(f"- +{len(evs) - max_per_type} more {kind} spawn(s)")
             embed.add_field(name=f"{kind} ({len(evs)})", value="\n".join(lines)[:1024], inline=False)
+        if hidden_events:
+            embed.add_field(
+                name="More Spawns Hidden",
+                value=f"`{hidden_events}` extra spawn(s) are tracked but hidden to stay under Discord embed limits. Use `/server liveevents list` for the full list.",
+                inline=False,
+            )
     embed.set_footer(text=f"Wandering Bot Alpha — refresh every 5 min · Updated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     return embed
 
@@ -22254,7 +22269,7 @@ async def online_dashboard_loop():
     for guild_id, config in active_guild_config_items():
 
         try:
-            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=True)
+            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=False)
             continue
 
             channels = config.get("channels", {})
