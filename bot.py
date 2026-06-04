@@ -851,20 +851,26 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
         set_channel_key_disabled(config, key, False)
 
     existing_id = channels.get(key)
+    category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
 
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
-            if existing.name != name:
+            if existing.name != name or (category and existing.category_id != category.id):
                 try:
-                    await existing.edit(name=name)
+                    await existing.edit(name=name, category=category)
                 except Exception:
                     pass
             return existing
 
     for channel in guild.text_channels:
-        if normalize_discord_name(channel.name) == normalize_discord_name(name):
+        if channel_matches_bot_default_name(channel, key):
             channels[key] = channel.id
+            if category and channel.category_id != category.id:
+                try:
+                    await channel.edit(category=category)
+                except Exception:
+                    pass
             save_guild_configs()
             return channel
 
@@ -876,20 +882,6 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
         for role in guild.roles:
             if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
                 overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
-
-    category = None
-    category_key = "live"
-    if key.startswith("pve_"):
-        category_key = "pve"
-
-    for existing_category in guild.categories:
-        normalized = normalize_discord_name(existing_category.name)
-        if category_key == "pve" and ("pve" in normalized or "pvemissions" in normalized):
-            category = existing_category
-            break
-        if category_key == "live" and ("livefeeds" in normalized or "liveserverfeeds" in normalized):
-            category = existing_category
-            break
 
     channel = await guild.create_text_channel(name, overwrites=overwrites, category=category)
     channels[key] = channel.id
@@ -4717,18 +4709,103 @@ CATEGORY_REPAIR_SPECS = [
 ]
 
 
-def channel_matches_saved_key(channel, key):
-    normalized = normalize_discord_name(channel.name)
-    aliases = set(CHANNEL_ALIASES.get(key, []))
-    desired = DEFAULT_CHANNEL_NAMES.get(key)
+BOT_CHANNEL_CATEGORY_BY_KEY = {
+    "killfeed": "live_feeds",
+    "raids": "live_feeds",
+    "building": "live_feeds",
+    "connections": "live_feeds",
+    "disconnects": "live_feeds",
+    "zombie_feed": "live_feeds",
+    "unconscious_feed": "live_feeds",
+    "cuts_feed": "live_feeds",
+    "suicide_feed": "live_feeds",
+    "flag_feed": "live_feeds",
+    "placed_feed": "live_feeds",
+    "pvp_intel": "live_feeds",
+    "online": "server_info",
+    "leaderboards": "server_info",
+    "heatmap": "server_info",
+    "longshots": "server_info",
+    "restart_alerts": "server_info",
+    "bot_updates": "bot_updates",
+    "welcome": "survivor_comms",
+    "public_shame": "survivor_comms",
+    "linked_players": "survivor_comms",
+    "general_chat": "survivor_comms",
+    "ai_chat": "survivor_comms",
+    "clips_channel": "survivor_comms",
+    "factions_chat": "factions",
+    "faction_list": "factions",
+    "faction_tickets": "factions",
+    "faction_staff": "staff_ops",
+    "help_channel": "support",
+    "economy": "economy",
+    "admin_logs": "staff_ops",
+    "cheat_checks": "staff_ops",
+    "command_logs": "staff_ops",
+    "purchase_logs": "economy",
+    "vehicle_rentals": "economy",
+    "rental_logs": "economy",
+    "company_announcements": "staff_ops",
+    "pve_quests": "pve",
+    "pve_hunting": "pve",
+    "pve_collection": "pve",
+    "pve_fishing": "pve",
+    "pve_crafting": "pve",
+    "pve_expeditions": "pve",
+    "pve_info": "pve",
+    "pve_help": "pve",
+    "pve_heatmap": "pve",
+    "pve_rewards_public": "pve",
+    "pve_rewards_private": "pve",
+    "quest_workshop": "pve",
+}
 
-    if desired:
-        aliases.add(normalize_discord_name(desired))
+BOT_CATEGORY_SPECS_BY_KEY = {
+    key: (name, aliases)
+    for key, name, aliases in CATEGORY_REPAIR_SPECS
+}
 
-    if key == "connections" and "disconnect" in normalized:
+
+def category_matches_bot_spec(category, category_key):
+    spec = BOT_CATEGORY_SPECS_BY_KEY.get(category_key)
+    if not spec:
         return False
 
-    return normalized in aliases or any(alias and alias in normalized for alias in aliases)
+    desired_name, aliases = spec
+    normalized = normalize_discord_name(category.name)
+    strict_names = {normalize_discord_name(desired_name)}
+    strict_names.update(normalize_discord_name(alias) for alias in aliases)
+    return normalized in strict_names
+
+
+async def ensure_bot_category(guild, category_key):
+    spec = BOT_CATEGORY_SPECS_BY_KEY.get(category_key)
+    if not spec:
+        return None
+
+    desired_name, _ = spec
+    for category in guild.categories:
+        if category_matches_bot_spec(category, category_key):
+            if category.name != desired_name:
+                try:
+                    await category.edit(name=desired_name)
+                except Exception:
+                    pass
+            return category
+
+    return await guild.create_category(desired_name)
+
+
+def channel_matches_bot_default_name(channel, key):
+    desired = DEFAULT_CHANNEL_NAMES.get(key)
+    if not desired:
+        return False
+    return normalize_discord_name(channel.name) == normalize_discord_name(desired)
+
+
+def channel_matches_saved_key(channel, key):
+    return channel_matches_bot_default_name(channel, key)
 
 
 MOJIBAKE_MARKERS = ("đ", "Đ", "â", "ă", "Ă", "ď", "Ď", "\x83", "\x90", "\x9f")
@@ -4769,24 +4846,11 @@ def default_channel_key_for_name(name):
     if not normalized:
         return None
 
-    best_key = None
-    best_score = 0
-
     for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
-        aliases = set(CHANNEL_ALIASES.get(key, []))
-        aliases.add(normalize_discord_name(desired_name))
-        aliases.add(normalize_discord_name(key))
+        if normalized == normalize_discord_name(desired_name):
+            return key
 
-        for alias in aliases:
-            if not alias:
-                continue
-            if normalized == alias:
-                return key
-            if alias in normalized and len(alias) > best_score:
-                best_key = key
-                best_score = len(alias)
-
-    return best_key
+    return None
 
 
 def disabled_channel_keys(config):
@@ -4850,13 +4914,9 @@ async def repair_guild_display_names(guild, config):
     repaired = 0
     edited_channel_ids = set()
 
-    for _, category_name, aliases in CATEGORY_REPAIR_SPECS:
-        wanted = normalize_discord_name(category_name)
-        alias_set = {wanted, *aliases}
-
+    for category_key, category_name, aliases in CATEGORY_REPAIR_SPECS:
         for category in guild.categories:
-            normalized = normalize_discord_name(category.name)
-            if normalized in alias_set or any(alias and alias in normalized for alias in alias_set):
+            if category_matches_bot_spec(category, category_key):
                 if category.name != category_name:
                     try:
                         await category.edit(name=category_name)
@@ -4873,7 +4933,7 @@ async def repair_guild_display_names(guild, config):
             for _, category_name, aliases in CATEGORY_REPAIR_SPECS:
                 wanted = normalize_discord_name(category_name)
                 alias_set = {wanted, *aliases}
-                if decoded_normalized in alias_set or any(alias and alias in decoded_normalized for alias in alias_set):
+                if decoded_normalized in alias_set:
                     desired_name = category_name
                     break
 
@@ -4916,9 +4976,12 @@ async def repair_guild_display_names(guild, config):
                     channels[key] = candidate.id
                     break
 
-        if channel and channel.id not in edited_channel_ids and channel.name != desired_name:
+        category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
+        needs_name = channel and channel.id not in edited_channel_ids and channel.name != desired_name
+        needs_category = channel and category and channel.category_id != category.id
+        if needs_name or needs_category:
             try:
-                await channel.edit(name=desired_name)
+                await channel.edit(name=desired_name, category=category)
                 repaired += 1
             except Exception:
                 pass
@@ -4991,26 +5054,27 @@ async def ensure_bot_updates_channel(guild, config, force=False):
     if force:
         set_channel_key_disabled(config, "bot_updates", False)
 
+    category = await ensure_bot_category(guild, "bot_updates")
+
     channel = bot.get_channel(channels.get("bot_updates"))
     if channel:
+        if category and channel.category_id != category.id:
+            try:
+                await channel.edit(category=category)
+            except Exception:
+                pass
         return channel
 
     for existing in guild.text_channels:
         if channel_matches_saved_key(existing, "bot_updates"):
             channels["bot_updates"] = existing.id
+            if category and existing.category_id != category.id:
+                try:
+                    await existing.edit(category=category)
+                except Exception:
+                    pass
             save_guild_configs()
             return existing
-
-    category_name = "📢✨┃BOT NEWS & UPDATES┃✨📢"
-    category = None
-    for existing_category in guild.categories:
-        normalized = normalize_discord_name(existing_category.name)
-        if "botnews" in normalized or "botupdates" in normalized or "updates" in normalized:
-            category = existing_category
-            break
-
-    if not category:
-        category = await guild.create_category(category_name)
 
     channel = await guild.create_text_channel(
         DEFAULT_CHANNEL_NAMES["bot_updates"],
@@ -5158,21 +5222,7 @@ async def ensure_pve_channels(guild, config, force=False):
     if not force and all(is_channel_key_disabled(config, key) for key in pve_channel_keys):
         return {}
 
-    category_name = "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌"
-    pve_category = None
-    for category in guild.categories:
-        normalized = normalize_discord_name(category.name)
-        if "pve" in normalized or "pvemissions" in normalized:
-            pve_category = category
-            break
-
-    if not pve_category:
-        pve_category = await guild.create_category(category_name)
-    elif pve_category.name != category_name:
-        try:
-            await pve_category.edit(name=category_name)
-        except Exception:
-            pass
+    pve_category = await ensure_bot_category(guild, "pve")
 
     async def ensure_channel(key):
         name = DEFAULT_CHANNEL_NAMES[key]
@@ -11255,7 +11305,8 @@ async def setup_command(
         "economy": ["economy", "blackmarket", "shop"],
         "factions": ["factions", "faction"],
         "support": ["helpsupport", "helpdesk", "support"],
-        "pve": ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"]
+        "pve": ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"],
+        "bot_updates": ["botnews", "botupdates", "updates"],
     }
 
     async def ensure_category(category_key, name):
@@ -11265,7 +11316,7 @@ async def setup_command(
 
         for existing in interaction.guild.categories:
             normalized = normalize_discord_name(existing.name)
-            if normalized in aliases or any(alias in normalized for alias in aliases):
+            if normalized in aliases:
                 if existing.name != name:
                     try:
                         await existing.edit(name=name)
@@ -11283,6 +11334,7 @@ async def setup_command(
     economy_category = await ensure_category("economy", "💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
+    bot_updates_category = await ensure_category("bot_updates", "📢✨┃BOT NEWS & UPDATES┃✨📢")
     pve_category = None
     if server_allows_pve(guild_configs[guild_id]):
         pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
@@ -11337,13 +11389,7 @@ async def setup_command(
     def channel_matches_key(channel, key, desired_name):
         normalized = normalize_discord_name(channel.name)
         desired = normalize_discord_name(desired_name)
-        aliases = set(channel_aliases.get(key, []))
-        aliases.add(desired)
-
-        if key == "connections" and "disconnect" in normalized:
-            return False
-
-        return normalized in aliases or any(alias and alias in normalized for alias in aliases)
+        return normalized == desired
 
     async def ensure_channel(key, name, *, cat=None, private=False):
         if not channel_key_allowed_for_server_mode(key, guild_configs[guild_id]):
@@ -11419,7 +11465,7 @@ async def setup_command(
     await ensure_channel("heatmap", "🔥🗺️・heatmap・🗺️🔥", cat=info_category)
     await ensure_channel("longshots", "🎯🏹・longshots・🏹🎯", cat=info_category)
     await ensure_channel("restart_alerts", "📢⏰・restart-alerts・⏰📢", cat=info_category)
-    await ensure_channel("bot_updates", "📢✨・bot-updates・✨📢", cat=info_category)
+    await ensure_channel("bot_updates", "📢✨・bot-updates・✨📢", cat=bot_updates_category)
 
     await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
     await ensure_channel("public_shame", "🚫📣・wandering-in-shame・📣🚫", cat=community_category)
