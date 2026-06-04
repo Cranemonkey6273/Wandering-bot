@@ -10926,12 +10926,29 @@ async def on_guild_channel_delete(channel):
         print(f"CHANNEL DISABLED BY DELETE {guild.id}: {key}")
 
 
+async def sync_slash_commands_for_guild(guild):
+    if not guild:
+        return []
+    try:
+        bot.tree.clear_commands(guild=guild)
+        bot.tree.copy_global_to(guild=guild)
+        guild_synced = await bot.tree.sync(guild=guild)
+        guild_command_names = ", ".join(command.name for command in guild_synced)
+        print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
+        print(f"GUILD SLASH COMMAND NAMES {guild.name}: {guild_command_names}")
+        return guild_synced
+    except Exception as sync_error:
+        print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
+        return []
+
+
 @bot.event
 async def on_guild_join(guild):
 
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
+        await sync_slash_commands_for_guild(guild)
         return
 
     if is_showcase_guild(guild_id):
@@ -10940,6 +10957,7 @@ async def on_guild_join(guild):
         guild_configs[guild_id]["showcase_mode"] = True
         guild_configs[guild_id]["disabled_channels"] = list(DEFAULT_CHANNEL_NAMES.keys())
         save_guild_configs()
+        await sync_slash_commands_for_guild(guild)
         return
 
     category = await guild.create_category("🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
@@ -11101,6 +11119,8 @@ async def on_guild_join(guild):
         await publish_bot_update_notes(guild, guild_configs[guild_id])
     except Exception as update_error:
         print(f"BOT UPDATE JOIN ERROR {guild_id}: {update_error}")
+
+    await sync_slash_commands_for_guild(guild)
 
 # =========================================================
 # /SETUP COMMAND
@@ -33954,15 +33974,7 @@ async def on_ready():
     global_commands = list(bot.tree.get_commands())
 
     for guild in bot.guilds:
-        try:
-            bot.tree.clear_commands(guild=guild)
-            bot.tree.copy_global_to(guild=guild)
-            guild_synced = await bot.tree.sync(guild=guild)
-            guild_command_names = ", ".join(command.name for command in guild_synced)
-            print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
-            print(f"GUILD SLASH COMMAND NAMES {guild.name}: {guild_command_names}")
-        except Exception as sync_error:
-            print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
+        await sync_slash_commands_for_guild(guild)
 
     try:
         bot.tree.clear_commands(guild=None)
