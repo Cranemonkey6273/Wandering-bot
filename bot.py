@@ -61,6 +61,8 @@ DEFAULT_MAP_IMAGE_SOURCES = {
     "livonia": "https://i.imgur.com/nzEp9wF.jpeg",
 }
 
+MAP_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
     or os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
@@ -195,6 +197,8 @@ wandering_emojis = {}
 factions = {}
 pve_challenges = {}
 last_ai_direct_response_time = {}
+last_ai_guild_response_time = {}
+last_ai_channel_response_time = {}
 last_owner_mention_time = {}
 last_ai_image_time = {}
 recent_pvp_kill_signatures = {}
@@ -305,6 +309,9 @@ DEFAULT_CHANNEL_NAMES = {
     "welcome": "👋🟩・welcome・🟩👋",
     "public_shame": "🚫📣・wandering-in-shame・📣🚫",
     "linked_players": "🔗🎮・linked-players・🎮🔗",
+    "link_audit": "🔗🛡️・link-audit・🛡️🔗",
+    "member_leaves": "👋🌲・fare-thee-well・🌲👋",
+    "moderation_logs": "🛡️🚨・mod-watch・🚨🛡️",
     "general_chat": "💬🌲・survivor-chat・🌲💬",
     "ai_chat": "🧠📻・survivor-ai・📻🧠",
     "clips_channel": "🎬⭐・dayz-clips・⭐🎬",
@@ -360,6 +367,9 @@ CHANNEL_ALIASES = {
     "welcome": ["welcome", "newsurvivor"],
     "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
     "linked_players": ["linkedplayers", "gamerlinks", "linkedgamers", "usernamelinks", "identitylinks"],
+    "link_audit": ["linkaudit", "gamerlinkaudit", "identityaudit", "linkedplayeraudit"],
+    "member_leaves": ["faretheewell", "fare-thee-well", "memberleaves", "leftdiscord", "goodbye"],
+    "moderation_logs": ["modwatch", "moderationlogs", "spamwatch", "guardlogs"],
     "general_chat": ["survivorchat", "generalchat", "general", "chat"],
     "factions_chat": ["factionschat", "factions", "factionchat"],
     "faction_list": ["factionlist", "factionslist"],
@@ -2017,11 +2027,21 @@ async def maybe_reply_to_bot_mention(message, lower):
     now_ts = datetime.now(UTC).timestamp()
     key = f"{message.guild.id}:{message.author.id}"
 
-    reply_cooldown = int(owner_behavior_config(guild_id).get("reply_cooldown_seconds", 45))
-    if now_ts - last_ai_direct_response_time.get(key, 0) < max(5, reply_cooldown):
+    behavior = owner_behavior_config(guild_id)
+    reply_cooldown = int(behavior.get("reply_cooldown_seconds", 120))
+    guild_cooldown = int(behavior.get("guild_reply_cooldown_seconds", 75))
+    channel_cooldown = int(behavior.get("channel_reply_cooldown_seconds", 90))
+    channel_key = f"{message.guild.id}:{message.channel.id}"
+    if now_ts - last_ai_direct_response_time.get(key, 0) < max(10, reply_cooldown):
+        return
+    if now_ts - last_ai_guild_response_time.get(guild_id, 0) < max(10, guild_cooldown):
+        return
+    if now_ts - last_ai_channel_response_time.get(channel_key, 0) < max(10, channel_cooldown):
         return
 
     last_ai_direct_response_time[key] = now_ts
+    last_ai_guild_response_time[guild_id] = now_ts
+    last_ai_channel_response_time[channel_key] = now_ts
 
     topic_lines = []
 
@@ -2065,14 +2085,17 @@ async def maybe_reply_to_bot_mention(message, lower):
         ]
 
     help_lines = topic_lines or [
-        "I am awake. Unfortunately for everyone, I have opinions. Ask me about raids, loot, bases, sickness, cars, or why your last plan was bollocks.",
-        "Yes, survivor? I can help with bot commands, DayZ advice, or emotional support after another deeply avoidable death.",
-        "Radio check received. Tell me what you need and I will pretend we are all making sensible choices.",
+        "I am awake, just about. Ask me about loot, raids, cars, sickness, quests, or whatever disaster we are currently pretending is fine.",
+        "Radio check received. Give me the problem and I will try not to make it worse.",
+        "Go on then, survivor. What needs fixing before DayZ decides to invent a new problem?",
+        "I can help with server bits, survival advice, links, quests, and admin noise. One crisis at a time, ideally.",
+        "I heard my name. That is usually either a bug report, a bad idea, or someone being dramatic.",
+        "Tell me what you need. If it involves Nitrado, I am already sighing internally.",
+        "Still here. Less heroic than advertised, but functional.",
+        "Ask away. I will keep it short unless the situation deserves a lecture.",
     ]
 
-    await message.channel.send(
-        wb_text("ai", apply_owner_voice_to_text(guild_id, random.choice(help_lines)))
-    )
+    await send_wandering_chat_reply(message.channel, guild_id, help_lines, emoji_key="ai")
 
 
 async def maybe_owner_mention_remark(message):
@@ -2094,7 +2117,7 @@ async def maybe_owner_mention_remark(message):
         "You have summoned the owner. Please allow three to five business panics.",
         "Owner mention logged. If they do not reply, assume they are doing highly important owner things, like fighting settings menus.",
     ]
-    await message.channel.send(wb_text("radio", random.choice(lines)))
+    await send_wandering_chat_reply(message.channel, guild_id, lines, emoji_key="radio")
 
 
 def faction_key(name):
@@ -2659,6 +2682,27 @@ async def announce_verified_gamer_link(guild, config, member, gamertag):
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - Verified Identity")
     await channel.send(embed=style_embed(embed))
+
+    audit_channel = await get_or_create_feed_channel(
+        guild,
+        config,
+        "link_audit",
+        DEFAULT_CHANNEL_NAMES["link_audit"],
+        private=True
+    )
+    if audit_channel:
+        audit = discord.Embed(
+            title="GAMERTAG LINK AUDIT",
+            description="A Discord account has linked to an ADM verified survivor name.",
+            color=0x3498DB
+        )
+        audit.add_field(name="Discord", value=f"{member.mention}\n`{member}`", inline=False)
+        audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+        audit.add_field(name="Gamertag", value=f"`{gamertag}`", inline=True)
+        audit.add_field(name="Guild", value=f"{guild.name}\n`{guild.id}`", inline=False)
+        audit.set_thumbnail(url=BOT_IMAGE)
+        audit.set_footer(text="Wandering Bot Alpha - Private Identity Audit")
+        await audit_channel.send(embed=style_embed(audit))
 
 
 def build_linkgamer_confirmation_embed(member, gamertag):
@@ -3681,20 +3725,140 @@ def describe_owner_voice(guild_id):
 def owner_behavior_config(guild_id):
     config = guild_configs.setdefault(str(guild_id), {"guild_name": "Unknown", "channels": {}})
     settings = config.setdefault("owner_behavior", {})
-    settings.setdefault("reply_cooldown_seconds", 45)
-    settings.setdefault("fun_chatter_cooldown_seconds", 1800)
-    settings.setdefault("fun_chatter_chance", 0.04)
+    settings.setdefault("reply_cooldown_seconds", 120)
+    settings.setdefault("guild_reply_cooldown_seconds", 75)
+    settings.setdefault("channel_reply_cooldown_seconds", 90)
+    settings.setdefault("fun_chatter_cooldown_seconds", 3600)
+    settings.setdefault("fun_chatter_chance", 0.01)
     settings.setdefault("showcase_interval_seconds", 3600)
+    settings.setdefault("use_custom_emojis", True)
+    settings.setdefault("recent_bot_replies", [])
+    settings.setdefault("blocked_bot_reply_phrases", [])
     return settings
 
 
 def describe_owner_behavior(guild_id):
     settings = owner_behavior_config(guild_id)
     return (
-        f"reply cooldown `{int(settings.get('reply_cooldown_seconds', 45))}s`, "
-        f"chatter cooldown `{int(settings.get('fun_chatter_cooldown_seconds', 1800))}s`, "
-        f"chatter chance `{float(settings.get('fun_chatter_chance', 0.04)):.3f}`"
+        f"reply cooldown `{int(settings.get('reply_cooldown_seconds', 120))}s`, "
+        f"guild cooldown `{int(settings.get('guild_reply_cooldown_seconds', 75))}s`, "
+        f"channel cooldown `{int(settings.get('channel_reply_cooldown_seconds', 90))}s`, "
+        f"chatter cooldown `{int(settings.get('fun_chatter_cooldown_seconds', 3600))}s`, "
+        f"chatter chance `{float(settings.get('fun_chatter_chance', 0.01)):.3f}`"
     )
+
+
+def normalize_bot_reply_memory(text):
+    return re.sub(r"\s+", " ", re.sub(r"<a?:\w+:\d+>", "", str(text or ""))).strip().lower()
+
+
+def bot_reply_is_blocked(guild_id, text):
+    settings = owner_behavior_config(guild_id)
+    normalized = normalize_bot_reply_memory(text)
+    if not normalized:
+        return True
+    for phrase in settings.get("blocked_bot_reply_phrases", []):
+        if phrase and phrase in normalized:
+            return True
+    return False
+
+
+def remember_bot_reply(guild_id, text):
+    settings = owner_behavior_config(guild_id)
+    normalized = normalize_bot_reply_memory(text)
+    if not normalized:
+        return
+    recent = [entry for entry in settings.get("recent_bot_replies", []) if entry]
+    recent = [entry for entry in recent if entry != normalized]
+    recent.append(normalized)
+    settings["recent_bot_replies"] = recent[-40:]
+    save_guild_configs()
+
+
+def choose_non_repeating_bot_line(guild_id, lines):
+    settings = owner_behavior_config(guild_id)
+    recent = set(settings.get("recent_bot_replies", [])[-20:])
+    clean_lines = [line for line in lines if not bot_reply_is_blocked(guild_id, line)]
+    if not clean_lines:
+        clean_lines = ["I heard you. I am keeping it short this time."]
+    fresh = [
+        line for line in clean_lines
+        if normalize_bot_reply_memory(line) not in recent
+    ]
+    return random.choice(fresh or clean_lines)
+
+
+async def send_wandering_chat_reply(channel, guild_id, lines, *, emoji_key="ai"):
+    line = apply_owner_voice_to_text(guild_id, choose_non_repeating_bot_line(guild_id, lines))
+    settings = owner_behavior_config(guild_id)
+    if settings.get("use_custom_emojis", True):
+        content = wb_text(emoji_key, line)
+    else:
+        content = line
+    remember_bot_reply(guild_id, line)
+    await channel.send(content)
+
+
+def suppress_referenced_bot_reply(guild_id, message):
+    if not getattr(message, "reference", None) or not message.reference.resolved:
+        return False
+    referenced = message.reference.resolved
+    if getattr(referenced, "author", None) != bot.user:
+        return False
+    raw_content = getattr(referenced, "content", "")
+    content = normalize_bot_reply_memory(raw_content)
+    if not content:
+        return False
+
+    variants = [content]
+    # If the bot prefixed the reply with a custom/Unicode emoji, also block the
+    # actual sentence after the first token so owner corrections catch repeats.
+    parts = content.split(" ", 1)
+    if len(parts) == 2 and len(parts[0]) <= 6:
+        variants.append(parts[1])
+
+    settings = owner_behavior_config(guild_id)
+    blocked = settings.setdefault("blocked_bot_reply_phrases", [])
+    changed = False
+    for variant in variants:
+        if variant and variant not in blocked:
+            blocked.append(variant)
+            changed = True
+    if changed:
+        settings["blocked_bot_reply_phrases"] = blocked[-80:]
+        save_guild_configs()
+    return True
+
+
+def owner_reply_control_from_message(guild_id, message, lower):
+    settings = owner_behavior_config(guild_id)
+    changed = False
+    if any(phrase in lower for phrase in [
+        "do not say that again", "don't say that again", "dont say that again",
+        "do not send that again", "don't send that again", "dont send that again",
+        "do not send this again", "don't send this again", "dont send this again",
+        "stop saying that", "stop sending that",
+    ]):
+        changed = suppress_referenced_bot_reply(guild_id, message) or changed
+
+    if any(phrase in lower for phrase in [
+        "reduce the amount you send", "sending too often", "reply too often",
+        "talk less", "be quieter", "stop spamming", "too much bot",
+    ]):
+        settings["reply_cooldown_seconds"] = max(int(settings.get("reply_cooldown_seconds", 120)), 240)
+        settings["guild_reply_cooldown_seconds"] = max(int(settings.get("guild_reply_cooldown_seconds", 75)), 180)
+        settings["channel_reply_cooldown_seconds"] = max(int(settings.get("channel_reply_cooldown_seconds", 90)), 180)
+        settings["fun_chatter_cooldown_seconds"] = max(int(settings.get("fun_chatter_cooldown_seconds", 3600)), 7200)
+        settings["fun_chatter_chance"] = min(float(settings.get("fun_chatter_chance", 0.01)), 0.003)
+        changed = True
+
+    if any(phrase in lower for phrase in ["use your emojis", "use the bot emojis", "use more emojis"]):
+        settings["use_custom_emojis"] = True
+        changed = True
+
+    if changed:
+        save_guild_configs()
+    return changed
 
 
 def message_addresses_bot(message, lower):
@@ -4004,6 +4168,25 @@ async def maybe_handle_owner_natural_language(message, lower, now_ts):
         return True
 
     owner_natural_language_cooldowns[cooldown_key] = now_ts
+
+    if any(phrase in lower for phrase in ["sync commands", "resync commands", "refresh commands", "fix commands", "setup command missing"]):
+        if message.guild:
+            synced = await sync_slash_commands_for_guild(message.guild)
+            try:
+                global_synced = await bot.tree.sync()
+                global_count = len(global_synced)
+            except Exception:
+                global_count = 0
+            await message.channel.send(
+                wb_text("bot", f"Owner recognised: synced `{len(synced)}` guild commands and `{global_count}` global command copies for this server.")
+            )
+        return True
+
+    if owner_reply_control_from_message(guild_id, message, lower):
+        await message.channel.send(
+            wb_text("bot", f"Owner recognised: reply behaviour updated. {describe_owner_behavior(guild_id)}.")
+        )
+        return True
 
     if any(phrase in lower for phrase in ["owner status", "voice status", "behavior status", "behaviour status", "how are you set"]):
         await message.channel.send(
@@ -4620,6 +4803,8 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "admin_logs",
     "cheat_checks",
     "command_logs",
+    "link_audit",
+    "moderation_logs",
     "cuts_feed",
     "faction_staff",
     "flag_feed",
@@ -4655,6 +4840,7 @@ CHANNEL_RESTORE_PACKS = {
     "community": [
         "public_shame",
         "linked_players",
+        "member_leaves",
         "general_chat",
         "ai_chat",
         "clips_channel",
@@ -4664,6 +4850,8 @@ CHANNEL_RESTORE_PACKS = {
         "admin_logs",
         "cheat_checks",
         "command_logs",
+        "link_audit",
+        "moderation_logs",
         "faction_staff",
         "company_announcements",
     ],
@@ -4731,6 +4919,9 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "welcome": "survivor_comms",
     "public_shame": "survivor_comms",
     "linked_players": "survivor_comms",
+    "member_leaves": "survivor_comms",
+    "link_audit": "staff_ops",
+    "moderation_logs": "staff_ops",
     "general_chat": "survivor_comms",
     "ai_chat": "survivor_comms",
     "clips_channel": "survivor_comms",
@@ -10400,10 +10591,48 @@ ZONE_POINTS_BY_MAP = {
 }
 
 
+def candidate_local_map_image_paths(guild_id, map_key):
+    guild_id = str(guild_id or "global")
+    candidates = []
+    for folder in [
+        os.path.join(MAP_IMAGE_FOLDER, guild_id),
+        MAP_IMAGE_FOLDER,
+        APP_ROOT,
+        os.path.join(APP_ROOT, "assets"),
+        os.path.join(APP_ROOT, "static"),
+        os.path.join(APP_ROOT, "static", "maps"),
+        os.path.join(APP_ROOT, "maps"),
+    ]:
+        for stem in [map_key, f"{map_key}_map", f"map_{map_key}"]:
+            for ext in MAP_IMAGE_EXTENSIONS:
+                candidates.append(os.path.join(folder, stem + ext))
+    return candidates
+
+
+def cached_map_image_path(map_key):
+    return os.path.join(MAP_IMAGE_FOLDER, f"{map_key}_cached.map")
+
+
+def first_existing_map_image(guild_id, map_key):
+    for candidate in candidate_local_map_image_paths(guild_id, map_key):
+        if os.path.exists(candidate):
+            return candidate
+    cached = cached_map_image_path(map_key)
+    if os.path.exists(cached):
+        return cached
+    return None
+
+
 def configured_heatmap_image_source(guild_id, map_key):
     config = guild_configs.get(str(guild_id), {})
     images = config.get("heatmap_images", {})
-    return images.get(map_key) or images.get("default") or DEFAULT_MAP_IMAGE_SOURCES.get(map_key)
+    configured = images.get(map_key) or images.get("default")
+    if configured:
+        return configured
+    local_source = first_existing_map_image(guild_id, map_key)
+    if local_source:
+        return local_source
+    return DEFAULT_MAP_IMAGE_SOURCES.get(map_key)
 
 
 def normalize_map_image_key(map_name):
@@ -10454,10 +10683,17 @@ def map_image_source_status(guild_id, map_key):
         return None, f"No map image configured for `{map_key}`."
 
     if str(source).startswith(("http://", "https://")):
-        return source, f"Using URL image for `{map_key}`."
+        cached = first_existing_map_image(guild_id, map_key)
+        if cached:
+            return cached, f"Using cached/local image for `{map_key}`: `{cached}`"
+        return source, f"Using URL image for `{map_key}`. It will be cached after a successful download."
 
     if os.path.exists(source):
         return source, f"Using local image for `{map_key}`: `{source}`"
+
+    fallback = first_existing_map_image(guild_id, map_key)
+    if fallback:
+        return fallback, f"Configured image was missing; using local fallback for `{map_key}`: `{fallback}`"
 
     return source, f"Configured image is missing from this bot process: `{source}`"
 
@@ -10484,6 +10720,10 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
             if response.status_code != 200:
                 set_heatmap_render_status(guild_id, mode, f"Map image download failed with status `{response.status_code}`.")
                 return None
+            ensure_folder(MAP_IMAGE_FOLDER)
+            cached_path = cached_map_image_path(map_key)
+            with open(cached_path, "wb") as cached_file:
+                cached_file.write(response.content)
             image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
             image_file.write(response.content)
             image_file.close()
@@ -10756,9 +10996,18 @@ def generate_live_player_map_image(guild_id: str):
         if str(source).startswith(("http://", "https://")):
             response = requests.get(source, timeout=20)
             if response.status_code != 200:
-                source_status_note = f"Real map image download failed with status {response.status_code}; using fallback map."
-                source_path = None
+                cached = first_existing_map_image(guild_id, map_key)
+                if cached:
+                    source_status_note = f"Remote map image returned {response.status_code}; using cached local map."
+                    source_path = cached
+                else:
+                    source_status_note = f"Real map image download failed with status {response.status_code}; using fallback map."
+                    source_path = None
             else:
+                ensure_folder(MAP_IMAGE_FOLDER)
+                cached_path = cached_map_image_path(map_key)
+                with open(cached_path, "wb") as cached_file:
+                    cached_file.write(response.content)
                 image_file = tempfile.NamedTemporaryFile(delete=False, suffix=".map")
                 image_file.write(response.content)
                 image_file.close()
@@ -11065,6 +11314,8 @@ async def on_guild_join(guild):
 
     welcome_channel = await make_channel("👋🟩・welcome・🟩👋", cat=community_category)
     public_shame = await make_channel("🚫📣・wandering-in-shame・📣🚫", cat=community_category)
+    linked_players_channel = await make_channel(DEFAULT_CHANNEL_NAMES["linked_players"], cat=community_category)
+    member_leaves = await make_channel(DEFAULT_CHANNEL_NAMES["member_leaves"], cat=community_category)
     general_chat = await make_channel("💬🌲・survivor-chat・🌲💬", cat=community_category)
     ai_channel = await make_channel("🧠📻・survivor-ai・📻🧠", cat=community_category)
     clips_channel = await make_channel("🎬⭐・dayz-clips・⭐🎬", cat=community_category)
@@ -11077,6 +11328,8 @@ async def on_guild_join(guild):
     help_channel = await make_channel("❓📘・help-desk・📘❓", cat=support_category)
     economy_channel = await make_channel("💰🛒・black-market・🛒💰", cat=economy_category)
     admin_logs = await make_channel("🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    link_audit = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["link_audit"], category=staff_category, overwrites=staff_overwrites)
+    moderation_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["moderation_logs"], category=staff_category, overwrites=staff_overwrites)
     cheat_checks = await guild.create_text_channel("🕵️🚫・pc-cheat-check・🚫🕵️", category=staff_category, overwrites=staff_overwrites)
     command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
@@ -11129,6 +11382,8 @@ async def on_guild_join(guild):
             "bot_updates": bot_updates.id,
             "welcome": welcome_channel.id,
             "public_shame": public_shame.id,
+            "linked_players": linked_players_channel.id,
+            "member_leaves": member_leaves.id,
             "general_chat": general_chat.id,
             "factions_chat": factions_chat.id,
             "faction_list": faction_list.id,
@@ -11137,6 +11392,8 @@ async def on_guild_join(guild):
             "economy": economy_channel.id,
             "ai_chat": ai_channel.id,
             "admin_logs": admin_logs.id,
+            "link_audit": link_audit.id,
+            "moderation_logs": moderation_logs.id,
             "cheat_checks": cheat_checks.id,
             "command_logs": command_logs.id,
             "purchase_logs": purchase_logs.id,
@@ -11239,6 +11496,7 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     ftp_user="Your Nitrado FTP username",
     ftp_password="Your Nitrado FTP password",
     server_platform="Console/host platform: Xbox, PlayStation, or PC",
+    server_map="Server map: Chernarus, Livonia, or Sakhal",
     server_mode="Server style: PVP only, PVE only, or Hybrid",
     restore_deleted_channels="Recreate bot channels that server owners deleted",
     ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
@@ -11248,6 +11506,11 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
         app_commands.Choice(name="Xbox - DayZXB files", value="xbox"),
         app_commands.Choice(name="PlayStation - DayZPS files", value="playstation"),
         app_commands.Choice(name="PC - DayZPC/MP missions", value="pc"),
+    ],
+    server_map=[
+        app_commands.Choice(name="Chernarus", value="chernarus"),
+        app_commands.Choice(name="Livonia", value="livonia"),
+        app_commands.Choice(name="Sakhal", value="sakhal"),
     ],
     server_mode=[
         app_commands.Choice(name="Hybrid - PVP and PVE", value="hybrid"),
@@ -11263,6 +11526,7 @@ async def setup_command(
     ftp_user: str,
     ftp_password: str,
     server_platform: str = "xbox",
+    server_map: str = "chernarus",
     server_mode: str = "hybrid",
     restore_deleted_channels: bool = False,
     ftp_host: str = ""
@@ -11290,8 +11554,12 @@ async def setup_command(
 
     selected_server_mode = normalize_server_mode(server_mode)
     selected_server_platform = normalize_server_platform(server_platform)
+    selected_server_map = normalize_map_image_key(server_map) or "chernarus"
+    if selected_server_map == "default":
+        selected_server_map = "chernarus"
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
+    guild_configs[guild_id]["server_map"] = selected_server_map
 
     def normalize_discord_name(name):
         return re.sub(r"[^a-z0-9]+", "", name.lower())
@@ -11469,6 +11737,8 @@ async def setup_command(
 
     await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
     await ensure_channel("public_shame", "🚫📣・wandering-in-shame・📣🚫", cat=community_category)
+    await ensure_channel("linked_players", DEFAULT_CHANNEL_NAMES["linked_players"], cat=community_category)
+    await ensure_channel("member_leaves", DEFAULT_CHANNEL_NAMES["member_leaves"], cat=community_category)
     await ensure_channel("general_chat", "💬🌲・survivor-chat・🌲💬", cat=community_category)
     await ensure_channel("ai_chat", "🧠📻・survivor-ai・📻🧠", cat=community_category)
     await ensure_channel("clips_channel", "🎬⭐・dayz-clips・⭐🎬", cat=community_category)
@@ -11481,6 +11751,8 @@ async def setup_command(
     await ensure_channel("help_channel", "❓📘・help-desk・📘❓", cat=support_category)
     await ensure_channel("economy", "💰🛒・black-market・🛒💰", cat=economy_category)
     await ensure_channel("admin_logs", "🛡️📕・admin-logs・📕🛡️", cat=staff_category)
+    await ensure_channel("link_audit", DEFAULT_CHANNEL_NAMES["link_audit"], cat=staff_category, private=True)
+    await ensure_channel("moderation_logs", DEFAULT_CHANNEL_NAMES["moderation_logs"], cat=staff_category, private=True)
     await ensure_channel("cheat_checks", "🕵️🚫・pc-cheat-check・🚫🕵️", cat=staff_category, private=True)
     await ensure_channel("command_logs", "📜🛡️・command-logs・🛡️📜", cat=staff_category)
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
@@ -11501,6 +11773,7 @@ async def setup_command(
     guild_configs[guild_id]["ftp_password"] = ftp_password
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
+    guild_configs[guild_id]["server_map"] = selected_server_map
     if supplied_ftp_host:
         guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
@@ -28072,15 +28345,15 @@ async def mapimagestatus(interaction: discord.Interaction):
     )
     embed.add_field(name="Server Map", value=map_key, inline=True)
     embed.add_field(name="Heatmap Mode", value=heatmap_mode, inline=True)
+    embed.add_field(name="Local Fallback", value=(first_existing_map_image(guild_id, map_key) or "None found")[:1000], inline=False)
     embed.add_field(name="Image Renderer", value=pillow_message[:1000], inline=False)
     embed.add_field(name="Last Heatmap Render", value=heatmap_render_status(guild_id, heatmap_mode)[:1000], inline=False)
     embed.add_field(
         name="Upload Shortcut",
         value=(
-            "Railway cannot use `C:\\Users\\...` paths. For public URL setup, run:\n"
-            "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
-            "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
-            "Or attach an image and type `set heatmap chernarus`, `set heatmap livonia`, or `set heatmap sakhal`."
+            "Run `/setservermap map_name:livonia` or choose the map during `/setup`. "
+            "The bot now checks uploaded map images, bundled `livonia_map.jpg` / `chernarus_map.jpg`, cached maps, then the remote URL last. "
+            "If remote images are rate-limited, upload once with `/uploadmapimage` and it will stay local."
         ),
         inline=False
     )
@@ -33967,6 +34240,60 @@ async def on_interaction(interaction: discord.Interaction):
         print(f"[ON_INTERACTION] handler error: {err}")
 
 
+
+@bot.event
+async def on_member_remove(member):
+    guild = getattr(member, "guild", None)
+    if not guild or getattr(member, "bot", False):
+        return
+
+    guild_id = str(guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+    linked = linked_players.get(str(member.id), {})
+    public_channel = await get_or_create_feed_channel(
+        guild,
+        config,
+        "member_leaves",
+        DEFAULT_CHANNEL_NAMES["member_leaves"],
+        private=False
+    )
+    if public_channel:
+        title = random.choice(["FARE THEE WELL", "SURVIVOR LEFT CAMP", "RADIO SIGNAL LOST"])
+        description = random.choice([
+            f"`{member}` has left the Discord. The campfire is one voice quieter.",
+            f"`{member.display_name}` wandered out of range. Typical apocalypse behaviour.",
+            f"`{member.display_name}` has departed. Someone check they did not take the good beans.",
+        ])
+        embed = discord.Embed(title=title, description=description, color=0x95A5A6)
+        if linked.get("gamertag"):
+            embed.add_field(name="Linked Gamertag", value=f"`{linked.get('gamertag')}`", inline=True)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Fare Thee Well")
+        await public_channel.send(embed=style_embed(embed))
+
+    audit_channel = await get_or_create_feed_channel(
+        guild,
+        config,
+        "link_audit",
+        DEFAULT_CHANNEL_NAMES["link_audit"],
+        private=True
+    )
+    if audit_channel:
+        role_names = [role.name for role in getattr(member, "roles", []) if role.name != "@everyone"]
+        audit = discord.Embed(
+            title="MEMBER LEFT DISCORD",
+            description="Private departure audit for staff.",
+            color=0xE67E22
+        )
+        audit.add_field(name="Discord", value=f"`{member}`", inline=False)
+        audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+        audit.add_field(name="Linked Gamertag", value=f"`{linked.get('gamertag', 'Not linked')}`", inline=True)
+        audit.add_field(name="Joined Discord", value=str(getattr(member, "joined_at", None) or "Unknown"), inline=False)
+        audit.add_field(name="Roles", value=", ".join(role_names[:30]) or "None", inline=False)
+        audit.set_thumbnail(url=BOT_IMAGE)
+        audit.set_footer(text="Wandering Bot Alpha - Private Member Audit")
+        await audit_channel.send(embed=style_embed(audit))
+
 @bot.event
 async def on_ready():
 
@@ -34036,23 +34363,15 @@ async def on_ready():
     startup_results = await refresh_adm_feeds()
     log_adm_protocol_results(startup_results, "ADM STARTUP")
 
-    global_commands = list(bot.tree.get_commands())
-
     for guild in bot.guilds:
         await sync_slash_commands_for_guild(guild)
 
     try:
-        bot.tree.clear_commands(guild=None)
-        cleared_global = await bot.tree.sync()
-        print(f"GLOBAL SLASH COMMAND COPIES CLEARED: {len(cleared_global)}")
+        global_synced = await bot.tree.sync()
+        print(f"GLOBAL SLASH COMMANDS SYNCED: {len(global_synced)}")
+        print(f"GLOBAL SLASH COMMAND NAMES: {', '.join(command.name for command in global_synced)}")
     except Exception as sync_error:
-        print(f"GLOBAL SLASH CLEAR ERROR: {sync_error}")
-    finally:
-        for command in global_commands:
-            try:
-                bot.tree.add_command(command)
-            except Exception:
-                pass
+        print(f"GLOBAL SLASH SYNC ERROR: {sync_error}")
 
 # =========================================================
 # START

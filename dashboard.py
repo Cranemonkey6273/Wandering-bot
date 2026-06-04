@@ -487,10 +487,10 @@ PAGE_TEMPLATE = """
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
     .loadout-selected-slot strong { display: block; color: var(--gold); margin-bottom: .25rem; }
     .loadout-workbench { display: grid; gap: .75rem; }
-    .player-loadout-layout { grid-template-columns: 1fr; }
-    .player-loadout-layout .xml-output-panel { position: static; }
+    .player-loadout-layout { display: block; }
+    .player-loadout-layout .xml-output-panel { position: static; margin-top: .85rem; }
     .player-loadout-layout .xml-output-panel .save-preview { min-height: 8rem; max-height: 18rem; }
-    .player-loadout-layout .loadout-workbench { margin-top: .35rem; }
+    .player-loadout-layout .loadout-workbench { margin-top: .75rem; }
     .player-loadout-layout .visual-picker-grid { max-height: 30rem; grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr)); }
     .vehicle-workbench { display: grid; gap: .75rem; }
     .vehicle-cargo-board { min-height: 12rem; }
@@ -1499,7 +1499,7 @@ Event pings | bell | 1234567890</textarea></label>
               </select>
             </label>
             <label>Event name <input name="name" placeholder="Optional display name"></label>
-            <label>Classname <input name="class_name" value="StaticObj_Misc_WoodenCrate_5x" placeholder="Only needed for Custom classname"></label>
+            <label>Resolved spawn class <input name="class_name" value="StaticObj_Misc_WoodenCrate_5x" data-scenario-class readonly placeholder="Pick Custom classname to type manually"></label>
             <label>X coordinate <input name="x" type="number" value="7500"></label>
             <label>Z coordinate <input name="z" type="number" value="7500"></label>
             <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
@@ -1538,58 +1538,9 @@ Event pings | bell | 1234567890</textarea></label>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
         </article>
         <article class="admin-panel">
-          <h3>Vehicle Reset</h3>
-          <form class="admin-form" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
-            <input class="hidden-field" name="event_type" value="vehicle_reset_all">
-            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Reset method
-              <select name="reset_method"><option value="economy_xml">Economy XML full wipe</option><option value="bridge">Bridge radius delete</option></select>
-            </label>
-            <label>Vehicle class <input name="class_name" value="ALL_VEHICLES"></label>
-            <label>X coordinate <input name="x" type="number" value="7500"></label>
-            <label>Z coordinate <input name="z" type="number" value="7500"></label>
-            <label>Delete radius <input name="radius" type="number" value="30000"></label>
-            <label>Runs for restarts <input name="restarts" type="number" value="1"></label>
-            <div class="full"><button type="submit">Queue Vehicle Reset</button> <span class="result muted"></span></div>
-          </form>
-          <p class="tool-note" style="margin-top:.75rem">Economy XML full wipe changes vehicles init to 0 for the wipe cycle, then restores it to 1. The server must restart for DayZ file changes to take effect.</p>
-          <hr>
-          <h4>Timed Vehicle Reset</h4>
-          <form class="admin-form" data-route="/api/admin/server-control">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
-            {% set vr_first_date = (vr.first_date or server.config.vehicle_reset_first_date or '') if server else '' %}
-            {% set vr_time = (vr.time or server.config.vehicle_reset_time or '04:00') if server else '04:00' %}
-            {% set vr_timezone = (vr.timezone or server.config.vehicle_reset_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
-            {% set vr_interval_value = (vr.interval_value or server.config.vehicle_reset_interval_value or 7) if server else 7 %}
-            {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
-            {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
-            {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
-            <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not server or not server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>Off</option><option value="true" {% if server and server.config.vehicle_reset_schedule_enabled %}selected{% endif %}>On</option></select></label>
-            <label>Method <select name="vehicle_reset_method"><option value="economy_xml" {% if not server or server.config.vehicle_reset_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if server and server.config.vehicle_reset_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
-            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
-            <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
-            <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
-            <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
-            <label>Repeat unit
-              <select name="vehicle_reset_interval_unit">
-                <option value="hours" {% if vr_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
-                <option value="days" {% if vr_interval_unit == 'days' %}selected{% endif %}>Days</option>
-                <option value="weeks" {% if vr_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
-                <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
-              </select>
-            </label>
-            <label>Preferred weekday
-              <select name="vehicle_reset_day_of_week">
-                <option value="">Use first date</option>
-                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
-            <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
-          </form>
+          <h3>Server Control Moved</h3>
+          <p class="tool-note">Vehicle resets, restart schedules, base damage, and container damage now live together in Server Control so spawn events stay separate from server maintenance.</p>
+          <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
         </article>
         <article class="admin-panel full">
           <h3>Live Event Manager</h3>
@@ -2350,8 +2301,33 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="section-head">
         <div>
           <h2>Server Control</h2>
-          <p class="tool-note">Restart timing and damage settings are separate controls for this server only. Vehicle resets live in PVE & Workshop. File and gameplay changes need a server restart before DayZ applies them.</p>
+          <p class="tool-note">Maintenance controls for this server only: restarts, raid damage, container damage, and vehicle reset schedules. Spawn events and loadout builders live on their own pages.</p>
         </div>
+      </div>
+      {% set restart_on = not (server and server.config.restart_schedule_enabled == false) %}
+      {% set restart_hours = (server.config.restart_interval_hours if server else 4) or 4 %}
+      {% set restart_start = (server.config.restart_start_hour if server else 0) or 0 %}
+      {% set restart_warnings = (server.config.restart_warning_minutes|join(', ') if server and server.config.restart_warning_minutes else '30, 15, 10, 5, 1') %}
+      {% set base_state = (server.config.base_damage_state if server else 'on') or 'on' %}
+      {% set container_state = (server.config.container_damage_state if server else 'on') or 'on' %}
+      {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
+      {% set vr_enabled = server.config.vehicle_reset_schedule_enabled if server else false %}
+      {% if vr and vr.enabled is defined %}
+      {% set vr_enabled = vr.enabled %}
+      {% endif %}
+      {% set vr_first_date = (vr.first_date or server.config.vehicle_reset_first_date or '') if server else '' %}
+      {% set vr_time = (vr.time or server.config.vehicle_reset_time or '04:00') if server else '04:00' %}
+      {% set vr_timezone = (vr.timezone or server.config.vehicle_reset_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
+      {% set vr_interval_value = (vr.interval_value or server.config.vehicle_reset_interval_value or 7) if server else 7 %}
+      {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
+      {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
+      {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
+      {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'economy_xml') if server else 'economy_xml' %}
+      <div class="mini-grid" style="margin-bottom:1rem">
+        <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
+        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>Raid damage controls only</span></div>
+        <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_first_date %} from {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
+        <div class="mini-card"><span class="muted">Repeat</span><strong>{{ vr_interval_value }} {{ vr_interval_unit }}</strong><span>{% if vr_weekday %}{{ vr_weekday|title }}{% elif vr_month_day %}Day {{ vr_month_day }}{% else %}From first date{% endif %}</span></div>
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
@@ -2359,10 +2335,10 @@ Event pings | bell | 1234567890</textarea></label>
           <form class="admin-form" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Restart schedule <select name="restart_schedule_enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Every hours <input name="restart_interval_hours" type="number" min="1" max="24" value="{{ (server.config.restart_interval_hours if server else 4) or 4 }}"></label>
-            <label>Start hour UTC <input name="restart_start_hour" type="number" min="0" max="23" value="{{ (server.config.restart_start_hour if server else 0) or 0 }}"></label>
-            <label>Warning minutes <input name="restart_warning_minutes" value="{{ (server.config.restart_warning_minutes|join(',') if server and server.config.restart_warning_minutes else '30,15,10,5,1') }}"></label>
+            <label>Restart schedule <select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
+            <label>Every hours <input name="restart_interval_hours" type="number" min="1" max="24" value="{{ restart_hours }}"></label>
+            <label>Start hour UTC <input name="restart_start_hour" type="number" min="0" max="23" value="{{ restart_start }}"></label>
+            <label>Warning minutes <input name="restart_warning_minutes" value="{{ restart_warnings|replace(' ', '') }}"></label>
             <label>Notify channel
               <select name="restart_channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
@@ -2376,10 +2352,40 @@ Event pings | bell | 1234567890</textarea></label>
           <form class="admin-form" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Base damage <select name="base_damage_state"><option value="on" {% if not server or server.config.base_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.base_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
-            <label>Container damage <select name="container_damage_state"><option value="on" {% if not server or server.config.container_damage_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if server and server.config.container_damage_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select></label>
             <div class="full embed-preview"><strong>Damage Only</strong><span>These toggles are saved separately from vehicle resets so changing raid damage will not change the reset schedule.</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Vehicle Reset Schedule</h3>
+          <form class="admin-form" data-route="/api/admin/server-control">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
+            <label>Method <select name="vehicle_reset_method"><option value="economy_xml" {% if vr_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if vr_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
+            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
+            <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
+            <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
+            <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
+            <label>Repeat unit
+              <select name="vehicle_reset_interval_unit">
+                <option value="hours" {% if vr_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
+                <option value="days" {% if vr_interval_unit == 'days' %}selected{% endif %}>Days</option>
+                <option value="weeks" {% if vr_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
+              </select>
+            </label>
+            <label>Preferred weekday
+              <select name="vehicle_reset_day_of_week">
+                <option value="">Use first date</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
+            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}.</span></div>
+            <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
           </form>
         </article>
       </div>
@@ -3125,13 +3131,16 @@ Event pings | bell | 1234567890</textarea></label>
       }
       const pickerButton = event.target.closest("[data-picker-add]");
       if (pickerButton) {
+        event.preventDefault();
         const picker = pickerButton.closest("[data-item-picker]");
         const form = picker ? picker.closest("form") : null;
         const output = form ? form.querySelector("[data-picker-output]") : null;
         appendPickerLine(picker, output);
+        return;
       }
       const slotButton = event.target.closest("[data-loadout-slot]");
       if (slotButton) {
+        event.preventDefault();
         const form = slotButton.closest("form");
         const slotSelect = form ? form.querySelector("[data-picker-slot]") : null;
         if (slotSelect) {
@@ -3144,6 +3153,7 @@ Event pings | bell | 1234567890</textarea></label>
             if (search) search.focus({preventScroll: true});
           }
         }
+        return;
       }
       const removeSelected = event.target.closest("[data-remove-selected]");
       if (removeSelected) {
@@ -3571,25 +3581,39 @@ Event pings | bell | 1234567890</textarea></label>
       const form = presetSelect.closest("form");
       if (!form) return;
       const typeSelect = form.querySelector("[data-scenario-type]");
+      const classInput = form.querySelector("[data-scenario-class]");
       function chooseFirstPresetForType() {
         if (!typeSelect) return;
         const current = presetSelect.selectedOptions[0];
-        if (current && (current.dataset.type === typeSelect.value || current.value === "custom")) return;
-        const match = Array.from(presetSelect.options).find((item) => item.dataset.type === typeSelect.value);
+        const options = Array.from(presetSelect.options);
+        options.forEach((item) => {
+          const visible = !item.dataset.type || item.dataset.type === typeSelect.value;
+          item.hidden = !visible;
+          item.disabled = !visible;
+        });
+        if (current && !current.disabled && (current.dataset.type === typeSelect.value || current.value === "custom")) return;
+        const match = options.find((item) => item.dataset.type === typeSelect.value && !item.disabled);
         if (match) presetSelect.value = match.value;
       }
       function syncScenarioPreset() {
         chooseFirstPresetForType();
         const option = presetSelect.selectedOptions[0];
-        if (!option || option.value === "custom") return;
+        if (!option) return;
+        const customClass = option.value === "custom" || option.value === "custom_vehicle";
+        if (classInput) {
+          classInput.readOnly = !customClass;
+          classInput.placeholder = customClass ? "Type the exact DayZ classname" : "Locked to selected spawn type";
+        }
         if (typeSelect && option.dataset.type) typeSelect.value = option.dataset.type;
         if (option.dataset.class) form.elements.class_name.value = option.dataset.class;
+        if (customClass && !form.elements.class_name.value) form.elements.class_name.value = "";
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
         if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
         if (option.dataset.loot && form.elements.loot_preset) form.elements.loot_preset.value = option.dataset.loot;
       }
       presetSelect.addEventListener("change", syncScenarioPreset);
       if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
+      form.addEventListener("submit", syncScenarioPreset);
       syncScenarioPreset();
     });
     document.querySelectorAll("[data-zombie-mix-builder]").forEach((builder) => {
@@ -6665,7 +6689,7 @@ def api_scenario_event():
         "permanent": permanent,
         "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
         "enabled": True,
-        "status": "Accepted / waiting for native CE XML upload",
+        "status": "Accepted / bot auto-upload queued",
         "upload_status": "waiting_for_bot_upload",
         "created_by": existing_event.get("created_by") or "dashboard",
         "created_at": existing_event.get("created_at") or datetime.now(UTC).isoformat(),
@@ -6736,8 +6760,8 @@ def api_scenario_event_action():
             })
         event["enabled"] = action in {"approve", "upload"}
         event["status"] = {
-            "approve": "Accepted / waiting for native CE XML upload",
-            "upload": "Queued for native CE XML upload now",
+            "approve": "Accepted / bot auto-upload queued",
+            "upload": "Retry queued for native CE XML upload",
             "pause": "Paused by dashboard",
         }[action]
         if action in {"approve", "upload"}:
