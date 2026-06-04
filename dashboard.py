@@ -2609,10 +2609,49 @@ Event pings | bell | 1234567890</textarea></label>
     function fallbackThumb(category) {
       return `/item-thumb/${encodeURIComponent(category || "General")}`;
     }
+    const LOADOUT_SLOT_TERMS = {
+      "Head": {include: ["helmet", "cap", "beanie", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap", "zsh3", "mich", "headtorch"], exclude: ["armband", "mask", "glove", "pants", "boots", "bag", "vest"]},
+      "Eyes": {include: ["glasses", "eyewear", "nvg", "goggles"], exclude: ["armband", "mask", "helmet", "pants", "boots", "bag"]},
+      "Mask": {include: ["mask", "respirator", "bandana", "balaclava", "shemag", "airborne"], exclude: ["armband", "glove", "pants", "boots", "bag"]},
+      "Body": {include: ["jacket", "shirt", "hoodie", "coat", "torso", "sweater", "parka", "gorka", "nbcjacket", "bdujacket", "ttskojacket"], exclude: ["armband", "mask", "pants", "boots", "glove", "bag", "vest"]},
+      "Vest": {include: ["vest", "platecarrier", "chestholster", "smershvest"], exclude: ["armband", "mask", "pants", "boots", "glove", "bag"]},
+      "Back": {include: ["bag", "backpack", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag"], exclude: ["armband", "mask", "pants", "boots", "glove"]},
+      "Hips": {include: ["belt", "holster", "sheath", "fanny"], exclude: ["armband", "mask", "pants", "boots", "bag", "vest"]},
+      "Legs": {include: ["pants", "trousers", "jeans", "shorts", "skirt", "cargo"], exclude: ["armband", "mask", "glove", "boots", "bag", "vest"]},
+      "Feet": {include: ["boots", "shoes", "sneakers", "wellies", "footwraps"], exclude: ["armband", "mask", "glove", "pants", "bag", "vest", "helmet"]},
+      "Hands": {include: ["weapon", "rifle", "gun", "pistol", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "crossbow", "knife", "axe", "hatchet", "hammer", "shovel", "saw", "wrench", "pickaxe", "tool"], exclude: ["armband", "mask", "pants", "boots", "bag", "vest"]},
+      "Left Shoulder": {include: ["weapon", "rifle", "gun", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "crossbow"], exclude: ["mag_", "ammo", "armband", "mask", "pants", "boots", "bag", "vest"]},
+      "Right Shoulder": {include: ["weapon", "rifle", "gun", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "crossbow"], exclude: ["mag_", "ammo", "armband", "mask", "pants", "boots", "bag", "vest"]},
+      "Gloves": {include: ["glove", "gloves"], exclude: ["armband", "mask", "pants", "boots", "bag", "vest"]},
+      "Armband": {include: ["armband"], exclude: ["mask", "glove", "pants", "boots", "bag", "vest"]},
+    };
+    function itemSearchText(item) {
+      return `${item?.name || ""} ${item?.category || ""}`.toLowerCase();
+    }
+    function slotFilteredItems(slot) {
+      const rules = LOADOUT_SLOT_TERMS[slot];
+      const baseItems = (XML_PICKER_GROUPS[slot] && XML_PICKER_GROUPS[slot].length ? XML_PICKER_GROUPS[slot] : ITEM_LOOKUP) || [];
+      if (!rules) return XML_PICKER_GROUPS[slot] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      const filtered = baseItems.filter((item) => {
+        const text = itemSearchText(item);
+        return rules.include.some((term) => text.includes(term)) && !rules.exclude.some((term) => text.includes(term));
+      });
+      const fallback = XML_PICKER_GROUPS[slot] || [];
+      return filtered.length ? filtered : fallback.filter((item) => {
+        const text = itemSearchText(item);
+        return !rules.exclude.some((term) => text.includes(term));
+      });
+    }
+    function pickerGroupItems(groupName, picker) {
+      if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
+        return slotFilteredItems(groupName);
+      }
+      return XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+    }
     function rebuildPickerOptions(picker, groupName) {
       const select = picker ? picker.querySelector("[data-picker-item]") : null;
       if (!select || select.tagName !== "SELECT") return;
-      const items = XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      const items = pickerGroupItems(groupName, picker);
       picker.dataset.pickerGroup = groupName || "cargo";
       select.innerHTML = '<option value="">Choose item</option>';
       items.forEach((item) => {
@@ -2690,7 +2729,7 @@ Event pings | bell | 1234567890</textarea></label>
       const group = picker.dataset.pickerMode === "loadout"
         ? (slotValue || "cargo")
         : (picker.dataset.pickerGroup || slotValue || "cargo");
-      const sourceItems = XML_PICKER_GROUPS[group] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      const sourceItems = pickerGroupItems(group, picker);
       const selected = String(select.value || "").toLowerCase();
       const items = sourceItems
         .filter((item) => {
@@ -3446,7 +3485,10 @@ Event pings | bell | 1234567890</textarea></label>
     });
     document.querySelectorAll("[data-item-picker]").forEach((picker) => {
       const slotSelect = picker.querySelector("[data-picker-slot]");
-      if (slotSelect && slotSelect.value) {
+      if (picker.dataset.pickerMode === "loadout") {
+        rebuildPickerOptions(picker, slotSelect?.value || "cargo");
+        if (slotSelect) syncLoadoutPickerSlot(slotSelect);
+      } else if (slotSelect && slotSelect.value) {
         picker.dataset.pickerGroup = slotSelect.value;
       } else if (!picker.dataset.pickerGroup) {
         picker.dataset.pickerGroup = "cargo";
