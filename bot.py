@@ -4243,14 +4243,14 @@ async def maybe_handle_owner_natural_language(message, lower, now_ts):
 
     if any(phrase in lower for phrase in ["sync commands", "resync commands", "refresh commands", "fix commands", "setup command missing"]):
         if message.guild:
-            synced = await sync_slash_commands_for_guild(message.guild)
             try:
                 global_synced = await bot.tree.sync()
                 global_count = len(global_synced)
             except Exception:
                 global_count = 0
+            synced = await sync_slash_commands_for_guild(message.guild)
             await message.channel.send(
-                wb_text("bot", f"Owner recognised: synced `{len(synced)}` guild commands and `{global_count}` global command copies for this server.")
+                wb_text("bot", f"Owner recognised: cleared stale guild command copies (`{len(synced)}` remaining) and synced `{global_count}` global commands.")
             )
         return True
 
@@ -11339,11 +11339,8 @@ async def sync_slash_commands_for_guild(guild):
         return []
     try:
         bot.tree.clear_commands(guild=guild)
-        bot.tree.copy_global_to(guild=guild)
         guild_synced = await bot.tree.sync(guild=guild)
-        guild_command_names = ", ".join(command.name for command in guild_synced)
-        print(f"GUILD SLASH COMMANDS SYNCED {guild.name}: {len(guild_synced)}")
-        print(f"GUILD SLASH COMMAND NAMES {guild.name}: {guild_command_names}")
+        print(f"GUILD SLASH COMMAND COPIES CLEARED {guild.name}: {len(guild_synced)} remaining")
         return guild_synced
     except Exception as sync_error:
         print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
@@ -11371,7 +11368,8 @@ async def announce_slash_sync_status(guild, synced_commands):
     count = len(synced_commands or [])
     try:
         await destination.send(
-            f"Slash command sync checked for **{guild.name}**: `{count}` command(s) registered. "
+            f"Slash command sync checked for **{guild.name}**: stale guild-specific copies cleared (`{count}` remaining). "
+            "Wandering Bot now uses one global slash-command set so Discord does not show duplicates. "
             "If commands are still not visible in Discord, reinvite the bot with both `bot` and `applications.commands` scopes, then run setup again."
         )
     except Exception as status_error:
