@@ -2091,22 +2091,22 @@ Event pings | bell | 1234567890</textarea></label>
                     </div>
                   </div>
                   <div class="loadout-selected-slot">
-                    <strong data-active-slot-label>Pick a slot</strong>
-                    <p class="tool-note" data-active-slot-note>The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.</p>
+                    <strong data-active-slot-label>Selected slot: Head</strong>
+                    <p class="tool-note" data-active-slot-note>Showing Head options below. Pick a card or use the dropdown, then press Add.</p>
                   </div>
                 </div>
                 <div class="loadout-workbench">
-                  <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="cargo">
+                  <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="Head">
                     <div class="item-picker-controls">
                       <label>Find item
                         <select class="picker-select" data-picker-item>
                           <option value="">Choose item</option>
-                          {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                          {% for item in xml_picker_groups.Head %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                         </select>
                       </label>
                       <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                       <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                      <label>Slot <select data-picker-slot><option value="">Unsorted</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Gloves</option><option>Armband</option></select></label>
+                      <label>Slot <select data-picker-slot><option selected>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Gloves</option><option>Armband</option><option value="">Unsorted</option></select></label>
                       <button type="button" data-picker-add>Add</button>
                     </div>
                     <label>Attachment for weapon/item
@@ -2674,6 +2674,7 @@ Event pings | bell | 1234567890</textarea></label>
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
     const ITEM_LOOKUP = {{ (server.shop_items if server else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
+    const DEFAULT_LOADOUT_SLOT = "Head";
     document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
       const fallback = window.location.origin;
@@ -2734,11 +2735,14 @@ Event pings | bell | 1234567890</textarea></label>
     }
     function slotFilteredItems(slot) {
       const rules = LOADOUT_SLOT_TERMS[slot];
-      const baseItems = (XML_PICKER_GROUPS[slot] && XML_PICKER_GROUPS[slot].length ? XML_PICKER_GROUPS[slot] : ITEM_LOOKUP) || [];
-      if (!rules) return XML_PICKER_GROUPS[slot] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
-      const filtered = baseItems.filter((item) => strictSlotMatches(item, slot));
-      const fallback = (XML_PICKER_GROUPS[slot] || []).filter((item) => strictSlotMatches(item, slot));
-      return filtered.length ? filtered : fallback;
+      const slotItems = XML_PICKER_GROUPS[slot] || [];
+      const allItems = XML_PICKER_GROUPS.all || ITEM_LOOKUP || [];
+      if (!rules) return slotItems.length ? slotItems : (XML_PICKER_GROUPS.cargo || allItems || []);
+      const strictSlotItems = slotItems.filter((item) => strictSlotMatches(item, slot));
+      if (strictSlotItems.length) return strictSlotItems;
+      const strictAllItems = allItems.filter((item) => strictSlotMatches(item, slot));
+      if (strictAllItems.length) return strictAllItems;
+      return slotItems;
     }
     function pickerGroupItems(groupName, picker) {
       if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
@@ -2823,9 +2827,10 @@ Event pings | bell | 1234567890</textarea></label>
       }
       const grid = visual.querySelector("[data-visual-grid]");
       const query = (visual.querySelector("[data-visual-search]")?.value || "").trim().toLowerCase();
-      const slotValue = picker.querySelector("[data-picker-slot]")?.value || "";
+      const rawSlotValue = picker.querySelector("[data-picker-slot]")?.value || "";
+      const slotValue = picker.dataset.pickerMode === "loadout" ? (rawSlotValue || DEFAULT_LOADOUT_SLOT) : rawSlotValue;
       const group = picker.dataset.pickerMode === "loadout"
-        ? (slotValue || "cargo")
+        ? slotValue
         : (picker.dataset.pickerGroup || slotValue || "cargo");
       const sourceItems = pickerGroupItems(group, picker);
       const selected = String(select.value || "").toLowerCase();
@@ -2860,8 +2865,9 @@ Event pings | bell | 1234567890</textarea></label>
       const picker = slotSelect ? slotSelect.closest("[data-item-picker]") : null;
       if (!picker || picker.dataset.pickerMode !== "loadout") return;
       const form = picker.closest("form");
-      const slot = slotSelect.value || "";
-      rebuildPickerOptions(picker, slot || "cargo");
+      if (!slotSelect.value) slotSelect.value = DEFAULT_LOADOUT_SLOT;
+      const slot = slotSelect.value || DEFAULT_LOADOUT_SLOT;
+      rebuildPickerOptions(picker, slot);
       const itemSelect = picker.querySelector("[data-picker-item]");
       if (itemSelect && itemSelect.options.length > 1 && itemSelect.selectedIndex < 1) {
         itemSelect.selectedIndex = 0;
@@ -2870,12 +2876,10 @@ Event pings | bell | 1234567890</textarea></label>
       renderVisualPicker(picker);
       if (form) {
         const label = form.querySelector("[data-active-slot-label]");
-        if (label) label.textContent = slot ? `Selected slot: ${slot}` : "Pick a slot";
+        if (label) label.textContent = `Selected slot: ${slot}`;
         const note = form.querySelector("[data-active-slot-note]");
         if (note) {
-          note.textContent = slot
-            ? `Showing ${slot} options below. Pick a card or use the dropdown, then press Add.`
-            : "The item cards below will filter to match the selected body slot. Shoulders and hands focus on weapons/tools.";
+          note.textContent = `Showing ${slot} options below. Pick a card or use the dropdown, then press Add.`;
         }
         form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
           button.classList.toggle("active", button.dataset.loadoutSlot === slot);
@@ -3484,6 +3488,34 @@ Event pings | bell | 1234567890</textarea></label>
       }
       return value;
     }
+    const REFRESH_AFTER_SAVE_ROUTES = new Set([
+      "/api/admin/embed-template",
+      "/api/admin/welcome-automation",
+      "/api/admin/utility-config",
+      "/api/admin/reaction-role-panel",
+      "/api/admin/faction",
+      "/api/admin/faction-member",
+      "/api/admin/zone",
+      "/api/admin/member-action",
+      "/api/admin/scenario-event",
+      "/api/admin/wage",
+      "/api/admin/wallet-adjustment",
+      "/api/admin/economy-rule",
+      "/api/admin/shop-item",
+      "/api/admin/shop-bundle",
+      "/api/admin/moderation-guard",
+      "/api/admin/link-enforcement",
+      "/api/admin/on-screen-message",
+      "/api/admin/server-control",
+      "/api/admin/guild-access",
+      "/api/admin/link-server",
+      "/api/owner/guild-action",
+    ]);
+    function shouldRefreshAfterSave(form) {
+      if (!form || form.classList.contains("inline-action") || form.dataset.scenarioActionForm) return false;
+      const route = String(form.dataset.route || "").split("?")[0];
+      return REFRESH_AFTER_SAVE_ROUTES.has(route);
+    }
     document.querySelectorAll(".admin-form").forEach((form) => {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -3571,6 +3603,10 @@ Event pings | bell | 1234567890</textarea></label>
             }
             window.location.reload();
           }
+          if (response.ok && shouldRefreshAfterSave(form)) {
+            if (result) result.textContent = body.note || "Saved. Refreshing...";
+            window.setTimeout(() => window.location.reload(), 650);
+          }
         } catch (error) {
           const message = window.location.protocol === "http:"
             ? "Open the secure HTTPS dashboard and try again."
@@ -3588,7 +3624,8 @@ Event pings | bell | 1234567890</textarea></label>
     document.querySelectorAll("[data-item-picker]").forEach((picker) => {
       const slotSelect = picker.querySelector("[data-picker-slot]");
       if (picker.dataset.pickerMode === "loadout") {
-        rebuildPickerOptions(picker, slotSelect?.value || "cargo");
+        if (slotSelect && !slotSelect.value) slotSelect.value = DEFAULT_LOADOUT_SLOT;
+        rebuildPickerOptions(picker, slotSelect?.value || DEFAULT_LOADOUT_SLOT);
         if (slotSelect) syncLoadoutPickerSlot(slotSelect);
       } else if (slotSelect && slotSelect.value) {
         picker.dataset.pickerGroup = slotSelect.value;
@@ -3739,7 +3776,11 @@ Event pings | bell | 1234567890</textarea></label>
         const match = options.find((item) => item.dataset.type === typeSelect.value && !item.disabled);
         if (match) presetSelect.value = match.value;
       }
-      function syncScenarioPreset() {
+      function syncScenarioPreset(event) {
+        const selectedBeforeFilter = presetSelect.selectedOptions[0];
+        if (event && event.target === presetSelect && typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && selectedBeforeFilter.dataset.type !== typeSelect.value) {
+          typeSelect.value = selectedBeforeFilter.dataset.type;
+        }
         chooseFirstPresetForType();
         const option = presetSelect.selectedOptions[0];
         if (!option) return;
@@ -4334,9 +4375,21 @@ def verify_dashboard_password(password: str, credentials: dict[str, Any]) -> boo
     if salt and expected and secrets.compare_digest(dashboard_password_hash(password, salt), expected):
         return True
     # Compatibility for very old credentials generated before salted hashes.
-    legacy_plain = str(credentials.get("password") or credentials.get("dashboard_password") or "")
-    if legacy_plain and secrets.compare_digest(str(password or ""), legacy_plain):
-        return True
+    for key in (
+        "password",
+        "dashboard_password",
+        "plain_password",
+        "password_plain",
+        "admin_password",
+        "access_password",
+        "dashboard_secret",
+        "secret",
+        "dashboard_pass",
+        "admin_pass",
+    ):
+        legacy_plain = str(credentials.get(key) or "")
+        if legacy_plain and secrets.compare_digest(str(password or ""), legacy_plain):
+            return True
     return False
 
 
@@ -4636,6 +4689,29 @@ def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
 def safe_dayz_class(value: Any) -> str:
     text = str(value or "").strip()
     return text if re.fullmatch(r"[A-Za-z0-9_]{2,80}", text) else ""
+
+
+def disallowed_vehicle_part_class(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    part_terms = (
+        "lootdispatch",
+        "_hood",
+        "_trunk",
+        "_wheel",
+        "_door",
+        "_doors",
+        "_battery",
+        "_radiator",
+        "_sparkplug",
+        "_headlight",
+        "carbattery",
+        "carradiator",
+        "truckbattery",
+        "sparkplug",
+    )
+    return any(term in text for term in part_terms)
 
 
 def xml_attr(value: Any) -> str:
@@ -5669,7 +5745,27 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "crossbow",
     )
     hands_terms = firearm_terms + ("tool", "hammer", "hatchet", "saw", "shovel", "pickaxe", "wrench", "knife", "axe", "sword", "melee")
-    excluded_loot_terms = ("animal", "infected", "zombie", "wreck", "offroadhatchback", "civiliansedan", "hatchback_02", "sedan_02", "truck_01", "offroad_02", "boat_01")
+    excluded_loot_terms = (
+        "animal",
+        "infected",
+        "zombie",
+        "wreck",
+        "lootdispatch",
+        "offroadhatchback",
+        "civiliansedan",
+        "hatchback_02",
+        "sedan_02",
+        "truck_01",
+        "offroad_02",
+        "boat_01",
+        "hood",
+        "trunk",
+        "wheel",
+        "door",
+        "battery",
+        "radiator",
+        "sparkplug",
+    )
 
     known_vehicles = [
         fallback_item("OffroadHatchback", "Vehicles"),
@@ -5709,9 +5805,12 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         category = str(item.get("category", "")).lower()
         if not name:
             return False
-        if "lootdispatch" in category:
+        bad_category_terms = ("lootdispatch", "vehicleparts", "vehicle_parts", "parts")
+        if any(term in category for term in bad_category_terms):
             return False
         if any(term in name for term in vehicle_part_terms):
+            return False
+        if category and "vehicle" not in category and name not in whole_vehicle_names:
             return False
         if name in whole_vehicle_names:
             return True
@@ -6714,6 +6813,8 @@ def api_xml_workshop():
         })
         if not record["vehicle_class"]:
             return jsonify({"ok": False, "error": "vehicle_class must be a valid DayZ classname"}), 400
+        if disallowed_vehicle_part_class(record["vehicle_class"]):
+            return jsonify({"ok": False, "error": "pick a whole vehicle class, not a hood, trunk, wheel, or vehicle part"}), 400
         record["generated_xml"] = build_spawnable_cargo_xml(record["vehicle_class"], items)
 
     collection = recipes.setdefault(target_key, [])

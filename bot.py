@@ -107,6 +107,10 @@ WAGES_FILE = data_path("wages.json")
 SEEN_PLAYERS_FILE = data_path("seen_players.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+MAP_IMAGE_HTTP_HEADERS = {
+    "User-Agent": "WanderingBot/1.0 (+https://dayzwanderingbot.com)",
+    "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+}
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 
 # =========================================================
@@ -10812,7 +10816,7 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
 
     try:
         if str(source).startswith(("http://", "https://")):
-            response = requests.get(source, timeout=20)
+            response = requests.get(source, timeout=20, headers=MAP_IMAGE_HTTP_HEADERS)
             if response.status_code != 200:
                 set_heatmap_render_status(guild_id, mode, f"Map image download failed with status `{response.status_code}`.")
                 return None
@@ -11090,7 +11094,7 @@ def generate_live_player_map_image(guild_id: str):
     try:
         source_status_note = None
         if str(source).startswith(("http://", "https://")):
-            response = requests.get(source, timeout=20)
+            response = requests.get(source, timeout=20, headers=MAP_IMAGE_HTTP_HEADERS)
             if response.status_code != 200:
                 cached = first_existing_map_image(guild_id, map_key)
                 if cached:
@@ -11346,13 +11350,42 @@ async def sync_slash_commands_for_guild(guild):
         return []
 
 
+async def announce_slash_sync_status(guild, synced_commands):
+    if not guild:
+        return
+    config = guild_configs.get(str(guild.id), {})
+    channels = config.get("channels", {}) if isinstance(config, dict) else {}
+    destination = None
+    for key in ("bot_updates", "admin_logs", "command_logs"):
+        channel_id = channels.get(key) if isinstance(channels, dict) else None
+        try:
+            channel_id = int(channel_id)
+        except (TypeError, ValueError):
+            channel_id = 0
+        if channel_id:
+            destination = guild.get_channel(channel_id)
+            if destination:
+                break
+    if not destination:
+        return
+    count = len(synced_commands or [])
+    try:
+        await destination.send(
+            f"Slash command sync checked for **{guild.name}**: `{count}` command(s) registered. "
+            "If commands are still not visible in Discord, reinvite the bot with both `bot` and `applications.commands` scopes, then run setup again."
+        )
+    except Exception as status_error:
+        print(f"GUILD SLASH SYNC STATUS ERROR {guild.id}: {status_error}")
+
+
 @bot.event
 async def on_guild_join(guild):
 
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
-        await sync_slash_commands_for_guild(guild)
+        synced_commands = await sync_slash_commands_for_guild(guild)
+        await announce_slash_sync_status(guild, synced_commands)
         return
 
     if is_showcase_guild(guild_id):
@@ -11361,7 +11394,8 @@ async def on_guild_join(guild):
         guild_configs[guild_id]["showcase_mode"] = True
         guild_configs[guild_id]["disabled_channels"] = list(DEFAULT_CHANNEL_NAMES.keys())
         save_guild_configs()
-        await sync_slash_commands_for_guild(guild)
+        synced_commands = await sync_slash_commands_for_guild(guild)
+        await announce_slash_sync_status(guild, synced_commands)
         return
 
     category = await guild.create_category("🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
@@ -11532,7 +11566,8 @@ async def on_guild_join(guild):
     except Exception as update_error:
         print(f"BOT UPDATE JOIN ERROR {guild_id}: {update_error}")
 
-    await sync_slash_commands_for_guild(guild)
+    synced_commands = await sync_slash_commands_for_guild(guild)
+    await announce_slash_sync_status(guild, synced_commands)
 
 # =========================================================
 # /SETUP COMMAND
