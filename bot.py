@@ -34899,6 +34899,14 @@ try:
             "factions": factions,
             "wages": wages,
             "delivery_queue": delivery_queue,
+            "discord_guild_counts": {
+                str(guild.id): {
+                    "guild_name": guild.name,
+                    "member_count": int(guild.member_count or len(getattr(guild, "members", []) or [])),
+                    "cached_members": len(getattr(guild, "members", []) or []),
+                }
+                for guild in bot.guilds
+            },
             "scenario_xml_uploader": dashboard_upload_console_ce_event_files,
             "messages_xml_uploader": dashboard_upload_messages_xml,
         }

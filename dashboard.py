@@ -99,6 +99,7 @@ DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_S
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_ROLE_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_MEMBER_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
+DISCORD_GUILD_COUNT_CACHE: dict[str, tuple[datetime, int]] = {}
 
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
@@ -326,6 +327,7 @@ PAGE_TEMPLATE = """
     .servers { display: grid; gap: .85rem; }
     .server-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
     .pills { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .pill-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; justify-content: flex-end; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: .28rem .55rem; color: var(--muted); background: #0a0f0b; font-size: .8rem; }
     .ok { color: #eef7c6; background: rgba(141, 150, 62, .22); }
     .bad { color: #ffd8df; background: rgba(237, 56, 83, .16); }
@@ -1351,7 +1353,10 @@ Event pings | bell | 1234567890</textarea></label>
           <h2>Members</h2>
           <p class="tool-note">Player and member controls are scoped to this server only. Discord kick/ban needs a linked Discord ID; DayZ bans are queued for the bot/Nitrado workflow.</p>
         </div>
-        <span class="pill">{{ server.members|length if server else 0 }} members</span>
+        <div class="pill-row">
+          <span class="pill">{{ server.discord_member_count if server else 0 }} Discord members</span>
+          <span class="pill">{{ server.members|length if server else 0 }} tracked players</span>
+        </div>
       </div>
       <div class="panel-grid">
         <article class="admin-panel full">
@@ -5200,6 +5205,55 @@ def discord_guild_members(guild_id: str, limit: int = 1000) -> list[dict[str, st
     return members
 
 
+def runtime_discord_member_count(guild_id: str, guild_counts: Any) -> int | None:
+    if not isinstance(guild_counts, dict):
+        return None
+    target = normalize_guild_id(guild_id)
+    raw = guild_counts.get(target)
+    if raw is None:
+        for key, value in guild_counts.items():
+            if normalize_guild_id(key) == target:
+                raw = value
+                break
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        for key in ("member_count", "approximate_member_count", "count", "members", "total"):
+            if key in raw:
+                value = safe_int(raw.get(key), -1)
+                return value if value >= 0 else None
+        return None
+    value = safe_int(raw, -1)
+    return value if value >= 0 else None
+
+
+def discord_guild_member_count(guild_id: str) -> int | None:
+    if not DISCORD_TOKEN or not guild_id:
+        return None
+    guild_id = normalize_guild_id(guild_id)
+    now = datetime.now(UTC)
+    cached = DISCORD_GUILD_COUNT_CACHE.get(guild_id)
+    if cached and (now - cached[0]).total_seconds() < DISCORD_CHANNEL_CACHE_SECONDS:
+        return cached[1]
+    request = urllib.request.Request(
+        f"https://discord.com/api/v10/guilds/{guild_id}?with_counts=true",
+        headers={"Authorization": f"Bot {DISCORD_TOKEN}", "User-Agent": "WanderingBotDashboard/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    for key in ("approximate_member_count", "member_count"):
+        count = safe_int(payload.get(key), -1)
+        if count >= 0:
+            DISCORD_GUILD_COUNT_CACHE[guild_id] = (now, count)
+            return count
+    return None
+
+
 def discord_member_action(guild_id: str, member_id: str, action: str, reason: str) -> tuple[bool, str]:
     if not DISCORD_TOKEN:
         return False, "DISCORD_TOKEN is not configured for dashboard member actions."
@@ -6212,6 +6266,9 @@ def load_dashboard_state() -> dict[str, Any]:
         guild_configs = {}
     if not isinstance(online_players, dict):
         online_players = {}
+    discord_guild_counts = runtime_state.get("discord_guild_counts") or {}
+    if not isinstance(discord_guild_counts, dict):
+        discord_guild_counts = {}
 
     servers = []
     total_online = 0
@@ -6241,6 +6298,11 @@ def load_dashboard_state() -> dict[str, Any]:
         channels = public_channels(config.get("channels", {}), guild_id)
         discord_roles = discord_guild_roles(guild_id)
         discord_members = discord_guild_members(guild_id)
+        discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts)
+        if discord_member_count is None:
+            discord_member_count = discord_guild_member_count(guild_id)
+        if discord_member_count is None:
+            discord_member_count = len(discord_members) if discord_members else len(server_members)
         server_heatmap = heatmap_summary(heatmap, guild_id)
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels)
         totals = {
@@ -6267,6 +6329,7 @@ def load_dashboard_state() -> dict[str, Any]:
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
                 "members": redact(server_members),
                 "discord_members": redact(discord_members),
+                "discord_member_count": discord_member_count,
                 "discord_roles": redact(discord_roles),
                 "channels": channels,
                 "totals": totals,
