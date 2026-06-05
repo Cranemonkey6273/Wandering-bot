@@ -415,6 +415,9 @@ PAGE_TEMPLATE = """
     .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
+    .notification small { display: block; color: var(--muted); margin-top: .15rem; }
+    .row-between { display: flex; justify-content: space-between; gap: .8rem; align-items: center; flex-wrap: wrap; }
+    .inline-actions { display: inline-flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
     .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .embed-preview { border-left: 4px solid var(--gold); border-radius: .45rem; background: #202126; padding: .85rem; color: #f4f4f5; }
     .embed-preview strong { display: block; color: #fff; margin-bottom: .25rem; }
@@ -937,40 +940,9 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <div class="panel-grid">
-        <datalist id="xml-item-options">
-          {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.category }}</option>{% endfor %}
-        </datalist>
-        <article class="admin-panel full" data-types-tool>
-          <h3>Types XML Tools</h3>
-          <p class="tool-note">Paste a types.xml file, choose a tool, then generate a safe edited copy. This does not overwrite the server file until the guarded uploader is used.</p>
-          <div class="panel-grid">
-            <label class="full">Paste types.xml
-              <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot;?><types><type name=&quot;AKM&quot;>...</type></types>"></textarea>
-            </label>
-            <label>Tool
-              <select data-types-action>
-                <option value="reduce">Types Reducer</option>
-                <option value="boost">Types Booster</option>
-                <option value="lifetime_reduce">Lifetime Reducer</option>
-                <option value="tier_boost">Tier Booster</option>
-                <option value="organize">Types Organizer</option>
-              </select>
-            </label>
-            <label>Factor <input data-types-factor type="number" step="0.05" value="0.5"></label>
-            <label>Filter <input data-types-filter placeholder="classname/category/tier"></label>
-            <label class="check"><input data-types-field value="nominal" type="checkbox" checked> Nominal</label>
-            <label class="check"><input data-types-field value="min" type="checkbox"> Min</label>
-            <label class="check"><input data-types-field value="lifetime" type="checkbox"> Lifetime</label>
-            <label class="check"><input data-types-field value="restock" type="checkbox"> Restock</label>
-            <div class="full"><button type="button" data-types-process>Generate XML</button> <button type="button" data-types-copy>Copy Output</button> <span class="result muted" data-types-result></span></div>
-            <label class="full">Generated XML
-              <textarea data-types-output readonly placeholder="Processed XML appears here"></textarea>
-            </label>
-          </div>
-        </article>
         <article class="admin-panel">
           <h3>Embed & Timed Message Builder</h3>
-          <form class="admin-form" data-route="/api/admin/embed-template">
+          <form id="embed-template-form" class="admin-form" data-route="/api/admin/embed-template">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Purpose
@@ -1057,11 +1029,25 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             </div>
             <div class="full"><button type="submit">Save Message</button> <span class="result muted"></span></div>
           </form>
-          <div class="stack" style="margin-top:.75rem">
+          <div class="stack" style="margin-top:.75rem" data-embed-template-list>
             {% for template in (server.embed_templates if server else []) %}
-            <div class="notification"><strong>{{ template.template_id }}</strong><span>{{ template.name }} -> {{ template.schedule.type if template.schedule else 'manual' }}</span></div>
+            <div class="notification" data-embed-template-card data-remove-row data-template-id="{{ template.template_id }}">
+              <div class="row-between">
+                <div>
+                  <strong>{{ template.template_id }}</strong>
+                  <span>{{ template.name }} -> {{ template.schedule.type if template.schedule else 'manual' }}</span>
+                  <small>Channel: {{ template.delivery.channel_key if template.delivery else 'not set' }}{% if template.schedule and template.schedule.time %} | Time: {{ template.schedule.time }}{% endif %}</small>
+                </div>
+                <div class="inline-actions">
+                  <button type="button" data-embed-template-edit>Edit</button>
+                  <button type="button" data-embed-template-delete data-template-id="{{ template.template_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete embed template {{ template.template_id }}?">Delete</button>
+                  <span class="result muted" data-template-result></span>
+                </div>
+              </div>
+              <script type="application/json" data-embed-template-json>{{ template | tojson }}</script>
+            </div>
             {% else %}
-            <p class="muted">No saved embed templates for this server yet.</p>
+            <p class="muted" data-empty-embed-templates>No saved embed templates for this server yet.</p>
             {% endfor %}
           </div>
         </article>
@@ -1866,6 +1852,34 @@ Event pings | bell | 1234567890</textarea></label>
       </nav>
       <div class="panel-grid">
         {% if xml_tool == "loot" %}
+        <article class="admin-panel full" data-types-tool>
+          <h3>Types XML Tools</h3>
+          <p class="tool-note">Paste a types.xml file, choose a tool, then generate a safe edited copy. This belongs in XML Workshop and does not overwrite the server file until the guarded uploader is used.</p>
+          <div class="panel-grid">
+            <label class="full">Paste types.xml
+              <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot;?><types><type name=&quot;AKM&quot;>...</type></types>"></textarea>
+            </label>
+            <label>Tool
+              <select data-types-action>
+                <option value="reduce">Types Reducer</option>
+                <option value="boost">Types Booster</option>
+                <option value="lifetime_reduce">Lifetime Reducer</option>
+                <option value="tier_boost">Tier Booster</option>
+                <option value="organize">Types Organizer</option>
+              </select>
+            </label>
+            <label>Factor <input data-types-factor type="number" step="0.05" value="0.5"></label>
+            <label>Filter <input data-types-filter placeholder="classname/category/tier"></label>
+            <label class="check"><input data-types-field value="nominal" type="checkbox" checked> Nominal</label>
+            <label class="check"><input data-types-field value="min" type="checkbox"> Min</label>
+            <label class="check"><input data-types-field value="lifetime" type="checkbox"> Lifetime</label>
+            <label class="check"><input data-types-field value="restock" type="checkbox"> Restock</label>
+            <div class="full"><button type="button" data-types-process>Generate XML</button> <button type="button" data-types-copy>Copy Output</button> <span class="result muted" data-types-result></span></div>
+            <label class="full">Generated XML
+              <textarea data-types-output readonly placeholder="Processed XML appears here"></textarea>
+            </label>
+          </div>
+        </article>
         <article class="admin-panel">
           <h3>Loot Quality Rules</h3>
           <form class="admin-form" data-route="/api/admin/xml-workshop">
@@ -3524,6 +3538,50 @@ Event pings | bell | 1234567890</textarea></label>
           if (result) result.textContent = "Copied output.";
         }
       }
+      const embedEdit = event.target.closest("[data-embed-template-edit]");
+      if (embedEdit) {
+        event.preventDefault();
+        const card = embedEdit.closest("[data-embed-template-card]");
+        fillEmbedTemplateForm(embedTemplateFromCard(card));
+        return;
+      }
+      const embedDelete = event.target.closest("[data-embed-template-delete]");
+      if (embedDelete) {
+        event.preventDefault();
+        if (embedDelete.dataset.confirm && !window.confirm(embedDelete.dataset.confirm)) return;
+        const card = embedDelete.closest("[data-embed-template-card]");
+        const result = card ? card.querySelector("[data-template-result]") : null;
+        const token = new URLSearchParams(window.location.search).get("token");
+        const route = `/api/admin/embed-template-action${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        if (result) result.textContent = "Deleting...";
+        embedDelete.disabled = true;
+        try {
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify({
+              action: "delete",
+              template_id: embedDelete.dataset.templateId || card?.dataset.templateId || "",
+              guild_id: embedDelete.dataset.guildId || "{{ server.guild_id if server else '' }}",
+              dashboard_mode: "{{ mode }}",
+            })
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (!response.ok) {
+            if (result) result.textContent = body.error || "Delete rejected";
+            return;
+          }
+          const list = card ? card.closest("[data-embed-template-list]") : null;
+          if (card) card.remove();
+          syncEmptyEmbedTemplates(list);
+        } catch (error) {
+          if (result) result.textContent = `Delete failed: ${error && error.message ? error.message : error}`;
+        } finally {
+          if (embedDelete.isConnected) embedDelete.disabled = false;
+        }
+      }
     });
     function formValue(value) {
       const text = String(value || "").trim();
@@ -3535,8 +3593,144 @@ Event pings | bell | 1234567890</textarea></label>
       }
       return value;
     }
+    function embedFieldsToLines(fields) {
+      if (!Array.isArray(fields)) return "";
+      return fields.map((field) => {
+        const name = String(field?.name || "").replace(/[|]/g, "/");
+        const value = String(field?.value || "").replace(/[|]/g, "/");
+        const inline = field?.inline ? "true" : "false";
+        return `${name} | ${value} | ${inline}`;
+      }).filter((line) => line.trim()).join("\n");
+    }
+    function setFormControl(form, name, value) {
+      if (!form || !form.elements[name]) return;
+      const control = form.elements[name];
+      const controls = control instanceof RadioNodeList ? Array.from(control) : [control];
+      controls.forEach((item) => {
+        if (!item) return;
+        if (item.type === "checkbox") {
+          item.checked = Boolean(value);
+        } else if (item.tagName === "SELECT") {
+          const wanted = String(value ?? "");
+          const matching = Array.from(item.options).find((option) => option.value === wanted || option.dataset.channelId === wanted);
+          item.value = matching ? matching.value : wanted;
+          item.dispatchEvent(new Event("change", {bubbles: true}));
+        } else {
+          item.value = value ?? "";
+          item.dispatchEvent(new Event("input", {bubbles: true}));
+        }
+      });
+    }
+    function embedTemplateFromCard(card) {
+      if (!card) return null;
+      if (card.__embedTemplate) return card.__embedTemplate;
+      const script = card.querySelector("[data-embed-template-json]");
+      if (!script) return null;
+      try { return JSON.parse(script.textContent || "{}"); } catch (error) { return null; }
+    }
+    function fillEmbedTemplateForm(template) {
+      const form = document.getElementById("embed-template-form");
+      if (!form || !template) return;
+      const embed = template.embed || {};
+      const delivery = template.delivery || {};
+      const schedule = template.schedule || {};
+      setFormControl(form, "name", template.name || "custom-message");
+      setFormControl(form, "template_id", template.template_id || template.id || "");
+      setFormControl(form, "content_mode", delivery.content_mode || template.content_mode || "embed");
+      setFormControl(form, "channel_key", delivery.channel_key || template.channel_key || "");
+      setFormControl(form, "title", embed.title || template.title || "");
+      setFormControl(form, "colour", embed.colour || embed.color || template.colour || "#8d963e");
+      setFormControl(form, "author_name", embed.author?.name || template.author_name || "");
+      setFormControl(form, "author_icon_url", embed.author?.icon_url || template.author_icon_url || "");
+      setFormControl(form, "thumbnail_url", embed.thumbnail_url || template.thumbnail_url || "");
+      setFormControl(form, "image_url", embed.image_url || template.image_url || "");
+      setFormControl(form, "footer_text", embed.footer?.text || template.footer_text || "");
+      setFormControl(form, "footer_icon_url", embed.footer?.icon_url || template.footer_icon_url || "");
+      setFormControl(form, "mention_mode", delivery.mention_mode || template.mention_mode || "none");
+      setFormControl(form, "mention_role_id", delivery.mention_role_id || template.mention_role_id || "");
+      setFormControl(form, "schedule_type", schedule.type || template.schedule_type || "manual");
+      setFormControl(form, "schedule_time", schedule.time || template.schedule_time || "");
+      setFormControl(form, "event_filter", schedule.event_filter || template.event_filter || "");
+      setFormControl(form, "event_minimum", schedule.event_minimum ?? template.event_minimum ?? 0);
+      setFormControl(form, "interval_minutes", schedule.interval_minutes ?? template.interval_minutes ?? 60);
+      setFormControl(form, "timezone", schedule.timezone || template.timezone || "Europe/Dublin");
+      setFormControl(form, "button_label", delivery.button_label || template.button_label || "");
+      setFormControl(form, "button_url", delivery.button_url || template.button_url || "");
+      setFormControl(form, "body", embed.description || template.body || "");
+      setFormControl(form, "fields_lines", embedFieldsToLines(embed.fields));
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit) submit.textContent = "Save Message";
+      form.scrollIntoView({behavior: "smooth", block: "start"});
+    }
+    function syncEmptyEmbedTemplates(list) {
+      if (!list) return;
+      const cards = list.querySelectorAll("[data-embed-template-card]");
+      let empty = list.querySelector("[data-empty-embed-templates]");
+      if (cards.length) {
+        if (empty) empty.remove();
+      } else if (!empty) {
+        empty = document.createElement("p");
+        empty.className = "muted";
+        empty.dataset.emptyEmbedTemplates = "";
+        empty.textContent = "No saved embed templates for this server yet.";
+        list.appendChild(empty);
+      }
+    }
+    function createEmbedTemplateCard(template, form) {
+      const card = document.createElement("div");
+      card.className = "notification";
+      card.dataset.embedTemplateCard = "";
+      card.dataset.removeRow = "";
+      card.dataset.templateId = template.template_id || template.id || "";
+      card.__embedTemplate = template;
+      const schedule = template.schedule || {};
+      const delivery = template.delivery || {};
+      const row = document.createElement("div");
+      row.className = "row-between";
+      const details = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = template.template_id || template.id || "message";
+      const summary = document.createElement("span");
+      summary.textContent = `${template.name || "custom-message"} -> ${schedule.type || "manual"}`;
+      const small = document.createElement("small");
+      small.textContent = `Channel: ${delivery.channel_key || "not set"}${schedule.time ? ` | Time: ${schedule.time}` : ""}`;
+      details.append(title, summary, small);
+      const actions = document.createElement("div");
+      actions.className = "inline-actions";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.dataset.embedTemplateEdit = "";
+      edit.textContent = "Edit";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.dataset.embedTemplateDelete = "";
+      remove.dataset.templateId = template.template_id || template.id || "";
+      remove.dataset.guildId = form?.elements?.guild_id?.value || template.guild_id || "";
+      remove.dataset.confirm = `Delete embed template ${template.template_id || template.id || "message"}?`;
+      remove.textContent = "Delete";
+      const result = document.createElement("span");
+      result.className = "result muted";
+      result.dataset.templateResult = "";
+      actions.append(edit, remove, result);
+      row.append(details, actions);
+      const script = document.createElement("script");
+      script.type = "application/json";
+      script.dataset.embedTemplateJson = "";
+      script.textContent = JSON.stringify(template);
+      card.append(row, script);
+      return card;
+    }
+    function upsertEmbedTemplateCard(template, form) {
+      const list = document.querySelector("[data-embed-template-list]");
+      if (!list || !template) return;
+      const id = template.template_id || template.id || "";
+      const card = createEmbedTemplateCard(template, form);
+      const existing = id ? list.querySelector(`[data-embed-template-card][data-template-id="${CSS.escape(id)}"]`) : null;
+      if (existing) existing.replaceWith(card);
+      else list.appendChild(card);
+      syncEmptyEmbedTemplates(list);
+    }
     const REFRESH_AFTER_SAVE_ROUTES = new Set([
-      "/api/admin/embed-template",
       "/api/admin/welcome-automation",
       "/api/admin/utility-config",
       "/api/admin/reaction-role-panel",
@@ -3609,6 +3803,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const token = new URLSearchParams(window.location.search).get("token");
         const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+        const routePath = String(form.dataset.route || "").split("?")[0];
         try {
           const response = await fetch(secureDashboardUrl(route), {
             method: "POST",
@@ -3625,6 +3820,11 @@ Event pings | bell | 1234567890</textarea></label>
               preview.hidden = false;
               preview.textContent = JSON.stringify(body.recipe.generated_json || body.recipe, null, 2);
             }
+          }
+          if (response.ok && routePath === "/api/admin/embed-template" && body.template) {
+            upsertEmbedTemplateCard(body.template, form);
+            if (result) result.textContent = "Saved embed template.";
+            return;
           }
           if (response.ok && form.dataset.scenarioActionForm) {
             const action = String(payload.action || "").toLowerCase();
@@ -4100,6 +4300,7 @@ Event pings | bell | 1234567890</textarea></label>
 
 ADMIN_ROUTES = [
     "/api/admin/embed-template",
+    "/api/admin/embed-template-action",
     "/api/admin/welcome-automation",
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
@@ -4144,6 +4345,7 @@ SECTION_FEATURES = {
 
 ADMIN_ROUTE_FEATURES = {
     "/api/admin/embed-template": "embeds",
+    "/api/admin/embed-template-action": "embeds",
     "/api/admin/welcome-automation": "embeds",
     "/api/admin/reaction-role-panel": "embeds",
     "/api/admin/shop-item": "shop",
@@ -6490,6 +6692,39 @@ def save_dashboard_admin(section: str, payload: dict[str, Any], key_name: str = 
     return record
 
 
+def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> bool:
+    data = load_store("dashboard_admin", {})
+    if not isinstance(data, dict):
+        return False
+    block = data.get(section)
+    if not isinstance(block, dict):
+        return False
+    normalized_guild_id = normalize_guild_id(guild_id)
+    guild_block_data = block.get(normalized_guild_id)
+    target_id = str(item_id or "")
+    if isinstance(guild_block_data, dict):
+        if target_id not in guild_block_data:
+            return False
+        guild_block_data.pop(target_id, None)
+        save_store("dashboard_admin", data)
+        return True
+    if isinstance(guild_block_data, list):
+        before = len(guild_block_data)
+        block[normalized_guild_id] = [
+            record
+            for record in guild_block_data
+            if not (
+                isinstance(record, dict)
+                and str(record.get("template_id") or record.get("id") or record.get("name") or "") == target_id
+            )
+        ]
+        if len(block[normalized_guild_id]) == before:
+            return False
+        save_store("dashboard_admin", data)
+        return True
+    return False
+
+
 def parse_embed_fields(lines: Any) -> list[dict[str, Any]]:
     fields = []
     for raw_line in str(lines or "").splitlines():
@@ -6706,6 +6941,24 @@ def api_embed_template():
         return error
     record = save_dashboard_admin("embed_templates", normalize_embed_payload(payload or {}), "template_id")
     return jsonify({"ok": True, "template": record})
+
+
+@APP.post("/api/admin/embed-template-action")
+def api_embed_template_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    action = str(payload.get("action") or "").strip().lower()
+    template_id = str(payload.get("template_id") or payload.get("id") or "").strip()
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    if action != "delete":
+        return jsonify({"ok": False, "error": "unsupported embed template action"}), 400
+    if not template_id:
+        return jsonify({"ok": False, "error": "template_id is required"}), 400
+    if not delete_dashboard_admin_record("embed_templates", guild_id, template_id):
+        return jsonify({"ok": False, "error": "embed template not found for this server"}), 404
+    return jsonify({"ok": True, "deleted": template_id})
 
 
 @APP.post("/api/admin/welcome-automation")
