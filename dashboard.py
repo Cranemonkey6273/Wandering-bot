@@ -782,6 +782,7 @@ PAGE_TEMPLATE = """
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
+          <option value="/logout">Logout</option>
         </select>
       </label>
     </section>
@@ -2408,6 +2409,15 @@ Event pings | bell | 1234567890</textarea></label>
       {% set restart_warnings = (server.config.restart_warning_minutes|join(', ') if server and server.config.restart_warning_minutes else '30, 15, 10, 5, 1') %}
       {% set base_state = (server.config.base_damage_state if server else 'on') or 'on' %}
       {% set container_state = (server.config.container_damage_state if server else 'on') or 'on' %}
+      {% set dmg = server.config.damage_schedule if server and server.config.damage_schedule else {} %}
+      {% set dmg_enabled = dmg.enabled if dmg and dmg.enabled is defined else (server.config.damage_schedule_enabled if server else false) %}
+      {% set dmg_first_date = (dmg.first_date or server.config.damage_first_date or '') if server else '' %}
+      {% set dmg_time = (dmg.time or server.config.damage_time or '04:00') if server else '04:00' %}
+      {% set dmg_timezone = (dmg.timezone or server.config.damage_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
+      {% set dmg_interval_value = (dmg.interval_value or server.config.damage_interval_value or 7) if server else 7 %}
+      {% set dmg_interval_unit = (dmg.interval_unit or server.config.damage_interval_unit or 'days') if server else 'days' %}
+      {% set dmg_weekday = (dmg.day_of_week or server.config.damage_day_of_week or '') if server else '' %}
+      {% set dmg_month_day = (dmg.day_of_month or server.config.damage_day_of_month or '') if server else '' %}
       {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
       {% set vr_enabled = server.config.vehicle_reset_schedule_enabled if server else false %}
       {% if vr and vr.enabled is defined %}
@@ -2423,7 +2433,7 @@ Event pings | bell | 1234567890</textarea></label>
       {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'economy_xml') if server else 'economy_xml' %}
       <div class="mini-grid" style="margin-bottom:1rem">
         <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
-        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>Raid damage controls only</span></div>
+        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_first_date %} from {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_first_date %} from {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Repeat</span><strong>{{ vr_interval_value }} {{ vr_interval_unit }}</strong><span>{% if vr_weekday %}{{ vr_weekday|title }}{% elif vr_month_day %}Day {{ vr_month_day }}{% else %}From first date{% endif %}</span></div>
       </div>
@@ -2452,7 +2462,27 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select></label>
             <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select></label>
-            <div class="full embed-preview"><strong>Damage Only</strong><span>These toggles are saved separately from vehicle resets so changing raid damage will not change the reset schedule.</span></div>
+            <label>Schedule damage changes <select name="damage_schedule_enabled"><option value="false" {% if not dmg_enabled %}selected{% endif %}>Off</option><option value="true" {% if dmg_enabled %}selected{% endif %}>On</option></select></label>
+            <label>First change date <input name="damage_first_date" type="date" value="{{ dmg_first_date }}"></label>
+            <label>Change time <input name="damage_time" type="time" value="{{ dmg_time }}"></label>
+            <label>Timezone <input name="damage_timezone" value="{{ dmg_timezone }}"></label>
+            <label>Repeat every <input name="damage_interval_value" type="number" min="1" max="999" value="{{ dmg_interval_value }}"></label>
+            <label>Repeat unit
+              <select name="damage_interval_unit">
+                <option value="hours" {% if dmg_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
+                <option value="days" {% if dmg_interval_unit == 'days' %}selected{% endif %}>Days</option>
+                <option value="weeks" {% if dmg_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                <option value="months" {% if dmg_interval_unit == 'months' %}selected{% endif %}>Months</option>
+              </select>
+            </label>
+            <label>Preferred weekday
+              <select name="damage_day_of_week">
+                <option value="">Use first date</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
+            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_first_date %}: {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}.</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -2742,7 +2772,7 @@ Event pings | bell | 1234567890</textarea></label>
       if (strictSlotItems.length) return strictSlotItems;
       const strictAllItems = allItems.filter((item) => strictSlotMatches(item, slot));
       if (strictAllItems.length) return strictAllItems;
-      return slotItems;
+      return [];
     }
     function pickerGroupItems(groupName, picker) {
       if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
@@ -2867,13 +2897,7 @@ Event pings | bell | 1234567890</textarea></label>
       const form = picker.closest("form");
       if (!slotSelect.value) slotSelect.value = DEFAULT_LOADOUT_SLOT;
       const slot = slotSelect.value || DEFAULT_LOADOUT_SLOT;
-      rebuildPickerOptions(picker, slot);
-      const itemSelect = picker.querySelector("[data-picker-item]");
-      if (itemSelect && itemSelect.options.length > 1 && itemSelect.selectedIndex < 1) {
-        itemSelect.selectedIndex = 0;
-      }
-      syncPickerPreview(picker);
-      renderVisualPicker(picker);
+      picker.dataset.pickerGroup = slot;
       if (form) {
         const label = form.querySelector("[data-active-slot-label]");
         if (label) label.textContent = `Selected slot: ${slot}`;
@@ -2884,6 +2908,21 @@ Event pings | bell | 1234567890</textarea></label>
         form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
           button.classList.toggle("active", button.dataset.loadoutSlot === slot);
         });
+      }
+      try {
+        rebuildPickerOptions(picker, slot);
+      } catch (error) {
+        console.warn("Loadout picker rebuild failed", error);
+      }
+      const itemSelect = picker.querySelector("[data-picker-item]");
+      if (itemSelect && itemSelect.options.length > 1 && itemSelect.selectedIndex < 1) {
+        itemSelect.selectedIndex = 0;
+      }
+      syncPickerPreview(picker);
+      try {
+        renderVisualPicker(picker);
+      } catch (error) {
+        console.warn("Loadout visual picker render failed", error);
       }
     }
     function syncPickerPreview(picker) {
@@ -3291,6 +3330,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (slotSelect) {
           slotSelect.value = slotButton.dataset.loadoutSlot || "";
           syncLoadoutPickerSlot(slotSelect);
+          slotSelect.dispatchEvent(new Event("change", {bubbles: true}));
           const picker = slotSelect.closest("[data-item-picker]");
           if (picker) {
             picker.scrollIntoView({behavior: "smooth", block: "center"});
@@ -3514,6 +3554,7 @@ Event pings | bell | 1234567890</textarea></label>
     function shouldRefreshAfterSave(form) {
       if (!form || form.classList.contains("inline-action") || form.dataset.scenarioActionForm) return false;
       const route = String(form.dataset.route || "").split("?")[0];
+      if (route === "/api/admin/server-control" || route === "/api/admin/moderation-guard") return false;
       return REFRESH_AFTER_SAVE_ROUTES.has(route);
     }
     document.querySelectorAll(".admin-form").forEach((form) => {
@@ -7612,6 +7653,53 @@ def api_server_control():
         config["base_damage_state"] = "off" if str(payload.get("base_damage_state")).lower() == "off" else "on"
     if "container_damage_state" in payload:
         config["container_damage_state"] = "off" if str(payload.get("container_damage_state")).lower() == "off" else "on"
+    if "damage_schedule_enabled" in payload:
+        config["damage_schedule_enabled"] = safe_bool(payload.get("damage_schedule_enabled"), False)
+    damage_schedule_keys = {
+        "damage_schedule_enabled",
+        "damage_first_date",
+        "damage_time",
+        "damage_timezone",
+        "damage_interval_value",
+        "damage_interval_unit",
+        "damage_day_of_week",
+        "damage_day_of_month",
+    }
+    if damage_schedule_keys.intersection(payload.keys()):
+        interval_unit = str(payload.get("damage_interval_unit") or config.get("damage_interval_unit") or "days").strip().lower()
+        if interval_unit not in {"hours", "days", "weeks", "months"}:
+            interval_unit = "days"
+        interval_value = max(1, min(999, safe_int(payload.get("damage_interval_value"), safe_int(config.get("damage_interval_value"), 7))))
+        first_date = safe_date(payload.get("damage_first_date") or config.get("damage_first_date"))
+        damage_time = safe_time(payload.get("damage_time") or config.get("damage_time") or "04:00")
+        timezone = str(payload.get("damage_timezone") or config.get("damage_timezone") or "Europe/Dublin").strip()[:80]
+        day_of_week = str(payload.get("damage_day_of_week") or "").strip().lower()
+        if day_of_week not in {"", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}:
+            day_of_week = ""
+        day_of_month = safe_int(payload.get("damage_day_of_month"), 0)
+        day_of_month = day_of_month if 1 <= day_of_month <= 31 else 0
+        schedule = {
+            "enabled": safe_bool(payload.get("damage_schedule_enabled"), bool(config.get("damage_schedule_enabled", False))),
+            "base_state": str(config.get("base_damage_state") or "on"),
+            "container_state": str(config.get("container_damage_state") or "on"),
+            "first_date": first_date,
+            "time": damage_time,
+            "timezone": timezone,
+            "interval_value": interval_value,
+            "interval_unit": interval_unit,
+            "day_of_week": day_of_week,
+            "day_of_month": day_of_month,
+            "next_run_local": f"{first_date}T{damage_time}:00" if first_date else "",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        config["damage_schedule"] = schedule
+        config["damage_first_date"] = first_date
+        config["damage_time"] = damage_time
+        config["damage_timezone"] = timezone
+        config["damage_interval_value"] = interval_value
+        config["damage_interval_unit"] = interval_unit
+        config["damage_day_of_week"] = day_of_week
+        config["damage_day_of_month"] = day_of_month
     if "vehicle_reset_schedule_enabled" in payload:
         config["vehicle_reset_schedule_enabled"] = safe_bool(payload.get("vehicle_reset_schedule_enabled"), False)
     if "vehicle_reset_method" in payload:
@@ -7620,6 +7708,8 @@ def api_server_control():
     if "vehicle_reset_restarts" in payload:
         config["vehicle_reset_restarts"] = max(1, min(365, safe_int(payload.get("vehicle_reset_restarts"), 7)))
     vehicle_schedule_keys = {
+        "vehicle_reset_schedule_enabled",
+        "vehicle_reset_method",
         "vehicle_reset_first_date",
         "vehicle_reset_time",
         "vehicle_reset_timezone",
@@ -7665,7 +7755,21 @@ def api_server_control():
 
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "server_control": redact(config), "note": "saved for this guild only"})
+    saved_parts = []
+    if {
+        "restart_schedule_enabled",
+        "restart_interval_hours",
+        "restart_start_hour",
+        "restart_warning_minutes",
+        "restart_channel_key",
+    }.intersection(payload.keys()):
+        saved_parts.append("restart schedule")
+    if {"base_damage_state", "container_damage_state"}.intersection(payload.keys()) or damage_schedule_keys.intersection(payload.keys()):
+        saved_parts.append("damage settings")
+    if vehicle_schedule_keys.intersection(payload.keys()):
+        saved_parts.append("vehicle reset schedule")
+    note = "Saved " + (", ".join(saved_parts) if saved_parts else "server control") + " for this server."
+    return jsonify({"ok": True, "server_control": redact(config), "note": note})
 
 
 @APP.post("/api/admin/faction")

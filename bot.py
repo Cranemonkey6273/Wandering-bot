@@ -25773,6 +25773,44 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
     return event
 
 
+def apply_due_damage_schedule(guild_id, config, now_utc):
+    if not config.get("damage_schedule_enabled", False):
+        return None
+
+    schedule = config.setdefault("damage_schedule", {})
+    if not isinstance(schedule, dict):
+        schedule = {}
+        config["damage_schedule"] = schedule
+    schedule.setdefault("enabled", bool(config.get("damage_schedule_enabled", False)))
+    schedule.setdefault("base_state", config.get("base_damage_state", "on"))
+    schedule.setdefault("container_state", config.get("container_damage_state", "on"))
+    schedule.setdefault("first_date", config.get("damage_first_date", ""))
+    schedule.setdefault("time", config.get("damage_time", "04:00"))
+    schedule.setdefault("timezone", config.get("damage_timezone", "Europe/Dublin"))
+    schedule.setdefault("interval_value", config.get("damage_interval_value", 7))
+    schedule.setdefault("interval_unit", config.get("damage_interval_unit", "days"))
+    if not schedule.get("enabled", True):
+        return None
+
+    next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
+    if not next_run or now_utc < next_run:
+        return None
+
+    base_state = "off" if str(schedule.get("base_state") or config.get("base_damage_state") or "on").lower() == "off" else "on"
+    container_state = "off" if str(schedule.get("container_state") or config.get("container_damage_state") or "on").lower() == "off" else "on"
+    config["base_damage_state"] = base_state
+    config["container_damage_state"] = container_state
+    schedule["last_applied_at"] = now_utc.isoformat()
+    _advance_vehicle_reset_schedule(schedule, now_utc)
+    save_guild_configs()
+    return {
+        "guild_id": str(guild_id),
+        "base_damage_state": base_state,
+        "container_damage_state": container_state,
+        "next_run_utc": schedule.get("next_run_utc", ""),
+    }
+
+
 # =========================================================
 # BASIC SHOP COMMANDS
 # =========================================================
@@ -26425,6 +26463,14 @@ async def restart_delivery_processor():
     for guild_id, config in active_guild_config_items():
 
         try:
+
+            applied_damage = apply_due_damage_schedule(guild_id, config, now)
+            if applied_damage:
+                print(
+                    "SCHEDULED DAMAGE SETTINGS APPLIED "
+                    f"{guild_id}: base={applied_damage.get('base_damage_state')} "
+                    f"container={applied_damage.get('container_damage_state')}"
+                )
 
             queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
             if queued_reset:
