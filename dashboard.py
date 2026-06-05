@@ -373,6 +373,7 @@ PAGE_TEMPLATE = """
     body[data-section="shop"] { --accent: #79c7dd; }
     body[data-section="xml-workshop"] { --accent: #7cff5b; }
     body[data-section="server-rules"] { --accent: #ff9f43; }
+    body[data-section="moderation"] { --accent: #ff719e; }
     body[data-section="server-control"] { --accent: #94b4ff; }
     .section-panel { border-top-color: color-mix(in srgb, var(--accent) 72%, var(--line)); }
     .section-panel .section-head h2 { color: var(--accent); }
@@ -753,6 +754,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
+      {% if section_allowed('moderation') %}<a class="tab-link" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
       <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
@@ -775,6 +777,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
+          {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
@@ -794,6 +797,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
+      <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
@@ -2230,6 +2234,100 @@ Event pings | bell | 1234567890</textarea></label>
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "moderation" %}
+    {% set guard = (server.config.moderation_guard if server and server.config and server.config.moderation_guard else {}) %}
+    {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
+    {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
+    <section class="section-panel" id="moderation">
+      <div class="section-head">
+        <div>
+          <h2>Moderation Guard</h2>
+          <p class="tool-note">Guild-scoped protection for spam, Discord invite adverts, scam phrases, mass mentions and PC cheat-check alerts. These settings only affect the selected server.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel">
+          <h3>Spam, Scam & Advert Guard</h3>
+          <form class="admin-form" data-route="/api/admin/moderation-guard">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Guard enabled
+              <select name="enabled"><option value="false" {{ 'selected' if not guard.enabled else '' }}>Off</option><option value="true" {{ 'selected' if guard.enabled else '' }}>On</option></select>
+            </label>
+            <label>Delete caught messages
+              <select name="delete_messages"><option value="true" {{ 'selected' if guard.delete_messages is not defined or guard.delete_messages else '' }}>Yes</option><option value="false" {{ 'selected' if guard.delete_messages is defined and not guard.delete_messages else '' }}>No, log only</option></select>
+            </label>
+            <label>Staff/admin bypass
+              <select name="staff_bypass"><option value="true" {{ 'selected' if guard.staff_bypass is not defined or guard.staff_bypass else '' }}>Yes</option><option value="false" {{ 'selected' if guard.staff_bypass is defined and not guard.staff_bypass else '' }}>No</option></select>
+            </label>
+            <label>Discord invite adverts
+              <select name="watch_discord_invites"><option value="true" {{ 'selected' if guard.watch_discord_invites is not defined or guard.watch_discord_invites else '' }}>Watch</option><option value="false" {{ 'selected' if guard.watch_discord_invites is defined and not guard.watch_discord_invites else '' }}>Ignore</option></select>
+            </label>
+            <label>External links
+              <select name="watch_external_links"><option value="false" {{ 'selected' if not guard.watch_external_links else '' }}>Ignore normal links</option><option value="true" {{ 'selected' if guard.watch_external_links else '' }}>Watch all links</option></select>
+            </label>
+            <label>Scam/fraud words
+              <select name="watch_scam_words"><option value="true" {{ 'selected' if guard.watch_scam_words is not defined or guard.watch_scam_words else '' }}>Watch</option><option value="false" {{ 'selected' if guard.watch_scam_words is defined and not guard.watch_scam_words else '' }}>Ignore</option></select>
+            </label>
+            <label>Spam burst count <input type="number" min="1" max="50" name="spam_message_count" value="{{ guard.spam_message_count or 5 }}"></label>
+            <label>Spam window seconds <input type="number" min="2" max="600" name="spam_window_seconds" value="{{ guard.spam_window_seconds or 12 }}"></label>
+            <label>Repeated text count <input type="number" min="2" max="20" name="repeat_message_count" value="{{ guard.repeat_message_count or 3 }}"></label>
+            <label>Mass mention limit <input type="number" min="1" max="100" name="mass_mention_limit" value="{{ guard.mass_mention_limit or 5 }}"></label>
+            <label>First strike
+              <select name="action_first"><option value="log" {{ 'selected' if guard.action_first == 'log' else '' }}>Log</option><option value="delete" {{ 'selected' if guard.action_first == 'delete' else '' }}>Delete</option><option value="warn" {{ 'selected' if guard.action_first is not defined or guard.action_first == 'warn' else '' }}>Warn</option><option value="timeout" {{ 'selected' if guard.action_first == 'timeout' else '' }}>Timeout</option><option value="kick" {{ 'selected' if guard.action_first == 'kick' else '' }}>Kick</option><option value="ban" {{ 'selected' if guard.action_first == 'ban' else '' }}>Ban</option></select>
+            </label>
+            <label>Second strike
+              <select name="action_second"><option value="log" {{ 'selected' if guard.action_second == 'log' else '' }}>Log</option><option value="delete" {{ 'selected' if guard.action_second == 'delete' else '' }}>Delete</option><option value="warn" {{ 'selected' if guard.action_second == 'warn' else '' }}>Warn</option><option value="timeout" {{ 'selected' if guard.action_second is not defined or guard.action_second == 'timeout' else '' }}>Timeout</option><option value="kick" {{ 'selected' if guard.action_second == 'kick' else '' }}>Kick</option><option value="ban" {{ 'selected' if guard.action_second == 'ban' else '' }}>Ban</option></select>
+            </label>
+            <label>Third+ strike
+              <select name="action_third"><option value="log" {{ 'selected' if guard.action_third == 'log' else '' }}>Log</option><option value="delete" {{ 'selected' if guard.action_third == 'delete' else '' }}>Delete</option><option value="warn" {{ 'selected' if guard.action_third == 'warn' else '' }}>Warn</option><option value="timeout" {{ 'selected' if guard.action_third is not defined or guard.action_third == 'timeout' else '' }}>Timeout</option><option value="kick" {{ 'selected' if guard.action_third == 'kick' else '' }}>Kick</option><option value="ban" {{ 'selected' if guard.action_third == 'ban' else '' }}>Ban</option></select>
+            </label>
+            <label>Timeout minutes <input type="number" min="1" max="10080" name="timeout_minutes" value="{{ guard.timeout_minutes or 10 }}"></label>
+            <label class="full">Allowed link domains <textarea name="invite_allowlist" placeholder="dayzwanderingbot.com&#10;discord.gg/your-official-server">{% for item in (guard.invite_allowlist or ['dayzwanderingbot.com']) %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <label class="full">Blocked phrases <textarea name="blocked_phrases" placeholder="paste forbidden words or phrases, one per line">{% for item in (guard.blocked_phrases or []) %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <label class="full">Scam/fraud phrases <textarea name="scam_phrases" placeholder="free nitro&#10;steam gift&#10;airdrop crypto">{% for item in (guard.scam_phrases or []) %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <div class="full">
+              <button type="submit">Save Moderation Guard</button>
+              <span class="result muted"></span>
+            </div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>PC Cheat Guard</h3>
+          <form class="admin-form" data-route="/api/admin/moderation-guard">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>PC cheat checks
+              <select name="cheat_check_enabled"><option value="true" {{ 'selected' if cheat.enabled is not defined or cheat.enabled else '' }}>On</option><option value="false" {{ 'selected' if cheat.enabled is defined and not cheat.enabled else '' }}>Off</option></select>
+            </label>
+            <label>Auto-ban suspicious chains
+              <select name="cheat_check_auto_ban"><option value="false" {{ 'selected' if not cheat.auto_ban else '' }}>No, alert staff</option><option value="true" {{ 'selected' if cheat.auto_ban else '' }}>Yes</option></select>
+            </label>
+            <label>Kill chain window seconds <input type="number" min="10" max="900" name="cheat_chain_window_seconds" value="{{ cheat.chain_window_seconds or 200 }}"></label>
+            <label>Cluster window seconds <input type="number" min="10" max="900" name="cheat_cluster_window_seconds" value="{{ cheat.cluster_window_seconds or 180 }}"></label>
+            <label>Cluster minimum kills <input type="number" min="2" max="20" name="cheat_cluster_min_kills" value="{{ cheat.cluster_min_kills or 3 }}"></label>
+            <label>Cluster max radius metres <input type="number" min="5" max="1000" name="cheat_cluster_max_radius" value="{{ cheat.cluster_max_radius or 50 }}"></label>
+            <div class="embed-preview full"><strong>PC Cheat Feed</strong><span>Alerts post to the private `pc-cheat-check` channel. Auto-ban stays off unless you explicitly enable it for this server.</span></div>
+            <div class="full"><button type="submit">Save PC Cheat Settings</button> <span class="result muted"></span></div>
+          </form>
+          <h3 style="margin-top:1rem">Current Guard State</h3>
+          <div class="mini-grid">
+            <div class="mini-card"><span class="muted">Guard</span><strong>{{ 'On' if guard.enabled else 'Off' }}</strong></div>
+            <div class="mini-card"><span class="muted">Tracked users</span><strong>{{ strikes|length }}</strong></div>
+            <div class="mini-card"><span class="muted">PC cheat</span><strong>{{ 'On' if cheat.enabled is not defined or cheat.enabled else 'Off' }}</strong></div>
+            <div class="mini-card"><span class="muted">Auto-ban</span><strong>{{ 'On' if cheat.auto_ban else 'Off' }}</strong></div>
+          </div>
+          <div class="recipe-list">
+            {% for user_id, strike in strikes.items() %}
+            <div class="recipe-row"><strong>{{ user_id }}</strong><span class="muted">{{ strike.count or 0 }} strike(s) · {{ strike.last_violation or 'no detail' }}</span></div>
+            {% else %}
+            <p class="muted">No moderation strikes recorded for this server.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "server-rules" %}
     <section class="section-panel" id="server-rules">
       <div class="section-head">
@@ -2628,19 +2726,19 @@ Event pings | bell | 1234567890</textarea></label>
     function itemSearchText(item) {
       return `${item?.name || ""} ${item?.category || ""}`.toLowerCase();
     }
+    function strictSlotMatches(item, slot) {
+      const rules = LOADOUT_SLOT_TERMS[slot];
+      if (!rules) return true;
+      const text = itemSearchText(item);
+      return rules.include.some((term) => text.includes(term)) && !rules.exclude.some((term) => text.includes(term));
+    }
     function slotFilteredItems(slot) {
       const rules = LOADOUT_SLOT_TERMS[slot];
       const baseItems = (XML_PICKER_GROUPS[slot] && XML_PICKER_GROUPS[slot].length ? XML_PICKER_GROUPS[slot] : ITEM_LOOKUP) || [];
       if (!rules) return XML_PICKER_GROUPS[slot] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
-      const filtered = baseItems.filter((item) => {
-        const text = itemSearchText(item);
-        return rules.include.some((term) => text.includes(term)) && !rules.exclude.some((term) => text.includes(term));
-      });
-      const fallback = XML_PICKER_GROUPS[slot] || [];
-      return filtered.length ? filtered : fallback.filter((item) => {
-        const text = itemSearchText(item);
-        return !rules.exclude.some((term) => text.includes(term));
-      });
+      const filtered = baseItems.filter((item) => strictSlotMatches(item, slot));
+      const fallback = (XML_PICKER_GROUPS[slot] || []).filter((item) => strictSlotMatches(item, slot));
+      return filtered.length ? filtered : fallback;
     }
     function pickerGroupItems(groupName, picker) {
       if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
@@ -2764,6 +2862,10 @@ Event pings | bell | 1234567890</textarea></label>
       const form = picker.closest("form");
       const slot = slotSelect.value || "";
       rebuildPickerOptions(picker, slot || "cargo");
+      const itemSelect = picker.querySelector("[data-picker-item]");
+      if (itemSelect && itemSelect.options.length > 1 && itemSelect.selectedIndex < 1) {
+        itemSelect.selectedIndex = 0;
+      }
       syncPickerPreview(picker);
       renderVisualPicker(picker);
       if (form) {
@@ -3923,6 +4025,7 @@ ADMIN_ROUTES = [
     "/api/admin/zone",
     "/api/admin/zone-action",
     "/api/admin/member-action",
+    "/api/admin/moderation-guard",
     "/api/admin/link-enforcement",
     "/api/admin/on-screen-message",
     "/api/admin/server-control",
@@ -3946,6 +4049,7 @@ SECTION_FEATURES = {
     "shop": "shop",
     "xml-workshop": "xml_workshop",
     "server-rules": "server_rules",
+    "moderation": "moderation",
     "server-control": "server_control",
 }
 
@@ -3961,6 +4065,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/zone": "safe_zones",
     "/api/admin/zone-action": "safe_zones",
     "/api/admin/member-action": "members",
+    "/api/admin/moderation-guard": "moderation",
     "/api/admin/link-enforcement": "server_rules",
     "/api/admin/on-screen-message": "server_rules",
     "/api/admin/server-control": "server_control",
@@ -4226,9 +4331,13 @@ def dashboard_password_hash(password: str, salt: str) -> str:
 def verify_dashboard_password(password: str, credentials: dict[str, Any]) -> bool:
     salt = str(credentials.get("password_salt") or "")
     expected = str(credentials.get("password_hash") or "")
-    if not salt or not expected:
-        return False
-    return secrets.compare_digest(dashboard_password_hash(password, salt), expected)
+    if salt and expected and secrets.compare_digest(dashboard_password_hash(password, salt), expected):
+        return True
+    # Compatibility for very old credentials generated before salted hashes.
+    legacy_plain = str(credentials.get("password") or credentials.get("dashboard_password") or "")
+    if legacy_plain and secrets.compare_digest(str(password or ""), legacy_plain):
+        return True
+    return False
 
 
 def session_signature(guild_id: str, password_hash: str) -> str:
@@ -5462,6 +5571,11 @@ def item_matches_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
 
 
+def item_name_matches_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
+    text = str(item.get("name", "")).lower()
+    return any(term in text for term in terms)
+
+
 def item_not_matching_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
     return not item_matches_terms(item, terms)
 
@@ -5613,20 +5727,20 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
         "containers": [item for item in items if item_matches_terms(item, container_terms)],
         "vehicles": [item for item in items if is_whole_vehicle(item)],
-        "Head": group_or_fallback([item for item in items if item_matches_terms(item, head_terms)], ["BallisticHelmet", "BaseballCap_Black", "BoonieHat_Green"], "Clothes"),
-        "Eyes": group_or_fallback([item for item in items if item_matches_terms(item, eye_terms)], ["SportGlasses_Black", "NVGoggles"], "Clothes"),
-        "Mask": group_or_fallback([item for item in items if item_matches_terms(item, mask_terms)], ["BalaclavaMask_Black", "SurgicalMask"], "Clothes"),
-        "Body": group_or_fallback([item for item in items if item_matches_terms(item, body_terms)], ["HikingJacket_Black", "TShirt_Black", "Hoodie_Black"], "Clothes"),
-        "Vest": group_or_fallback([item for item in items if item_matches_terms(item, vest_terms)], ["PlateCarrierVest", "HighCapacityVest_Black"], "Clothes"),
-        "Back": group_or_fallback([item for item in items if item_matches_terms(item, ("backpack", "bag", "drybag", "back"))], ["AliceBag_Black", "DryBag_Black", "MountainBag_Blue"], "Containers"),
-        "Hips": group_or_fallback([item for item in items if item_matches_terms(item, hips_terms)], ["MilitaryBelt", "CivilianBelt"], "Clothes"),
-        "Legs": group_or_fallback([item for item in items if item_matches_terms(item, legs_terms)], ["CargoPants_Black", "Jeans_Black"], "Clothes"),
-        "Feet": group_or_fallback([item for item in items if item_matches_terms(item, feet_terms)], ["MilitaryBoots_Black", "AthleticShoes_Black"], "Clothes"),
-        "Hands": group_or_fallback([item for item in items if item_matches_terms(item, hands_terms)], ["M4A1", "AKM", "Hatchet", "CombatKnife"], "Weapons"),
-        "Left Shoulder": group_or_fallback([item for item in items if item_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
-        "Right Shoulder": group_or_fallback([item for item in items if item_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
-        "Gloves": group_or_fallback([item for item in items if item_matches_terms(item, gloves_terms)], ["TacticalGloves_Black", "WorkingGloves_Black"], "Clothes"),
-        "Armband": group_or_fallback([item for item in items if item_matches_terms(item, armband_terms)], ["Armband_Black", "Armband_Red", "Armband_Green"], "Clothes"),
+        "Head": group_or_fallback([item for item in items if item_name_matches_terms(item, head_terms)], ["BallisticHelmet", "BaseballCap_Black", "BoonieHat_Green"], "Clothes"),
+        "Eyes": group_or_fallback([item for item in items if item_name_matches_terms(item, eye_terms)], ["SportGlasses_Black", "NVGoggles"], "Clothes"),
+        "Mask": group_or_fallback([item for item in items if item_name_matches_terms(item, mask_terms)], ["BalaclavaMask_Black", "SurgicalMask"], "Clothes"),
+        "Body": group_or_fallback([item for item in items if item_name_matches_terms(item, body_terms)], ["HikingJacket_Black", "TShirt_Black", "Hoodie_Black"], "Clothes"),
+        "Vest": group_or_fallback([item for item in items if item_name_matches_terms(item, vest_terms)], ["PlateCarrierVest", "HighCapacityVest_Black"], "Clothes"),
+        "Back": group_or_fallback([item for item in items if item_name_matches_terms(item, ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "improvisedbag"))], ["AliceBag_Black", "DryBag_Black", "MountainBag_Blue"], "Containers"),
+        "Hips": group_or_fallback([item for item in items if item_name_matches_terms(item, hips_terms)], ["MilitaryBelt", "CivilianBelt"], "Clothes"),
+        "Legs": group_or_fallback([item for item in items if item_name_matches_terms(item, legs_terms)], ["CargoPants_Black", "Jeans_Black"], "Clothes"),
+        "Feet": group_or_fallback([item for item in items if item_name_matches_terms(item, feet_terms)], ["MilitaryBoots_Black", "AthleticShoes_Black"], "Clothes"),
+        "Hands": group_or_fallback([item for item in items if item_name_matches_terms(item, hands_terms)], ["M4A1", "AKM", "Hatchet", "CombatKnife"], "Weapons"),
+        "Left Shoulder": group_or_fallback([item for item in items if item_name_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
+        "Right Shoulder": group_or_fallback([item for item in items if item_name_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
+        "Gloves": group_or_fallback([item for item in items if item_name_matches_terms(item, gloves_terms)], ["TacticalGloves_Black", "WorkingGloves_Black"], "Clothes"),
+        "Armband": group_or_fallback([item for item in items if item_name_matches_terms(item, armband_terms)], ["Armband_Black", "Armband_Red", "Armband_Green"], "Clothes"),
     }
     groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
     groups["containers"] = unique_named(groups["containers"] + known_containers)
@@ -6056,7 +6170,7 @@ def page(mode: str, auth: dict[str, Any]):
     state = load_dashboard_state()
     state = filter_state_for_auth(state, auth, mode)
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "server-rules", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "server-rules", "moderation", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
@@ -7138,6 +7252,107 @@ def api_zone_action():
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "deleted": deleted, "note": "zone deleted for this guild only"})
+
+
+MODERATION_ACTIONS = {"log", "delete", "warn", "timeout", "kick", "ban"}
+MODERATION_DEFAULT_SCAM_PHRASES = [
+    "free nitro",
+    "steam gift",
+    "crypto",
+    "airdrop",
+    "wallet connect",
+    "verify your account",
+    "giveaway",
+    "discord staff",
+    "support ticket",
+    "click here",
+    "http://",
+    "https://",
+]
+
+
+def lines_or_csv(value: Any, default: list[str] | None = None) -> list[str]:
+    if isinstance(value, list):
+        candidates = value
+    else:
+        candidates = re.split(r"[\n,]+", str(value or ""))
+    seen = set()
+    cleaned = []
+    for item in candidates:
+        text = str(item or "").strip()
+        key = text.lower()
+        if text and key not in seen:
+            cleaned.append(text[:180])
+            seen.add(key)
+    if cleaned:
+        return cleaned
+    return list(default or [])
+
+
+def moderation_action(value: Any, default: str) -> str:
+    action = str(value or default).strip().lower()
+    return action if action in MODERATION_ACTIONS else default
+
+
+@APP.post("/api/admin/moderation-guard")
+def api_moderation_guard():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    guard_previous = config.get("moderation_guard", {})
+    if not isinstance(guard_previous, dict):
+        guard_previous = {}
+    guard = {
+        "enabled": safe_bool(payload.get("enabled"), safe_bool(guard_previous.get("enabled"), False)),
+        "delete_messages": safe_bool(payload.get("delete_messages"), safe_bool(guard_previous.get("delete_messages"), True)),
+        "admin_bypass": safe_bool(payload.get("admin_bypass"), safe_bool(guard_previous.get("admin_bypass"), True)),
+        "staff_bypass": safe_bool(payload.get("staff_bypass"), safe_bool(guard_previous.get("staff_bypass"), True)),
+        "watch_discord_invites": safe_bool(payload.get("watch_discord_invites"), safe_bool(guard_previous.get("watch_discord_invites"), True)),
+        "watch_external_links": safe_bool(payload.get("watch_external_links"), safe_bool(guard_previous.get("watch_external_links"), False)),
+        "watch_scam_words": safe_bool(payload.get("watch_scam_words"), safe_bool(guard_previous.get("watch_scam_words"), True)),
+        "watch_blocked_phrases": safe_bool(payload.get("watch_blocked_phrases"), safe_bool(guard_previous.get("watch_blocked_phrases"), True)),
+        "watch_spam": safe_bool(payload.get("watch_spam"), safe_bool(guard_previous.get("watch_spam"), True)),
+        "watch_repeated_messages": safe_bool(payload.get("watch_repeated_messages"), safe_bool(guard_previous.get("watch_repeated_messages"), True)),
+        "watch_mass_mentions": safe_bool(payload.get("watch_mass_mentions"), safe_bool(guard_previous.get("watch_mass_mentions"), True)),
+        "spam_message_count": max(1, min(50, safe_int(payload.get("spam_message_count"), safe_int(guard_previous.get("spam_message_count"), 5)))),
+        "spam_window_seconds": max(2, min(600, safe_int(payload.get("spam_window_seconds"), safe_int(guard_previous.get("spam_window_seconds"), 12)))),
+        "repeat_message_count": max(2, min(20, safe_int(payload.get("repeat_message_count"), safe_int(guard_previous.get("repeat_message_count"), 3)))),
+        "repeat_window_seconds": max(5, min(3600, safe_int(payload.get("repeat_window_seconds"), safe_int(guard_previous.get("repeat_window_seconds"), 30)))),
+        "mass_mention_limit": max(1, min(100, safe_int(payload.get("mass_mention_limit"), safe_int(guard_previous.get("mass_mention_limit"), 5)))),
+        "timeout_minutes": max(1, min(10080, safe_int(payload.get("timeout_minutes"), safe_int(guard_previous.get("timeout_minutes"), 10)))),
+        "action_first": moderation_action(payload.get("action_first"), str(guard_previous.get("action_first") or "warn")),
+        "action_second": moderation_action(payload.get("action_second"), str(guard_previous.get("action_second") or "timeout")),
+        "action_third": moderation_action(payload.get("action_third"), str(guard_previous.get("action_third") or "timeout")),
+        "invite_allowlist": lines_or_csv(payload.get("invite_allowlist"), guard_previous.get("invite_allowlist") or ["dayzwanderingbot.com"]),
+        "blocked_phrases": lines_or_csv(payload.get("blocked_phrases"), guard_previous.get("blocked_phrases") or []),
+        "scam_phrases": lines_or_csv(payload.get("scam_phrases"), guard_previous.get("scam_phrases") or MODERATION_DEFAULT_SCAM_PHRASES),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    config["moderation_guard"] = guard
+
+    cheat_previous = config.get("cheat_check", {})
+    if not isinstance(cheat_previous, dict):
+        cheat_previous = {}
+    cheat = dict(cheat_previous)
+    cheat["enabled"] = safe_bool(payload.get("cheat_check_enabled"), safe_bool(cheat_previous.get("enabled"), True))
+    cheat["auto_ban"] = safe_bool(payload.get("cheat_check_auto_ban"), safe_bool(cheat_previous.get("auto_ban"), False))
+    cheat["clear_chain_on_teleport"] = safe_bool(payload.get("cheat_clear_chain_on_teleport"), safe_bool(cheat_previous.get("clear_chain_on_teleport"), True))
+    cheat["chain_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_chain_window_seconds"), safe_int(cheat_previous.get("chain_window_seconds"), 200))))
+    cheat["cluster_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_cluster_window_seconds"), safe_int(cheat_previous.get("cluster_window_seconds"), 180))))
+    cheat["cluster_min_kills"] = max(2, min(20, safe_int(payload.get("cheat_cluster_min_kills"), safe_int(cheat_previous.get("cluster_min_kills"), 3))))
+    cheat["cluster_max_radius"] = max(5, min(1000, safe_int(payload.get("cheat_cluster_max_radius"), safe_int(cheat_previous.get("cluster_max_radius"), 50))))
+    cheat["updated_at"] = datetime.now(UTC).isoformat()
+    config["cheat_check"] = cheat
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return jsonify({"ok": True, "moderation_guard": guard, "cheat_check": cheat, "note": "Moderation guard saved for this server only."})
 
 
 @APP.post("/api/admin/link-enforcement")

@@ -21,7 +21,7 @@ import discord
 import socket
 
 from datetime import datetime, UTC, timedelta
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict, deque
 from discord.ext import commands, tasks
 from discord import app_commands
 from zoneinfo import ZoneInfo
@@ -117,6 +117,7 @@ guild_configs = {}
 processed_lines = {}
 processed_adm_events = {}
 processed_kill_events = {}
+moderation_guard_recent_messages = defaultdict(lambda: deque(maxlen=30))
 # Wall-clock UTC time the bot process started. Used by the ADM age guard
 # to ONLY filter "old" events during a short cold-start window — after
 # that, the hash dedupe on its own is sufficient to prevent replay, and
@@ -15646,6 +15647,295 @@ async def maybe_broadcast_company_announcement(message):
         pass
 
 
+MODERATION_INVITE_RE = re.compile(
+    r"(?:discord(?:app)?\.com/invite|discord\.gg|discord\.com/invite)/[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
+MODERATION_URL_RE = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+MODERATION_DEFAULT_SCAM_PHRASES = [
+    "free nitro",
+    "steam gift",
+    "gift card",
+    "crypto wallet",
+    "verify your account",
+    "claim reward",
+    "airdrop crypto",
+    "cheap boost",
+    "discord.gg/",
+]
+MODERATION_ACTIONS = {"log", "delete", "warn", "timeout", "kick", "ban"}
+
+
+def moderation_guard_defaults():
+    return {
+        "enabled": False,
+        "delete_messages": True,
+        "admin_bypass": True,
+        "staff_bypass": True,
+        "watch_discord_invites": True,
+        "watch_external_links": False,
+        "watch_scam_words": True,
+        "watch_blocked_phrases": True,
+        "watch_spam": True,
+        "watch_repeated_messages": True,
+        "watch_mass_mentions": True,
+        "spam_message_count": 5,
+        "spam_window_seconds": 12,
+        "repeat_message_count": 3,
+        "repeat_window_seconds": 30,
+        "mass_mention_limit": 5,
+        "timeout_minutes": 10,
+        "action_first": "warn",
+        "action_second": "timeout",
+        "action_third": "timeout",
+        "invite_allowlist": ["dayzwanderingbot.com"],
+        "blocked_phrases": [],
+        "scam_phrases": MODERATION_DEFAULT_SCAM_PHRASES.copy(),
+    }
+
+
+def moderation_guard_settings(config):
+    settings = moderation_guard_defaults()
+    saved = config.get("moderation_guard")
+    if isinstance(saved, dict):
+        settings.update(saved)
+    defaults = moderation_guard_defaults()
+    for key in (
+        "spam_message_count",
+        "spam_window_seconds",
+        "repeat_message_count",
+        "repeat_window_seconds",
+        "mass_mention_limit",
+        "timeout_minutes",
+    ):
+        try:
+            settings[key] = max(1, int(float(settings.get(key) or defaults[key])))
+        except (TypeError, ValueError):
+            settings[key] = defaults[key]
+    for key in ("invite_allowlist", "blocked_phrases", "scam_phrases"):
+        value = settings.get(key)
+        if isinstance(value, str):
+            value = [item.strip() for item in re.split(r"[\n,]+", value) if item.strip()]
+        elif isinstance(value, list):
+            value = [str(item).strip() for item in value if str(item).strip()]
+        else:
+            value = []
+        settings[key] = value
+    for key in ("action_first", "action_second", "action_third"):
+        action = str(settings.get(key) or "log").strip().lower()
+        settings[key] = action if action in MODERATION_ACTIONS else "log"
+    return settings
+
+
+def normalise_moderation_text(text):
+    text = str(text or "").lower()
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"<[@#&!]\d+>", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def moderation_allowed_link(url, settings):
+    url_lower = str(url or "").lower()
+    for allowed in settings.get("invite_allowlist", []):
+        allowed = str(allowed or "").strip().lower()
+        if allowed and allowed in url_lower:
+            return True
+    return False
+
+
+def moderation_guard_bypassed(message, settings):
+    if not message.guild:
+        return True
+    member = message.author
+    if settings.get("admin_bypass", True) and has_member_admin_power(member):
+        return True
+    if settings.get("staff_bypass", True):
+        config = guild_configs.get(str(message.guild.id), {}) or {}
+        staff_role_names = {
+            str(name).strip().lower()
+            for name in config.get("admin_roles", DEFAULT_ADMIN_ROLES)
+            if str(name).strip()
+        }
+        for role in getattr(member, "roles", []) or []:
+            if str(getattr(role, "name", "")).strip().lower() in staff_role_names:
+                return True
+    return False
+
+
+async def moderation_log(message, violations, action, result):
+    try:
+        guild_id = str(message.guild.id)
+        config = guild_configs.setdefault(
+            guild_id,
+            {"guild_name": message.guild.name, "channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()},
+        )
+        channel = bot.get_channel(config.get("channels", {}).get("moderation_logs"))
+        if not channel:
+            channel = await get_or_create_feed_channel(
+                message.guild,
+                config,
+                "moderation_logs",
+                DEFAULT_CHANNEL_NAMES["moderation_logs"],
+                private=True,
+            )
+        if not channel:
+            return
+        embed = discord.Embed(
+            title="MODERATION GUARD",
+            description=", ".join(violations)[:1000] or "No detail",
+            color=0xE74C3C if action in {"kick", "ban", "timeout"} else 0xF1C40F,
+        )
+        embed.add_field(name="User", value=f"{message.author.mention}\n`{message.author}`", inline=True)
+        embed.add_field(name="Action", value=f"`{action}`\n{result}", inline=True)
+        embed.add_field(name="Channel", value=message.channel.mention if message.channel else "Unknown", inline=True)
+        embed.add_field(name="Message", value=((message.content or "")[:950] or "(no text)"), inline=False)
+        embed.set_footer(text="Wandering Bot Alpha - Guild-scoped moderation")
+        await channel.send(embed=style_embed(embed))
+    except Exception as error:
+        print(f"MODERATION GUARD LOG ERROR: {error}")
+
+
+async def moderation_apply_action(message, settings, action, violations):
+    result = "logged only"
+    should_delete = bool(settings.get("delete_messages", True)) or action == "delete"
+    if should_delete:
+        try:
+            await message.delete()
+            result = "message deleted"
+        except Exception as error:
+            result = f"delete failed: {error}"
+
+    member = message.author
+    reason = "Wandering Bot moderation guard: " + ", ".join(violations)[:350]
+    if action == "warn":
+        try:
+            await message.channel.send(
+                f"{member.mention} please stop that. Staff have been notified.",
+                delete_after=20,
+            )
+            result = (result + "; warned").strip("; ")
+        except Exception as error:
+            result = f"{result}; warn failed: {error}"
+    elif action == "timeout" and isinstance(member, discord.Member):
+        try:
+            minutes = max(1, int(settings.get("timeout_minutes", 10)))
+            await member.timeout(timedelta(minutes=minutes), reason=reason)
+            result = f"{result}; timed out for {minutes} minute(s)"
+        except Exception as error:
+            result = f"{result}; timeout failed: {error}"
+    elif action == "kick" and isinstance(member, discord.Member):
+        try:
+            await member.kick(reason=reason)
+            result = f"{result}; kicked"
+        except Exception as error:
+            result = f"{result}; kick failed: {error}"
+    elif action == "ban" and isinstance(member, discord.Member):
+        try:
+            await member.ban(reason=reason, delete_message_days=0)
+            result = f"{result}; banned"
+        except TypeError:
+            try:
+                await member.ban(reason=reason, delete_message_seconds=0)
+                result = f"{result}; banned"
+            except Exception as error:
+                result = f"{result}; ban failed: {error}"
+        except Exception as error:
+            result = f"{result}; ban failed: {error}"
+    return result
+
+
+async def maybe_apply_moderation_guard(message, lower, now_ts):
+    if not message.guild:
+        return False
+
+    guild_id = str(message.guild.id)
+    config = guild_configs.setdefault(
+        guild_id,
+        {"guild_name": message.guild.name, "channels": {}, "admin_roles": DEFAULT_ADMIN_ROLES.copy()},
+    )
+    settings = moderation_guard_settings(config)
+    if not settings.get("enabled", False) or moderation_guard_bypassed(message, settings):
+        return False
+
+    violations = []
+    urls = MODERATION_URL_RE.findall(message.content or "")
+    invite_hits = MODERATION_INVITE_RE.findall(message.content or "")
+    if settings.get("watch_discord_invites", True):
+        blocked_invites = [url for url in invite_hits if not moderation_allowed_link(url, settings)]
+        if blocked_invites:
+            violations.append("Discord invite / server advert link")
+    if settings.get("watch_external_links", False):
+        blocked_links = [url for url in urls if not moderation_allowed_link(url, settings)]
+        if blocked_links:
+            violations.append("external link")
+
+    if settings.get("watch_scam_words", True):
+        for phrase in settings.get("scam_phrases") or MODERATION_DEFAULT_SCAM_PHRASES:
+            if str(phrase).strip().lower() in lower:
+                violations.append(f"scam phrase: {phrase}")
+                break
+
+    if settings.get("watch_blocked_phrases", True):
+        for phrase in settings.get("blocked_phrases", []):
+            if str(phrase).strip().lower() in lower:
+                violations.append(f"blocked phrase: {phrase}")
+                break
+
+    mention_count = len(getattr(message, "mentions", []) or []) + len(getattr(message, "role_mentions", []) or [])
+    if getattr(message, "mention_everyone", False):
+        mention_count += settings.get("mass_mention_limit", 5) + 1
+    if settings.get("watch_mass_mentions", True) and mention_count > settings.get("mass_mention_limit", 5):
+        violations.append(f"mass mentions: {mention_count}")
+
+    tracker_key = (guild_id, str(message.author.id))
+    tracker = moderation_guard_recent_messages[tracker_key]
+    text_key = normalise_moderation_text(message.content)
+    tracker.append({"time": now_ts, "text": text_key})
+
+    if settings.get("watch_spam", True):
+        spam_window = settings.get("spam_window_seconds", 12)
+        recent = [item for item in tracker if now_ts - item.get("time", 0) <= spam_window]
+        if len(recent) >= settings.get("spam_message_count", 5):
+            violations.append(f"message spam: {len(recent)} in {spam_window}s")
+
+    if settings.get("watch_repeated_messages", True) and text_key:
+        repeat_window = settings.get("repeat_window_seconds", 30)
+        repeats = [
+            item for item in tracker
+            if item.get("text") == text_key and now_ts - item.get("time", 0) <= repeat_window
+        ]
+        if len(repeats) >= settings.get("repeat_message_count", 3):
+            violations.append(f"repeated message: {len(repeats)}x")
+
+    if not violations:
+        return False
+
+    strikes = config.setdefault("moderation_guard_strikes", {})
+    if not isinstance(strikes, dict):
+        strikes = {}
+        config["moderation_guard_strikes"] = strikes
+    user_id = str(message.author.id)
+    strike = strikes.setdefault(user_id, {"count": 0, "last": 0, "name": str(message.author)})
+    if now_ts - float(strike.get("last") or 0) > 86400:
+        strike["count"] = 0
+    strike["count"] = int(strike.get("count") or 0) + 1
+    strike["last"] = now_ts
+    strike["name"] = str(message.author)
+
+    if strike["count"] <= 1:
+        action = settings.get("action_first", "warn")
+    elif strike["count"] == 2:
+        action = settings.get("action_second", "timeout")
+    else:
+        action = settings.get("action_third", "timeout")
+
+    save_guild_configs()
+    result = await moderation_apply_action(message, settings, action, violations)
+    await moderation_log(message, violations, action, result)
+    return action in {"delete", "warn", "timeout", "kick", "ban"} or bool(settings.get("delete_messages", True))
+
+
 @bot.event
 async def on_message(message):
 
@@ -15724,6 +16014,9 @@ async def on_message(message):
     now_ts = datetime.now(UTC).timestamp()
 
     if await maybe_handle_owner_natural_language(message, lower, now_ts):
+        return
+
+    if await maybe_apply_moderation_guard(message, lower, now_ts):
         return
 
     # 🔇 Unsolicited keyword-tip replies DISABLED by owner request (PR #44).
