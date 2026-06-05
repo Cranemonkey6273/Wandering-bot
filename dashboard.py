@@ -4393,6 +4393,50 @@ def verify_dashboard_password(password: str, credentials: dict[str, Any]) -> boo
     return False
 
 
+def dashboard_credentials_for_config(config: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(config, dict):
+        return None
+    for key in ("dashboard_credentials", "dashboard_login", "dashboard_auth"):
+        credentials = config.get(key)
+        if isinstance(credentials, dict) and credentials.get("dashboard_id"):
+            return credentials
+    top_level: dict[str, Any] = {}
+    for key in (
+        "dashboard_id",
+        "password_salt",
+        "password_hash",
+        "password",
+        "dashboard_password",
+        "plain_password",
+        "password_plain",
+        "admin_password",
+        "access_password",
+        "dashboard_secret",
+        "secret",
+        "dashboard_pass",
+        "admin_pass",
+    ):
+        if config.get(key):
+            top_level[key] = config.get(key)
+    if top_level.get("dashboard_id") and (
+        top_level.get("password_hash")
+        or any(top_level.get(key) for key in (
+            "password",
+            "dashboard_password",
+            "plain_password",
+            "password_plain",
+            "admin_password",
+            "access_password",
+            "dashboard_secret",
+            "secret",
+            "dashboard_pass",
+            "admin_pass",
+        ))
+    ):
+        return top_level
+    return None
+
+
 def session_signature(guild_id: str, password_hash: str) -> str:
     return hashlib.sha256(f"{guild_id}:{password_hash}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
 
@@ -4455,9 +4499,7 @@ def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str,
     for guild_id, config in guild_configs.items():
         if not isinstance(config, dict):
             continue
-        credentials = config.get("dashboard_credentials")
-        if not isinstance(credentials, dict):
-            credentials = config.get("dashboard_login")
+        credentials = dashboard_credentials_for_config(config)
         if not isinstance(credentials, dict):
             continue
         if str(credentials.get("dashboard_id") or "").strip().lower() == dashboard_id:
@@ -4517,9 +4559,7 @@ def current_auth() -> dict[str, Any] | None:
         return None
     if not dashboard_admin_login_enabled(config):
         return None
-    credentials = config.get("dashboard_credentials")
-    if not isinstance(credentials, dict):
-        credentials = config.get("dashboard_login")
+    credentials = dashboard_credentials_for_config(config)
     if not isinstance(credentials, dict):
         return None
     expected = session_signature(guild_id, str(credentials.get("password_hash") or ""))
@@ -6508,9 +6548,7 @@ def login_post():
         return login_page("Dashboard ID or password is incorrect."), 401
     if not dashboard_admin_login_enabled(config):
         return login_page("Dashboard access is currently disabled for this server."), 403
-    credentials = config.get("dashboard_credentials")
-    if not isinstance(credentials, dict):
-        credentials = config.get("dashboard_login")
+    credentials = dashboard_credentials_for_config(config)
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         return login_page("Dashboard ID or password is incorrect."), 401
     response = make_response(redirect("/admin"))
@@ -7169,9 +7207,7 @@ def api_link_server():
     target_guild_id, target_config = find_guild_by_dashboard_id(dashboard_id)
     if not target_guild_id or not isinstance(target_config, dict):
         return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
-    credentials = target_config.get("dashboard_credentials")
-    if not isinstance(credentials, dict):
-        credentials = target_config.get("dashboard_login")
+    credentials = dashboard_credentials_for_config(target_config)
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
     if auth["kind"] == "owner":

@@ -11594,6 +11594,20 @@ def generate_dashboard_credentials(guild_id, guild_name):
     }
 
 
+def reset_dashboard_password(guild_id, config, guild_name):
+    existing = config.get("dashboard_credentials")
+    created = generate_dashboard_credentials(guild_id, guild_name)
+    if isinstance(existing, dict) and existing.get("dashboard_id"):
+        created["credentials"]["dashboard_id"] = str(existing.get("dashboard_id"))
+        if existing.get("created_at"):
+            created["credentials"]["created_at"] = existing.get("created_at")
+    created["credentials"]["password_reset_at"] = datetime.now(UTC).isoformat()
+    config["dashboard_credentials"] = created["credentials"]
+    dashboard = config.setdefault("dashboard", {})
+    dashboard.setdefault("enabled", True)
+    return created["credentials"], created["password"]
+
+
 def ensure_dashboard_credentials(guild_id, config, guild_name):
     credentials = config.get("dashboard_credentials")
     if isinstance(credentials, dict) and credentials.get("dashboard_id") and credentials.get("password_hash"):
@@ -12159,11 +12173,10 @@ async def dashboard_credentials_command(interaction: discord.Interaction, reset:
     )
     dashboard_password = None
     if reset:
-        created = generate_dashboard_credentials(guild_id, interaction.guild.name)
-        config["dashboard_credentials"] = created["credentials"]
-        dashboard_password = created["password"]
-    credentials, created_password = ensure_dashboard_credentials(guild_id, config, interaction.guild.name)
-    dashboard_password = dashboard_password or created_password
+        credentials, dashboard_password = reset_dashboard_password(guild_id, config, interaction.guild.name)
+    else:
+        credentials, created_password = ensure_dashboard_credentials(guild_id, config, interaction.guild.name)
+        dashboard_password = created_password
     save_guild_configs()
 
     if dashboard_password:
