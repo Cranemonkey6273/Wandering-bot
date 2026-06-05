@@ -1053,8 +1053,9 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Welcome, Goodbye & Birthday</h3>
-          <form class="admin-form" data-route="/api/admin/welcome-automation">
+          <form id="welcome-automation-form" class="admin-form" data-route="/api/admin/welcome-automation">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="automation_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When should it send?
               <select name="name">
@@ -1076,10 +1077,32 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             <label class="full">Message <textarea name="message">Welcome survivor. Read the rules, link your gamer tag, and good luck out there.</textarea></label>
             <div class="full"><button type="submit">Save Welcome</button> <span class="result muted"></span></div>
           </form>
+          <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="welcome_automations" data-empty-message="No saved welcome, goodbye or birthday automations for this server yet.">
+            {% for automation in (server.welcome_automations if server else []) %}
+            {% set automation_id = automation.automation_id or automation.name %}
+            <div class="notification" data-dashboard-record-card data-section="welcome_automations" data-record-id="{{ automation_id }}" data-remove-row>
+              <div class="row-between">
+                <div>
+                  <strong>{{ automation.name or automation_id }}</strong>
+                  <span>{{ 'On' if automation.enabled else 'Off' }} -> {{ automation.channel_key or 'no channel' }}</span>
+                  <small>{% if automation.send_hour %}Send hour: {{ automation.send_hour }}{% else %}Manual timing{% endif %}</small>
+                </div>
+                <div class="inline-actions">
+                  <button type="button" data-dashboard-record-edit data-form-id="welcome-automation-form">Edit</button>
+                  <button type="button" data-dashboard-record-delete data-section="welcome_automations" data-record-id="{{ automation_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete welcome automation {{ automation_id }}?">Delete</button>
+                  <span class="result muted" data-dashboard-record-result></span>
+                </div>
+              </div>
+              <script type="application/json" data-dashboard-record-json>{{ automation | tojson }}</script>
+            </div>
+            {% else %}
+            <p class="muted" data-empty-dashboard-records>No saved welcome, goodbye or birthday automations for this server yet.</p>
+            {% endfor %}
+          </div>
         </article>
         <article class="admin-panel">
           <h3>Utilities & Server Growth</h3>
-          <form class="admin-form" data-route="/api/admin/utility-config">
+          <form id="utility-config-form" class="admin-form" data-route="/api/admin/utility-config">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Module
@@ -1109,11 +1132,34 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
             <label class="full">Settings note <textarea name="notes">Configure this module for this server.</textarea></label>
             <div class="full"><button type="submit">Save Utility</button> <span class="result muted"></span></div>
           </form>
+          <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="utility_configs" data-empty-message="No saved utility modules for this server yet.">
+            {% for utility in (server.utility_configs if server else []) %}
+            {% set utility_id = utility.module or utility.name %}
+            <div class="notification" data-dashboard-record-card data-section="utility_configs" data-record-id="{{ utility_id }}" data-remove-row>
+              <div class="row-between">
+                <div>
+                  <strong>{{ utility.module or utility_id }}</strong>
+                  <span>{{ 'On' if utility.enabled else 'Off' }} -> {{ utility.channel_key or 'no channel' }}</span>
+                  <small>Limit: {{ utility.limit or 0 }} | XP: {{ utility.xp_per_message or 0 }} | Cooldown: {{ utility.cooldown_seconds or 0 }}s</small>
+                </div>
+                <div class="inline-actions">
+                  <button type="button" data-dashboard-record-edit data-form-id="utility-config-form">Edit</button>
+                  <button type="button" data-dashboard-record-delete data-section="utility_configs" data-record-id="{{ utility_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete utility module {{ utility_id }}?">Delete</button>
+                  <span class="result muted" data-dashboard-record-result></span>
+                </div>
+              </div>
+              <script type="application/json" data-dashboard-record-json>{{ utility | tojson }}</script>
+            </div>
+            {% else %}
+            <p class="muted" data-empty-dashboard-records>No saved utility modules for this server yet.</p>
+            {% endfor %}
+          </div>
         </article>
         <article class="admin-panel">
           <h3>Reaction Roles</h3>
-          <form class="admin-form" data-route="/api/admin/reaction-role-panel">
+          <form id="reaction-role-panel-form" class="admin-form" data-route="/api/admin/reaction-role-panel">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="panel_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Panel type
               <select name="name">
@@ -1133,6 +1179,29 @@ Trader pings | coin | 1234567890
 Event pings | bell | 1234567890</textarea></label>
             <div class="full"><button type="submit">Save Panel</button> <span class="result muted"></span></div>
           </form>
+          <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="reaction_role_panels" data-empty-message="No saved reaction role panels for this server yet.">
+            {% for panel in (server.reaction_role_panels if server else []) %}
+            {% set panel_id = panel.panel_id or panel.name %}
+            <div class="notification" data-dashboard-record-card data-section="reaction_role_panels" data-record-id="{{ panel_id }}" data-remove-row>
+              <div class="row-between">
+                <div>
+                  <strong>{{ panel.name or panel_id }}</strong>
+                  <span>Channel: {{ panel.channel_key or 'no channel' }}</span>
+                  {% set panel_role_lines = (panel.roles or '').splitlines() %}
+                  <small>{{ panel_role_lines|length }} role line(s)</small>
+                </div>
+                <div class="inline-actions">
+                  <button type="button" data-dashboard-record-edit data-form-id="reaction-role-panel-form">Edit</button>
+                  <button type="button" data-dashboard-record-delete data-section="reaction_role_panels" data-record-id="{{ panel_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete reaction role panel {{ panel_id }}?">Delete</button>
+                  <span class="result muted" data-dashboard-record-result></span>
+                </div>
+              </div>
+              <script type="application/json" data-dashboard-record-json>{{ panel | tojson }}</script>
+            </div>
+            {% else %}
+            <p class="muted" data-empty-dashboard-records>No saved reaction role panels for this server yet.</p>
+            {% endfor %}
+          </div>
         </article>
       </div>
     </section>
@@ -2689,7 +2758,7 @@ Event pings | bell | 1234567890</textarea></label>
     {% if active_section == "overview" %}
     <section class="grid">
       <article class="card"><h3>Economy</h3><p class="muted">{{ summary.wallets }} wallets, {{ summary.delivery_queue }} queued deliveries and {{ summary.wages }} active wages.</p></article>
-      <article class="card"><h3>Automations</h3><p class="muted">{{ summary.embed_templates }} message templates, {{ summary.welcome_automations }} welcomes and {{ summary.reaction_role_panels }} role panels.</p></article>
+      <article class="card"><h3>Automations</h3><p class="muted">{{ summary.embed_templates }} message templates, {{ summary.welcome_automations }} welcomes, {{ summary.utility_configs }} utilities and {{ summary.reaction_role_panels }} role panels.</p></article>
       <article class="card"><h3>Access</h3><p class="muted">{{ 'This dashboard is enabled.' if summary.dashboard_enabled else 'This dashboard is locked.' }}</p></article>
     </section>
 
@@ -3581,6 +3650,53 @@ Event pings | bell | 1234567890</textarea></label>
         } finally {
           if (embedDelete.isConnected) embedDelete.disabled = false;
         }
+        return;
+      }
+      const recordEdit = event.target.closest("[data-dashboard-record-edit]");
+      if (recordEdit) {
+        event.preventDefault();
+        const card = recordEdit.closest("[data-dashboard-record-card]");
+        fillDashboardRecordForm(recordEdit.dataset.formId || dashboardRecordFormId(card?.dataset.section || ""), dashboardRecordFromCard(card));
+        return;
+      }
+      const recordDelete = event.target.closest("[data-dashboard-record-delete]");
+      if (recordDelete) {
+        event.preventDefault();
+        if (recordDelete.dataset.confirm && !window.confirm(recordDelete.dataset.confirm)) return;
+        const card = recordDelete.closest("[data-dashboard-record-card]");
+        const result = card ? card.querySelector("[data-dashboard-record-result]") : null;
+        const token = new URLSearchParams(window.location.search).get("token");
+        const route = `/api/admin/dashboard-record-action${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+        if (result) result.textContent = "Deleting...";
+        recordDelete.disabled = true;
+        try {
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify({
+              action: "delete",
+              section: recordDelete.dataset.section || card?.dataset.section || "",
+              record_id: recordDelete.dataset.recordId || card?.dataset.recordId || "",
+              guild_id: recordDelete.dataset.guildId || "{{ server.guild_id if server else '' }}",
+              dashboard_mode: "{{ mode }}",
+            })
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (!response.ok) {
+            if (result) result.textContent = body.error || "Delete rejected";
+            return;
+          }
+          const list = card ? card.closest("[data-dashboard-record-list]") : null;
+          if (card) card.remove();
+          syncEmptyDashboardRecords(list);
+        } catch (error) {
+          if (result) result.textContent = `Delete failed: ${error && error.message ? error.message : error}`;
+        } finally {
+          if (recordDelete.isConnected) recordDelete.disabled = false;
+        }
+        return;
       }
     });
     function formValue(value) {
@@ -3730,10 +3846,139 @@ Event pings | bell | 1234567890</textarea></label>
       else list.appendChild(card);
       syncEmptyEmbedTemplates(list);
     }
+    const DASHBOARD_RECORD_SAVE_ROUTES = {
+      "/api/admin/welcome-automation": {section: "welcome_automations", bodyKey: "automation", message: "Saved welcome automation."},
+      "/api/admin/utility-config": {section: "utility_configs", bodyKey: "utility", message: "Saved utility module."},
+      "/api/admin/reaction-role-panel": {section: "reaction_role_panels", bodyKey: "panel", message: "Saved reaction role panel."},
+    };
+    function dashboardRecordId(section, record) {
+      if (!record) return "";
+      if (section === "welcome_automations") return String(record.automation_id || record.name || "");
+      if (section === "utility_configs") return String(record.module || record.name || "");
+      if (section === "reaction_role_panels") return String(record.panel_id || record.name || "");
+      return String(record.id || record.name || "");
+    }
+    function dashboardRecordFromCard(card) {
+      if (!card) return null;
+      if (card.__dashboardRecord) return card.__dashboardRecord;
+      const script = card.querySelector("[data-dashboard-record-json]");
+      if (!script) return null;
+      try { return JSON.parse(script.textContent || "{}"); } catch (error) { return null; }
+    }
+    function fillDashboardRecordForm(formId, record) {
+      const form = document.getElementById(formId);
+      if (!form || !record) return;
+      Object.entries(record).forEach(([key, value]) => {
+        if (value && typeof value === "object") return;
+        setFormControl(form, key, value);
+      });
+      form.scrollIntoView({behavior: "smooth", block: "start"});
+      const result = form.querySelector(".result");
+      if (result) result.textContent = "Loaded for editing.";
+    }
+    function syncEmptyDashboardRecords(list) {
+      if (!list) return;
+      const cards = list.querySelectorAll("[data-dashboard-record-card]");
+      let empty = list.querySelector("[data-empty-dashboard-records]");
+      if (cards.length) {
+        if (empty) empty.remove();
+      } else if (!empty) {
+        empty = document.createElement("p");
+        empty.className = "muted";
+        empty.dataset.emptyDashboardRecords = "";
+        empty.textContent = list.dataset.emptyMessage || "No saved records for this server yet.";
+        list.appendChild(empty);
+      }
+    }
+    function dashboardRecordText(section, record) {
+      if (section === "welcome_automations") {
+        return {
+          title: record.name || dashboardRecordId(section, record) || "welcome automation",
+          summary: `${record.enabled === false ? "Off" : "On"} -> ${record.channel_key || "no channel"}`,
+          detail: record.send_hour ? `Send hour: ${record.send_hour}` : "Manual timing",
+        };
+      }
+      if (section === "utility_configs") {
+        return {
+          title: record.module || record.name || "utility module",
+          summary: `${record.enabled === false ? "Off" : "On"} -> ${record.channel_key || "no channel"}`,
+          detail: `Limit: ${record.limit || 0} | XP: ${record.xp_per_message || 0} | Cooldown: ${record.cooldown_seconds || 0}s`,
+        };
+      }
+      if (section === "reaction_role_panels") {
+        const roleLines = String(record.roles || "").split(/\r?\n/).filter((line) => line.trim()).length;
+        return {
+          title: record.name || dashboardRecordId(section, record) || "reaction role panel",
+          summary: `Channel: ${record.channel_key || "no channel"}`,
+          detail: `${roleLines} role line${roleLines === 1 ? "" : "s"}`,
+        };
+      }
+      return {title: dashboardRecordId(section, record) || "record", summary: "", detail: ""};
+    }
+    function dashboardRecordFormId(section) {
+      if (section === "welcome_automations") return "welcome-automation-form";
+      if (section === "utility_configs") return "utility-config-form";
+      if (section === "reaction_role_panels") return "reaction-role-panel-form";
+      return "";
+    }
+    function createDashboardRecordCard(section, record, form) {
+      const card = document.createElement("div");
+      const id = dashboardRecordId(section, record);
+      const text = dashboardRecordText(section, record || {});
+      card.className = "notification";
+      card.dataset.dashboardRecordCard = "";
+      card.dataset.removeRow = "";
+      card.dataset.section = section;
+      card.dataset.recordId = id;
+      card.__dashboardRecord = record;
+      const row = document.createElement("div");
+      row.className = "row-between";
+      const details = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = text.title;
+      const summary = document.createElement("span");
+      summary.textContent = text.summary;
+      const small = document.createElement("small");
+      small.textContent = text.detail;
+      details.append(title, summary, small);
+      const actions = document.createElement("div");
+      actions.className = "inline-actions";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.dataset.dashboardRecordEdit = "";
+      edit.dataset.formId = dashboardRecordFormId(section);
+      edit.textContent = "Edit";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.dataset.dashboardRecordDelete = "";
+      remove.dataset.section = section;
+      remove.dataset.recordId = id;
+      remove.dataset.guildId = form?.elements?.guild_id?.value || record?.guild_id || "";
+      remove.dataset.confirm = `Delete ${text.title}?`;
+      remove.textContent = "Delete";
+      const result = document.createElement("span");
+      result.className = "result muted";
+      result.dataset.dashboardRecordResult = "";
+      actions.append(edit, remove, result);
+      row.append(details, actions);
+      const script = document.createElement("script");
+      script.type = "application/json";
+      script.dataset.dashboardRecordJson = "";
+      script.textContent = JSON.stringify(record || {});
+      card.append(row, script);
+      return card;
+    }
+    function upsertDashboardRecordCard(section, record, form) {
+      const list = document.querySelector(`[data-dashboard-record-list][data-section="${CSS.escape(section)}"]`);
+      if (!list || !record) return;
+      const id = dashboardRecordId(section, record);
+      const card = createDashboardRecordCard(section, record, form);
+      const existing = id ? list.querySelector(`[data-dashboard-record-card][data-record-id="${CSS.escape(id)}"]`) : null;
+      if (existing) existing.replaceWith(card);
+      else list.appendChild(card);
+      syncEmptyDashboardRecords(list);
+    }
     const REFRESH_AFTER_SAVE_ROUTES = new Set([
-      "/api/admin/welcome-automation",
-      "/api/admin/utility-config",
-      "/api/admin/reaction-role-panel",
       "/api/admin/faction",
       "/api/admin/faction-member",
       "/api/admin/zone",
@@ -3762,12 +4007,6 @@ Event pings | bell | 1234567890</textarea></label>
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
-        if (window.location.protocol === "http:" && !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)) {
-          const result = form.querySelector(".result");
-          if (result) result.textContent = "Opening secure dashboard...";
-          window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
-          return;
-        }
         form.querySelectorAll("[data-item-picker]").forEach((picker) => {
           const output = form.querySelector("[data-picker-output]");
           const selected = picker.querySelector("[data-picker-item]")?.value?.trim();
@@ -3824,6 +4063,12 @@ Event pings | bell | 1234567890</textarea></label>
           if (response.ok && routePath === "/api/admin/embed-template" && body.template) {
             upsertEmbedTemplateCard(body.template, form);
             if (result) result.textContent = "Saved embed template.";
+            return;
+          }
+          const dashboardRecordRoute = DASHBOARD_RECORD_SAVE_ROUTES[routePath];
+          if (response.ok && dashboardRecordRoute && body[dashboardRecordRoute.bodyKey]) {
+            upsertDashboardRecordCard(dashboardRecordRoute.section, body[dashboardRecordRoute.bodyKey], form);
+            if (result) result.textContent = dashboardRecordRoute.message;
             return;
           }
           if (response.ok && form.dataset.scenarioActionForm) {
@@ -4301,6 +4546,7 @@ Event pings | bell | 1234567890</textarea></label>
 ADMIN_ROUTES = [
     "/api/admin/embed-template",
     "/api/admin/embed-template-action",
+    "/api/admin/dashboard-record-action",
     "/api/admin/welcome-automation",
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
@@ -4346,7 +4592,9 @@ SECTION_FEATURES = {
 ADMIN_ROUTE_FEATURES = {
     "/api/admin/embed-template": "embeds",
     "/api/admin/embed-template-action": "embeds",
+    "/api/admin/dashboard-record-action": "embeds",
     "/api/admin/welcome-automation": "embeds",
+    "/api/admin/utility-config": "embeds",
     "/api/admin/reaction-role-panel": "embeds",
     "/api/admin/shop-item": "shop",
     "/api/admin/shop-bundle": "shop",
@@ -6547,6 +6795,9 @@ def load_dashboard_state() -> dict[str, Any]:
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
+                "welcome_automations": redact(dashboard_admin_records(dashboard_admin, "welcome_automations", guild_id)),
+                "utility_configs": redact(dashboard_admin_records(dashboard_admin, "utility_configs", guild_id)),
+                "reaction_role_panels": redact(dashboard_admin_records(dashboard_admin, "reaction_role_panels", guild_id)),
                 "heatmap": server_heatmap,
                 "pve": server_pve,
                 "config": redact(config),
@@ -6555,6 +6806,7 @@ def load_dashboard_state() -> dict[str, Any]:
 
     admin_embed_templates = dashboard_admin.get("embed_templates", {}) if isinstance(dashboard_admin, dict) else {}
     admin_welcome = dashboard_admin.get("welcome_automations", {}) if isinstance(dashboard_admin, dict) else {}
+    admin_utility = dashboard_admin.get("utility_configs", {}) if isinstance(dashboard_admin, dict) else {}
     admin_reaction_roles = dashboard_admin.get("reaction_role_panels", {}) if isinstance(dashboard_admin, dict) else {}
 
     return {
@@ -6571,6 +6823,7 @@ def load_dashboard_state() -> dict[str, Any]:
             "wages": sum(count_records(server.get("wages")) for server in servers),
             "embed_templates": count_records(admin_embed_templates),
             "welcome_automations": count_records(admin_welcome),
+            "utility_configs": count_records(admin_utility),
             "reaction_role_panels": count_records(admin_reaction_roles),
             "heatmap_points": sum(server.get("heatmap", {}).get("total", 0) for server in servers),
             "pve_active": sum(count_records(server.get("pve", {}).get("active")) for server in servers),
@@ -6715,7 +6968,16 @@ def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> 
             for record in guild_block_data
             if not (
                 isinstance(record, dict)
-                and str(record.get("template_id") or record.get("id") or record.get("name") or "") == target_id
+                and str(
+                    record.get("template_id")
+                    or record.get("automation_id")
+                    or record.get("panel_id")
+                    or record.get("module")
+                    or record.get("id")
+                    or record.get("name")
+                    or ""
+                )
+                == target_id
             )
         ]
         if len(block[normalized_guild_id]) == before:
@@ -6959,6 +7221,28 @@ def api_embed_template_action():
     if not delete_dashboard_admin_record("embed_templates", guild_id, template_id):
         return jsonify({"ok": False, "error": "embed template not found for this server"}), 404
     return jsonify({"ok": True, "deleted": template_id})
+
+
+@APP.post("/api/admin/dashboard-record-action")
+def api_dashboard_record_action():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    action = str(payload.get("action") or "").strip().lower()
+    section = str(payload.get("section") or "").strip()
+    record_id = str(payload.get("record_id") or payload.get("id") or payload.get("name") or "").strip()
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    allowed_sections = {"welcome_automations", "utility_configs", "reaction_role_panels"}
+    if section not in allowed_sections:
+        return jsonify({"ok": False, "error": "unsupported dashboard record section"}), 400
+    if action != "delete":
+        return jsonify({"ok": False, "error": "unsupported dashboard record action"}), 400
+    if not record_id:
+        return jsonify({"ok": False, "error": "record_id is required"}), 400
+    if not delete_dashboard_admin_record(section, guild_id, record_id):
+        return jsonify({"ok": False, "error": "record not found for this server"}), 404
+    return jsonify({"ok": True, "deleted": record_id, "section": section})
 
 
 @APP.post("/api/admin/welcome-automation")
