@@ -161,6 +161,8 @@ FILES = {
     "longshot_records": "longshot_records.json",
     "removed_guilds": "removed_guilds.json",
 }
+GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
+LEGACY_GUILD_CONFIG_FOLDER = "guilds"
 
 LOGIN_TEMPLATE = """
 <!doctype html>
@@ -4195,7 +4197,7 @@ def write_split_guild_configs(data: Any) -> None:
         )
         if not safe_guild_id:
             continue
-        write_json_file(os.path.join("guilds", f"{safe_guild_id}.json"), config)
+        write_json_file(os.path.join(GUILD_CONFIG_FOLDER, f"{safe_guild_id}.json"), config)
 
 
 def merge_guild_config_records(base: Any, override: Any) -> Any:
@@ -4387,13 +4389,19 @@ def run_runtime_messages_xml_upload(guild_id: str) -> dict[str, Any] | None:
 def load_store(name: str, default: Any) -> Any:
     data = read_json_file(FILES[name], default)
     if name == "guild_configs" and isinstance(data, dict):
-        guild_dir = data_path("guilds")
-        if os.path.isdir(guild_dir):
+        # bot.py stores split per-guild configs in guild_data/guilds. The
+        # dashboard previously used guilds/, which could leave a stale
+        # password copy winning during login after /dashboardcredentials reset.
+        # Keep legacy reads for old data, but let the canonical bot folder win.
+        for folder in (LEGACY_GUILD_CONFIG_FOLDER, GUILD_CONFIG_FOLDER):
+            guild_dir = data_path(folder)
+            if not os.path.isdir(guild_dir):
+                continue
             for filename in os.listdir(guild_dir):
                 if not filename.endswith(".json"):
                     continue
                 guild_id = filename[:-5]
-                config = read_json_file(os.path.join("guilds", filename), None)
+                config = read_json_file(os.path.join(folder, filename), None)
                 if isinstance(config, dict):
                     data[guild_id] = merge_guild_config_records(data.get(guild_id), config)
     return data
