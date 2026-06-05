@@ -942,7 +942,7 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Embed & Timed Message Builder</h3>
-          <form id="embed-template-form" class="admin-form" data-route="/api/admin/embed-template">
+          <form id="embed-template-form" class="admin-form" data-route="/api/admin/embed-template" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Purpose
@@ -1053,7 +1053,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Welcome, Goodbye & Birthday</h3>
-          <form id="welcome-automation-form" class="admin-form" data-route="/api/admin/welcome-automation">
+          <form id="welcome-automation-form" class="admin-form" data-route="/api/admin/welcome-automation" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="automation_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1102,7 +1102,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Utilities & Server Growth</h3>
-          <form id="utility-config-form" class="admin-form" data-route="/api/admin/utility-config">
+          <form id="utility-config-form" class="admin-form" data-route="/api/admin/utility-config" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Module
@@ -1157,7 +1157,7 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Reaction Roles</h3>
-          <form id="reaction-role-panel-form" class="admin-form" data-route="/api/admin/reaction-role-panel">
+          <form id="reaction-role-panel-form" class="admin-form" data-route="/api/admin/reaction-role-panel" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="panel_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -2807,6 +2807,141 @@ Event pings | bell | 1234567890</textarea></label>
         return path;
       }
     }
+    const DIRECT_DASHBOARD_SAVE_ROUTES = {
+      "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
+      "/api/admin/welcome-automation": {bodyKey: "automation", message: "Saved welcome automation."},
+      "/api/admin/utility-config": {bodyKey: "utility", message: "Saved utility module."},
+      "/api/admin/reaction-role-panel": {bodyKey: "panel", message: "Saved reaction role panel."},
+    };
+    function directDashboardValue(value) {
+      if (value === "true") return true;
+      if (value === "false") return false;
+      if (value !== "" && /^-?\\d+(\\.\\d+)?$/.test(value)) return Number(value);
+      return value;
+    }
+    function directDashboardPayload(form) {
+      const payload = {};
+      new FormData(form).forEach((value, key) => {
+        if (value === "") return;
+        const parsed = directDashboardValue(value);
+        if (payload[key] !== undefined) {
+          payload[key] = Array.isArray(payload[key]) ? payload[key].concat([parsed]) : [payload[key], parsed];
+        } else {
+          payload[key] = parsed;
+        }
+      });
+      payload.dashboard_mode = "{{ mode }}";
+      return payload;
+    }
+    function directDashboardResult(form, message, failed) {
+      const result = form ? form.querySelector(".result") : null;
+      if (!result) return;
+      result.textContent = message || "";
+      result.classList.toggle("error", !!failed);
+      result.classList.toggle("success", !failed && !!message);
+    }
+    function directDashboardFallbackTitle(routePath, record) {
+      if (routePath === "/api/admin/embed-template") return record?.template_id || record?.name || "embed template";
+      if (routePath === "/api/admin/welcome-automation") return record?.name || record?.automation_id || "welcome automation";
+      if (routePath === "/api/admin/utility-config") return record?.module || record?.name || "utility module";
+      if (routePath === "/api/admin/reaction-role-panel") return record?.name || record?.panel_id || "reaction role panel";
+      return record?.name || "saved record";
+    }
+    function directDashboardFallbackList(routePath) {
+      if (routePath === "/api/admin/embed-template") return document.querySelector("[data-embed-template-list]");
+      const sectionByRoute = {
+        "/api/admin/welcome-automation": "welcome_automations",
+        "/api/admin/utility-config": "utility_configs",
+        "/api/admin/reaction-role-panel": "reaction_role_panels",
+      };
+      const section = sectionByRoute[routePath];
+      return section ? document.querySelector(`[data-dashboard-record-list][data-section="${section}"]`) : null;
+    }
+    function directDashboardFallbackUpsert(routePath, record, form) {
+      if (!record) return;
+      if (routePath === "/api/admin/embed-template" && typeof upsertEmbedTemplateCard === "function") {
+        upsertEmbedTemplateCard(record, form);
+        return;
+      }
+      const directRecordRoutes = {
+        "/api/admin/welcome-automation": {section: "welcome_automations"},
+        "/api/admin/utility-config": {section: "utility_configs"},
+        "/api/admin/reaction-role-panel": {section: "reaction_role_panels"},
+      };
+      const dashboardRecordRoute = directRecordRoutes[routePath];
+      if (dashboardRecordRoute && typeof upsertDashboardRecordCard === "function") {
+        upsertDashboardRecordCard(dashboardRecordRoute.section, record, form);
+        return;
+      }
+      const list = directDashboardFallbackList(routePath);
+      if (!list) return;
+      list.querySelectorAll("[data-empty-embed-templates], [data-empty-dashboard-records]").forEach((empty) => empty.remove());
+      const card = document.createElement("div");
+      card.className = "notification";
+      const title = document.createElement("strong");
+      title.textContent = directDashboardFallbackTitle(routePath, record);
+      const summary = document.createElement("span");
+      summary.textContent = "Saved for this server.";
+      card.append(title, summary);
+      list.prepend(card);
+    }
+    async function wanderingDashboardSubmit(form, event) {
+      if (event) {
+        event.preventDefault();
+        if (event.stopPropagation) event.stopPropagation();
+      }
+      const routePath = String(form?.dataset?.route || "").split("?")[0];
+      const routeInfo = DIRECT_DASHBOARD_SAVE_ROUTES[routePath];
+      if (!form || !routeInfo) return false;
+      if (form.dataset.directSaving === "1") return false;
+      if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return false;
+      const button = event?.submitter || form.querySelector('button[type="submit"]');
+      const originalButtonText = button ? button.textContent : "";
+      form.dataset.directSaving = "1";
+      directDashboardResult(form, "Saving...", false);
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Saving...";
+      }
+      const token = new URLSearchParams(window.location.search).get("token");
+      const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+      try {
+        const response = await fetch(secureDashboardUrl(route), {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+          body: JSON.stringify(directDashboardPayload(form)),
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok) {
+          directDashboardResult(form, body.error || "Save rejected.", true);
+          return false;
+        }
+        const record = body[routeInfo.bodyKey];
+        directDashboardFallbackUpsert(routePath, record, form);
+        directDashboardResult(form, body.note || routeInfo.message || "Saved.", false);
+      } catch (error) {
+        directDashboardResult(form, `Save failed: ${error && error.message ? error.message : error}`, true);
+      } finally {
+        delete form.dataset.directSaving;
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalButtonText;
+        }
+      }
+      return false;
+    }
+    window.wanderingDashboardSubmit = wanderingDashboardSubmit;
+    document.addEventListener("submit", (event) => {
+      const form = event.target && event.target.closest ? event.target.closest(".admin-form") : null;
+      const routePath = String(form?.dataset?.route || "").split("?")[0];
+      if (!DIRECT_DASHBOARD_SAVE_ROUTES[routePath]) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      wanderingDashboardSubmit(form, event);
+    }, true);
     if (window.location.protocol === "http:" && !["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname)) {
       window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
     }
