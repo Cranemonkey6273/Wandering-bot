@@ -362,8 +362,8 @@ PAGE_TEMPLATE = """
     .table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
     .table th, .table td { border-bottom: 1px solid var(--line); padding: .55rem; text-align: left; color: var(--muted); }
     .table th { color: var(--text); font-size: .8rem; text-transform: uppercase; }
-    .section-nav { position: sticky; top: 5rem; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); backdrop-filter: blur(14px); }
-    .mobile-section-picker { display: none; position: sticky; top: 4.5rem; z-index: 2; padding: .6rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); backdrop-filter: blur(14px); }
+    .section-nav { position: sticky; top: 5rem; z-index: 30; display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); backdrop-filter: blur(14px); }
+    .mobile-section-picker { display: none; position: sticky; top: 4.5rem; z-index: 30; padding: .6rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); backdrop-filter: blur(14px); }
     .mobile-section-picker label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
     .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
     body[data-section="leaderboards"] { --accent: #f1c40f; }
@@ -520,19 +520,21 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-    .zone-map { position: relative; width: 100%; min-height: 34rem; aspect-ratio: 1 / .62; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; background:
+    .zone-map { position: relative; width: 100%; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
       radial-gradient(circle at 62% 55%, rgba(52,152,219,.12), transparent 13%),
       linear-gradient(135deg, #182315, #071008 68%);
-      background-size: cover, auto, auto, auto, auto;
+      background-size: 100% 100%, auto, auto, auto, auto;
       background-position: center, center, center, center, center;
+      background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
       cursor: crosshair;
     }
-    .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
-    .zone-map::after { content: "Click empty map to add - click a zone to edit"; position: absolute; right: .75rem; bottom: .65rem; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 3; isolation: isolate; }
+    .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
+    .zone-map::after { content: "Click empty map to add - click a zone to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
+    .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 2; }
+    .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
     button.zone-dot { padding: 0; min-height: 0; overflow: visible; }
     .zone-dot > span { width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit; }
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
@@ -547,14 +549,14 @@ PAGE_TEMPLATE = """
     .zone-form-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .zone-form-actions button[disabled] { opacity: .45; cursor: not-allowed; }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
-    .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem color-mix(in srgb, var(--zone-colour, var(--accent)) 28%, transparent); background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 2; }
-    .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--accent)); border-radius: 50%; background: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); pointer-events: none; z-index: 1; }
-    .zone-boundary-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem color-mix(in srgb, var(--zone-colour, var(--accent)) 28%, transparent); background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 6; }
+    .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--accent)); border-radius: 50%; background: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); pointer-events: none; z-index: 2; }
+    .zone-boundary-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
     .zone-boundary-layer polygon { fill: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); stroke: var(--zone-colour, var(--accent)); stroke-width: 2.5; }
     .zone-boundary-layer polyline { fill: none; stroke: var(--zone-colour, var(--accent)); stroke-width: 2.5; stroke-dasharray: 7 5; }
-    .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 2; }
+    .zone-boundary-point { position: absolute; transform: translate(-50%, -50%); width: .9rem; height: .9rem; border: 2px solid var(--bg); border-radius: 50%; background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 4; }
     .zone-swatch { display: inline-block; width: .85rem; height: .85rem; border-radius: 50%; border: 1px solid rgba(255,255,255,.55); background: var(--zone-colour, var(--gold)); vertical-align: middle; margin-right: .35rem; }
-    .map-missing { position: absolute; left: .75rem; top: .75rem; z-index: 2; max-width: min(34rem, calc(100% - 1.5rem)); border: 1px solid rgba(237,56,83,.4); border-radius: .45rem; background: rgba(5,8,6,.84); color: #ffd8df; padding: .55rem .7rem; font-size: .9rem; }
+    .map-missing { position: absolute; left: .75rem; top: .75rem; z-index: 7; max-width: min(34rem, calc(100% - 1.5rem)); border: 1px solid rgba(237,56,83,.4); border-radius: .45rem; background: rgba(5,8,6,.84); color: #ffd8df; padding: .55rem .7rem; font-size: .9rem; }
     .trial-notice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid rgba(213,180,95,.45); border-radius: .5rem; padding: .7rem .85rem; background: rgba(213,180,95,.13); color: var(--text); }
     .trial-notice span { color: var(--muted); }
     .map-readout { margin-top: .4rem; color: var(--gold); font-size: .9rem; }
@@ -573,7 +575,7 @@ PAGE_TEMPLATE = """
       .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .loadout-builder { grid-template-columns: 1fr; }
       .xml-output-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
-      .zone-map { min-height: 22rem; }
+      .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
       .metric { text-align: left; }
       nav { display: none; }
     }
@@ -607,7 +609,7 @@ PAGE_TEMPLATE = """
       .inline-action button { width: 100%; }
       button, .button, .tab-link, nav a { min-height: 2.65rem; padding: .62rem .7rem; font-size: .95rem; }
       input, textarea, select { min-height: 2.75rem; font-size: 16px; }
-      .zone-map { min-height: 18rem; aspect-ratio: 1 / .86; }
+      .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
       .zone-map::after { font-size: .76rem; right: .45rem; bottom: .45rem; }
       .zone-dot small { display: none; }
       .map-missing { font-size: .8rem; }
@@ -626,7 +628,7 @@ PAGE_TEMPLATE = """
       .scenario-actions, .owner-server-actions { grid-template-columns: 1fr; }
       .item-table { min-width: 36rem; }
       .table-scroll .item-table { min-width: 36rem; }
-      .zone-map { min-height: 15rem; }
+      .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
       .pill { font-size: .76rem; }
     }
   </style>
@@ -1418,7 +1420,7 @@ Event pings | bell | 1234567890</textarea></label>
               </select>
             </label>
             <label>X coordinate <input name="x" type="number" value="{{ edit_zone.x }}"></label>
-            <label>Y coordinate <input name="y" type="number" value="{{ edit_zone.y }}"></label>
+            <label>Z coordinate <input name="y" type="number" value="{{ edit_zone.z or edit_zone.y }}"></label>
             <label>Shape
               <select name="shape" data-zone-shape><option value="circle" {% if edit_zone.shape == 'circle' %}selected{% endif %}>Circle</option><option value="boundary" {% if edit_zone.shape == 'boundary' %}selected{% endif %}>Draw boundary</option></select>
             </label>
@@ -1469,6 +1471,9 @@ Event pings | bell | 1234567890</textarea></label>
               {% if zone.shape == "boundary" and zone.points_percent %}
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
+              {% if zone.shape != "boundary" %}
+              <span class="zone-radius-ring {{ zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></span>
+              {% endif %}
               <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
               {% endfor %}
             </div>
@@ -1490,7 +1495,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ loop.index }}</td>
                 <td><span class="zone-swatch" style="--zone-colour: {{ zone.display_colour or zone.colour }};"></span>{{ zone.name }}</td>
                 <td>{{ zone.zone_type }}</td>
-                <td>{{ zone.x }}, {{ zone.y }}</td>
+                <td>{{ zone.x }}, {{ zone.z or zone.y }}</td>
                 <td>{{ zone.radius }}m</td>
                 <td>{{ zone.action or 'notify' }}</td>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
@@ -4699,7 +4704,7 @@ Event pings | bell | 1234567890</textarea></label>
         setZoneEditingState("");
       }
 
-      function startNewZoneAt(x, y) {
+      function startNewZoneAt(x, z) {
         clearZoneEditingState();
         const zoneType = zoneFields.type && zoneFields.type.value ? zoneFields.type.value : "radar";
         if (zoneFields.zoneId) zoneFields.zoneId.value = "";
@@ -4708,7 +4713,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (zoneFields.action && !zoneFields.action.value) setSelectValue(zoneFields.action, "none");
         const existingCount = map.querySelectorAll(".zone-dot").length;
         syncZoneColour(zonePalette[existingCount % zonePalette.length]);
-        if (result) result.textContent = `New zone draft at X ${x}, Y ${y}.`;
+        if (result) result.textContent = `New zone draft at X ${x}, Z ${z}.`;
       }
 
       function syncRadius(value) {
@@ -4769,10 +4774,11 @@ Event pings | bell | 1234567890</textarea></label>
         boundaryPoints.length = 0;
         savedPoints.forEach((point) => {
           const x = Number(point.x || 0);
-          const y = Number(point.y || 0);
+          const y = Number((point.z ?? point.y) || 0);
           boundaryPoints.push({
             x,
             y,
+            z: y,
             xPercent: Number(point.xPercent || ((x / size) * 100)),
             yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
           });
@@ -4826,6 +4832,52 @@ Event pings | bell | 1234567890</textarea></label>
         boundaryPoints.pop();
         renderBoundary();
       });
+      function findNearestZoneMarker(event) {
+        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot"));
+        let closest = null;
+        let closestDistance = Infinity;
+        markers.forEach((marker) => {
+          const markerRect = marker.getBoundingClientRect();
+          const centerX = markerRect.left + markerRect.width / 2;
+          const centerY = markerRect.top + markerRect.height / 2;
+          const distance = Math.hypot(event.clientX - centerX, event.clientY - centerY);
+          if (distance < closestDistance) {
+            closest = marker;
+            closestDistance = distance;
+          }
+        });
+        if (!closest) return false;
+        const markerRect = closest.getBoundingClientRect();
+        const hitRadius = Math.max(42, markerRect.width / 2 + 24);
+        if (closestDistance <= hitRadius) {
+          closest.click();
+          return true;
+        }
+        return false;
+      }
+      function findZoneByGamePoint(x, z) {
+        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot"));
+        let closest = null;
+        let closestDistance = Infinity;
+        markers.forEach((marker) => {
+          let zone = {};
+          try { zone = JSON.parse(marker.dataset.zone || "{}"); } catch (error) { zone = {}; }
+          if (!zone || !Object.keys(zone).length) return;
+          const zoneX = Number(zone.x ?? zone.center_x ?? 0);
+          const zoneZ = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0);
+          if (!Number.isFinite(zoneX) || !Number.isFinite(zoneZ)) return;
+          const radius = Math.max(75, Number(zone.radius ?? zone.radius_m ?? 250));
+          const distance = Math.hypot(Number(x) - zoneX, Number(z) - zoneZ);
+          const hitDistance = radius + 150;
+          if (distance <= hitDistance && distance < closestDistance) {
+            closest = marker;
+            closestDistance = distance;
+          }
+        });
+        if (!closest) return false;
+        closest.click();
+        return true;
+      }
       map.addEventListener("click", (event) => {
         if (event.target.closest("[data-zone-edit]")) return;
         const rect = map.getBoundingClientRect();
@@ -4833,6 +4885,7 @@ Event pings | bell | 1234567890</textarea></label>
         const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
         const x = Math.round((xPercent / 100) * size);
         const y = Math.round((1 - (yPercent / 100)) * size);
+        if (findNearestZoneMarker(event) || findZoneByGamePoint(x, y)) return;
         if (zoneFields.x) zoneFields.x.value = Math.max(0, Math.min(size, x));
         if (zoneFields.y) zoneFields.y.value = Math.max(0, Math.min(size, y));
         startNewZoneAt(zoneFields.x ? zoneFields.x.value : x, zoneFields.y ? zoneFields.y.value : y);
@@ -4845,14 +4898,15 @@ Event pings | bell | 1234567890</textarea></label>
         cursor.style.left = `${xPercent}%`;
         cursor.style.top = `${yPercent}%`;
         if (shapeSelect && shapeSelect.value === "boundary") {
-          boundaryPoints.push({x: zoneFields.x ? zoneFields.x.value : 0, y: zoneFields.y ? zoneFields.y.value : 0, xPercent, yPercent});
+          const zoneZ = zoneFields.y ? zoneFields.y.value : 0;
+          boundaryPoints.push({x: zoneFields.x ? zoneFields.x.value : 0, y: zoneZ, z: zoneZ, xPercent, yPercent});
           renderBoundary();
         }
         renderCirclePreview();
         const readout = form.querySelector("[data-map-readout]");
         if (readout) {
           const mode = shapeSelect && shapeSelect.value === "boundary" ? `Boundary point ${boundaryPoints.length}` : `Circle radius ${radiusInput ? radiusInput.value : 250}m`;
-          readout.textContent = `New zone X ${zoneFields.x ? zoneFields.x.value : 0}, Y ${zoneFields.y ? zoneFields.y.value : 0} - ${mode}`;
+          readout.textContent = `New zone X ${zoneFields.x ? zoneFields.x.value : 0}, Z ${zoneFields.y ? zoneFields.y.value : 0} - ${mode}`;
         }
       });
       document.querySelectorAll("[data-zone-edit]").forEach((button) => {
@@ -4872,8 +4926,10 @@ Event pings | bell | 1234567890</textarea></label>
           if (zoneFields.zoneId) zoneFields.zoneId.value = zone.id || zone.name || "";
           if (zoneFields.name) zoneFields.name.value = zone.name || "";
           setSelectValue(zoneFields.type, zone.zone_type || zone.type || "radar");
-          if (zoneFields.x) zoneFields.x.value = zone.x || 0;
-          if (zoneFields.y) zoneFields.y.value = zone.y || 0;
+          const zoneX = Number(zone.x ?? zone.center_x ?? 0);
+          const zoneZ = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0);
+          if (zoneFields.x) zoneFields.x.value = zoneX;
+          if (zoneFields.y) zoneFields.y.value = zoneZ;
           setSelectValue(zoneFields.shape, zone.shape || "circle");
           syncRadius(zone.radius || 250);
           setSelectValue(zoneFields.channel, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
@@ -4891,10 +4947,11 @@ Event pings | bell | 1234567890</textarea></label>
           const savedPoints = Array.isArray(zone.boundary_points) ? zone.boundary_points : [];
           savedPoints.forEach((point) => {
             const x = Number(point.x || 0);
-            const y = Number(point.y || 0);
+            const y = Number((point.z ?? point.y) || 0);
             boundaryPoints.push({
               x,
               y,
+              z: y,
               xPercent: Number(point.xPercent || ((x / size) * 100)),
               yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
             });
@@ -7009,11 +7066,30 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
             zones.append(zone)
     normalized = []
     seen = set()
+    def first_present(*values: Any) -> Any:
+        return next((value for value in values if value not in (None, "")), 0)
+
     for zone in zones:
         if not isinstance(zone, dict):
             continue
-        x = max(0, min(map_size, safe_int(zone.get("x") or zone.get("center_x") or zone.get("pos_x"))))
-        y = max(0, min(map_size, safe_int(zone.get("y") or zone.get("center_y") or zone.get("pos_y"))))
+        x = max(0, min(map_size, safe_int(first_present(zone.get("x"), zone.get("center_x"), zone.get("pos_x")))))
+        z = max(
+            0,
+            min(
+                map_size,
+                safe_int(
+                    first_present(
+                        zone.get("z"),
+                        zone.get("center_z"),
+                        zone.get("pos_z"),
+                        zone.get("y"),
+                        zone.get("center_y"),
+                        zone.get("pos_y"),
+                    )
+                ),
+            ),
+        )
+        y = z
         radius = max(25, safe_int(zone.get("radius") or zone.get("radius_m") or 250))
         shape = str(zone.get("shape") or ("boundary" if zone.get("boundary_points") else "circle")).lower()
         if shape not in {"circle", "boundary"}:
@@ -7024,8 +7100,8 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
             if not isinstance(point, dict):
                 continue
             point_x = max(0, min(map_size, safe_int(point.get("x"))))
-            point_y = max(0, min(map_size, safe_int(point.get("y"))))
-            boundary_points.append({"x": point_x, "y": point_y})
+            point_z = max(0, min(map_size, safe_int(first_present(point.get("z"), point.get("y")))))
+            boundary_points.append({"x": point_x, "y": point_z, "z": point_z})
         points_percent = " ".join(
             f"{round((point['x'] / map_size) * 100, 2)},{round(100 - ((point['y'] / map_size) * 100), 2)}"
             for point in boundary_points
@@ -7095,6 +7171,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "faction_name": faction_name,
                 "x": x,
                 "y": y,
+                "z": y,
                 "radius": radius,
                 "shape": shape,
                 "boundary_points": boundary_points,
@@ -7108,6 +7185,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "enabled": bool(zone.get("enabled", True)),
                 "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
                 "y_percent": round(100 - ((y / map_size) * 100), 2) if map_size else 0,
+                "radius_percent": round(max(1.2, min(75.0, ((radius * 2) / map_size) * 100)), 3) if map_size else 3,
                 "dot_size": max(34, min(72, int((radius / map_size) * 420))),
             }
         )
@@ -8479,7 +8557,9 @@ def api_zone():
     config = guild_configs.setdefault(guild_id, {"channels": {}})
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
     x = max(0, min(map_size, safe_int(payload.get("x"))))
-    y = max(0, min(map_size, safe_int(payload.get("y"))))
+    z_value = next((value for value in (payload.get("z"), payload.get("y")) if value not in (None, "")), 0)
+    z = max(0, min(map_size, safe_int(z_value)))
+    y = z
     radius = max(1, safe_int(payload.get("radius"), 250))
     shape = str(payload.get("shape") or "circle").strip().lower()
     if shape not in {"circle", "boundary"}:
@@ -8495,12 +8575,10 @@ def api_zone():
         for point in raw_boundary_points:
             if not isinstance(point, dict):
                 continue
-            boundary_points.append(
-                {
-                    "x": max(0, min(map_size, safe_int(point.get("x")))),
-                    "y": max(0, min(map_size, safe_int(point.get("y")))),
-                }
-            )
+            point_x = max(0, min(map_size, safe_int(point.get("x"))))
+            point_z_value = next((value for value in (point.get("z"), point.get("y")) if value not in (None, "")), 0)
+            point_z = max(0, min(map_size, safe_int(point_z_value)))
+            boundary_points.append({"x": point_x, "y": point_z, "z": point_z})
     if shape == "boundary" and len(boundary_points) < 3:
         return jsonify({"ok": False, "error": "draw at least 3 boundary points before saving"}), 400
     zone_id = str(payload.get("zone_id") or payload.get("id") or name.lower().replace(" ", "-"))
@@ -8516,6 +8594,7 @@ def api_zone():
         "faction_name": faction_name,
         "x": x,
         "y": y,
+        "z": y,
         "radius": radius,
         "shape": shape,
         "boundary_points": boundary_points,
