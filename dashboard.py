@@ -530,21 +530,24 @@ PAGE_TEMPLATE = """
       background-position: center, center, center, center, center;
       cursor: crosshair;
     }
-    .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
-    .zone-map::after { content: "Click map to set X/Y"; position: absolute; right: .75rem; bottom: .65rem; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 3; }
-    button.zone-dot { padding: 0; min-height: 0; }
+    .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
+    .zone-map::after { content: "Click empty map to add - click a zone to edit"; position: absolute; right: .75rem; bottom: .65rem; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
+    .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 3; isolation: isolate; }
+    button.zone-dot { padding: 0; min-height: 0; overflow: visible; }
+    .zone-dot > span { width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit; }
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
-    .zone-dot.safe { --zone-colour: #75d89a; }
-    .zone-dot.pvp { --zone-colour: #ed3853; }
-    .zone-dot.radar { --zone-colour: #d5b45f; }
-    .zone-dot.action { --zone-colour: #ff9f43; }
-    .zone-dot.faction { --zone-colour: #b978ff; }
-    .zone-dot.custom { --zone-colour: #6ec6e0; }
+    .zone-dot small { position: absolute; left: calc(100% + .35rem); top: 50%; transform: translateY(-50%); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 74%, rgba(255,255,255,.35)); border-radius: .35rem; padding: .22rem .42rem; background: rgba(5,8,6,.86); color: var(--text); font-size: .74rem; font-weight: 900; text-align: left; pointer-events: none; }
+    .zone-dot.editing small { color: #fff; border-color: #fff; }
+    .zone-dot.safe { --zone-colour: #22c55e; }
+    .zone-dot.pvp { --zone-colour: #ef4444; }
+    .zone-dot.radar { --zone-colour: #38bdf8; }
+    .zone-dot.action { --zone-colour: #f97316; }
+    .zone-dot.faction { --zone-colour: #a855f7; }
+    .zone-dot.custom { --zone-colour: #facc15; }
     .zone-form-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .zone-form-actions button[disabled] { opacity: .45; cursor: not-allowed; }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
-    .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
+    .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem color-mix(in srgb, var(--zone-colour, var(--accent)) 28%, transparent); background: var(--zone-colour, var(--accent)); pointer-events: none; z-index: 2; }
     .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--accent)); border-radius: 50%; background: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); pointer-events: none; z-index: 1; }
     .zone-boundary-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
     .zone-boundary-layer polygon { fill: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); stroke: var(--zone-colour, var(--accent)); stroke-width: 2.5; }
@@ -606,6 +609,7 @@ PAGE_TEMPLATE = """
       input, textarea, select { min-height: 2.75rem; font-size: 16px; }
       .zone-map { min-height: 18rem; aspect-ratio: 1 / .86; }
       .zone-map::after { font-size: .76rem; right: .45rem; bottom: .45rem; }
+      .zone-dot small { display: none; }
       .map-missing { font-size: .8rem; }
       .leader-row { gap: .4rem; }
       .leader-name { white-space: normal; }
@@ -1465,10 +1469,10 @@ Event pings | bell | 1234567890</textarea></label>
               {% if zone.shape == "boundary" and zone.points_percent %}
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
-              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</button>
+              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
               {% endfor %}
             </div>
-            <div class="full map-readout" data-map-readout>Click the map to choose a coordinate.</div>
+            <div class="full map-readout" data-map-readout>Click empty map space to draft a new zone. Click a marker or Edit to load an existing zone.</div>
             <div class="full zone-form-actions">
               <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
               <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
@@ -1491,20 +1495,10 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ zone.action or 'notify' }}</td>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
                 <td>
-                  <form class="inline-action" method="get" action="/admin#zone-edit-form">
-                    <input class="hidden-field" name="section" value="zones">
-                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-                    <input class="hidden-field" name="edit_zone" value="{{ zone.id }}">
-                    <button type="submit" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button>
-                  </form>
-                  <form class="admin-form inline-action" method="post" action="/api/admin/zone-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
-                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-                    <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
-                    <input class="hidden-field" name="zone_type" value="{{ zone.zone_type }}">
-                    <input class="hidden-field" name="name" value="{{ zone.name }}">
-                    <input class="hidden-field" name="action" value="delete">
-                    <button type="submit">Delete</button> <span class="result muted"></span>
-                  </form>
+                  <div class="inline-action">
+                    <button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</button>
+                  </div>
+                  <button type="button" data-zone-delete data-zone-id="{{ zone.id }}" data-zone-type="{{ zone.zone_type }}" data-zone-name="{{ zone.name }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
                 </td>
               </tr>
               {% else %}
@@ -4668,9 +4662,21 @@ Event pings | bell | 1234567890</textarea></label>
         triggers: form.querySelector('[name="triggers"]'),
         ignored: form.querySelector('[name="ignored_gamertags"]'),
       };
+      const zonePalette = [
+        "#ff4d6d",
+        "#38bdf8",
+        "#a3e635",
+        "#f97316",
+        "#c084fc",
+        "#22c55e",
+        "#facc15",
+        "#14b8a6",
+        "#f472b6",
+        "#60a5fa",
+      ];
 
       function syncZoneColour(colour) {
-        const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : "#d5b45f";
+        const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : zonePalette[0];
         map.style.setProperty("--zone-colour", value);
         if (colourInput) colourInput.value = value;
       }
@@ -4691,6 +4697,18 @@ Event pings | bell | 1234567890</textarea></label>
         document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
         if (zoneFields.zoneId) zoneFields.zoneId.value = "";
         setZoneEditingState("");
+      }
+
+      function startNewZoneAt(x, y) {
+        clearZoneEditingState();
+        const zoneType = zoneFields.type && zoneFields.type.value ? zoneFields.type.value : "radar";
+        if (zoneFields.zoneId) zoneFields.zoneId.value = "";
+        if (zoneFields.name) zoneFields.name.value = `New ${zoneType} zone`;
+        if (zoneFields.enabled) setSelectValue(zoneFields.enabled, "true");
+        if (zoneFields.action && !zoneFields.action.value) setSelectValue(zoneFields.action, "none");
+        const existingCount = map.querySelectorAll(".zone-dot").length;
+        syncZoneColour(zonePalette[existingCount % zonePalette.length]);
+        if (result) result.textContent = `New zone draft at X ${x}, Y ${y}.`;
       }
 
       function syncRadius(value) {
@@ -4716,7 +4734,7 @@ Event pings | bell | 1234567890</textarea></label>
         circle.style.height = `${Math.max(12, width)}px`;
         circle.style.left = cursor.style.left;
         circle.style.top = cursor.style.top;
-        circle.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
+        circle.style.setProperty("--zone-colour", colourInput ? colourInput.value : zonePalette[0]);
         circle.style.display = shapeSelect && shapeSelect.value === "boundary" ? "none" : "";
       }
 
@@ -4730,7 +4748,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (boundaryPoints.length > 1) {
           const node = document.createElementNS("http://www.w3.org/2000/svg", boundaryPoints.length > 2 ? "polygon" : "polyline");
           node.setAttribute("points", percentPoints);
-          node.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
+          node.style.setProperty("--zone-colour", colourInput ? colourInput.value : zonePalette[0]);
           boundaryLayer.appendChild(node);
         }
         boundaryPoints.forEach((point) => {
@@ -4738,7 +4756,7 @@ Event pings | bell | 1234567890</textarea></label>
           marker.className = "zone-boundary-point";
           marker.style.left = `${point.xPercent}%`;
           marker.style.top = `${point.yPercent}%`;
-          marker.style.setProperty("--zone-colour", colourInput ? colourInput.value : "#d5b45f");
+          marker.style.setProperty("--zone-colour", colourInput ? colourInput.value : zonePalette[0]);
           map.appendChild(marker);
         });
       }
@@ -4810,7 +4828,6 @@ Event pings | bell | 1234567890</textarea></label>
       });
       map.addEventListener("click", (event) => {
         if (event.target.closest("[data-zone-edit]")) return;
-        clearZoneEditingState();
         const rect = map.getBoundingClientRect();
         const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
         const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
@@ -4818,6 +4835,7 @@ Event pings | bell | 1234567890</textarea></label>
         const y = Math.round((1 - (yPercent / 100)) * size);
         if (zoneFields.x) zoneFields.x.value = Math.max(0, Math.min(size, x));
         if (zoneFields.y) zoneFields.y.value = Math.max(0, Math.min(size, y));
+        startNewZoneAt(zoneFields.x ? zoneFields.x.value : x, zoneFields.y ? zoneFields.y.value : y);
         let cursor = map.querySelector(".zone-cursor");
         if (!cursor) {
           cursor = document.createElement("span");
@@ -4845,7 +4863,12 @@ Event pings | bell | 1234567890</textarea></label>
           try { zone = JSON.parse(button.dataset.zone || "{}"); } catch (error) { zone = {}; }
           if (!zone || !Object.keys(zone).length) return;
           document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
-          button.classList.add("editing");
+          const zoneKey = String(zone.id || zone.name || "");
+          document.querySelectorAll("[data-zone-edit]").forEach((item) => {
+            let itemZone = {};
+            try { itemZone = JSON.parse(item.dataset.zone || "{}"); } catch (error) { itemZone = {}; }
+            if (String(itemZone.id || itemZone.name || "") === zoneKey) item.classList.add("editing");
+          });
           if (zoneFields.zoneId) zoneFields.zoneId.value = zone.id || zone.name || "";
           if (zoneFields.name) zoneFields.name.value = zone.name || "";
           setSelectValue(zoneFields.type, zone.zone_type || zone.type || "radar");
@@ -4856,7 +4879,7 @@ Event pings | bell | 1234567890</textarea></label>
           setSelectValue(zoneFields.channel, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
           if (zoneFields.role) zoneFields.role.value = zone.role_id || zone.mention_role_id || "";
           setSelectValue(zoneFields.faction, zone.faction_name || zone.faction || "");
-          syncZoneColour(zone.colour || zone.color || "#d5b45f");
+          syncZoneColour(zone.display_colour || button.dataset.zoneColour || zone.colour || zone.color || zonePalette[0]);
           setSelectValue(zoneFields.enabled, zone.enabled === false ? "false" : "true");
           setSelectValue(zoneFields.action, zone.action || "none");
           setSelectValue(zoneFields.banType, zone.ban_type || "temp");
@@ -4894,43 +4917,62 @@ Event pings | bell | 1234567890</textarea></label>
           if (zoneFields.name) zoneFields.name.focus();
         });
       });
+      async function deleteZone(payload, button) {
+        if (!payload.zone_id && !payload.name) return;
+        if (!window.confirm(`Delete ${payload.name || "this zone"} from this server?`)) return;
+        const originalText = button ? button.textContent : "";
+        if (button) {
+          button.disabled = true;
+          button.textContent = "Deleting...";
+        }
+        try {
+          const response = await fetch(secureDashboardUrl("/api/admin/zone-action"), {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || body.ok === false) throw new Error(body.error || "Zone delete failed.");
+          if (result) result.textContent = body.note || "Zone deleted.";
+          window.location.href = secureDashboardUrl(`/admin?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
+        } catch (error) {
+          if (result) result.textContent = error.message || "Zone delete failed.";
+          if (button) {
+            button.disabled = false;
+            button.textContent = originalText;
+          }
+        }
+      }
       if (deleteCurrentButton) {
         deleteCurrentButton.addEventListener("click", async () => {
-          const zoneId = zoneFields.zoneId ? zoneFields.zoneId.value : "";
-          const zoneName = zoneFields.name ? zoneFields.name.value : "";
-          if (!zoneId && !zoneName) return;
-          if (!window.confirm(`Delete ${zoneName || "this zone"} from this server?`)) return;
-          const originalText = deleteCurrentButton.textContent;
-          deleteCurrentButton.disabled = true;
-          deleteCurrentButton.textContent = "Deleting...";
-          try {
-            const payload = {
-              guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
-              zone_id: zoneId,
-              zone_type: zoneFields.type ? zoneFields.type.value : "",
-              name: zoneName,
-              action: "delete",
-              dashboard_mode: "{{ mode }}",
-            };
-            const response = await fetch(secureDashboardUrl("/api/admin/zone-action"), {
-              method: "POST",
-              headers: {"Content-Type": "application/json"},
-              body: JSON.stringify(payload),
-            });
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok || body.ok === false) throw new Error(body.error || "Zone delete failed.");
-            if (result) result.textContent = body.note || "Zone deleted.";
-            window.location.href = secureDashboardUrl(`/admin?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
-          } catch (error) {
-            if (result) result.textContent = error.message || "Zone delete failed.";
-            deleteCurrentButton.disabled = false;
-            deleteCurrentButton.textContent = originalText;
-          }
+          const payload = {
+            guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
+            zone_id: zoneFields.zoneId ? zoneFields.zoneId.value : "",
+            zone_type: zoneFields.type ? zoneFields.type.value : "",
+            name: zoneFields.name ? zoneFields.name.value : "",
+            action: "delete",
+            dashboard_mode: "{{ mode }}",
+          };
+          await deleteZone(payload, deleteCurrentButton);
         });
       }
+      document.querySelectorAll("[data-zone-delete]").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          await deleteZone({
+            guild_id: button.dataset.guildId || (zoneFields.guildId ? zoneFields.guildId.value : ""),
+            zone_id: button.dataset.zoneId || "",
+            zone_type: button.dataset.zoneType || "",
+            name: button.dataset.zoneName || "",
+            action: "delete",
+            dashboard_mode: "{{ mode }}",
+          }, button);
+        });
+      });
       setZoneEditingState(zoneFields.zoneId && zoneFields.zoneId.value ? (zoneFields.name ? zoneFields.name.value : "zone") : "");
       syncRadius(radiusInput ? radiusInput.value : 250);
-      syncZoneColour(colourInput ? colourInput.value : "#d5b45f");
+      syncZoneColour(colourInput ? colourInput.value : zonePalette[0]);
       loadBoundaryFromField();
       if (zoneFields.zoneId && zoneFields.zoneId.value) {
         placeCursorFromForm();
@@ -7008,28 +7050,30 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
             if isinstance(faction, dict):
                 faction_colour = str(faction.get("colour") or faction.get("color") or "")
         fallback_colours = {
-            "safe": "#75d89a",
-            "pvp": "#ed3853",
-            "radar": "#d5b45f",
-            "action": "#ff9f43",
-            "faction": "#b978ff",
-            "custom": "#6ec6e0",
+            "safe": "#22c55e",
+            "pvp": "#ef4444",
+            "radar": "#38bdf8",
+            "action": "#f97316",
+            "faction": "#a855f7",
+            "custom": "#facc15",
         }
         raw_colour = str(zone.get("colour") or zone.get("color") or "").strip()
-        colour = safe_colour(raw_colour or faction_colour, fallback_colours.get(zone_type, "#d5b45f"))
+        colour = safe_colour(raw_colour or faction_colour, fallback_colours.get(zone_type, "#38bdf8"))
         zone_palette = [
-            "#d5b45f",
-            "#6ec6e0",
-            "#b978ff",
-            "#ff7b68",
-            "#9dff3a",
-            "#ff9f43",
-            "#75d89a",
-            "#4da3ff",
-            "#f97fb2",
-            "#f6e45f",
+            "#38bdf8",
+            "#f97316",
+            "#a855f7",
+            "#22c55e",
+            "#facc15",
+            "#ef4444",
+            "#14b8a6",
+            "#60a5fa",
+            "#f472b6",
+            "#84cc16",
+            "#fb7185",
+            "#06b6d4",
         ]
-        defaultish = {"", "#d5b45f", "#8d963e", fallback_colours.get(zone_type, "").lower()}
+        defaultish = {"", "#d5b45f", "#8d963e", "#6ec6e0", "#b978ff", "#ff7b68", "#9dff3a", "#ff9f43", "#75d89a", fallback_colours.get(zone_type, "").lower()}
         if faction_colour:
             display_colour = safe_colour(faction_colour, colour)
         elif raw_colour.lower() in defaultish:
