@@ -1242,8 +1242,18 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#faction-edit-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Faction name <input name="name" value="The Wanderers"></label>
-            <label>Leader Discord ID <input name="leader_id" placeholder="Discord user id"></label>
-            <label>Faction role ID <input name="role_id" placeholder="Discord role id"></label>
+            <label>Leader
+              <select name="leader_id">
+                <option value="">No leader selected</option>
+                {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}">{{ member.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Faction role
+              <select name="role_id">
+                <option value="">No faction role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}">{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
             <label>Alert channel
               <select name="alert_channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
@@ -1258,9 +1268,32 @@ Event pings | bell | 1234567890</textarea></label>
           <form class="admin-form" method="post" action="/api/admin/faction-member" data-route="/api/admin/faction-member">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#factions-radar">
+            <input class="hidden-field" name="member_name" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Faction <input name="name" value="The Wanderers"></label>
-            <label>Member Discord ID <input name="member_id" placeholder="Discord user id"></label>
+            <label>Faction
+              <select name="name" data-faction-member-select>
+                {% if server and server.factions %}
+                  {% for faction_name, faction in server.factions.items() %}<option value="{{ faction.name or faction_name }}">{{ faction.name or faction_name }}</option>{% endfor %}
+                {% else %}
+                  <option value="The Wanderers">The Wanderers</option>
+                {% endif %}
+              </select>
+            </label>
+            <label>Member
+              <select name="member_id" data-member-id-select>
+                <option value="">Choose Discord member/player</option>
+                {% if server and server.discord_members %}
+                <optgroup label="Discord members">
+                  {% for member in server.discord_members %}<option value="{{ member.id }}" data-member-name="{{ member.name }}">{{ member.label }}</option>{% endfor %}
+                </optgroup>
+                {% endif %}
+                {% if server and server.members %}
+                <optgroup label="Tracked players with Discord IDs">
+                  {% for member in server.members if member.discord_id %}<option value="{{ member.discord_id }}" data-member-name="{{ member.discord_name or member.name }}">{{ member.name }}{% if member.discord_name %} / {{ member.discord_name }}{% endif %} ({{ member.discord_id }})</option>{% endfor %}
+                </optgroup>
+                {% endif %}
+              </select>
+            </label>
             <label>Action <select name="action"><option value="add">Add member</option><option value="remove">Remove member</option></select></label>
             <div class="full"><button type="submit">Update Member</button> <span class="result muted"></span></div>
           </form>
@@ -4403,17 +4436,46 @@ Event pings | bell | 1234567890</textarea></label>
       button.addEventListener("click", () => {
         const form = document.getElementById("faction-edit-form");
         if (!form) return;
+        function chooseValue(select, value, fallbackLabel) {
+          if (!select || value === undefined || value === null) return;
+          const text = String(value || "").trim();
+          if (!text) {
+            select.value = "";
+            return;
+          }
+          const option = Array.from(select.options).find((item) => item.value === text || item.dataset.channelId === text);
+          if (option) {
+            select.value = option.value;
+            return;
+          }
+          const created = new Option(fallbackLabel || text, text);
+          created.dataset.legacy = "true";
+          select.add(created);
+          select.value = text;
+        }
         form.elements.name.value = button.dataset.name || "";
-        form.elements.leader_id.value = button.dataset.leader || "";
-        form.elements.role_id.value = button.dataset.role || "";
+        chooseValue(form.elements.leader_id, button.dataset.leader || "", button.dataset.leader || "Stored leader");
+        chooseValue(form.elements.role_id, button.dataset.role || "", button.dataset.role || "Stored faction role");
         form.elements.colour.value = button.dataset.colour || "#8d963e";
         if (form.elements.alert_channel_key && button.dataset.channel) {
-          const option = Array.from(form.elements.alert_channel_key.options).find((item) => item.value === button.dataset.channel || item.dataset.channelId === button.dataset.channel);
-          if (option) form.elements.alert_channel_key.value = option.value;
+          chooseValue(form.elements.alert_channel_key, button.dataset.channel, button.dataset.channel);
         }
+        const result = form.querySelector(".result");
+        if (result) result.textContent = `Editing ${button.dataset.name || "faction"} now.`;
         form.scrollIntoView({behavior: "smooth", block: "center"});
         form.elements.name.focus();
       });
+    });
+    document.querySelectorAll("[data-member-id-select]").forEach((select) => {
+      const form = select.closest("form");
+      if (!form) return;
+      const nameField = form.elements.member_name;
+      function syncMemberName() {
+        const option = select.selectedOptions[0];
+        if (nameField) nameField.value = option ? (option.dataset.memberName || option.textContent || "") : "";
+      }
+      select.addEventListener("change", syncMemberName);
+      syncMemberName();
     });
     document.querySelectorAll("[data-scenario-preset]").forEach((presetSelect) => {
       const form = presetSelect.closest("form");
