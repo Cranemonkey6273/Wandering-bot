@@ -1227,6 +1227,20 @@ Event pings | bell | 1234567890</textarea></label>
     {% endif %}
 
     {% if mode in ["admin", "owner"] and active_section == "factions" %}
+    {% set edit_faction_name = request.args.get('edit_faction', '') %}
+    {% set edit_faction = namespace(name=(edit_faction_name or 'The Wanderers'), leader='', role='', channel='', colour='#8d963e') %}
+    {% if server and server.factions and edit_faction_name %}
+      {% for faction_name, faction in server.factions.items() %}
+        {% set display_name = faction.name or faction_name %}
+        {% if display_name == edit_faction_name or faction_name == edit_faction_name %}
+          {% set edit_faction.name = display_name %}
+          {% set edit_faction.leader = faction.leader_id or faction.leader or '' %}
+          {% set edit_faction.role = faction.role_id or faction.discord_role_id or '' %}
+          {% set edit_faction.channel = faction.alert_channel_key or faction.alert_channel_id or '' %}
+          {% set edit_faction.colour = faction.colour or faction.color or '#8d963e' %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <section class="section-panel" id="factions-radar">
       <div class="section-head">
         <div>
@@ -1241,26 +1255,29 @@ Event pings | bell | 1234567890</textarea></label>
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#faction-edit-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Faction name <input name="name" value="The Wanderers"></label>
+            <label>Faction name <input name="name" value="{{ edit_faction.name }}"></label>
             <label>Leader
               <select name="leader_id">
                 <option value="">No leader selected</option>
-                {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}">{{ member.label }}</option>{% endfor %}
+                {% if edit_faction.leader %}<option value="{{ edit_faction.leader }}" selected>Stored leader {{ edit_faction.leader }}</option>{% endif %}
+                {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}" {% if member.id == edit_faction.leader %}selected{% endif %}>{{ member.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Faction role
               <select name="role_id">
                 <option value="">No faction role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}">{{ role.label }}</option>{% endfor %}
+                {% if edit_faction.role %}<option value="{{ edit_faction.role }}" selected>Stored role {{ edit_faction.role }}</option>{% endif %}
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == edit_faction.role %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Alert channel
               <select name="alert_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'factions_chat' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                {% if edit_faction.channel %}<option value="{{ edit_faction.channel }}" selected>Stored channel {{ edit_faction.channel }}</option>{% endif %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == edit_faction.channel or channel.id == edit_faction.channel or channel.key == edit_faction.channel or (not edit_faction.channel and channel.key == 'factions_chat') %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label>Colour <input name="colour" type="color" value="#8d963e"></label>
-            <div class="full"><button type="submit">Save Faction</button> <span class="result muted"></span></div>
+            <label>Colour <input name="colour" type="color" value="{{ edit_faction.colour }}"></label>
+            <div class="full"><button type="submit">{{ 'Update Faction' if edit_faction_name else 'Save Faction' }}</button> <span class="result muted">{% if edit_faction_name %}Editing {{ edit_faction.name }}.{% endif %}</span></div>
           </form>
         </article>
         <article class="admin-panel">
@@ -1311,7 +1328,12 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ faction.role_id or faction.discord_role_id or '-' }}</td>
                 <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
                 <td>
-                  <button type="button" data-faction-edit data-name="{{ faction.name or faction_name }}" data-leader="{{ faction.leader_id or faction.leader or '' }}" data-role="{{ faction.role_id or faction.discord_role_id or '' }}" data-channel="{{ faction.alert_channel_key or faction.alert_channel_id or '' }}" data-colour="{{ faction.colour or faction.color or '#8d963e' }}">Edit</button>
+                  <form class="inline-action" method="get" action="/admin#faction-edit-form">
+                    <input class="hidden-field" name="section" value="factions">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="edit_faction" value="{{ faction.name or faction_name }}">
+                    <button type="submit">Edit</button>
+                  </form>
                   <form class="admin-form inline-action" method="post" action="/api/admin/faction-action" data-route="/api/admin/faction-action" data-confirm="Delete faction {{ faction.name or faction_name }} from this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#factions-radar">
