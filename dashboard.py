@@ -883,42 +883,48 @@ PAGE_TEMPLATE = """
               <div class="owner-server-actions">
                 <a class="button" href="/owner?guild_id={{ owned.guild_id }}">Open</a>
                 {% if owned.dashboard_access.owner_admin_visible %}
-                <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="hide_from_owner_admin">
                   <button type="submit">Hide From My Admin</button> <span class="result muted"></span>
                 </form>
                 {% else %}
-                <form class="admin-form inline-action" data-route="/api/owner/guild-action">
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="show_in_owner_admin">
                   <button type="submit">Show In My Admin</button> <span class="result muted"></span>
                 </form>
                 {% endif %}
                 {% if not owned.dashboard_access.enabled %}
-                <form class="admin-form inline-action" data-route="/api/admin/guild-access">
+                <form class="admin-form inline-action" method="post" action="/api/admin/guild-access" data-route="/api/admin/guild-access">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="enabled" value="true">
                   <input class="hidden-field" name="tier" value="owner">
                   <input class="hidden-field" name="plan_status" value="lifetime">
                   <button type="submit">Enable Admin Access</button> <span class="result muted"></span>
                 </form>
                 {% else %}
-                <form class="admin-form inline-action" data-route="/api/admin/guild-access" data-confirm="This locks normal admin dashboard login for {{ owned.guild_name }}. Your owner login will still work. Continue?">
+                <form class="admin-form inline-action" method="post" action="/api/admin/guild-access" data-route="/api/admin/guild-access" data-confirm="This locks normal admin dashboard login for {{ owned.guild_name }}. Your owner login will still work. Continue?">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="enabled" value="false">
                   <input class="hidden-field" name="tier" value="{{ owned.dashboard_access.tier or 'none' }}">
                   <input class="hidden-field" name="plan_status" value="{{ owned.dashboard_access.plan_status or 'none' }}">
                   <button type="submit">Lock Admin Access</button> <span class="result muted"></span>
                 </form>
                 {% endif %}
-                <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }}. Continue?">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="leave">
                   <button type="submit">Leave Discord</button> <span class="result muted"></span>
                 </form>
-                <form class="admin-form inline-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }} and remove this guild from dashboard data. Continue?">
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="This will make the bot leave {{ owned.guild_name }} and remove this guild from dashboard data. Continue?">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="leave_and_remove">
                   <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
                 </form>
@@ -942,8 +948,9 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Embed & Timed Message Builder</h3>
-          <form id="embed-template-form" class="admin-form" data-route="/api/admin/embed-template" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
+          <form id="embed-template-form" class="admin-form" method="post" action="/api/admin/embed-template" data-route="/api/admin/embed-template">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#embed-template-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Purpose
               <select name="name">
@@ -1053,8 +1060,9 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Welcome, Goodbye & Birthday</h3>
-          <form id="welcome-automation-form" class="admin-form" data-route="/api/admin/welcome-automation" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
+          <form id="welcome-automation-form" class="admin-form" method="post" action="/api/admin/welcome-automation" data-route="/api/admin/welcome-automation">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#welcome-automation-form">
             <input class="hidden-field" name="automation_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When should it send?
@@ -1102,8 +1110,9 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Utilities & Server Growth</h3>
-          <form id="utility-config-form" class="admin-form" data-route="/api/admin/utility-config" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
+          <form id="utility-config-form" class="admin-form" method="post" action="/api/admin/utility-config" data-route="/api/admin/utility-config">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#utility-config-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Module
               <select name="module">
@@ -1157,8 +1166,9 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Reaction Roles</h3>
-          <form id="reaction-role-panel-form" class="admin-form" data-route="/api/admin/reaction-role-panel" onsubmit="return window.wanderingDashboardSubmit ? window.wanderingDashboardSubmit(this, event) : false">
+          <form id="reaction-role-panel-form" class="admin-form" method="post" action="/api/admin/reaction-role-panel" data-route="/api/admin/reaction-role-panel">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#reaction-role-panel-form">
             <input class="hidden-field" name="panel_id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Panel type
@@ -1227,8 +1237,9 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Faction</h3>
-          <form class="admin-form" data-route="/api/admin/faction" id="faction-edit-form">
+          <form class="admin-form" method="post" action="/api/admin/faction" data-route="/api/admin/faction" id="faction-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#faction-edit-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Faction name <input name="name" value="The Wanderers"></label>
             <label>Leader Discord ID <input name="leader_id" placeholder="Discord user id"></label>
@@ -1244,8 +1255,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Faction Member</h3>
-          <form class="admin-form" data-route="/api/admin/faction-member">
+          <form class="admin-form" method="post" action="/api/admin/faction-member" data-route="/api/admin/faction-member">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#factions-radar">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Faction <input name="name" value="The Wanderers"></label>
             <label>Member Discord ID <input name="member_id" placeholder="Discord user id"></label>
@@ -1267,8 +1279,9 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
                 <td>
                   <button type="button" data-faction-edit data-name="{{ faction.name or faction_name }}" data-leader="{{ faction.leader_id or faction.leader or '' }}" data-role="{{ faction.role_id or faction.discord_role_id or '' }}" data-channel="{{ faction.alert_channel_key or faction.alert_channel_id or '' }}" data-colour="{{ faction.colour or faction.color or '#8d963e' }}">Edit</button>
-                  <form class="admin-form inline-action" data-route="/api/admin/faction-action" data-confirm="Delete faction {{ faction.name or faction_name }} from this server?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/faction-action" data-route="/api/admin/faction-action" data-confirm="Delete faction {{ faction.name or faction_name }} from this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#factions-radar">
                     <input class="hidden-field" name="name" value="{{ faction.name or faction_name }}">
                     <input class="hidden-field" name="action" value="delete">
                     <button type="submit">Delete</button> <span class="result muted"></span>
@@ -1297,7 +1310,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
-          <form class="admin-form zone-builder-form" data-route="/api/admin/zone" id="zone-edit-form">
+          <form class="admin-form zone-builder-form" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="zone_id" value="">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1381,7 +1394,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
                 <td>
                   <button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button>
-                  <form class="admin-form inline-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/zone-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
                     <input class="hidden-field" name="zone_type" value="{{ zone.zone_type }}">
@@ -1428,21 +1441,21 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ member.kills }}</td>
                 <td>{{ member.deaths }}</td>
                 <td>
-                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Kick {{ member.name }} from Discord for this server?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/member-action" data-route="/api/admin/member-action" data-confirm="Kick {{ member.name }} from Discord for this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
                     <input class="hidden-field" name="player_name" value="{{ member.name }}">
                     <input class="hidden-field" name="action" value="discord_kick">
                     <button type="submit" {% if not member.discord_id %}disabled{% endif %}>Kick</button> <span class="result muted"></span>
                   </form>
-                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Ban {{ member.name }} from Discord for this server?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/member-action" data-route="/api/admin/member-action" data-confirm="Ban {{ member.name }} from Discord for this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
                     <input class="hidden-field" name="player_name" value="{{ member.name }}">
                     <input class="hidden-field" name="action" value="discord_ban">
                     <button type="submit" {% if not member.discord_id %}disabled{% endif %}>Discord Ban</button> <span class="result muted"></span>
                   </form>
-                  <form class="admin-form inline-action" data-route="/api/admin/member-action" data-confirm="Queue a DayZ/Nitrado ban for {{ member.name }} on this server?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/member-action" data-route="/api/admin/member-action" data-confirm="Queue a DayZ/Nitrado ban for {{ member.name }} on this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
                     <input class="hidden-field" name="player_name" value="{{ member.name }}">
@@ -1674,7 +1687,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Wage</h3>
-          <form class="admin-form" data-route="/api/admin/wage" id="wage-form">
+          <form class="admin-form" method="post" action="/api/admin/wage" data-route="/api/admin/wage" id="wage-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1703,7 +1716,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Wallet Adjustment</h3>
-          <form class="admin-form" data-route="/api/admin/wallet-adjustment">
+          <form class="admin-form" method="post" action="/api/admin/wallet-adjustment" data-route="/api/admin/wallet-adjustment">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Player
@@ -1738,7 +1751,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ 'On' if wage.active else 'Off' }}</td>
                 <td>
                   <button type="button" data-wage-edit data-id="{{ wage.id }}" data-target-type="{{ wage.target_type }}" data-target-id="{{ wage.target_id }}" data-amount="{{ wage.amount }}" data-cadence="{{ wage.cadence }}" data-active="{{ 'true' if wage.active else 'false' }}">Edit</button>
-                  <form class="admin-form inline-action" data-route="/api/admin/wage" data-confirm="Delete wage {{ wage.id }}?">
+                  <form class="admin-form inline-action" method="post" action="/api/admin/wage" data-route="/api/admin/wage" data-confirm="Delete wage {{ wage.id }}?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="id" value="{{ wage.id }}">
                     <input class="hidden-field" name="action" value="delete">
@@ -1754,7 +1767,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Reward / Punishment Rule</h3>
-          <form class="admin-form" data-route="/api/admin/economy-rule">
+          <form class="admin-form" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When this happens
@@ -1790,7 +1803,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Edit Shop Item</h3>
-          <form class="admin-form" data-route="/api/admin/shop-item" id="shop-edit-form">
+          <form class="admin-form" method="post" action="/api/admin/shop-item" data-route="/api/admin/shop-item" id="shop-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <label>Item name <input name="item_name" value="NailsBox"></label>
             <label>Price <input name="price" type="number" value="100"></label>
@@ -1814,7 +1827,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Build Shop Bundle</h3>
-          <form class="admin-form" data-route="/api/admin/shop-bundle" id="shop-bundle-form">
+          <form class="admin-form" method="post" action="/api/admin/shop-bundle" data-route="/api/admin/shop-bundle" id="shop-bundle-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <label>Bundle name <input name="bundle_name" value="Flagpole Kit"></label>
             <label>Price <input name="price" type="number" value="2500"></label>
@@ -1951,8 +1964,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Loot Quality Rules</h3>
-          <form class="admin-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#xml-workshop">
             <input class="hidden-field" name="recipe_kind" value="settings">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Default item damage
@@ -1983,8 +1997,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% if xml_tool == "airdrop" %}
         <article class="admin-panel full">
           <h3>Airdrop Builder</h3>
-          <form class="admin-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#airdrop-builder">
             <input class="hidden-field" name="recipe_kind" value="airdrop">
             <div class="full xml-tool-layout">
               <div class="stack">
@@ -2110,8 +2125,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% if xml_tool == "container" %}
         <article class="admin-panel full">
           <h3>Filled Bag / Container Generator</h3>
-          <form class="admin-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#container-builder">
             <input class="hidden-field" name="recipe_kind" value="container">
             <div class="full xml-tool-layout">
               <div class="stack">
@@ -2159,8 +2175,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% if xml_tool == "player-loadout" %}
         <article class="admin-panel full">
           <h3>Player Loadout</h3>
-          <form class="admin-form player-loadout-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#player-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
             <div class="full xml-tool-layout player-loadout-layout">
               <div class="stack">
@@ -2232,8 +2249,9 @@ Event pings | bell | 1234567890</textarea></label>
         {% if xml_tool == "vehicle-loadout" %}
         <article class="admin-panel full">
           <h3>Vehicle Loadout</h3>
-          <form class="admin-form" data-route="/api/admin/xml-workshop">
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#vehicle-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
             <div class="full xml-tool-layout">
               <div class="stack">
@@ -2339,7 +2357,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Spam, Scam & Advert Guard</h3>
-          <form class="admin-form" data-route="/api/admin/moderation-guard">
+          <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Guard enabled
@@ -2385,7 +2403,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>PC Cheat Guard</h3>
-          <form class="admin-form" data-route="/api/admin/moderation-guard">
+          <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <label>PC cheat checks
               <select name="cheat_check_enabled"><option value="true" {{ 'selected' if cheat.enabled is not defined or cheat.enabled else '' }}>On</option><option value="false" {{ 'selected' if cheat.enabled is defined and not cheat.enabled else '' }}>Off</option></select>
@@ -2430,7 +2448,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Discord Link Enforcement</h3>
-          <form class="admin-form" data-route="/api/admin/link-enforcement">
+          <form class="admin-form" method="post" action="/api/admin/link-enforcement" data-route="/api/admin/link-enforcement">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
@@ -2456,7 +2474,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>On-Screen Messages</h3>
-          <form class="admin-form" data-route="/api/admin/on-screen-message">
+          <form class="admin-form" method="post" action="/api/admin/on-screen-message" data-route="/api/admin/on-screen-message">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Message key <input name="message_id" value="discord-required"></label>
@@ -2530,7 +2548,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Restart Schedule</h3>
-          <form class="admin-form" data-route="/api/admin/server-control">
+          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Restart schedule <select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
@@ -2547,7 +2565,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Damage Settings</h3>
-          <form class="admin-form" data-route="/api/admin/server-control">
+          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select></label>
@@ -2578,7 +2596,7 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Vehicle Reset Schedule</h3>
-          <form class="admin-form" data-route="/api/admin/server-control">
+          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
@@ -2670,8 +2688,9 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Feature Access</h3>
-          <form class="admin-form" data-route="/api/admin/guild-access">
+          <form class="admin-form" method="post" action="/api/admin/guild-access" data-route="/api/admin/guild-access">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#access">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Tier <select name="tier"><option value="owner">owner</option><option value="premium">premium</option><option value="trial">trial</option><option value="none">none</option></select></label>
@@ -2719,8 +2738,9 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Link Another Server</h3>
-          <form class="admin-form" data-route="/api/admin/link-server">
+          <form class="admin-form" method="post" action="/api/admin/link-server" data-route="/api/admin/link-server">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#linked-servers">
             <div class="server-lock"><span>Current dashboard group</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Other dashboard ID <input name="dashboard_id" autocomplete="off" placeholder="private dashboard id"></label>
             <label>Other dashboard password <input name="password" type="password" autocomplete="new-password" placeholder="private dashboard password"></label>
@@ -4139,6 +4159,10 @@ Event pings | bell | 1234567890</textarea></label>
       return REFRESH_AFTER_SAVE_ROUTES.has(route);
     }
     document.querySelectorAll(".admin-form").forEach((form) => {
+      if (form.dataset.route) {
+        if (!form.getAttribute("method")) form.setAttribute("method", "post");
+        if (!form.getAttribute("action")) form.setAttribute("action", secureDashboardUrl(form.dataset.route));
+      }
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
@@ -4240,6 +4264,11 @@ Event pings | bell | 1234567890</textarea></label>
             ? "Open the secure HTTPS dashboard and try again."
             : `Request failed: ${error && error.message ? error.message : error}`;
           if (result) result.textContent = message;
+          if (form.getAttribute("action") && form.getAttribute("method")) {
+            if (result) result.textContent = "Retrying with normal form submit...";
+            HTMLFormElement.prototype.submit.call(form);
+            return;
+          }
           window.alert(message);
         } finally {
           if (button && button.isConnected) {
@@ -5281,6 +5310,27 @@ def safe_dashboard_return(value: Any, fallback: str = "/admin?section=pve") -> s
     if "\n" in target or "\r" in target:
         return fallback
     return target
+
+
+def dashboard_section_return(section: str, payload: dict[str, Any] | None = None, anchor: str = "") -> str:
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_part = f"&guild_id={guild_id}" if guild_id and guild_id != "global" else ""
+    fallback = f"/admin?section={section}{guild_part}{anchor}"
+    return safe_dashboard_return(payload.get("return_to"), fallback)
+
+
+def dashboard_api_response(payload: dict[str, Any] | None, body: dict[str, Any], section: str, anchor: str = ""):
+    if wants_json_response():
+        return jsonify(body)
+    return redirect(dashboard_section_return(section, payload, anchor))
+
+
+def strip_dashboard_control_fields(payload: dict[str, Any] | None) -> dict[str, Any]:
+    cleaned = dict(payload or {})
+    for key in ("return_to", "dashboard_mode"):
+        cleaned.pop(key, None)
+    return cleaned
 
 
 def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
@@ -7336,8 +7386,14 @@ def api_embed_template():
     payload, error = require_admin()
     if error:
         return error
-    record = save_dashboard_admin("embed_templates", normalize_embed_payload(payload or {}), "template_id")
-    return jsonify({"ok": True, "template": record})
+    save_payload = strip_dashboard_control_fields(payload)
+    record = save_dashboard_admin("embed_templates", normalize_embed_payload(save_payload), "template_id")
+    return dashboard_api_response(
+        payload,
+        {"ok": True, "template": record, "note": "Saved embed template."},
+        "automations",
+        "#embed-template-form",
+    )
 
 
 @APP.post("/api/admin/embed-template-action")
@@ -7355,7 +7411,12 @@ def api_embed_template_action():
         return jsonify({"ok": False, "error": "template_id is required"}), 400
     if not delete_dashboard_admin_record("embed_templates", guild_id, template_id):
         return jsonify({"ok": False, "error": "embed template not found for this server"}), 404
-    return jsonify({"ok": True, "deleted": template_id})
+    return dashboard_api_response(
+        payload,
+        {"ok": True, "deleted": template_id, "note": "Deleted embed template."},
+        "automations",
+        "#embed-template-form",
+    )
 
 
 @APP.post("/api/admin/dashboard-record-action")
@@ -7377,7 +7438,12 @@ def api_dashboard_record_action():
         return jsonify({"ok": False, "error": "record_id is required"}), 400
     if not delete_dashboard_admin_record(section, guild_id, record_id):
         return jsonify({"ok": False, "error": "record not found for this server"}), 404
-    return jsonify({"ok": True, "deleted": record_id, "section": section})
+    return dashboard_api_response(
+        payload,
+        {"ok": True, "deleted": record_id, "section": section, "note": "Deleted dashboard record."},
+        "automations",
+        "#automations",
+    )
 
 
 @APP.post("/api/admin/welcome-automation")
@@ -7385,8 +7451,13 @@ def api_welcome_automation():
     payload, error = require_admin()
     if error:
         return error
-    record = save_dashboard_admin("welcome_automations", payload or {}, "automation_id")
-    return jsonify({"ok": True, "automation": record})
+    record = save_dashboard_admin("welcome_automations", strip_dashboard_control_fields(payload), "automation_id")
+    return dashboard_api_response(
+        payload,
+        {"ok": True, "automation": record, "note": "Saved welcome automation."},
+        "automations",
+        "#welcome-automation-form",
+    )
 
 
 @APP.post("/api/admin/utility-config")
@@ -7394,12 +7465,18 @@ def api_utility_config():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     module = str(payload.get("module") or payload.get("name") or "utility").strip()
     payload["module"] = module
     payload["name"] = module
     record = save_dashboard_admin("utility_configs", payload, "module")
-    return jsonify({"ok": True, "utility": record})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "utility": record, "note": "Saved utility module."},
+        "automations",
+        "#utility-config-form",
+    )
 
 
 @APP.post("/api/admin/reaction-role-panel")
@@ -7407,8 +7484,13 @@ def api_reaction_role_panel():
     payload, error = require_admin()
     if error:
         return error
-    record = save_dashboard_admin("reaction_role_panels", payload or {}, "panel_id")
-    return jsonify({"ok": True, "panel": record})
+    record = save_dashboard_admin("reaction_role_panels", strip_dashboard_control_fields(payload), "panel_id")
+    return dashboard_api_response(
+        payload,
+        {"ok": True, "panel": record, "note": "Saved reaction role panel."},
+        "automations",
+        "#reaction-role-panel-form",
+    )
 
 
 @APP.post("/api/admin/shop-item")
@@ -7416,7 +7498,8 @@ def api_shop_item():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     item_name = str(payload.get("item_name") or payload.get("name") or "").strip()
     if not item_name:
         return jsonify({"ok": False, "error": "item_name is required"}), 400
@@ -7446,7 +7529,12 @@ def api_shop_item():
     )
     guild_shop[item_name] = existing
     save_store("shop", shop)
-    return jsonify({"ok": True, "item": {item_name: existing}})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "item": {item_name: existing}, "note": "Saved shop item."},
+        "shop",
+        "#shop-edit-form",
+    )
 
 
 @APP.post("/api/admin/shop-bundle")
@@ -7454,7 +7542,8 @@ def api_shop_bundle():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     bundle_name = str(payload.get("bundle_name") or payload.get("item_name") or payload.get("name") or "").strip()
     if not bundle_name:
         return jsonify({"ok": False, "error": "bundle_name is required"}), 400
@@ -7486,7 +7575,12 @@ def api_shop_bundle():
     )
     guild_shop[bundle_name] = existing
     save_store("shop", shop)
-    return jsonify({"ok": True, "bundle": {bundle_name: existing}})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "bundle": {bundle_name: existing}, "note": "Saved shop bundle."},
+        "shop",
+        "#shop-bundle-form",
+    )
 
 
 @APP.post("/api/admin/theme")
@@ -7518,7 +7612,8 @@ def api_xml_workshop():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
@@ -7555,7 +7650,12 @@ def api_xml_workshop():
         workshop["settings"] = record
         workshop["status"] = "Loot rule draft saved. Live XML upload is disabled until injector preview/diff is added."
         save_store("guild_configs", guild_configs)
-        return jsonify({"ok": True, "settings": record, "note": workshop["status"]})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "settings": record, "note": workshop["status"]},
+            "xml-workshop",
+            "#xml-workshop",
+        )
 
     target_key = {
         "airdrop": "airdrops",
@@ -7648,7 +7748,12 @@ def api_xml_workshop():
     workshop["updated_at"] = now_text
     workshop["status"] = "Recipe draft saved. The guarded XML injector will use this later for preview and upload."
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "recipe": record, "note": workshop["status"]})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "recipe": record, "note": workshop["status"]},
+        "xml-workshop",
+        "#xml-workshop",
+    )
 
 
 @APP.post("/api/admin/scenario-event")
@@ -7948,7 +8053,8 @@ def api_economy_rule():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     keyword = str(payload.get("keyword") or payload.get("condition") or "").strip().lower()
     event_type = str(payload.get("event_type") or "chat_keyword").strip().lower()
@@ -7977,7 +8083,12 @@ def api_economy_rule():
     }
     rules.append(rule)
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "rule": rule})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "rule": rule, "note": "Saved economy rule."},
+        "economy",
+        "#economy-rule-form",
+    )
 
 
 @APP.post("/api/admin/link-server")
@@ -7985,7 +8096,8 @@ def api_link_server():
     auth = current_auth()
     if not auth:
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
-    payload = request_payload()
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     dashboard_id = str(payload.get("dashboard_id") or "").strip()
     password = str(payload.get("password") or "")
     target_guild_id, target_config = find_guild_by_dashboard_id(dashboard_id)
@@ -7995,10 +8107,20 @@ def api_link_server():
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
     if auth["kind"] == "owner":
-        return jsonify({"ok": True, "linked_guild_id": target_guild_id, "message": "owner already has access to every server"})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "linked_guild_id": target_guild_id, "message": "owner already has access to every server"},
+            "access",
+            "#linked-servers",
+        )
     primary_guild_id = str(auth["guild_id"])
     if target_guild_id == primary_guild_id:
-        return jsonify({"ok": True, "linked_guild_id": target_guild_id, "message": "server already belongs to this dashboard"})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "linked_guild_id": target_guild_id, "message": "server already belongs to this dashboard"},
+            "access",
+            "#linked-servers",
+        )
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
@@ -8017,7 +8139,12 @@ def api_link_server():
         linked.append(target_guild_id)
     dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)},
+        "access",
+        "#linked-servers",
+    )
 
 
 @APP.post("/api/admin/zone")
@@ -8025,7 +8152,8 @@ def api_zone():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     name = str(payload.get("name") or "").strip()
     if not name:
@@ -8123,7 +8251,12 @@ def api_zone():
     if not replaced:
         target.append(radar_record)
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "zone": radar_record})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "zone": radar_record, "note": "Saved zone for this server."},
+        "zones",
+        "#zone-edit-form",
+    )
 
 
 @APP.post("/api/admin/zone-action")
@@ -8131,7 +8264,8 @@ def api_zone_action():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     action = str(payload.get("action") or "delete").strip().lower()
     if action != "delete":
@@ -8172,7 +8306,12 @@ def api_zone_action():
         return jsonify({"ok": False, "error": "zone was not found for this guild"}), 404
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "deleted": deleted, "note": "zone deleted for this guild only"})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "deleted": deleted, "note": "Zone deleted for this server only."},
+        "zones",
+        "#zones-list",
+    )
 
 
 MODERATION_ACTIONS = {"log", "delete", "warn", "timeout", "kick", "ban"}
@@ -8220,7 +8359,8 @@ def api_moderation_guard():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
@@ -8273,7 +8413,12 @@ def api_moderation_guard():
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "moderation_guard": guard, "cheat_check": cheat, "note": "Moderation guard saved for this server only."})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "moderation_guard": guard, "cheat_check": cheat, "note": "Moderation guard saved for this server only."},
+        "moderation",
+        "#moderation-guard",
+    )
 
 
 @APP.post("/api/admin/link-enforcement")
@@ -8281,7 +8426,8 @@ def api_link_enforcement():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     action = str(payload.get("action") or "notify").strip().lower()
     if action not in {"notify", "kick", "temp_ban", "perm_ban"}:
@@ -8304,7 +8450,12 @@ def api_link_enforcement():
     }
     config["discord_link_enforcement"] = record
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "enforcement": record})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "enforcement": record, "note": "Saved Discord link enforcement."},
+        "moderation",
+        "#link-enforcement-form",
+    )
 
 
 @APP.post("/api/admin/on-screen-message")
@@ -8312,7 +8463,8 @@ def api_on_screen_message():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     message_id = str(payload.get("message_id") or payload.get("name") or "").strip()
     if not message_id:
@@ -8347,19 +8499,29 @@ def api_on_screen_message():
     if upload_result is not None:
         messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
         if upload_result.get("ok"):
-            return jsonify({
-                "ok": True,
-                "message": record,
-                "note": "messages.xml uploaded. Restart the DayZ server for it to take effect.",
-                "upload": upload_result,
-            })
+            return dashboard_api_response(
+                raw_payload,
+                {
+                    "ok": True,
+                    "message": record,
+                    "note": "messages.xml uploaded. Restart the DayZ server for it to take effect.",
+                    "upload": upload_result,
+                },
+                "server-control",
+                "#on-screen-message-form",
+            )
         return jsonify({
             "ok": False,
             "message": record,
             "error": "messages.xml upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details"),
             "upload": upload_result,
         }), 502
-    return jsonify({"ok": True, "message": record, "note": "messages.xml saved and queued for upload; restart required after upload"})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "message": record, "note": "messages.xml saved and queued for upload; restart required after upload"},
+        "server-control",
+        "#on-screen-message-form",
+    )
 
 
 @APP.post("/api/admin/server-control")
@@ -8367,7 +8529,8 @@ def api_server_control():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
@@ -8512,7 +8675,12 @@ def api_server_control():
     if vehicle_schedule_keys.intersection(payload.keys()):
         saved_parts.append("vehicle reset schedule")
     note = "Saved " + (", ".join(saved_parts) if saved_parts else "server control") + " for this server."
-    return jsonify({"ok": True, "server_control": redact(config), "note": note})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "server_control": redact(config), "note": note},
+        "server-control",
+        "#server-control",
+    )
 
 
 @APP.post("/api/admin/faction")
@@ -8520,7 +8688,8 @@ def api_faction():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     name = str(payload.get("name") or payload.get("faction") or "").strip()
     if not name:
@@ -8549,7 +8718,12 @@ def api_faction():
     )
     block[name] = faction
     save_store("factions", factions)
-    return jsonify({"ok": True, "faction": faction})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "faction": faction, "note": "Saved faction for this server."},
+        "factions",
+        "#factions-radar",
+    )
 
 
 @APP.post("/api/admin/faction-action")
@@ -8557,7 +8731,8 @@ def api_faction_action():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     action = str(payload.get("action") or "delete").strip().lower()
     if action != "delete":
@@ -8589,7 +8764,12 @@ def api_faction_action():
     if deleted is None:
         return jsonify({"ok": False, "error": "faction was not found for this guild"}), 404
     save_store("factions", factions)
-    return jsonify({"ok": True, "deleted": deleted, "note": "faction deleted for this guild only"})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "deleted": deleted, "note": "Faction deleted for this server only."},
+        "factions",
+        "#factions-radar",
+    )
 
 
 @APP.post("/api/admin/faction-member")
@@ -8597,7 +8777,8 @@ def api_faction_member():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     name = str(payload.get("name") or payload.get("faction") or "").strip()
     member_id = str(payload.get("member_id") or payload.get("user_id") or "").strip()
@@ -8615,7 +8796,12 @@ def api_faction_member():
         members.append({"user_id": member_id, "name": str(payload.get("member_name") or ""), "added_at": datetime.now(UTC).isoformat()})
     faction["updated_at"] = datetime.now(UTC).isoformat()
     save_store("factions", factions)
-    return jsonify({"ok": True, "faction": faction})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "faction": faction, "note": "Updated faction member list."},
+        "factions",
+        "#factions-radar",
+    )
 
 
 @APP.post("/api/admin/member-action")
@@ -8623,7 +8809,8 @@ def api_member_action():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     action = str(payload.get("action") or "").strip().lower()
     member_id = str(payload.get("member_id") or payload.get("user_id") or "").strip()
@@ -8634,7 +8821,14 @@ def api_member_action():
     if action in {"discord_kick", "discord_ban"}:
         ok, message = discord_member_action(guild_id, member_id, action, reason)
         status = 200 if ok else 400
-        return jsonify({"ok": ok, "message": message}), status
+        if wants_json_response() or not ok:
+            return jsonify({"ok": ok, "message": message}), status
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": ok, "message": message},
+            "members",
+            "#members-list",
+        )
     if not player_name:
         return jsonify({"ok": False, "error": "player_name is required for DayZ/Nitrado ban actions"}), 400
     guild_configs = load_store("guild_configs", {})
@@ -8658,7 +8852,12 @@ def api_member_action():
     actions.append(record)
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "action": record, "note": "queued for this guild's bot/Nitrado workflow"})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "action": record, "note": "queued for this guild's bot/Nitrado workflow"},
+        "members",
+        "#members-list",
+    )
 
 
 @APP.post("/api/owner/guild-action")
@@ -8666,7 +8865,8 @@ def api_owner_guild_action():
     payload, error = require_owner_payload()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = str(payload.get("guild_id") or "").strip()
     action = str(payload.get("action") or "leave").strip().lower()
     if not guild_id:
@@ -8690,7 +8890,12 @@ def api_owner_guild_action():
         dashboard["owner_admin_visible_updated_at"] = datetime.now(UTC).isoformat()
         guild_configs[guild_id] = config
         save_store("guild_configs", guild_configs)
-        return jsonify({"ok": True, "guild_id": guild_id, "owner_admin_visible": dashboard["owner_admin_visible"]})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "guild_id": guild_id, "owner_admin_visible": dashboard["owner_admin_visible"]},
+            "owner",
+            "#owner-servers",
+        )
 
     left, message = discord_bot_leave_guild(guild_id)
     if not left:
@@ -8698,13 +8903,23 @@ def api_owner_guild_action():
 
     if action == "leave_and_remove":
         remove_guild_dashboard_data(guild_id, config)
-        return jsonify({"ok": True, "message": f"{message} Dashboard data removed.", "removed": True})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "message": f"{message} Dashboard data removed.", "removed": True},
+            "owner",
+            "#owner-servers",
+        )
 
     config["dashboard_removed_at"] = datetime.now(UTC).isoformat()
     config["dashboard_removed_reason"] = "owner requested bot leave guild"
     guild_configs[guild_id] = config
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "message": message, "removed": False})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "message": message, "removed": False},
+        "owner",
+        "#owner-servers",
+    )
 
 
 @APP.post("/api/admin/wage")
@@ -8712,7 +8927,8 @@ def api_wage():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     wages = load_store("wages", {})
     if not isinstance(wages, dict):
@@ -8723,7 +8939,12 @@ def api_wage():
     if action in {"cancel", "delete", "remove"}:
         wages[guild_id] = [wage for wage in block if str(wage.get("id")) != wage_id]
         save_store("wages", wages)
-        return jsonify({"ok": True, "wage_id": wage_id, "active": False})
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "wage_id": wage_id, "active": False, "note": "Deleted wage."},
+            "economy",
+            "#wage-form",
+        )
     record = next((wage for wage in block if str(wage.get("id")) == wage_id), None)
     if record is None:
         record = {"id": wage_id}
@@ -8739,7 +8960,12 @@ def api_wage():
         }
     )
     save_store("wages", wages)
-    return jsonify({"ok": True, "wage": record})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "wage": record, "note": "Saved wage."},
+        "economy",
+        "#wage-form",
+    )
 
 
 @APP.post("/api/admin/wallet-adjustment")
@@ -8747,7 +8973,8 @@ def api_wallet_adjustment():
     payload, error = require_admin()
     if error:
         return error
-    payload = payload or {}
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     user_id = str(payload.get("user_id") or payload.get("member_id") or "").strip()
     if not user_id:
         return jsonify({"ok": False, "error": "user_id is required"}), 400
@@ -8781,7 +9008,12 @@ def api_wallet_adjustment():
         }
     )
     save_store("wallets", wallets)
-    return jsonify({"ok": True, "wallet": redact(wallet)})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "wallet": redact(wallet), "note": "Adjusted wallet."},
+        "economy",
+        "#wallet-adjustment-form",
+    )
 
 
 @APP.post("/api/admin/guild-access")
@@ -8791,8 +9023,8 @@ def api_guild_access():
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
     if auth.get("kind") != "owner":
         return jsonify({"ok": False, "error": "owner login required"}), 403
-    payload = request_payload()
-    payload = payload or {}
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
@@ -8824,7 +9056,12 @@ def api_guild_access():
     access["features"] = features if isinstance(features, dict) else {}
     access["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
-    return jsonify({"ok": True, "dashboard": access})
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "dashboard": access, "note": "Saved dashboard access."},
+        "access",
+        "#access",
+    )
 
 
 def configure_dashboard_state_provider(provider):
