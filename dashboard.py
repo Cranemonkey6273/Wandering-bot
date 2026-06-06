@@ -532,11 +532,17 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to set X/Y"; position: absolute; right: .75rem; bottom: .65rem; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-dot { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 26%, transparent); border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: .75rem; font-weight: 900; pointer-events: none; box-shadow: 0 0 0 2px rgba(5,8,6,.3), 0 0 18px color-mix(in srgb, var(--zone-colour, var(--gold)) 42%, transparent); }
+    .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 3; }
+    button.zone-dot { padding: 0; min-height: 0; }
+    .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
     .zone-dot.safe { --zone-colour: #75d89a; }
     .zone-dot.pvp { --zone-colour: #ed3853; }
     .zone-dot.radar { --zone-colour: #d5b45f; }
     .zone-dot.action { --zone-colour: #ff9f43; }
+    .zone-dot.faction { --zone-colour: #b978ff; }
+    .zone-dot.custom { --zone-colour: #6ec6e0; }
+    .zone-form-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .zone-form-actions button[disabled] { opacity: .45; cursor: not-allowed; }
     .zone-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .zone-cursor { position: absolute; transform: translate(-50%, -50%); width: 1.2rem; height: 1.2rem; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 .45rem rgba(213,180,95,.26); background: var(--gold); pointer-events: none; z-index: 2; }
     .zone-preview-circle { position: absolute; transform: translate(-50%, -50%); border: 2px solid var(--zone-colour, var(--accent)); border-radius: 50%; background: color-mix(in srgb, var(--zone-colour, var(--accent)) 18%, transparent); pointer-events: none; z-index: 1; }
@@ -1354,6 +1360,33 @@ Event pings | bell | 1234567890</textarea></label>
     {% endif %}
 
     {% if mode in ["admin", "owner"] and active_section == "zones" %}
+    {% set edit_zone_key = request.args.get('edit_zone', '') %}
+    {% set edit_zone = namespace(id='', name='North West Airfield', zone_type='radar', x=7500, y=7500, shape='circle', radius=250, channel_key='', role_id='', faction_name='', colour='#d5b45f', enabled='true', action='none', ban_type='temp', ban_duration_minutes=1440, trigger_territory='inside', triggers='detection,login,kill,build', ignored_gamertags='', boundary_points='[]') %}
+    {% if server and edit_zone_key %}
+      {% for zone in server.zones %}
+        {% if zone.id == edit_zone_key or zone.name == edit_zone_key %}
+          {% set edit_zone.id = zone.id %}
+          {% set edit_zone.name = zone.name %}
+          {% set edit_zone.zone_type = zone.zone_type %}
+          {% set edit_zone.x = zone.x %}
+          {% set edit_zone.y = zone.y %}
+          {% set edit_zone.shape = zone.shape %}
+          {% set edit_zone.radius = zone.radius %}
+          {% set edit_zone.channel_key = zone.channel_key or zone.alert_channel_id or zone.report_channel_id %}
+          {% set edit_zone.role_id = zone.role_id or zone.mention_role_id %}
+          {% set edit_zone.faction_name = zone.faction_name %}
+          {% set edit_zone.colour = zone.colour %}
+          {% set edit_zone.enabled = 'true' if zone.enabled else 'false' %}
+          {% set edit_zone.action = zone.action or 'none' %}
+          {% set edit_zone.ban_type = zone.ban_type or 'temp' %}
+          {% set edit_zone.ban_duration_minutes = zone.ban_duration_minutes or 1440 %}
+          {% set edit_zone.trigger_territory = zone.trigger_territory or 'inside' %}
+          {% set edit_zone.triggers = zone.triggers|join(',') if zone.triggers is iterable and zone.triggers is not string else zone.triggers or '' %}
+          {% set edit_zone.ignored_gamertags = zone.ignored_gamertags|join(',') if zone.ignored_gamertags is iterable and zone.ignored_gamertags is not string else zone.ignored_gamertags or '' %}
+          {% set edit_zone.boundary_points = zone.boundary_points|tojson %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <section class="section-panel" id="zones">
       <div class="section-head">
         <div>
@@ -1367,49 +1400,56 @@ Event pings | bell | 1234567890</textarea></label>
           <h3>Interactive Zone Builder</h3>
           <form class="admin-form zone-builder-form" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="zone_id" value="">
+            <input class="hidden-field" name="zone_id" value="{{ edit_zone.id }}">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Zone name <input name="name" value="North West Airfield"></label>
+            <label>Zone name <input name="name" value="{{ edit_zone.name }}"></label>
             <label>Zone type
-              <select name="zone_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option><option value="action">Ban / action zone</option><option value="faction">Faction territory</option><option value="custom">Custom marker</option></select>
-            </label>
-            <label>X coordinate <input name="x" type="number" value="7500"></label>
-            <label>Y coordinate <input name="y" type="number" value="7500"></label>
-            <label>Shape
-              <select name="shape" data-zone-shape><option value="circle">Circle</option><option value="boundary">Draw boundary</option></select>
-            </label>
-            <label>Radius meters <input name="radius" type="number" min="10" max="{{ server.map_size if server else 15360 }}" step="10" value="250" data-zone-radius></label>
-            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="250" data-zone-radius-slider></label>
-            <label>Ping / report channel
-              <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'radar' or channel.key == 'pvp_intel' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              <select name="zone_type">
+                <option value="radar" {% if edit_zone.zone_type == 'radar' %}selected{% endif %}>Radar ping zone</option>
+                <option value="safe" {% if edit_zone.zone_type == 'safe' %}selected{% endif %}>Safe zone</option>
+                <option value="pvp" {% if edit_zone.zone_type == 'pvp' %}selected{% endif %}>PVP zone</option>
+                <option value="action" {% if edit_zone.zone_type == 'action' %}selected{% endif %}>Ban / action zone</option>
+                <option value="faction" {% if edit_zone.zone_type == 'faction' %}selected{% endif %}>Faction territory</option>
+                <option value="custom" {% if edit_zone.zone_type == 'custom' %}selected{% endif %}>Custom marker</option>
               </select>
             </label>
-            <label>Ping role ID <input name="role_id" placeholder="optional Discord role id"></label>
+            <label>X coordinate <input name="x" type="number" value="{{ edit_zone.x }}"></label>
+            <label>Y coordinate <input name="y" type="number" value="{{ edit_zone.y }}"></label>
+            <label>Shape
+              <select name="shape" data-zone-shape><option value="circle" {% if edit_zone.shape == 'circle' %}selected{% endif %}>Circle</option><option value="boundary" {% if edit_zone.shape == 'boundary' %}selected{% endif %}>Draw boundary</option></select>
+            </label>
+            <label>Radius meters <input name="radius" type="number" min="10" max="{{ server.map_size if server else 15360 }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius></label>
+            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider></label>
+            <label>Ping / report channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if (edit_zone.channel_key and (channel.value == edit_zone.channel_key or channel.id == edit_zone.channel_key)) or (not edit_zone.id and not edit_zone.channel_key and (channel.key == 'radar' or channel.key == 'pvp_intel')) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Ping role ID <input name="role_id" value="{{ edit_zone.role_id }}" placeholder="optional Discord role id"></label>
             <label>Faction colour source
               <select name="faction_name">
                 <option value="">No faction colour</option>
-                {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}<option value="{{ faction.name or faction_name }}" data-faction-colour="{{ faction.colour or faction.color or '#8d963e' }}">{{ faction.name or faction_name }}</option>{% endfor %}
+                {% for faction_name, faction in (server.factions.items() if server and server.factions else []) %}<option value="{{ faction.name or faction_name }}" data-faction-colour="{{ faction.colour or faction.color or '#8d963e' }}" {% if edit_zone.faction_name == (faction.name or faction_name) %}selected{% endif %}>{{ faction.name or faction_name }}</option>{% endfor %}
               </select>
             </label>
-            <label>Zone colour <input name="colour" type="color" value="#d5b45f" data-zone-colour></label>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Zone colour <input name="colour" type="color" value="{{ edit_zone.colour }}" data-zone-colour></label>
+            <label>Enabled <select name="enabled"><option value="true" {% if edit_zone.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_zone.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
             <label>Action on violation
-              <select name="action"><option value="none">Notify only</option><option value="manhunt">Start manhunt</option><option value="ban">Ban through Nitrado</option></select>
+              <select name="action"><option value="none" {% if edit_zone.action == 'none' %}selected{% endif %}>Notify only</option><option value="manhunt" {% if edit_zone.action == 'manhunt' %}selected{% endif %}>Start manhunt</option><option value="ban" {% if edit_zone.action == 'ban' %}selected{% endif %}>Ban through Nitrado</option></select>
             </label>
-            <label>Ban type <select name="ban_type"><option value="temp">Temp ban</option><option value="perm">Perm ban</option></select></label>
-            <label>Temp ban minutes <input name="ban_duration_minutes" type="number" value="1440"></label>
-            <label>Trigger territory <select name="trigger_territory"><option value="inside">Inside zone</option><option value="outside">Outside zone</option></select></label>
-            <label class="full">Triggers <input name="triggers" value="detection,login,kill,build" placeholder="detection, login, kill, build, flag_raise"></label>
-            <label class="full">Ignored gamertags <input name="ignored_gamertags" placeholder="comma-separated names that should not ping radar"></label>
-            <input class="hidden-field" name="boundary_points" data-boundary-points value="">
+            <label>Ban type <select name="ban_type"><option value="temp" {% if edit_zone.ban_type == 'temp' %}selected{% endif %}>Temp ban</option><option value="perm" {% if edit_zone.ban_type == 'perm' %}selected{% endif %}>Perm ban</option></select></label>
+            <label>Temp ban minutes <input name="ban_duration_minutes" type="number" value="{{ edit_zone.ban_duration_minutes }}"></label>
+            <label>Trigger territory <select name="trigger_territory"><option value="inside" {% if edit_zone.trigger_territory == 'inside' %}selected{% endif %}>Inside zone</option><option value="outside" {% if edit_zone.trigger_territory == 'outside' %}selected{% endif %}>Outside zone</option></select></label>
+            <label class="full">Triggers <input name="triggers" value="{{ edit_zone.triggers }}" placeholder="detection, login, kill, build, flag_raise"></label>
+            <label class="full">Ignored gamertags <input name="ignored_gamertags" value="{{ edit_zone.ignored_gamertags }}" placeholder="comma-separated names that should not ping radar"></label>
+            <input class="hidden-field" name="boundary_points" data-boundary-points value="{{ edit_zone.boundary_points|forceescape }}">
             <div class="full embed-preview">
               <strong>Map controls</strong>
               <span>Circle mode sets the center and radius. Boundary mode lets you click multiple points around an area; save when the outline covers the place you want.</span>
             </div>
             <div class="full zone-tools">
-              <div class="mini-card"><strong data-zone-radius-label>250m</strong><span class="muted">Circle radius</span></div>
-              <div class="mini-card"><strong data-zone-shape-label>Circle</strong><span class="muted">Drawing mode</span></div>
+              <div class="mini-card"><strong data-zone-radius-label>{{ edit_zone.radius }}m</strong><span class="muted">Circle radius</span></div>
+              <div class="mini-card"><strong data-zone-shape-label>{{ 'Boundary' if edit_zone.shape == 'boundary' else 'Circle' }}</strong><span class="muted">Drawing mode</span></div>
               <div class="mini-card"><strong data-boundary-count>0</strong><span class="muted">Boundary points</span></div>
               <div class="zone-tool-actions">
                 <button type="button" data-clear-boundary>Clear Boundary</button>
@@ -1423,17 +1463,20 @@ Event pings | bell | 1234567890</textarea></label>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% for zone in (server.zones if server else []) %}
               {% if zone.shape == "boundary" and zone.points_percent %}
-              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
-              {% else %}
-              <span class="zone-dot {{ zone.zone_type }}" title="{{ zone.name }}" style="--zone-colour: {{ zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</span>
+              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
+              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;">{{ loop.index }}</button>
               {% endfor %}
             </div>
             <div class="full map-readout" data-map-readout>Click the map to choose a coordinate.</div>
-            <div class="full"><button type="submit">Save Zone</button> <span class="result muted"></span></div>
+            <div class="full zone-form-actions">
+              <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
+              <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
+              <span class="result muted"></span>
+            </div>
           </form>
         </article>
-        <article class="admin-panel full">
+        <article class="admin-panel full" id="zones-list">
           <h3>Existing Zones</h3>
           <table class="item-table">
             <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th><th>Actions</th></tr></thead>
@@ -1441,14 +1484,19 @@ Event pings | bell | 1234567890</textarea></label>
               {% for zone in (server.zones if server else []) %}
               <tr>
                 <td>{{ loop.index }}</td>
-                <td><span class="zone-swatch" style="--zone-colour: {{ zone.colour }};"></span>{{ zone.name }}</td>
+                <td><span class="zone-swatch" style="--zone-colour: {{ zone.display_colour or zone.colour }};"></span>{{ zone.name }}</td>
                 <td>{{ zone.zone_type }}</td>
                 <td>{{ zone.x }}, {{ zone.y }}</td>
                 <td>{{ zone.radius }}m</td>
                 <td>{{ zone.action or 'notify' }}</td>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
                 <td>
-                  <button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button>
+                  <form class="inline-action" method="get" action="/admin#zone-edit-form">
+                    <input class="hidden-field" name="section" value="zones">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="edit_zone" value="{{ zone.id }}">
+                    <button type="submit" data-zone-edit data-zone='{{ zone|tojson|forceescape }}'>Edit</button>
+                  </form>
                   <form class="admin-form inline-action" method="post" action="/api/admin/zone-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                     <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
@@ -4598,6 +4646,28 @@ Event pings | bell | 1234567890</textarea></label>
       const boundaryLayer = form.querySelector("[data-boundary-layer]");
       const colourInput = form.querySelector("[data-zone-colour]");
       const factionSelect = form.elements.faction_name;
+      const saveButton = form.querySelector("[data-zone-save-button]") || form.querySelector('button[type="submit"]');
+      const deleteCurrentButton = form.querySelector("[data-zone-delete-current]");
+      const result = form.querySelector(".result");
+      const zoneFields = {
+        guildId: form.querySelector('[name="guild_id"]'),
+        zoneId: form.querySelector('[name="zone_id"]'),
+        name: form.querySelector('[name="name"]'),
+        type: form.querySelector('[name="zone_type"]'),
+        x: form.querySelector('[name="x"]'),
+        y: form.querySelector('[name="y"]'),
+        shape: form.querySelector('[name="shape"]'),
+        channel: form.querySelector('[name="channel_key"]'),
+        role: form.querySelector('[name="role_id"]'),
+        faction: form.querySelector('[name="faction_name"]'),
+        enabled: form.querySelector('[name="enabled"]'),
+        action: form.querySelector('[name="action"]'),
+        banType: form.querySelector('[name="ban_type"]'),
+        banMinutes: form.querySelector('[name="ban_duration_minutes"]'),
+        triggerTerritory: form.querySelector('[name="trigger_territory"]'),
+        triggers: form.querySelector('[name="triggers"]'),
+        ignored: form.querySelector('[name="ignored_gamertags"]'),
+      };
 
       function syncZoneColour(colour) {
         const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : "#d5b45f";
@@ -4610,6 +4680,17 @@ Event pings | bell | 1234567890</textarea></label>
         const text = String(value);
         const option = Array.from(select.options).find((item) => item.value === text || item.dataset.channelId === text);
         if (option) select.value = option.value;
+      }
+
+      function setZoneEditingState(zoneName = "") {
+        if (saveButton) saveButton.textContent = zoneName ? "Save Zone Changes" : "Save Zone";
+        if (deleteCurrentButton) deleteCurrentButton.disabled = !zoneName;
+      }
+
+      function clearZoneEditingState() {
+        document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
+        if (zoneFields.zoneId) zoneFields.zoneId.value = "";
+        setZoneEditingState("");
       }
 
       function syncRadius(value) {
@@ -4662,6 +4743,40 @@ Event pings | bell | 1234567890</textarea></label>
         });
       }
 
+      function loadBoundaryFromField() {
+        if (!boundaryField || !boundaryField.value) return;
+        let savedPoints = [];
+        try { savedPoints = JSON.parse(boundaryField.value || "[]"); } catch (error) { savedPoints = []; }
+        if (!Array.isArray(savedPoints)) return;
+        boundaryPoints.length = 0;
+        savedPoints.forEach((point) => {
+          const x = Number(point.x || 0);
+          const y = Number(point.y || 0);
+          boundaryPoints.push({
+            x,
+            y,
+            xPercent: Number(point.xPercent || ((x / size) * 100)),
+            yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
+          });
+        });
+        renderBoundary();
+      }
+
+      function placeCursorFromForm() {
+        if (!zoneFields.x || !zoneFields.y) return;
+        const x = Number(zoneFields.x.value || 0);
+        const y = Number(zoneFields.y.value || 0);
+        let cursor = map.querySelector(".zone-cursor");
+        if (!cursor) {
+          cursor = document.createElement("span");
+          cursor.className = "zone-cursor";
+          map.appendChild(cursor);
+        }
+        cursor.style.left = `${(x / size) * 100}%`;
+        cursor.style.top = `${100 - ((y / size) * 100)}%`;
+        renderCirclePreview();
+      }
+
       if (colourInput) colourInput.addEventListener("input", () => {
         syncZoneColour(colourInput.value);
         renderCirclePreview();
@@ -4694,13 +4809,15 @@ Event pings | bell | 1234567890</textarea></label>
         renderBoundary();
       });
       map.addEventListener("click", (event) => {
+        if (event.target.closest("[data-zone-edit]")) return;
+        clearZoneEditingState();
         const rect = map.getBoundingClientRect();
         const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
         const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
         const x = Math.round((xPercent / 100) * size);
         const y = Math.round((1 - (yPercent / 100)) * size);
-        form.elements.x.value = Math.max(0, Math.min(size, x));
-        form.elements.y.value = Math.max(0, Math.min(size, y));
+        if (zoneFields.x) zoneFields.x.value = Math.max(0, Math.min(size, x));
+        if (zoneFields.y) zoneFields.y.value = Math.max(0, Math.min(size, y));
         let cursor = map.querySelector(".zone-cursor");
         if (!cursor) {
           cursor = document.createElement("span");
@@ -4710,39 +4827,43 @@ Event pings | bell | 1234567890</textarea></label>
         cursor.style.left = `${xPercent}%`;
         cursor.style.top = `${yPercent}%`;
         if (shapeSelect && shapeSelect.value === "boundary") {
-          boundaryPoints.push({x: form.elements.x.value, y: form.elements.y.value, xPercent, yPercent});
+          boundaryPoints.push({x: zoneFields.x ? zoneFields.x.value : 0, y: zoneFields.y ? zoneFields.y.value : 0, xPercent, yPercent});
           renderBoundary();
         }
         renderCirclePreview();
         const readout = form.querySelector("[data-map-readout]");
         if (readout) {
           const mode = shapeSelect && shapeSelect.value === "boundary" ? `Boundary point ${boundaryPoints.length}` : `Circle radius ${radiusInput ? radiusInput.value : 250}m`;
-          readout.textContent = `Selected X ${form.elements.x.value}, Y ${form.elements.y.value} - ${mode}`;
+          readout.textContent = `New zone X ${zoneFields.x ? zoneFields.x.value : 0}, Y ${zoneFields.y ? zoneFields.y.value : 0} - ${mode}`;
         }
       });
       document.querySelectorAll("[data-zone-edit]").forEach((button) => {
-        button.addEventListener("click", () => {
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
           let zone = {};
           try { zone = JSON.parse(button.dataset.zone || "{}"); } catch (error) { zone = {}; }
           if (!zone || !Object.keys(zone).length) return;
-          form.elements.zone_id.value = zone.id || zone.name || "";
-          form.elements.name.value = zone.name || "";
-          setSelectValue(form.elements.zone_type, zone.zone_type || zone.type || "radar");
-          form.elements.x.value = zone.x || 0;
-          form.elements.y.value = zone.y || 0;
-          setSelectValue(form.elements.shape, zone.shape || "circle");
+          document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
+          button.classList.add("editing");
+          if (zoneFields.zoneId) zoneFields.zoneId.value = zone.id || zone.name || "";
+          if (zoneFields.name) zoneFields.name.value = zone.name || "";
+          setSelectValue(zoneFields.type, zone.zone_type || zone.type || "radar");
+          if (zoneFields.x) zoneFields.x.value = zone.x || 0;
+          if (zoneFields.y) zoneFields.y.value = zone.y || 0;
+          setSelectValue(zoneFields.shape, zone.shape || "circle");
           syncRadius(zone.radius || 250);
-          setSelectValue(form.elements.channel_key, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
-          form.elements.role_id.value = zone.role_id || zone.mention_role_id || "";
-          setSelectValue(form.elements.faction_name, zone.faction_name || zone.faction || "");
+          setSelectValue(zoneFields.channel, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
+          if (zoneFields.role) zoneFields.role.value = zone.role_id || zone.mention_role_id || "";
+          setSelectValue(zoneFields.faction, zone.faction_name || zone.faction || "");
           syncZoneColour(zone.colour || zone.color || "#d5b45f");
-          setSelectValue(form.elements.enabled, zone.enabled === false ? "false" : "true");
-          setSelectValue(form.elements.action, zone.action || "none");
-          setSelectValue(form.elements.ban_type, zone.ban_type || "temp");
-          form.elements.ban_duration_minutes.value = zone.ban_duration_minutes || 1440;
-          setSelectValue(form.elements.trigger_territory, zone.trigger_territory || "inside");
-          form.elements.triggers.value = Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || "");
-          form.elements.ignored_gamertags.value = Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || "");
+          setSelectValue(zoneFields.enabled, zone.enabled === false ? "false" : "true");
+          setSelectValue(zoneFields.action, zone.action || "none");
+          setSelectValue(zoneFields.banType, zone.ban_type || "temp");
+          if (zoneFields.banMinutes) zoneFields.banMinutes.value = zone.ban_duration_minutes || 1440;
+          setSelectValue(zoneFields.triggerTerritory, zone.trigger_territory || "inside");
+          if (zoneFields.triggers) zoneFields.triggers.value = Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || "");
+          if (zoneFields.ignored) zoneFields.ignored.value = Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || "");
           boundaryPoints.length = 0;
           const savedPoints = Array.isArray(zone.boundary_points) ? zone.boundary_points : [];
           savedPoints.forEach((point) => {
@@ -4762,20 +4883,62 @@ Event pings | bell | 1234567890</textarea></label>
             cursor.className = "zone-cursor";
             map.appendChild(cursor);
           }
-          cursor.style.left = `${(Number(form.elements.x.value || 0) / size) * 100}%`;
-          cursor.style.top = `${100 - ((Number(form.elements.y.value || 0) / size) * 100)}%`;
+          cursor.style.left = `${(Number(zoneFields.x ? zoneFields.x.value : 0) / size) * 100}%`;
+          cursor.style.top = `${100 - ((Number(zoneFields.y ? zoneFields.y.value : 0) / size) * 100)}%`;
           renderCirclePreview();
           if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
           const readout = form.querySelector("[data-map-readout]");
           if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
           form.scrollIntoView({behavior: "smooth", block: "center"});
-          const submitButton = form.querySelector('button[type="submit"]');
-          if (submitButton) submitButton.textContent = "Save Zone Changes";
-          form.elements.name.focus();
+          setZoneEditingState(zone.name || "zone");
+          if (zoneFields.name) zoneFields.name.focus();
         });
       });
+      if (deleteCurrentButton) {
+        deleteCurrentButton.addEventListener("click", async () => {
+          const zoneId = zoneFields.zoneId ? zoneFields.zoneId.value : "";
+          const zoneName = zoneFields.name ? zoneFields.name.value : "";
+          if (!zoneId && !zoneName) return;
+          if (!window.confirm(`Delete ${zoneName || "this zone"} from this server?`)) return;
+          const originalText = deleteCurrentButton.textContent;
+          deleteCurrentButton.disabled = true;
+          deleteCurrentButton.textContent = "Deleting...";
+          try {
+            const payload = {
+              guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
+              zone_id: zoneId,
+              zone_type: zoneFields.type ? zoneFields.type.value : "",
+              name: zoneName,
+              action: "delete",
+              dashboard_mode: "{{ mode }}",
+            };
+            const response = await fetch(secureDashboardUrl("/api/admin/zone-action"), {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify(payload),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok || body.ok === false) throw new Error(body.error || "Zone delete failed.");
+            if (result) result.textContent = body.note || "Zone deleted.";
+            window.location.href = secureDashboardUrl(`/admin?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
+          } catch (error) {
+            if (result) result.textContent = error.message || "Zone delete failed.";
+            deleteCurrentButton.disabled = false;
+            deleteCurrentButton.textContent = originalText;
+          }
+        });
+      }
+      setZoneEditingState(zoneFields.zoneId && zoneFields.zoneId.value ? (zoneFields.name ? zoneFields.name.value : "zone") : "");
       syncRadius(radiusInput ? radiusInput.value : 250);
       syncZoneColour(colourInput ? colourInput.value : "#d5b45f");
+      loadBoundaryFromField();
+      if (zoneFields.zoneId && zoneFields.zoneId.value) {
+        placeCursorFromForm();
+        const readout = form.querySelector("[data-map-readout]");
+        if (readout) readout.textContent = `Editing ${zoneFields.name ? zoneFields.name.value : "zone"} - save to update this radar/zone.`;
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) submitButton.textContent = "Save Zone Changes";
+      }
     });
     document.querySelectorAll("[data-plan-notice]").forEach((notice) => {
       const today = new Date().toISOString().slice(0, 10);
@@ -6849,10 +7012,30 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
             "pvp": "#ed3853",
             "radar": "#d5b45f",
             "action": "#ff9f43",
-            "faction": "#8d963e",
-            "custom": "#d5b45f",
+            "faction": "#b978ff",
+            "custom": "#6ec6e0",
         }
-        colour = safe_colour(zone.get("colour") or zone.get("color") or faction_colour, fallback_colours.get(zone_type, "#d5b45f"))
+        raw_colour = str(zone.get("colour") or zone.get("color") or "").strip()
+        colour = safe_colour(raw_colour or faction_colour, fallback_colours.get(zone_type, "#d5b45f"))
+        zone_palette = [
+            "#d5b45f",
+            "#6ec6e0",
+            "#b978ff",
+            "#ff7b68",
+            "#9dff3a",
+            "#ff9f43",
+            "#75d89a",
+            "#4da3ff",
+            "#f97fb2",
+            "#f6e45f",
+        ]
+        defaultish = {"", "#d5b45f", "#8d963e", fallback_colours.get(zone_type, "").lower()}
+        if faction_colour:
+            display_colour = safe_colour(faction_colour, colour)
+        elif raw_colour.lower() in defaultish:
+            display_colour = zone_palette[len(normalized) % len(zone_palette)]
+        else:
+            display_colour = colour
         zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
         dedupe_key = (zone_type, zone_id, x, y, radius)
         if dedupe_key in seen:
@@ -6864,6 +7047,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "name": str(zone.get("name") or zone.get("label") or "Unnamed zone"),
                 "zone_type": zone_type,
                 "colour": colour,
+                "display_colour": display_colour,
                 "faction_name": faction_name,
                 "x": x,
                 "y": y,
@@ -6880,7 +7064,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "enabled": bool(zone.get("enabled", True)),
                 "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
                 "y_percent": round(100 - ((y / map_size) * 100), 2) if map_size else 0,
-                "dot_size": max(14, min(56, int((radius / map_size) * 320))),
+                "dot_size": max(34, min(72, int((radius / map_size) * 420))),
             }
         )
     return normalized
