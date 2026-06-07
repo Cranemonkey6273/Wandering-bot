@@ -532,14 +532,23 @@ PAGE_TEMPLATE = """
       cursor: crosshair;
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
-    .zone-map::after { content: "Click empty map to add - click a zone to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 2; }
+    .zone-map::after { content: "Click map to add - click ring to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
+    .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: auto; cursor: pointer; z-index: 4; }
+    button.zone-radius-ring { padding: 0; min-height: 0; color: inherit; }
+    .zone-radius-ring:hover, .zone-radius-ring:focus-visible, .zone-radius-ring.editing { outline: 3px solid #fff; outline-offset: 3px; filter: brightness(1.12); }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
     button.zone-dot { padding: 0; min-height: 0; overflow: visible; }
     .zone-dot > span { width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit; }
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
     .zone-dot small { position: absolute; left: calc(100% + .35rem); top: 50%; transform: translateY(-50%); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 74%, rgba(255,255,255,.35)); border-radius: .35rem; padding: .22rem .42rem; background: rgba(5,8,6,.86); color: var(--text); font-size: .74rem; font-weight: 900; text-align: left; pointer-events: none; }
     .zone-dot.editing small { color: #fff; border-color: #fff; }
+    .zone-map-popover { position: absolute; z-index: 12; width: min(20rem, calc(100% - 1rem)); transform: translate(.7rem, -50%); border: 1px solid color-mix(in srgb, var(--zone-colour, var(--accent)) 74%, var(--line)); border-radius: .6rem; padding: .75rem; background: color-mix(in srgb, var(--panel) 88%, #000); box-shadow: 0 18px 40px rgba(0,0,0,.42); color: var(--text); }
+    .zone-map-popover[data-side="left"] { transform: translate(calc(-100% - .7rem), -50%); }
+    .zone-map-popover[hidden] { display: none; }
+    .zone-map-popover strong { display: block; margin-bottom: .18rem; color: var(--zone-colour, var(--accent)); font-size: 1rem; }
+    .zone-map-popover span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.35; }
+    .zone-map-popover .zone-popover-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .65rem; }
+    .zone-map-popover button { min-height: 2.15rem; padding: .35rem .55rem; font-size: .84rem; }
     .zone-dot.safe { --zone-colour: #22c55e; }
     .zone-dot.pvp { --zone-colour: #ef4444; }
     .zone-dot.radar { --zone-colour: #38bdf8; }
@@ -1472,10 +1481,11 @@ Event pings | bell | 1234567890</textarea></label>
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
               {% if zone.shape != "boundary" %}
-              <span class="zone-radius-ring {{ zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></span>
+              <button type="button" class="zone-radius-ring {{ zone.zone_type }}" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></button>
               {% endif %}
               <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
               {% endfor %}
+              <div class="zone-map-popover" data-zone-popover hidden></div>
             </div>
             <div class="full map-readout" data-map-readout>Click empty map space to draft a new zone. Click a marker or Edit to load an existing zone.</div>
             <div class="full zone-form-actions">
@@ -4648,6 +4658,7 @@ Event pings | bell | 1234567890</textarea></label>
       const saveButton = form.querySelector("[data-zone-save-button]") || form.querySelector('button[type="submit"]');
       const deleteCurrentButton = form.querySelector("[data-zone-delete-current]");
       const result = form.querySelector(".result");
+      const popover = map.querySelector("[data-zone-popover]");
       const zoneFields = {
         guildId: form.querySelector('[name="guild_id"]'),
         zoneId: form.querySelector('[name="zone_id"]'),
@@ -4680,6 +4691,78 @@ Event pings | bell | 1234567890</textarea></label>
         "#60a5fa",
       ];
 
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[char]));
+      }
+
+      function clampPercent(value) {
+        return Math.max(2, Math.min(98, Number(value) || 0));
+      }
+
+      function getZonePoint(zone = {}) {
+        const x = Number(zone.x ?? zone.center_x ?? (zoneFields.x ? zoneFields.x.value : 0) ?? 0);
+        const z = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? (zoneFields.y ? zoneFields.y.value : 0) ?? 0);
+        return {
+          x,
+          z,
+          xPercent: Math.max(0, Math.min(100, (x / size) * 100)),
+          yPercent: Math.max(0, Math.min(100, 100 - ((z / size) * 100))),
+        };
+      }
+
+      function hideZonePopover() {
+        if (popover) popover.hidden = true;
+      }
+
+      function saveZoneFromPopover() {
+        if (form.requestSubmit) {
+          form.requestSubmit(saveButton || undefined);
+        } else if (saveButton) {
+          saveButton.click();
+        }
+      }
+
+      function showZonePopover(zone = {}, mode = "edit") {
+        if (!popover) return;
+        const point = getZonePoint(zone);
+        const type = zone.zone_type || zone.type || (zoneFields.type ? zoneFields.type.value : "radar");
+        const radius = zone.radius || (radiusInput ? radiusInput.value : 250);
+        const zoneName = zone.name || (zoneFields.name ? zoneFields.name.value : "");
+        const title = mode === "new" ? "New zone draft" : (zoneName || "Zone");
+        const colour = zone.display_colour || zone.colour || zone.color || (colourInput ? colourInput.value : zonePalette[0]);
+        popover.style.setProperty("--zone-colour", colour);
+        popover.style.left = `${clampPercent(point.xPercent)}%`;
+        popover.style.top = `${Math.max(8, Math.min(92, point.yPercent))}%`;
+        popover.dataset.side = point.xPercent > 62 ? "left" : "right";
+        popover.innerHTML = `
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(type)} zone - X ${Math.round(point.x)}, Z ${Math.round(point.z)} - radius ${escapeHtml(radius)}m</span>
+          <div class="zone-popover-actions">
+            <button type="button" data-popover-save>${mode === "new" ? "Save Zone" : "Save Changes"}</button>
+            ${mode === "edit" ? '<button type="button" data-popover-delete>Delete</button>' : ""}
+            <button type="button" data-popover-close>Close</button>
+          </div>`;
+        popover.hidden = false;
+        popover.querySelector("[data-popover-close]")?.addEventListener("click", hideZonePopover);
+        popover.querySelector("[data-popover-save]")?.addEventListener("click", saveZoneFromPopover);
+        popover.querySelector("[data-popover-delete]")?.addEventListener("click", (event) => {
+          deleteZone({
+            guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
+            zone_id: zone.id || (zoneFields.zoneId ? zoneFields.zoneId.value : ""),
+            zone_type: type,
+            name: zoneName,
+            action: "delete",
+            dashboard_mode: "{{ mode }}",
+          }, event.currentTarget);
+        });
+      }
+
       function syncZoneColour(colour) {
         const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : zonePalette[0];
         map.style.setProperty("--zone-colour", value);
@@ -4702,6 +4785,7 @@ Event pings | bell | 1234567890</textarea></label>
         document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
         if (zoneFields.zoneId) zoneFields.zoneId.value = "";
         setZoneEditingState("");
+        hideZonePopover();
       }
 
       function startNewZoneAt(x, z) {
@@ -4879,7 +4963,7 @@ Event pings | bell | 1234567890</textarea></label>
         return true;
       }
       map.addEventListener("click", (event) => {
-        if (event.target.closest("[data-zone-edit]")) return;
+        if (event.target.closest("[data-zone-edit]") || event.target.closest("[data-zone-popover]")) return;
         const rect = map.getBoundingClientRect();
         const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
         const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
@@ -4908,6 +4992,14 @@ Event pings | bell | 1234567890</textarea></label>
           const mode = shapeSelect && shapeSelect.value === "boundary" ? `Boundary point ${boundaryPoints.length}` : `Circle radius ${radiusInput ? radiusInput.value : 250}m`;
           readout.textContent = `New zone X ${zoneFields.x ? zoneFields.x.value : 0}, Z ${zoneFields.y ? zoneFields.y.value : 0} - ${mode}`;
         }
+        showZonePopover({
+          name: zoneFields.name ? zoneFields.name.value : "New zone draft",
+          zone_type: zoneFields.type ? zoneFields.type.value : "radar",
+          x: zoneFields.x ? zoneFields.x.value : x,
+          z: zoneFields.y ? zoneFields.y.value : y,
+          radius: radiusInput ? radiusInput.value : 250,
+          display_colour: colourInput ? colourInput.value : zonePalette[0],
+        }, "new");
       });
       document.querySelectorAll("[data-zone-edit]").forEach((button) => {
         button.addEventListener("click", (event) => {
@@ -4969,9 +5061,14 @@ Event pings | bell | 1234567890</textarea></label>
           if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
           const readout = form.querySelector("[data-map-readout]");
           if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
-          form.scrollIntoView({behavior: "smooth", block: "center"});
           setZoneEditingState(zone.name || "zone");
-          if (zoneFields.name) zoneFields.name.focus();
+          if (button.closest("[data-zone-map]")) {
+            showZonePopover(zone, "edit");
+          } else {
+            form.scrollIntoView({behavior: "smooth", block: "center"});
+            hideZonePopover();
+            if (zoneFields.name) zoneFields.name.focus();
+          }
         });
       });
       async function deleteZone(payload, button) {
