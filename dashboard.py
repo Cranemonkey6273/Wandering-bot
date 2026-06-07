@@ -939,7 +939,7 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-    .zone-map { position: relative; width: 100%; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
+    .zone-map { position: relative; width: 100%; max-width: var(--zone-map-display-size, 100%); margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
@@ -952,8 +952,8 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to add - click marker to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: rgba(255,255,255,.01); cursor: crosshair; color: transparent; }
-    .zone-map-hit-layer::after { content: "Click empty map to add zone"; position: absolute; left: .75rem; bottom: .65rem; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
+    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: .01; object-fit: fill; }
+    .zone-map-hit-label { position: absolute; left: .75rem; bottom: .65rem; z-index: 8; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
     .zone-map-hit-layer:focus-visible { outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
     .zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
@@ -1915,6 +1915,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "zones" %}
     {% set edit_zone_key = request.args.get('edit_zone', '') %}
+    {% set draft_zone_active = (not edit_zone_key and request.args.get('draft_x') and request.args.get('draft_z')) %}
     {% set edit_zone = namespace(id='', name='North West Airfield', zone_type='radar', x=7500, y=7500, shape='circle', radius=250, channel_key='', role_id='', faction_name='', colour='#d5b45f', enabled='true', action='none', ban_type='temp', ban_duration_minutes=1440, trigger_territory='inside', triggers='detection,login,kill,build', ignored_gamertags='', boundary_points='[]') %}
     {% if server and edit_zone_key %}
       {% for zone in server.zones %}
@@ -1941,6 +1942,14 @@ PAGE_TEMPLATE = """
         {% endif %}
       {% endfor %}
     {% endif %}
+    {% if draft_zone_active %}
+      {% set edit_zone.name = request.args.get('draft_name', 'New radar zone') %}
+      {% set edit_zone.zone_type = request.args.get('draft_type', 'radar') %}
+      {% set edit_zone.x = request.args.get('draft_x') %}
+      {% set edit_zone.y = request.args.get('draft_z') %}
+      {% set edit_zone.radius = request.args.get('draft_radius', edit_zone.radius) %}
+      {% set edit_zone.colour = request.args.get('draft_colour', edit_zone.colour) %}
+    {% endif %}
     <section class="section-panel" id="zones">
       <div class="section-head">
         <div>
@@ -1952,7 +1961,7 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
-          <form class="admin-form zone-builder-form {% if edit_zone_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
+          <form class="admin-form zone-builder-form {% if edit_zone_key or draft_zone_active %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="zone_id" value="{{ edit_zone.id }}">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -2010,11 +2019,14 @@ PAGE_TEMPLATE = """
                 <button type="button" data-undo-boundary>Undo Point</button>
               </div>
             </div>
-            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ ((server.map_size if server else 15360) / 10)|round|int }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
-              <button type="button" class="zone-map-hit-layer" data-zone-map-hit aria-label="Draft a new zone here" onpointerdown="return window.wanderingDraftZoneFromMap ? window.wanderingDraftZoneFromMap(this.parentNode, event) : true;"></button>
+              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ server.map_size if server else 15360 }}" height="{{ server.map_size if server else 15360 }}" data-zone-map-hit>
+              <input class="hidden-field" name="map_click_scale" value="10">
+              <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
+              <span class="zone-map-hit-label">Click empty map to add zone</span>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% for zone in (server.zones if server else []) %}
               {% if zone.shape == "boundary" and zone.points_percent %}
@@ -2031,8 +2043,8 @@ PAGE_TEMPLATE = """
             <div class="full zone-form-actions">
               <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
               <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
-              {% if edit_zone_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">Close</a>{% endif %}
-              <span class="result muted"></span>
+              {% if edit_zone_key or draft_zone_active %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">Close</a>{% endif %}
+              <span class="result muted">{% if draft_zone_active %}Draft from map click. Adjust anything here, then save the new zone.{% endif %}</span>
             </div>
           </form>
         </article>
@@ -3958,6 +3970,7 @@ PAGE_TEMPLATE = """
     }
     window.wanderingDashboardSubmit = wanderingDashboardSubmit;
     document.addEventListener("submit", (event) => {
+      if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit]")) return;
       const form = event.target && event.target.closest ? event.target.closest(".admin-form") : null;
       const routePath = String(form?.dataset?.route || "").split("?")[0];
       if (!DIRECT_DASHBOARD_SAVE_ROUTES[routePath]) return;
@@ -5212,6 +5225,7 @@ PAGE_TEMPLATE = """
         if (!form.getAttribute("action")) form.setAttribute("action", secureDashboardUrl(form.dataset.route));
       }
       form.addEventListener("submit", async (event) => {
+        if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit]")) return;
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
         form.querySelectorAll("[data-item-picker]").forEach((picker) => {
@@ -8843,6 +8857,59 @@ def item_thumb(category: str):
 <text x="48" y="43" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#071008">{initial}</text>
 </svg>"""
     return APP.response_class(svg, mimetype="image/svg+xml")
+
+
+def zone_draft_from_image_click(mode: str):
+    auth, error = require_page_auth(owner_only=(mode == "owner"))
+    if error:
+        return error
+    requested_guild_id = normalize_guild_id(request.args.get("guild_id") or auth.get("guild_id"))
+    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth.get("guild_id")]) if item]
+    if auth.get("kind") != "owner" and requested_guild_id not in allowed_guild_ids:
+        requested_guild_id = normalize_guild_id(auth.get("guild_id"))
+    if auth.get("kind") == "owner" and allowed_guild_ids and requested_guild_id not in allowed_guild_ids:
+        requested_guild_id = allowed_guild_ids[0]
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(requested_guild_id) if isinstance(guild_configs, dict) else {}
+    if not isinstance(config, dict):
+        config = {}
+    map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    click_x = safe_int(request.args.get("zone_click.x") or request.args.get("zone_click_x"))
+    click_y = safe_int(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
+    click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
+    scaled_display_size = max(1, map_size // click_scale)
+    effective_scale = 1 if click_x > scaled_display_size + 32 or click_y > scaled_display_size + 32 else click_scale
+    zone_x = max(0, min(map_size, click_x * effective_scale))
+    zone_z = max(0, min(map_size, map_size - (click_y * effective_scale)))
+    zone_type = str(request.args.get("zone_type") or "radar").strip().lower()
+    if zone_type not in {"safe", "pvp", "radar", "action", "faction", "custom"}:
+        zone_type = "radar"
+    radius = max(10, safe_int(request.args.get("draft_radius") or request.args.get("radius"), 250))
+    colour = safe_colour(request.args.get("colour"))
+    base_path = "/owner" if mode == "owner" else "/admin"
+    query = urllib.parse.urlencode(
+        {
+            "section": "zones",
+            "guild_id": requested_guild_id,
+            "draft_x": zone_x,
+            "draft_z": zone_z,
+            "draft_type": zone_type,
+            "draft_name": f"New {zone_type} zone",
+            "draft_radius": radius,
+            "draft_colour": colour,
+        }
+    )
+    return redirect(f"{base_path}?{query}#zone-edit-form")
+
+
+@APP.get("/admin/zone-draft")
+def admin_zone_draft():
+    return zone_draft_from_image_click("admin")
+
+
+@APP.get("/owner/zone-draft")
+def owner_zone_draft():
+    return zone_draft_from_image_click("owner")
 
 
 @APP.get("/")
