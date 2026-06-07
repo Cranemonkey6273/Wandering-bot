@@ -488,6 +488,12 @@ PAGE_TEMPLATE = """
         var yPercent = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
         var x = Math.max(0, Math.min(size, Math.round((xPercent / 100) * size)));
         var z = Math.max(0, Math.min(size, Math.round((1 - (yPercent / 100)) * size)));
+        if (form.elements.map_render_width) form.elements.map_render_width.value = String(Math.round(rect.width));
+        if (form.elements.map_render_height) form.elements.map_render_height.value = String(Math.round(rect.height));
+        if (form.elements.map_pointer_x) form.elements.map_pointer_x.value = String(Math.max(0, Math.min(rect.width, event.clientX - rect.left)));
+        if (form.elements.map_pointer_y) form.elements.map_pointer_y.value = String(Math.max(0, Math.min(rect.height, event.clientY - rect.top)));
+        if (form.elements.map_percent_x) form.elements.map_percent_x.value = xPercent.toFixed(6);
+        if (form.elements.map_percent_y) form.elements.map_percent_y.value = yPercent.toFixed(6);
         var type = firstValue(form.elements.zone_type && form.elements.zone_type.value, "radar");
         var colour = firstValue(form.elements.colour && form.elements.colour.value, "#8d963e");
         setControl(form, "zone_id", "");
@@ -511,6 +517,21 @@ PAGE_TEMPLATE = """
         }
         cursor.style.left = xPercent + "%";
         cursor.style.top = yPercent + "%";
+        cursor.style.setProperty("--zone-colour", colour);
+        var circle = map.querySelector(".zone-preview-circle");
+        if (!circle) {
+          circle = document.createElement("span");
+          circle.className = "zone-preview-circle";
+          map.appendChild(circle);
+        }
+        var radius = Number((form.elements.radius && form.elements.radius.value) || (form.elements.draft_radius && form.elements.draft_radius.value) || 250);
+        var circleWidth = ((Math.max(10, radius) * 2) / size) * rect.width;
+        circle.style.width = Math.max(12, circleWidth) + "px";
+        circle.style.height = Math.max(12, circleWidth) + "px";
+        circle.style.left = xPercent + "%";
+        circle.style.top = yPercent + "%";
+        circle.style.setProperty("--zone-colour", colour);
+        circle.style.display = form.elements.shape && form.elements.shape.value === "boundary" ? "none" : "";
         showZoneDraftPopover(map, form, {name: "New " + type + " zone", zone_type: type, x: x, z: z, radius: form.elements.radius && form.elements.radius.value, colour: colour});
         map.setAttribute("data-zone-draft-at", String(now));
         return true;
@@ -2093,12 +2114,14 @@ PAGE_TEMPLATE = """
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
-              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ server.map_size if server else 15360 }}" height="{{ server.map_size if server else 15360 }}" data-zone-map-hit>
+              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ ((server.map_size if server else 15360) / 10)|round|int }}" height="{{ ((server.map_size if server else 15360) / 10)|round|int }}" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
               <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
               <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
               <input class="hidden-field" name="map_pointer_x" data-map-pointer-x value="">
               <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
+              <input class="hidden-field" name="map_percent_x" data-map-percent-x value="">
+              <input class="hidden-field" name="map_percent_y" data-map-percent-y value="">
               <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
               <span class="zone-map-hit-label">Click empty map to add zone</span>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
@@ -6584,6 +6607,8 @@ PAGE_TEMPLATE = """
         height: form.querySelector("[data-map-render-height]"),
         pointerX: form.querySelector("[data-map-pointer-x]"),
         pointerY: form.querySelector("[data-map-pointer-y]"),
+        percentX: form.querySelector("[data-map-percent-x]"),
+        percentY: form.querySelector("[data-map-percent-y]"),
       };
       const zonePalette = [
         "#ff4d6d",
@@ -6618,8 +6643,12 @@ PAGE_TEMPLATE = """
         if (mapMetricFields.width) mapMetricFields.width.value = String(Math.round(rect.width));
         if (mapMetricFields.height) mapMetricFields.height.value = String(Math.round(rect.height));
         if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
-          if (mapMetricFields.pointerX) mapMetricFields.pointerX.value = String(Math.max(0, Math.min(rect.width, event.clientX - rect.left)));
-          if (mapMetricFields.pointerY) mapMetricFields.pointerY.value = String(Math.max(0, Math.min(rect.height, event.clientY - rect.top)));
+          const pointerX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+          const pointerY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+          if (mapMetricFields.pointerX) mapMetricFields.pointerX.value = String(pointerX);
+          if (mapMetricFields.pointerY) mapMetricFields.pointerY.value = String(pointerY);
+          if (mapMetricFields.percentX) mapMetricFields.percentX.value = String((pointerX / rect.width) * 100);
+          if (mapMetricFields.percentY) mapMetricFields.percentY.value = String((pointerY / rect.height) * 100);
         }
       }
 
@@ -6898,6 +6927,8 @@ PAGE_TEMPLATE = """
         const rect = map.getBoundingClientRect();
         const xPercent = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
         const yPercent = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+        if (mapMetricFields.percentX) mapMetricFields.percentX.value = String(xPercent);
+        if (mapMetricFields.percentY) mapMetricFields.percentY.value = String(yPercent);
         const x = Math.round((xPercent / 100) * size);
         const y = Math.round((1 - (yPercent / 100)) * size);
         startNewZoneAt(x, y);
@@ -10997,11 +11028,16 @@ def zone_draft_from_image_click(mode: str):
     click_y = safe_float(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
     pointer_x = safe_float(request.args.get("map_pointer_x"), -1)
     pointer_y = safe_float(request.args.get("map_pointer_y"), -1)
+    percent_x = safe_float(request.args.get("map_percent_x"), -1)
+    percent_y = safe_float(request.args.get("map_percent_y"), -1)
     render_width = safe_float(request.args.get("map_render_width"), 0)
     render_height = safe_float(request.args.get("map_render_height"), 0)
     click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
     if has_click:
-        if pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
+        if 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
+            zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
+            zone_z = max(0, min(map_size, round((1 - (percent_y / 100)) * map_size)))
+        elif pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
             zone_x = max(0, min(map_size, round((pointer_x / render_width) * map_size)))
             zone_z = max(0, min(map_size, round(map_size - ((pointer_y / render_height) * map_size))))
         elif render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
