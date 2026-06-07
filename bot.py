@@ -24734,8 +24734,10 @@ def ce_event_family_for_record(event_type, class_name=""):
         return "Infected"
     if event_type == "vehicle_spawn":
         return "Vehicle"
+    if class_name.startswith(("Static", "Land_")):
+        return "Static"
     if event_type in {"airdrop", "loot_crate"}:
-        return "Item"
+        return "Static"
     return "Static"
 
 
@@ -25261,10 +25263,10 @@ def console_ce_records_for_event(event):
     elif event_type == "animal_pack":
         lifetime = 180
 
-    use_eventgroup = event_type in {"airdrop", "loot_crate"}
-    if use_eventgroup and class_name in {"WoodenCrate", "SupplyCrate", "Crate"}:
+    use_eventgroup = False
+    if event_type in {"airdrop", "loot_crate"} and class_name in {"WoodenCrate", "SupplyCrate", "Crate"}:
         class_name = "StaticObj_Misc_WoodenCrate_5x"
-    family = "Static" if use_eventgroup else ce_event_family_for_record(event_type, class_name)
+    family = ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
     child_lootmin = 0
     child_lootmax = 0
