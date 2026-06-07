@@ -2037,6 +2037,10 @@ PAGE_TEMPLATE = """
               {% endif %}
               <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ server.map_size if server else 15360 }}" height="{{ server.map_size if server else 15360 }}" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
+              <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
+              <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
+              <input class="hidden-field" name="map_pointer_x" data-map-pointer-x value="">
+              <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
               <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
               <span class="zone-map-hit-label">Click empty map to add zone</span>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
@@ -5669,6 +5673,12 @@ PAGE_TEMPLATE = """
         triggers: form.querySelector('[name="triggers"]'),
         ignored: form.querySelector('[name="ignored_gamertags"]'),
       };
+      const mapMetricFields = {
+        width: form.querySelector("[data-map-render-width]"),
+        height: form.querySelector("[data-map-render-height]"),
+        pointerX: form.querySelector("[data-map-pointer-x]"),
+        pointerY: form.querySelector("[data-map-pointer-y]"),
+      };
       const zonePalette = [
         "#ff4d6d",
         "#38bdf8",
@@ -5694,6 +5704,17 @@ PAGE_TEMPLATE = """
 
       function clampPercent(value) {
         return Math.max(2, Math.min(98, Number(value) || 0));
+      }
+
+      function updateMapClickMetrics(event = null) {
+        const rect = map.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        if (mapMetricFields.width) mapMetricFields.width.value = String(Math.round(rect.width));
+        if (mapMetricFields.height) mapMetricFields.height.value = String(Math.round(rect.height));
+        if (event && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+          if (mapMetricFields.pointerX) mapMetricFields.pointerX.value = String(Math.max(0, Math.min(rect.width, event.clientX - rect.left)));
+          if (mapMetricFields.pointerY) mapMetricFields.pointerY.value = String(Math.max(0, Math.min(rect.height, event.clientY - rect.top)));
+        }
       }
 
       function getZonePoint(zone = {}) {
@@ -5953,6 +5974,9 @@ PAGE_TEMPLATE = """
           renderBoundary();
         });
       }
+      map.addEventListener("pointerdown", updateMapClickMetrics, true);
+      map.addEventListener("click", updateMapClickMetrics, true);
+      window.addEventListener("resize", () => updateMapClickMetrics());
       form.querySelector("[data-clear-boundary]")?.addEventListener("click", () => {
         boundaryPoints.length = 0;
         renderBoundary();
@@ -6154,6 +6178,7 @@ PAGE_TEMPLATE = """
       setZoneEditingState(zoneFields.zoneId && zoneFields.zoneId.value ? (zoneFields.name ? zoneFields.name.value : "zone") : "");
       syncRadius(radiusInput ? radiusInput.value : 250);
       syncZoneColour(colourInput ? colourInput.value : zonePalette[0]);
+      updateMapClickMetrics();
       loadBoundaryFromField();
       if (zoneFields.zoneId && zoneFields.zoneId.value) {
         placeCursorFromForm();
@@ -7007,6 +7032,13 @@ def normalize_guild_id(value: Any) -> str:
 def safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -9061,14 +9093,26 @@ def zone_draft_from_image_click(mode: str):
         config = {}
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
     has_click = any(key in request.args for key in ("zone_click.x", "zone_click.y", "zone_click_x", "zone_click_y"))
-    click_x = safe_int(request.args.get("zone_click.x") or request.args.get("zone_click_x"))
-    click_y = safe_int(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
+    click_x = safe_float(request.args.get("zone_click.x") or request.args.get("zone_click_x"))
+    click_y = safe_float(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
+    pointer_x = safe_float(request.args.get("map_pointer_x"), -1)
+    pointer_y = safe_float(request.args.get("map_pointer_y"), -1)
+    render_width = safe_float(request.args.get("map_render_width"), 0)
+    render_height = safe_float(request.args.get("map_render_height"), 0)
     click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
-    scaled_display_size = max(1, map_size // click_scale)
-    effective_scale = 1 if click_x > scaled_display_size + 32 or click_y > scaled_display_size + 32 else click_scale
     if has_click:
-        zone_x = max(0, min(map_size, click_x * effective_scale))
-        zone_z = max(0, min(map_size, map_size - (click_y * effective_scale)))
+        if pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
+            zone_x = max(0, min(map_size, round((pointer_x / render_width) * map_size)))
+            zone_z = max(0, min(map_size, round(map_size - ((pointer_y / render_height) * map_size))))
+        elif render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
+            zone_x = max(0, min(map_size, round((click_x / render_width) * map_size)))
+            zone_z = max(0, min(map_size, round(map_size - ((click_y / render_height) * map_size))))
+        elif 0 <= click_x <= map_size and 0 <= click_y <= map_size:
+            zone_x = max(0, min(map_size, round(click_x)))
+            zone_z = max(0, min(map_size, round(map_size - click_y)))
+        else:
+            zone_x = max(0, min(map_size, round(click_x * click_scale)))
+            zone_z = max(0, min(map_size, round(map_size - (click_y * click_scale))))
     else:
         zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
         zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
