@@ -2539,6 +2539,9 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Amount <input name="amount" type="number" value="100"></label>
+            <label>Account
+              <select name="account"><option value="cash">Cash</option><option value="bank">Bank</option></select>
+            </label>
             <label>Reason
               <select name="reason">
                 <option value="admin reward">Admin reward</option>
@@ -8054,6 +8057,19 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def ensure_wallet_accounts(wallet: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(wallet, dict):
+        return {}
+    if "cash_balance" not in wallet and "bank_balance" not in wallet:
+        wallet["cash_balance"] = safe_int(wallet.get("balance", 0))
+        wallet["bank_balance"] = 0
+    else:
+        wallet["cash_balance"] = safe_int(wallet.get("cash_balance", 0))
+        wallet["bank_balance"] = safe_int(wallet.get("bank_balance", 0))
+    wallet["balance"] = safe_int(wallet.get("cash_balance", 0)) + safe_int(wallet.get("bank_balance", 0))
+    return wallet
+
+
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -13084,6 +13100,9 @@ def api_wallet_adjustment():
     if not target_id:
         return jsonify({"ok": False, "error": "target is required"}), 400
     amount = safe_int(payload.get("amount"))
+    account = str(payload.get("account") or "cash").strip().lower()
+    if account not in {"cash", "bank"}:
+        account = "cash"
     guild_id = normalize_guild_id(payload.get("guild_id"))
     wallets = load_store("wallets", {})
     if not isinstance(wallets, dict):
@@ -13100,7 +13119,8 @@ def api_wallet_adjustment():
                 "wallet_type": "faction",
                 "faction_name": target_id,
                 "name": f"Faction: {target_id}",
-                "balance": safe_int(legacy.get("balance", 0)),
+                "cash_balance": safe_int(legacy.get("cash_balance", legacy.get("balance", 0))),
+                "bank_balance": safe_int(legacy.get("bank_balance", 0)),
                 "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
             },
         )
@@ -13117,17 +13137,22 @@ def api_wallet_adjustment():
                 "guild_id": guild_id,
                 "user_id": user_id,
                 "name": str(payload.get("name") or legacy.get("name") or ""),
-                "balance": safe_int(legacy.get("balance", 0)),
+                "cash_balance": safe_int(legacy.get("cash_balance", legacy.get("balance", 0))),
+                "bank_balance": safe_int(legacy.get("bank_balance", 0)),
                 "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
             },
         )
     wallet["guild_id"] = guild_id
     wallet["user_id"] = user_id
-    wallet["balance"] = safe_int(wallet.get("balance")) + amount
+    ensure_wallet_accounts(wallet)
+    balance_key = "bank_balance" if account == "bank" else "cash_balance"
+    wallet[balance_key] = safe_int(wallet.get(balance_key)) + amount
+    ensure_wallet_accounts(wallet)
     wallet["updated_at"] = datetime.now(UTC).isoformat()
     wallet.setdefault("adjustments", []).append(
         {
             "amount": amount,
+            "account": account,
             "reason": str(payload.get("reason") or "dashboard adjustment"),
             "guild_id": guild_id,
             "target_type": target_type,
