@@ -460,8 +460,8 @@ PAGE_TEMPLATE = """
         }
         var zoneEdit = closest(event.target, "[data-zone-edit]");
         if (zoneEdit) {
+          if (!fillZone(zoneEdit)) return;
           stop(event);
-          fillZone(zoneEdit);
           return;
         }
         var embedDelete = closest(event.target, "[data-embed-template-delete]");
@@ -493,6 +493,7 @@ PAGE_TEMPLATE = """
         }
         var zoneDelete = closest(event.target, "[data-zone-delete]");
         if (zoneDelete) {
+          if (closest(zoneDelete, "form")) return;
           stop(event);
           var zone = zoneFromButton(zoneDelete);
           var name = firstValue(zoneDelete.getAttribute("data-zone-name"), zone.name, "this zone");
@@ -735,7 +736,7 @@ PAGE_TEMPLATE = """
     .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .table-scroll .item-table { min-width: 44rem; }
     input[type="color"] { min-height: 2.8rem; padding: .25rem; cursor: pointer; }
-    .item-table button { padding: .35rem .5rem; font-size: .85rem; }
+    .item-table button, .item-table .button { padding: .35rem .5rem; font-size: .85rem; }
     .scenario-actions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 18rem; }
     .scenario-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
     .scenario-actions .result { display: none; }
@@ -837,10 +838,10 @@ PAGE_TEMPLATE = """
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to add - click ring to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: auto; cursor: pointer; z-index: 4; }
-    button.zone-radius-ring { padding: 0; min-height: 0; color: inherit; }
+    button.zone-radius-ring, a.zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
     .zone-radius-ring:hover, .zone-radius-ring:focus-visible, .zone-radius-ring.editing { outline: 3px solid #fff; outline-offset: 3px; filter: brightness(1.12); }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
-    button.zone-dot { padding: 0; min-height: 0; overflow: visible; }
+    button.zone-dot, a.zone-dot { padding: 0; min-height: 0; overflow: visible; text-decoration: none; }
     .zone-dot > span { width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit; }
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
     .zone-dot small { position: absolute; left: calc(100% + .35rem); top: 50%; transform: translateY(-50%); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 74%, rgba(255,255,255,.35)); border-radius: .35rem; padding: .22rem .42rem; background: rgba(5,8,6,.86); color: var(--text); font-size: .74rem; font-weight: 900; text-align: left; pointer-events: none; }
@@ -1784,9 +1785,9 @@ Event pings | bell | 1234567890</textarea></label>
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
               {% if zone.shape != "boundary" %}
-              <button type="button" class="zone-radius-ring {{ zone.zone_type }}" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></button>
+              <a class="zone-radius-ring {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></a>
               {% endif %}
-              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
+              <a class="zone-dot {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></a>
               {% endfor %}
               <div class="zone-map-popover" data-zone-popover hidden></div>
             </div>
@@ -1814,9 +1815,19 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
                 <td>
                   <div class="inline-action">
-                    <button type="button" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</button>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</a>
                   </div>
-                  <button type="button" data-zone-delete data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-id="{{ zone.id }}" data-zone-type="{{ zone.zone_type }}" data-zone-name="{{ zone.name }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/zone-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">
+                    <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                    <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
+                    <input class="hidden-field" name="zone_type" value="{{ zone.zone_type }}">
+                    <input class="hidden-field" name="name" value="{{ zone.name }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit" data-zone-delete data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-id="{{ zone.id }}" data-zone-type="{{ zone.zone_type }}" data-zone-name="{{ zone.name }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                    <span class="result muted"></span>
+                  </form>
                   <script type="application/json" data-zone-json data-zone-key="{{ (zone.id or zone.name)|e }}">{{ zone | tojson }}</script>
                 </td>
               </tr>
@@ -3456,8 +3467,8 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const zoneEdit = event.target.closest("[data-zone-edit]");
         if (zoneEdit) {
+          if (!fillZoneForm(zoneFromControl(zoneEdit), zoneEdit)) return;
           stop(event);
-          fillZoneForm(zoneFromControl(zoneEdit), zoneEdit);
           return;
         }
         const embedDelete = event.target.closest("[data-embed-template-delete]");
@@ -3491,6 +3502,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const zoneDelete = event.target.closest("[data-zone-delete]");
         if (zoneDelete) {
+          if (zoneDelete.closest("form")) return;
           stop(event);
           const zone = zoneFromControl(zoneDelete);
           const name = zoneDelete.dataset.zoneName || zone.name || "this zone";
@@ -5725,9 +5737,9 @@ Event pings | bell | 1234567890</textarea></label>
       document.addEventListener("click", async (event) => {
         const editButton = event.target.closest("[data-zone-edit]");
         if (editButton) {
-          event.preventDefault();
           const zone = zoneFromControl(editButton);
           if (!fillZoneEditor(zone, editButton)) return;
+          event.preventDefault();
           if (editButton.closest("[data-zone-map]")) {
             showZonePopover(zone, "edit");
           } else {
@@ -5739,6 +5751,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const deleteButton = event.target.closest("[data-zone-delete]");
         if (deleteButton) {
+          if (deleteButton.closest("form")) return;
           event.preventDefault();
           const zone = zoneFromControl(deleteButton);
           await deleteZone({
