@@ -9867,6 +9867,21 @@ def api_scenario_event():
         events.append(event)
     else:
         events[existing_index] = event
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+
+    upload_result = None
+    if event_type != "vehicle_reset_all":
+        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id)
+        if upload_result is not None:
+            refreshed_configs = load_store("guild_configs", {})
+            refreshed_config = refreshed_configs.get(guild_id) if isinstance(refreshed_configs, dict) else None
+            refreshed_events = refreshed_config.get("scenario_events", []) if isinstance(refreshed_config, dict) else []
+            for refreshed_event in refreshed_events if isinstance(refreshed_events, list) else []:
+                if isinstance(refreshed_event, dict) and safe_int(refreshed_event.get("id"), 0) == event_id:
+                    event = refreshed_event
+                    break
+
     g.dashboard_audit_payload = {
         "name": event.get("name"),
         "event_type": event.get("event_type"),
@@ -9882,16 +9897,14 @@ def api_scenario_event():
         "event_id": event.get("id"),
         "guild_id": guild_id,
     }
-    save_store("guild_configs", guild_configs)
-    sync_runtime_store("guild_configs", guild_configs)
     if not wants_json_response():
         return redirect(return_to)
     return jsonify({
         "ok": True,
         "event": event,
         "updated": existing_index is not None,
-        "upload": None,
-        "note": "saved; native CE XML upload is queued in the bot background worker",
+        "upload": upload_result,
+        "note": "saved; native CE XML upload attempted" if upload_result is not None else "saved; native CE XML upload is queued in the bot background worker",
     })
 
 
@@ -9957,7 +9970,7 @@ def api_scenario_event_action():
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
 
-        if action in {"upload", "pause"}:
+        if action in {"approve", "upload", "pause"}:
             upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
             if upload_result is not None:
                 guild_configs = load_store("guild_configs", {})
