@@ -841,10 +841,9 @@ PAGE_TEMPLATE = """
       cursor: crosshair;
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
-    .zone-map::after { content: "Click map to add - click ring to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: auto; cursor: pointer; z-index: 4; }
-    button.zone-radius-ring, a.zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
-    .zone-radius-ring:hover, .zone-radius-ring:focus-visible, .zone-radius-ring.editing { outline: 3px solid #fff; outline-offset: 3px; filter: brightness(1.12); }
+    .zone-map::after { content: "Click map to add - click marker to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
+    .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
+    .zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
     button.zone-dot, a.zone-dot { padding: 0; min-height: 0; overflow: visible; text-decoration: none; }
     .zone-dot > span { width: 100%; height: 100%; display: grid; place-items: center; border-radius: inherit; }
@@ -1908,7 +1907,7 @@ PAGE_TEMPLATE = """
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
               {% if zone.shape != "boundary" %}
-              <a class="zone-radius-ring {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></a>
+              <span class="zone-radius-ring {{ zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></span>
               {% endif %}
               <a class="zone-dot {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></a>
               {% endfor %}
@@ -5776,54 +5775,6 @@ PAGE_TEMPLATE = """
         boundaryPoints.pop();
         renderBoundary();
       });
-      function findNearestZoneMarker(event) {
-        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot, [data-zone-edit].zone-radius-ring"));
-        let closest = null;
-        let closestDistance = Infinity;
-        markers.forEach((marker) => {
-          const markerRect = marker.getBoundingClientRect();
-          const centerX = markerRect.left + markerRect.width / 2;
-          const centerY = markerRect.top + markerRect.height / 2;
-          const distance = Math.hypot(event.clientX - centerX, event.clientY - centerY);
-          if (distance < closestDistance) {
-            closest = marker;
-            closestDistance = distance;
-          }
-        });
-        if (!closest) return false;
-        const markerRect = closest.getBoundingClientRect();
-        const hitRadius = closest.classList.contains("zone-radius-ring")
-          ? Math.max(42, markerRect.width / 2 + 18)
-          : Math.max(42, markerRect.width / 2 + 24);
-        if (closestDistance <= hitRadius) {
-          closest.click();
-          return true;
-        }
-        return false;
-      }
-      function findZoneByGamePoint(x, z) {
-        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot, [data-zone-edit].zone-radius-ring"));
-        let closest = null;
-        let closestDistance = Infinity;
-        markers.forEach((marker) => {
-          let zone = {};
-          try { zone = JSON.parse(marker.dataset.zone || "{}"); } catch (error) { zone = {}; }
-          if (!zone || !Object.keys(zone).length) return;
-          const zoneX = Number(zone.x ?? zone.center_x ?? 0);
-          const zoneZ = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0);
-          if (!Number.isFinite(zoneX) || !Number.isFinite(zoneZ)) return;
-          const radius = Math.max(75, Number(zone.radius ?? zone.radius_m ?? 250));
-          const distance = Math.hypot(Number(x) - zoneX, Number(z) - zoneZ);
-          const hitDistance = radius + (marker.classList.contains("zone-radius-ring") ? 60 : 150);
-          if (distance <= hitDistance && distance < closestDistance) {
-            closest = marker;
-            closestDistance = distance;
-          }
-        });
-        if (!closest) return false;
-        closest.click();
-        return true;
-      }
       map.addEventListener("click", (event) => {
         if (event.target.closest("[data-zone-edit]") || event.target.closest("[data-zone-popover]")) return;
         const rect = map.getBoundingClientRect();
@@ -5831,7 +5782,6 @@ PAGE_TEMPLATE = """
         const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
         const x = Math.round((xPercent / 100) * size);
         const y = Math.round((1 - (yPercent / 100)) * size);
-        if (findNearestZoneMarker(event) || findZoneByGamePoint(x, y)) return;
         if (zoneFields.x) zoneFields.x.value = Math.max(0, Math.min(size, x));
         if (zoneFields.y) zoneFields.y.value = Math.max(0, Math.min(size, y));
         startNewZoneAt(zoneFields.x ? zoneFields.x.value : x, zoneFields.y ? zoneFields.y.value : y);
