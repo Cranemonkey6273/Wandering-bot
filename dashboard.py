@@ -2936,6 +2936,7 @@ PAGE_TEMPLATE = """
     {% set guard = (server.config.moderation_guard if server and server.config and server.config.moderation_guard else {}) %}
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
     {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
+    {% set stack = (server.config.stack_watch if server and server.config and server.config.stack_watch else {}) %}
     <section class="section-panel" id="moderation">
       <div class="section-head">
         <div>
@@ -3005,14 +3006,44 @@ PAGE_TEMPLATE = """
             <label>Cluster minimum kills <input type="number" min="2" max="20" name="cheat_cluster_min_kills" value="{{ cheat.cluster_min_kills or 3 }}"></label>
             <label>Cluster max radius metres <input type="number" min="5" max="1000" name="cheat_cluster_max_radius" value="{{ cheat.cluster_max_radius or 50 }}"></label>
             <div class="embed-preview full"><strong>PC Cheat Feed</strong><span>Alerts post to the private `pc-cheat-check` channel. Auto-ban stays off unless you explicitly enable it for this server.</span></div>
-            <div class="full"><button type="submit">Save PC Cheat Settings</button> <span class="result muted"></span></div>
+          <div class="full"><button type="submit">Save PC Cheat Settings</button> <span class="result muted"></span></div>
           </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Stack Watch</h3>
+          <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>Watch placements
+              <select name="stack_watch_enabled"><option value="true" {{ 'selected' if stack.enabled is not defined or stack.enabled else '' }}>On</option><option value="false" {{ 'selected' if stack.enabled is defined and not stack.enabled else '' }}>Off</option></select>
+            </label>
+            <label>Alert channel
+              <select name="stack_watch_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key or channel.value }}" {% if (stack.channel_key or 'admin_logs') == channel.key or (stack.channel_key or 'admin_logs') == channel.value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Recent window seconds <input type="number" min="10" max="1800" name="stack_watch_window_seconds" value="{{ stack.window_seconds or 180 }}"></label>
+            <label>Nearby radius metres <input type="number" min="1" max="100" name="stack_watch_radius_meters" value="{{ stack.radius_meters or 8 }}"></label>
+            <label>Trigger count <input type="number" min="1" max="20" name="stack_watch_min_count" value="{{ stack.min_count or 2 }}"></label>
+            <label>Alert each watched placement
+              <select name="stack_watch_alert_each"><option value="true" {{ 'selected' if stack.alert_each_watched is not defined or stack.alert_each_watched else '' }}>Yes</option><option value="false" {{ 'selected' if stack.alert_each_watched is defined and not stack.alert_each_watched else '' }}>Only after trigger count</option></select>
+            </label>
+            <label>Area X <input name="stack_watch_area_x" value="{{ stack.area_x or '' }}" placeholder="optional"></label>
+            <label>Area Z <input name="stack_watch_area_z" value="{{ stack.area_z or '' }}" placeholder="optional"></label>
+            <label>Area radius metres <input type="number" min="0" max="30000" name="stack_watch_area_radius_meters" value="{{ stack.area_radius_meters or 0 }}" placeholder="0 = whole map"></label>
+            <label>Minimum height <input name="stack_watch_min_height" value="{{ stack.min_height or '' }}" placeholder="optional"></label>
+            <label>Maximum height <input name="stack_watch_max_height" value="{{ stack.max_height or '' }}" placeholder="optional"></label>
+            <label class="full">Watched objects <textarea name="stack_watch_objects" placeholder="GardenPlot&#10;Fireplace&#10;FenceKit">{% for item in (stack.objects or ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit']) %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <div class="embed-preview full"><strong>ADM placement watch</strong><span>Detects lines like Nameless Object&lt;GardenPlot&gt;, counts nearby repeat placements, and alerts staff for possible stacking raids.</span></div>
+            <div class="full"><button type="submit">Save Stack Watch</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
           <h3 style="margin-top:1rem">Current Guard State</h3>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Guard</span><strong>{{ 'On' if guard.enabled else 'Off' }}</strong></div>
             <div class="mini-card"><span class="muted">Tracked users</span><strong>{{ strikes|length }}</strong></div>
             <div class="mini-card"><span class="muted">PC cheat</span><strong>{{ 'On' if cheat.enabled is not defined or cheat.enabled else 'Off' }}</strong></div>
-            <div class="mini-card"><span class="muted">Auto-ban</span><strong>{{ 'On' if cheat.auto_ban else 'Off' }}</strong></div>
+            <div class="mini-card"><span class="muted">Stack watch</span><strong>{{ 'On' if stack.enabled is not defined or stack.enabled else 'Off' }}</strong></div>
           </div>
           <div class="recipe-list">
             {% for user_id, strike in strikes.items() %}
@@ -9817,12 +9848,35 @@ def api_moderation_guard():
     cheat["cluster_max_radius"] = max(5, min(1000, safe_int(payload.get("cheat_cluster_max_radius"), safe_int(cheat_previous.get("cluster_max_radius"), 50))))
     cheat["updated_at"] = datetime.now(UTC).isoformat()
     config["cheat_check"] = cheat
+
+    stack_previous = config.get("stack_watch", {})
+    if not isinstance(stack_previous, dict):
+        stack_previous = {}
+    stack = dict(stack_previous)
+    stack["enabled"] = safe_bool(payload.get("stack_watch_enabled"), safe_bool(stack_previous.get("enabled"), True))
+    stack["objects"] = lines_or_csv(
+        payload.get("stack_watch_objects"),
+        stack_previous.get("objects") or ["GardenPlot", "Fireplace", "FireplaceIndoor", "OvenIndoor", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
+    )
+    stack["window_seconds"] = max(10, min(1800, safe_int(payload.get("stack_watch_window_seconds"), safe_int(stack_previous.get("window_seconds"), 180))))
+    stack["radius_meters"] = max(1, min(100, safe_int(payload.get("stack_watch_radius_meters"), safe_int(stack_previous.get("radius_meters"), 8))))
+    stack["min_count"] = max(1, min(20, safe_int(payload.get("stack_watch_min_count"), safe_int(stack_previous.get("min_count"), 2))))
+    stack["alert_each_watched"] = safe_bool(payload.get("stack_watch_alert_each"), safe_bool(stack_previous.get("alert_each_watched"), True))
+    stack["channel_key"] = str(payload.get("stack_watch_channel_key") or stack_previous.get("channel_key") or "admin_logs").strip()[:80]
+    stack["area_x"] = str(payload.get("stack_watch_area_x") if payload.get("stack_watch_area_x") is not None else stack_previous.get("area_x", "")).strip()[:40]
+    stack["area_z"] = str(payload.get("stack_watch_area_z") if payload.get("stack_watch_area_z") is not None else stack_previous.get("area_z", "")).strip()[:40]
+    stack["area_radius_meters"] = max(0, min(30000, safe_int(payload.get("stack_watch_area_radius_meters"), safe_int(stack_previous.get("area_radius_meters"), 0))))
+    stack["min_height"] = str(payload.get("stack_watch_min_height") if payload.get("stack_watch_min_height") is not None else stack_previous.get("min_height", "")).strip()[:40]
+    stack["max_height"] = str(payload.get("stack_watch_max_height") if payload.get("stack_watch_max_height") is not None else stack_previous.get("max_height", "")).strip()[:40]
+    stack["updated_at"] = datetime.now(UTC).isoformat()
+    config["stack_watch"] = stack
+
     config["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "moderation_guard": guard, "cheat_check": cheat, "note": "Moderation guard saved for this server only."},
+        {"ok": True, "moderation_guard": guard, "cheat_check": cheat, "stack_watch": stack, "note": "Moderation guard saved for this server only."},
         "moderation",
         "#moderation-guard",
     )

@@ -174,6 +174,8 @@ survival_streaks = {}              # {guild_id: {player: {streak_start_date, las
 recap_posted = {}                  # {guild_id: "YYYY-MM-DD"} to prevent double-posting
 recent_kill_events = {}            # {guild_id: deque of recent kill dicts} for squad detection
 recent_connect_times = {}          # {guild_id: [(ts, player), ...]} for squad-inbound alerts
+recent_stack_watch_placements = {} # {guild_id: deque of watched placement dicts}
+recent_stack_watch_alerts = {}     # {dedupe_key: timestamp}
 achievements_data = {}             # {guild_id: {player: {"unlocked": [badge_id], "unlocked_at": {badge_id: iso}}}}
 nemesis_data = {}                  # {guild_id: {killer: {victim: count}}}
 alive_streaks = {}                 # {guild_id: {player: {"current_spree": int, "best_spree": int, "last_kill_at": iso}}}
@@ -994,6 +996,9 @@ def dayz_db_item_image_url(class_name):
 
 
 def extract_placed_object(line):
+    angle_match = re.search(r"\bplaced\s+.*?<([^>]+)>", line, re.IGNORECASE)
+    if angle_match:
+        return angle_match.group(1).strip().replace("_", " ")
     match = re.search(r"\bplaced\s+([^<]+)", line, re.IGNORECASE)
     if match:
         return match.group(1).strip().replace("_", " ")
@@ -14057,6 +14062,7 @@ async def parse_adm(guild_id, config):
 
         await check_radar_zones_for_adm(guild_id, config, event_type, line)
         await check_safe_zones_for_adm(guild_id, config, event_type, line)
+        await check_stack_watch_for_adm(guild_id, config, event_type, line, event_time=event_time)
         await process_pve_progress_from_adm(guild_id, config, event_type, line)
         await send_special_adm_feed(guild_id, config, event_type, line, event_time=event_time)
 
@@ -17486,6 +17492,260 @@ def parse_xy_coords(coords):
         return float(x_text.strip()), float(y_text.strip())
     except Exception:
         return None
+
+
+DEFAULT_STACK_WATCH_OBJECTS = [
+    "GardenPlot",
+    "Fireplace",
+    "FireplaceIndoor",
+    "OvenIndoor",
+    "FenceKit",
+    "WatchtowerKit",
+    "TerritoryFlagKit",
+]
+
+
+def stack_watch_action_custom_id(action, guild_id, player_name):
+    safe_player = urllib.parse.quote(str(player_name or "")[:40], safe="")
+    return f"stackwatch:{action}:{guild_id}:{safe_player}"[:100]
+
+
+class StackWatchActionView(discord.ui.View):
+    def __init__(self, guild_id, player_name):
+        super().__init__(timeout=86400)
+        self.add_item(discord.ui.Button(
+            label="Temp Game Ban 24h",
+            style=discord.ButtonStyle.danger,
+            custom_id=stack_watch_action_custom_id("temp", guild_id, player_name),
+        ))
+        self.add_item(discord.ui.Button(
+            label="Perm Game Ban",
+            style=discord.ButtonStyle.danger,
+            custom_id=stack_watch_action_custom_id("perm", guild_id, player_name),
+        ))
+
+
+async def _handle_stack_watch_action(interaction, custom_id):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    parts = str(custom_id or "").split(":", 3)
+    if len(parts) != 4:
+        await interaction.response.send_message("Invalid stack-watch action.", ephemeral=True)
+        return
+
+    _, action, guild_id, encoded_player = parts
+    guild_id = str(guild_id)
+    player_name = urllib.parse.unquote(encoded_player).strip()
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict) or not player_name:
+        await interaction.response.send_message("Could not find that server/player for the stack-watch action.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, player_name)
+    if not ok:
+        await interaction.followup.send(f"Game-ban write failed for `{player_name}`: {message}", ephemeral=True)
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    if action == "temp":
+        minutes = 1440
+        config.setdefault("nitrado_temp_bans", []).append({
+            "gamertag": player_name,
+            "reason": "Stack Watch: possible item stacking raid",
+            "created_ts": now_ts,
+            "until_ts": now_ts + minutes * 60,
+            "source": "stack_watch",
+        })
+        result = f"Temp game-ban queued for `{player_name}` for 24h."
+    elif action == "perm":
+        config.setdefault("nitrado_perm_bans", []).append({
+            "gamertag": player_name,
+            "reason": "Stack Watch: possible item stacking raid",
+            "created_ts": now_ts,
+            "source": "stack_watch",
+        })
+        result = f"Permanent game-ban queued for `{player_name}`."
+    else:
+        await interaction.followup.send("Unknown stack-watch action.", ephemeral=True)
+        return
+
+    save_guild_configs()
+    await interaction.followup.send(
+        f"{result}\n{message}\nRestart the server if you need the ban applied immediately.",
+        ephemeral=True,
+    )
+
+
+def parse_adm_xyz(coords):
+    try:
+        parts = [float(str(part).strip()) for part in str(coords or "").split(",")[:3]]
+    except Exception:
+        return None
+    if len(parts) < 2:
+        return None
+    x = parts[0]
+    z = parts[1]
+    y = parts[2] if len(parts) > 2 else 0.0
+    return x, z, y
+
+
+def stack_watch_settings(config):
+    settings = config.setdefault("stack_watch", {})
+    if not isinstance(settings, dict):
+        settings = {}
+        config["stack_watch"] = settings
+    settings.setdefault("enabled", True)
+    settings.setdefault("objects", DEFAULT_STACK_WATCH_OBJECTS.copy())
+    settings.setdefault("window_seconds", 180)
+    settings.setdefault("radius_meters", 8)
+    settings.setdefault("min_count", 2)
+    settings.setdefault("alert_each_watched", True)
+    settings.setdefault("channel_key", "admin_logs")
+    settings.setdefault("area_x", "")
+    settings.setdefault("area_z", "")
+    settings.setdefault("area_radius_meters", 0)
+    settings.setdefault("min_height", "")
+    settings.setdefault("max_height", "")
+    return settings
+
+
+def stack_watch_object_matches(object_name, watch_objects):
+    object_key = normalize_discord_name(object_name)
+    if not object_key:
+        return False
+    for watched in watch_objects or []:
+        watched_key = normalize_discord_name(watched)
+        if watched_key and (watched_key == object_key or watched_key in object_key):
+            return True
+    return False
+
+
+def stack_watch_scope_matches(settings, x, z, y):
+    area_x = str(settings.get("area_x") or "").strip()
+    area_z = str(settings.get("area_z") or "").strip()
+    area_radius = float(settings.get("area_radius_meters") or 0)
+    if area_x and area_z and area_radius > 0:
+        try:
+            dx = float(area_x) - float(x)
+            dz = float(area_z) - float(z)
+        except Exception:
+            return False
+        if (dx * dx + dz * dz) ** 0.5 > area_radius:
+            return False
+
+    min_height = str(settings.get("min_height") or "").strip()
+    max_height = str(settings.get("max_height") or "").strip()
+    try:
+        height = float(y or 0)
+    except Exception:
+        height = 0.0
+    if min_height:
+        try:
+            if height < float(min_height):
+                return False
+        except Exception:
+            pass
+    if max_height:
+        try:
+            if height > float(max_height):
+                return False
+        except Exception:
+            pass
+    return True
+
+
+async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_time=None):
+    if event_type != "placed":
+        return
+    settings = stack_watch_settings(config)
+    if not settings.get("enabled", True):
+        return
+
+    object_name = extract_placed_object(line)
+    watch_objects = settings.get("objects") or DEFAULT_STACK_WATCH_OBJECTS
+    if not stack_watch_object_matches(object_name, watch_objects):
+        return
+
+    xyz = parse_adm_xyz(extract_adm_coords(line))
+    if not xyz:
+        return
+    x, z, y = xyz
+    if not stack_watch_scope_matches(settings, x, z, y):
+        return
+
+    player_name = extract_player_name(line)
+    if not player_name or player_name == "Unknown":
+        return
+
+    now_ts = (event_time or datetime.now(UTC)).timestamp()
+    window = max(10, int(settings.get("window_seconds") or 180))
+    radius = max(1, float(settings.get("radius_meters") or 8))
+    min_count = max(1, int(settings.get("min_count") or 2))
+    records = recent_stack_watch_placements.setdefault(str(guild_id), deque(maxlen=250))
+    while records and now_ts - float(records[0].get("ts") or 0) > window:
+        records.popleft()
+
+    records.append({
+        "ts": now_ts,
+        "player": player_name,
+        "object": object_name,
+        "x": x,
+        "z": z,
+        "y": y,
+    })
+    nearby = [
+        record for record in records
+        if record.get("player") == player_name
+        and normalize_discord_name(record.get("object")) == normalize_discord_name(object_name)
+        and (((float(record.get("x") or 0) - x) ** 2 + (float(record.get("z") or 0) - z) ** 2) ** 0.5) <= radius
+    ]
+
+    if len(nearby) < min_count and not settings.get("alert_each_watched", True):
+        return
+
+    dedupe_bucket = int(now_ts // max(20, min(120, window)))
+    dedupe_key = f"_stack_watch:{guild_id}:{normalize_discord_name(player_name)}:{normalize_discord_name(object_name)}:{int(x // max(radius, 1))}:{int(z // max(radius, 1))}:{dedupe_bucket}"
+    if recent_stack_watch_alerts.get(dedupe_key):
+        return
+    recent_stack_watch_alerts[dedupe_key] = now_ts
+    for key, seen_ts in list(recent_stack_watch_alerts.items()):
+        if now_ts - float(seen_ts or 0) > max(300, window * 2):
+            recent_stack_watch_alerts.pop(key, None)
+
+    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    if not guild:
+        return
+
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel_key = str(settings.get("channel_key") or "admin_logs")
+    channel = bot.get_channel(int(channel_key)) if channel_key.isdigit() else None
+    channel = channel or bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("admin_logs")) or bot.get_channel(channels.get("moderation_logs"))
+    if not channel:
+        channel = await get_or_create_feed_channel(guild, config, "moderation_logs", DEFAULT_CHANNEL_NAMES["moderation_logs"], private=True)
+    if not channel:
+        return
+
+    map_link = build_izurvive_link(f"{x}, {z}, {y}", guild_id)
+    severity = "POSSIBLE STACKING RAID" if len(nearby) >= min_count else "WATCHED OBJECT PLACED"
+    embed = discord.Embed(
+        title=f"STACK WATCH - {severity}",
+        description=f"**{player_name}** placed **{object_name}**.",
+        color=0xE74C3C if len(nearby) >= min_count else 0xF1C40F,
+    )
+    embed.add_field(name="Object", value=f"`{object_name}`", inline=True)
+    embed.add_field(name="Recent nearby count", value=f"`{len(nearby)}` in `{window}s` within `{radius:g}m`", inline=True)
+    embed.add_field(name="Position", value=f"X `{x:.1f}` / Z `{z:.1f}` / Height `{y:.1f}`", inline=False)
+    if map_link:
+        embed.add_field(name="Map", value=f"[Open iZurvive](<{map_link}>)", inline=False)
+    embed.add_field(name="Admin Actions", value=f"`/server gameban add gamertag:{player_name} minutes:1440 reason:Possible stacking raid`\nUse dashboard Members/Moderation for Discord actions.", inline=False)
+    embed.add_field(name="ADM Evidence", value=f"`{line[:900]}`", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Stack Watch")
+    embed.timestamp = event_time or datetime.now(UTC)
+    await channel.send(embed=style_embed(embed), view=StackWatchActionView(guild_id, player_name))
 
 
 def parse_gamertag_list(value):
@@ -35121,6 +35381,8 @@ async def on_interaction(interaction: discord.Interaction):
                 await _handle_pve_ticket_reopen(interaction, custom_id.split(":", 1)[1])
             elif custom_id.startswith("pve_ticket_delete:"):
                 await _handle_pve_ticket_delete(interaction, custom_id.split(":", 1)[1])
+            elif custom_id.startswith("stackwatch:"):
+                await _handle_stack_watch_action(interaction, custom_id)
     except Exception as err:
         print(f"[ON_INTERACTION] handler error: {err}")
 
