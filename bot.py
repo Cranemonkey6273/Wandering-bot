@@ -32597,19 +32597,23 @@ async def post_or_update_mega_leaderboard(guild_id, config):
         "🌍", 0xF1C40F,
     )
 
-    # Discord allows up to 10 embeds per message — three is fine.
+    # Discord caps combined embed text per message, so send the boards
+    # separately and track each message for cleanup on the next refresh.
     try:
-        sent = await channel.send(embeds=[summary_embed, server_embed, global_embed])
+        sent_messages = []
+        for embed in (summary_embed, server_embed, global_embed):
+            sent_messages.append(await channel.send(embed=embed))
     except Exception as send_err:
         print(f"[MEGA LEADERBOARD] send failed: {send_err}")
         return False, f"send failed: {send_err}"
 
     try:
-        await sent.pin()
+        if sent_messages:
+            await sent_messages[0].pin()
     except Exception:
         pass
 
-    last_mega_leaderboard_message_ids[str(guild_id)] = [sent.id]
+    last_mega_leaderboard_message_ids[str(guild_id)] = [message.id for message in sent_messages]
     return True, "posted"
 
 
