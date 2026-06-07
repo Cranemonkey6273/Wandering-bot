@@ -5680,14 +5680,18 @@ PAGE_TEMPLATE = """
 
       function startNewZoneAt(x, z) {
         clearZoneEditingState();
+        const zoneX = Math.max(0, Math.min(size, Math.round(Number(x) || 0)));
+        const zoneZ = Math.max(0, Math.min(size, Math.round(Number(z) || 0)));
         const zoneType = zoneFields.type && zoneFields.type.value ? zoneFields.type.value : "radar";
         if (zoneFields.zoneId) zoneFields.zoneId.value = "";
+        if (zoneFields.x) zoneFields.x.value = zoneX;
+        if (zoneFields.y) zoneFields.y.value = zoneZ;
         if (zoneFields.name) zoneFields.name.value = `New ${zoneType} zone`;
         if (zoneFields.enabled) setSelectValue(zoneFields.enabled, "true");
         if (zoneFields.action && !zoneFields.action.value) setSelectValue(zoneFields.action, "none");
         const existingCount = map.querySelectorAll(".zone-dot").length;
         syncZoneColour(zonePalette[existingCount % zonePalette.length]);
-        if (result) result.textContent = `New zone draft at X ${x}, Z ${z}.`;
+        if (result) result.textContent = `New zone draft at X ${zoneX}, Z ${zoneZ}.`;
       }
 
       function syncRadius(value) {
@@ -5806,16 +5810,16 @@ PAGE_TEMPLATE = """
         boundaryPoints.pop();
         renderBoundary();
       });
-      map.addEventListener("click", (event) => {
+      function draftZoneFromMapClick(event) {
         if (event.target.closest("[data-zone-edit]") || event.target.closest("[data-zone-popover]")) return;
+        event.preventDefault();
+        event.stopPropagation();
         const rect = map.getBoundingClientRect();
-        const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
-        const yPercent = ((event.clientY - rect.top) / rect.height) * 100;
+        const xPercent = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+        const yPercent = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
         const x = Math.round((xPercent / 100) * size);
         const y = Math.round((1 - (yPercent / 100)) * size);
-        if (zoneFields.x) zoneFields.x.value = Math.max(0, Math.min(size, x));
-        if (zoneFields.y) zoneFields.y.value = Math.max(0, Math.min(size, y));
-        startNewZoneAt(zoneFields.x ? zoneFields.x.value : x, zoneFields.y ? zoneFields.y.value : y);
+        startNewZoneAt(x, y);
         let cursor = map.querySelector(".zone-cursor");
         if (!cursor) {
           cursor = document.createElement("span");
@@ -5843,7 +5847,8 @@ PAGE_TEMPLATE = """
           radius: radiusInput ? radiusInput.value : 250,
           display_colour: colourInput ? colourInput.value : zonePalette[0],
         }, "new");
-      });
+      }
+      map.addEventListener("click", draftZoneFromMapClick, true);
       function zoneRecordKey(zone = {}) {
         return String(zone.id || zone.name || "");
       }
