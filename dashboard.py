@@ -1947,9 +1947,16 @@ PAGE_TEMPLATE = """
       {% set edit_zone.zone_type = request.args.get('draft_type', 'radar') %}
       {% set edit_zone.x = request.args.get('draft_x') %}
       {% set edit_zone.y = request.args.get('draft_z') %}
+      {% set edit_zone.shape = request.args.get('draft_shape', 'circle') %}
       {% set edit_zone.radius = request.args.get('draft_radius', edit_zone.radius) %}
       {% set edit_zone.colour = request.args.get('draft_colour', edit_zone.colour) %}
+      {% set edit_zone.boundary_points = request.args.get('draft_points', '[]') %}
     {% endif %}
+    {% set draft_map_size = server.map_size if server else 15360 %}
+    {% set draft_x_percent = ((edit_zone.x|float / draft_map_size) * 100) if draft_zone_active else 0 %}
+    {% set draft_y_percent = (100 - ((edit_zone.y|float / draft_map_size) * 100)) if draft_zone_active else 0 %}
+    {% set draft_radius_percent = (((edit_zone.radius|float * 2) / draft_map_size) * 100) if draft_zone_active else 0 %}
+    {% set draft_point_count = request.args.get('draft_point_count', 0)|int if draft_zone_active else 0 %}
     <section class="section-panel" id="zones">
       <div class="section-head">
         <div>
@@ -2008,15 +2015,15 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="boundary_points" data-boundary-points value="{{ edit_zone.boundary_points|forceescape }}">
             <div class="full embed-preview">
               <strong>Map controls</strong>
-              <span>Circle mode sets the center and radius. Boundary mode lets you click multiple points around an area; save when the outline covers the place you want.</span>
+              <span>Circle mode sets the center and radius. For a polygon/freehand zone, choose Draw boundary, then click multiple points around the area and save when the outline covers it.</span>
             </div>
             <div class="full zone-tools">
               <div class="mini-card"><strong data-zone-radius-label>{{ edit_zone.radius }}m</strong><span class="muted">Circle radius</span></div>
               <div class="mini-card"><strong data-zone-shape-label>{{ 'Boundary' if edit_zone.shape == 'boundary' else 'Circle' }}</strong><span class="muted">Drawing mode</span></div>
-              <div class="mini-card"><strong data-boundary-count>0</strong><span class="muted">Boundary points</span></div>
+              <div class="mini-card"><strong data-boundary-count>{{ draft_point_count if edit_zone.shape == 'boundary' else 0 }}</strong><span class="muted">Boundary points</span></div>
               <div class="zone-tool-actions">
-                <button type="button" data-clear-boundary>Clear Boundary</button>
-                <button type="button" data-undo-boundary>Undo Point</button>
+                <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="clear" data-zone-map-hit data-clear-boundary>Clear Boundary</button>
+                <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="undo" data-zone-map-hit data-undo-boundary>Undo Point</button>
               </div>
             </div>
             <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ ((server.map_size if server else 15360) / 10)|round|int }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
@@ -2028,6 +2035,17 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
               <span class="zone-map-hit-label">Click empty map to add zone</span>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+              {% if draft_zone_active and edit_zone.shape == "circle" %}
+              <span class="zone-radius-ring {{ edit_zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ edit_zone.colour }}; --zone-radius: {{ draft_radius_percent }}%; left: {{ draft_x_percent }}%; top: {{ draft_y_percent }}%;"></span>
+              <span class="zone-cursor" aria-hidden="true" style="--zone-colour: {{ edit_zone.colour }}; left: {{ draft_x_percent }}%; top: {{ draft_y_percent }}%;"></span>
+              {% endif %}
+              {% if draft_zone_active and edit_zone.shape == "boundary" and request.args.get('draft_points_percent') %}
+              <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ edit_zone.colour }};">{% if draft_point_count >= 3 %}<polygon points="{{ request.args.get('draft_points_percent') }}"></polygon>{% else %}<polyline points="{{ request.args.get('draft_points_percent') }}"></polyline>{% endif %}</svg>
+              {% for point in request.args.get('draft_points_percent').split(' ') if point %}
+              {% set parts = point.split(',') %}
+              <span class="zone-boundary-point" aria-hidden="true" style="--zone-colour: {{ edit_zone.colour }}; left: {{ parts[0] }}%; top: {{ parts[1] }}%;"></span>
+              {% endfor %}
+              {% endif %}
               {% for zone in (server.zones if server else []) %}
               {% if zone.shape == "boundary" and zone.points_percent %}
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
@@ -2039,7 +2057,7 @@ PAGE_TEMPLATE = """
               {% endfor %}
               <div class="zone-map-popover" data-zone-popover hidden></div>
             </div>
-            <div class="full map-readout" data-map-readout>Click empty map space to draft a new zone. Click a marker or Edit to load an existing zone.</div>
+            <div class="full map-readout" data-map-readout>{% if draft_zone_active and edit_zone.shape == 'boundary' %}Boundary draft has {{ draft_point_count }} point{{ '' if draft_point_count == 1 else 's' }}. Click the map again to add another point, then save when it has at least 3 points.{% elif draft_zone_active %}Circle draft at X {{ edit_zone.x }}, Z {{ edit_zone.y }} with {{ edit_zone.radius }}m radius. Adjust the radius/name if needed, then save.{% else %}Click empty map space to draft a new zone. Click a marker or Edit to load an existing zone.{% endif %}</div>
             <div class="full zone-form-actions">
               <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
               <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
@@ -8874,18 +8892,57 @@ def zone_draft_from_image_click(mode: str):
     if not isinstance(config, dict):
         config = {}
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    has_click = any(key in request.args for key in ("zone_click.x", "zone_click.y", "zone_click_x", "zone_click_y"))
     click_x = safe_int(request.args.get("zone_click.x") or request.args.get("zone_click_x"))
     click_y = safe_int(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
     click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
     scaled_display_size = max(1, map_size // click_scale)
     effective_scale = 1 if click_x > scaled_display_size + 32 or click_y > scaled_display_size + 32 else click_scale
-    zone_x = max(0, min(map_size, click_x * effective_scale))
-    zone_z = max(0, min(map_size, map_size - (click_y * effective_scale)))
+    if has_click:
+        zone_x = max(0, min(map_size, click_x * effective_scale))
+        zone_z = max(0, min(map_size, map_size - (click_y * effective_scale)))
+    else:
+        zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
+        zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
     zone_type = str(request.args.get("zone_type") or "radar").strip().lower()
     if zone_type not in {"safe", "pvp", "radar", "action", "faction", "custom"}:
         zone_type = "radar"
+    shape = str(request.args.get("shape") or request.args.get("draft_shape") or "circle").strip().lower()
+    if shape not in {"circle", "boundary"}:
+        shape = "circle"
     radius = max(10, safe_int(request.args.get("draft_radius") or request.args.get("radius"), 250))
     colour = safe_colour(request.args.get("colour"))
+    boundary_points: list[dict[str, int]] = []
+    raw_boundary_points = request.args.get("boundary_points") or request.args.get("draft_points") or "[]"
+    try:
+        loaded_points = json.loads(raw_boundary_points)
+    except (TypeError, json.JSONDecodeError):
+        loaded_points = []
+    if isinstance(loaded_points, list):
+        for point in loaded_points:
+            if not isinstance(point, dict):
+                continue
+            point_x = max(0, min(map_size, safe_int(point.get("x"))))
+            point_z_value = next((value for value in (point.get("z"), point.get("y")) if value not in (None, "")), 0)
+            point_z = max(0, min(map_size, safe_int(point_z_value)))
+            boundary_points.append({"x": point_x, "y": point_z, "z": point_z})
+    boundary_action = str(request.args.get("boundary_action") or "").strip().lower()
+    if boundary_action == "clear":
+        boundary_points = []
+    elif boundary_action == "undo":
+        boundary_points = boundary_points[:-1]
+    elif shape == "boundary" and has_click:
+        boundary_points.append({"x": zone_x, "y": zone_z, "z": zone_z})
+    else:
+        boundary_points = []
+    if boundary_points:
+        zone_x = boundary_points[-1]["x"]
+        zone_z = boundary_points[-1]["z"]
+    draft_points = json.dumps(boundary_points, separators=(",", ":"))
+    draft_points_percent = " ".join(
+        f"{((point['x'] / map_size) * 100):.2f},{(100 - ((point['z'] / map_size) * 100)):.2f}"
+        for point in boundary_points
+    )
     base_path = "/owner" if mode == "owner" else "/admin"
     query = urllib.parse.urlencode(
         {
@@ -8895,8 +8952,12 @@ def zone_draft_from_image_click(mode: str):
             "draft_z": zone_z,
             "draft_type": zone_type,
             "draft_name": f"New {zone_type} zone",
+            "draft_shape": shape,
             "draft_radius": radius,
             "draft_colour": colour,
+            "draft_points": draft_points,
+            "draft_points_percent": draft_points_percent,
+            "draft_point_count": len(boundary_points),
         }
     )
     return redirect(f"{base_path}?{query}#zone-edit-form")
