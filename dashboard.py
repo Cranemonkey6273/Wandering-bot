@@ -502,6 +502,10 @@ PAGE_TEMPLATE = """
         showZoneDraftPopover(map, form, {name: "New " + type + " zone", zone_type: type, x: x, z: z, radius: form.elements.radius && form.elements.radius.value, colour: colour});
         return true;
       }
+      document.addEventListener("click", function (event) {
+        var zoneMap = closest(event.target, "[data-zone-map]");
+        if (zoneMap && draftZoneFromMap(zoneMap, event)) stop(event);
+      }, true);
       function postJson(route, payload, done) {
         var token = new URLSearchParams(window.location.search).get("token");
         var xhr = new XMLHttpRequest();
