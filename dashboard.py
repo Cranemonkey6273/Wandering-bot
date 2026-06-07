@@ -15,6 +15,7 @@ import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from threading import Thread
 from typing import Any
@@ -788,6 +789,8 @@ PAGE_TEMPLATE = """
     .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
     body[data-section="leaderboards"] { --accent: #f1c40f; }
     body[data-section="automations"] { --accent: #6fd3ff; }
+    body[data-section="dayz-converter"] { --accent: #79c7dd; }
+    body[data-section="loot-engine"] { --accent: #c8d46a; }
     body[data-section="factions"] { --accent: #d6a2ff; }
     body[data-section="zones"] { --accent: #75d89a; }
     body[data-section="members"] { --accent: #ff9abc; }
@@ -885,6 +888,13 @@ PAGE_TEMPLATE = """
     .xml-file-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
     .xml-file-tabs button { min-height: 2.2rem; padding: .45rem .6rem; font-size: .78rem; background: #070b08; color: var(--muted); }
     .xml-file-tabs button.active { background: var(--panel-2); color: var(--gold); border-color: var(--accent); }
+    .xml-converter-grid { display: grid; grid-template-columns: minmax(20rem, .8fr) minmax(24rem, 1.2fr); gap: .85rem; align-items: start; }
+    .xml-snippet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .75rem; }
+    .xml-snippet-box { display: grid; gap: .45rem; min-width: 0; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
+    .xml-snippet-box textarea { min-height: 16rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .84rem; line-height: 1.35; }
+    .xml-tool-form { margin-top: .75rem; }
+    .xml-tool-form .result.error { color: #ff8fa5; }
+    .xml-tool-form .result.success { color: #c8f28b; }
     .flag-grid { display: flex; flex-wrap: wrap; gap: .35rem; }
     .flag-grid label { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--line); border-radius: .45rem; padding: .4rem .55rem; background: #070b08; color: var(--muted); }
     .flag-grid input { width: auto; min-height: 0; }
@@ -1011,7 +1021,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .loadout-builder { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder { grid-template-columns: 1fr; }
       .xml-output-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
       .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
@@ -1211,6 +1221,8 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') %}<a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
+      {% if section_allowed('dayz-converter') %}<a class="tab-link" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
+      {% if section_allowed('loot-engine') %}<a class="tab-link" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
@@ -1234,6 +1246,8 @@ PAGE_TEMPLATE = """
           {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>{% endif %}
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
+          {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
+          {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
@@ -1255,6 +1269,8 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
+      <a class="category-link" href="/admin?section=dayz-converter{{ server_qs }}"><strong>Map Converter</strong><span>Turn DayZ Editor JSON into events, spawns and event group XML snippets.</span></a>
+      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Engine</strong><span>Edit types.xml values and generate player or vehicle loadout XML.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
@@ -3090,6 +3106,129 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "dayz-converter" %}
+    <section class="section-panel" id="dayz-converter">
+      <div class="section-head">
+        <div>
+          <h2>DayZ Map JSON Converter</h2>
+          <p class="tool-note">Upload a DayZ Editor JSON export and convert it into the three matching CE snippets: events, event spawns and event groups. This page only generates copy-ready XML and does not upload live server files.</p>
+        </div>
+      </div>
+      <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/convert-dayz-xml" enctype="multipart/form-data">
+        <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+        <div class="full xml-converter-grid">
+          <div class="stack">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Event Name
+              <input name="event_name" value="Event_MyCustomBase" placeholder="Event_MyCustomBase">
+            </label>
+            <label>DayZ Editor JSON file
+              <input type="file" name="dayz_json" accept=".json,application/json">
+            </label>
+            <label>Or paste JSON
+              <textarea name="json_text" placeholder='{"EditorObjects":[{"Type":"Land_Mil_Barracks_i","Position":[2500.5,120.2,5000.1],"Orientation":[45,0,0]}]}'></textarea>
+            </label>
+            <div class="toolbar">
+              <button type="submit">Generate DayZ XML</button>
+              <span class="result muted" data-tool-result></span>
+            </div>
+          </div>
+          <aside class="xml-output-panel">
+            <div class="mini-grid">
+              <div class="mini-card"><span class="muted">Input</span><strong>Editor JSON</strong></div>
+              <div class="mini-card"><span class="muted">Anchor</span><strong>First valid object</strong></div>
+              <div class="mini-card"><span class="muted">Coords</span><strong>6 decimals max</strong></div>
+              <div class="mini-card"><span class="muted">Mode</span><strong>Copy only</strong></div>
+            </div>
+            <div class="embed-preview"><strong>Output files</strong><span>Copy each generated block into the matching DayZ XML file. Invalid objects are skipped with warnings instead of crashing the converter.</span></div>
+          </aside>
+        </div>
+        <div class="full xml-snippet-grid" data-tool-output-group hidden>
+          <div class="xml-snippet-box">
+            <div class="row-between"><strong>events.xml Snippet</strong><button type="button" data-tool-copy="events_xml">Copy to Clipboard</button></div>
+            <textarea readonly data-tool-output="events_xml"></textarea>
+          </div>
+          <div class="xml-snippet-box">
+            <div class="row-between"><strong>eventspawns.xml Snippet</strong><button type="button" data-tool-copy="eventspawns_xml">Copy to Clipboard</button></div>
+            <textarea readonly data-tool-output="eventspawns_xml"></textarea>
+          </div>
+          <div class="xml-snippet-box">
+            <div class="row-between"><strong>eventgroups.xml Snippet</strong><button type="button" data-tool-copy="eventgroups_xml">Copy to Clipboard</button></div>
+            <textarea readonly data-tool-output="eventgroups_xml"></textarea>
+          </div>
+        </div>
+      </form>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "loot-engine" %}
+    <section class="section-panel" id="loot-engine">
+      <div class="section-head">
+        <div>
+          <h2>DayZ Loot & Loadout Engine</h2>
+          <p class="tool-note">Separate generators for economy XML, player loadout snippets and vehicle spawnabletypes. These tools generate guarded XML text only; live file upload stays separate.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel full">
+          <h3>types.xml Loot Tweaker</h3>
+          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loot-tweak">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label class="full">Paste full types.xml or one type block
+              <textarea name="xml_text" placeholder='<types><type name="M4A1"><nominal>10</nominal><min>5</min><lifetime>3600</lifetime><restock>0</restock><flags count_in_map="1" /></type></types>'></textarea>
+            </label>
+            <label>Item classname <input name="item_name" value="M4A1"></label>
+            <label>nominal <input type="number" min="0" name="nominal" placeholder="leave blank to keep"></label>
+            <label>min <input type="number" min="0" name="min" placeholder="leave blank to keep"></label>
+            <label>lifetime <input type="number" min="0" name="lifetime" placeholder="leave blank to keep"></label>
+            <label>restock <input type="number" min="0" name="restock" placeholder="leave blank to keep"></label>
+            <div class="full toolbar"><button type="submit">Generate Tweaked XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
+            <label class="full">Generated XML
+              <textarea readonly data-tool-output="generated_xml"></textarea>
+            </label>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Player Spawn Loadout Generator</h3>
+          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loadout-generate">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>Main item <input name="item_name" value="M4A1"></label>
+            <label>Chance <input name="chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
+            <label class="full">Attachments, comma-separated
+              <input name="attachments" value="M4_RHandGuard, M4_MPBttstck">
+            </label>
+            <label class="full">Extra item lines
+              <textarea name="items" placeholder="BandageDressing | | 1.00&#10;WaterBottle | | 1.00"></textarea>
+            </label>
+            <div class="full toolbar"><button type="submit">Generate Loadout XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
+            <label class="full">Generated XML
+              <textarea readonly data-tool-output="generated_xml"></textarea>
+            </label>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Vehicle Spawn Loadout Injector</h3>
+          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/vehicle-loadout-generate">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>Vehicle classname <input name="vehicle_class" value="OffroadHatchback"></label>
+            <label>Wheel chance <input name="wheel_chance" type="number" min="0" max="1" step="0.01" value="0.80"></label>
+            <label>Door chance <input name="door_chance" type="number" min="0" max="1" step="0.01" value="0.50"></label>
+            <label>Radiator chance <input name="radiator_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
+            <label>Battery chance <input name="battery_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
+            <label>Fuel / spark chance <input name="fuel_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
+            <label class="full">Cargo items, comma-separated
+              <input name="cargo_items" placeholder="CanisterGasoline, TireRepairKit">
+            </label>
+            <div class="full toolbar"><button type="submit">Generate Vehicle XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
+            <label class="full">Generated XML
+              <textarea readonly data-tool-output="generated_xml"></textarea>
+            </label>
+          </form>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "moderation" %}
     {% set guard = (server.config.moderation_guard if server and server.config and server.config.moderation_guard else {}) %}
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
@@ -3590,7 +3729,7 @@ PAGE_TEMPLATE = """
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
-    const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop"] else [])|tojson }};
+    const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     const DEFAULT_LOADOUT_SLOT = "Head";
     document.body.dataset.section = "{{ active_section }}";
@@ -4795,7 +4934,83 @@ PAGE_TEMPLATE = """
       if (output) output.value = prettyXml(doc);
       if (result) result.textContent = `${changed} value${changed === 1 ? "" : "s"} updated. Copy or download before uploading.`;
     }
+    function toolOutputFor(root, key) {
+      return Array.from(root.querySelectorAll("[data-tool-output]")).find((item) => item.dataset.toolOutput === key) || null;
+    }
+    function setToolResult(form, message, ok) {
+      const result = form ? form.querySelector("[data-tool-result]") : null;
+      if (!result) return;
+      result.classList.remove("success", "error");
+      result.classList.add(ok ? "success" : "error");
+      result.textContent = message || "";
+    }
+    async function submitLocalGenerator(form, submitter) {
+      if (!form || !form.dataset.route) return;
+      const button = submitter || form.querySelector('button[type="submit"]');
+      const originalButtonText = button ? button.textContent : "";
+      const data = new FormData(form);
+      data.set("dashboard_mode", "{{ mode }}");
+      setToolResult(form, "Generating...", true);
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Generating...";
+      }
+      const token = new URLSearchParams(window.location.search).get("token");
+      const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+      try {
+        const response = await fetch(secureDashboardUrl(route), {
+          method: "POST",
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+          body: data
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok || body.ok === false || body.success === false) {
+          setToolResult(form, body.error || "Generator rejected the input.", false);
+          return;
+        }
+        const outputGroup = form.querySelector("[data-tool-output-group]");
+        const outputs = body.outputs && typeof body.outputs === "object" ? body.outputs : body;
+        let filled = 0;
+        form.querySelectorAll("[data-tool-output]").forEach((output) => {
+          const key = output.dataset.toolOutput;
+          if (!key) return;
+          const value = outputs[key] ?? body[key] ?? "";
+          output.value = value;
+          if (value) filled += 1;
+        });
+        if (outputGroup) outputGroup.hidden = filled === 0;
+        const warnings = Array.isArray(body.warnings) && body.warnings.length ? ` ${body.warnings.length} warning${body.warnings.length === 1 ? "" : "s"}.` : "";
+        setToolResult(form, `${body.note || "Generated."}${warnings}`, true);
+      } catch (error) {
+        setToolResult(form, `Request failed: ${error && error.message ? error.message : error}`, false);
+      } finally {
+        if (button && button.isConnected) {
+          button.disabled = false;
+          button.textContent = originalButtonText;
+        }
+      }
+    }
+    document.addEventListener("submit", (event) => {
+      const form = event.target && event.target.closest ? event.target.closest("[data-local-generator-form]") : null;
+      if (!form) return;
+      event.preventDefault();
+      submitLocalGenerator(form, event.submitter);
+    });
     document.addEventListener("click", async (event) => {
+      const toolCopy = event.target.closest("[data-tool-copy]");
+      if (toolCopy) {
+        const root = toolCopy.closest("[data-local-generator-form]") || document;
+        const output = toolOutputFor(root, toolCopy.dataset.toolCopy || "");
+        if (output && output.value) {
+          await navigator.clipboard.writeText(output.value).catch(() => {});
+          setToolResult(root, "Copied output.", true);
+        } else {
+          setToolResult(root, "Generate output first.", false);
+        }
+        return;
+      }
       const processButton = event.target.closest("[data-types-process]");
       if (processButton) {
         processTypesTool(processButton.closest("[data-types-tool]"));
@@ -6252,6 +6467,10 @@ ADMIN_ROUTES = [
     "/api/admin/shop-item",
     "/api/admin/shop-bundle",
     "/api/admin/theme",
+    "/api/admin/convert-dayz-xml",
+    "/api/admin/loot-tweak",
+    "/api/admin/loadout-generate",
+    "/api/admin/vehicle-loadout-generate",
     "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
     "/api/admin/scenario-event-action",
@@ -6283,6 +6502,8 @@ SECTION_FEATURES = {
     "economy": "economy",
     "shop": "shop",
     "xml-workshop": "xml_workshop",
+    "dayz-converter": "xml_workshop",
+    "loot-engine": "xml_workshop",
     "server-rules": "server_rules",
     "moderation": "moderation",
     "server-control": "server_control",
@@ -6312,6 +6533,10 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/faction-member": "factions",
     "/api/admin/wage": "wages",
     "/api/admin/wallet-adjustment": "economy",
+    "/api/admin/convert-dayz-xml": "xml_workshop",
+    "/api/admin/loot-tweak": "xml_workshop",
+    "/api/admin/loadout-generate": "xml_workshop",
+    "/api/admin/vehicle-loadout-generate": "xml_workshop",
     "/api/admin/xml-workshop": "xml_workshop",
 }
 
@@ -6881,6 +7106,9 @@ DASHBOARD_AUDIT_IGNORED_KEYS = {
     "token",
     "csrf",
     "csrf_token",
+    "editor_json",
+    "json_text",
+    "xml_text",
 }
 
 
@@ -6912,8 +7140,12 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "shop-item": "Shop item saved",
         "shop-item-action": "Shop item updated",
         "theme": "Dashboard theme updated",
+        "convert-dayz-xml": "DayZ map XML generated",
+        "loadout-generate": "Player loadout XML generated",
+        "loot-tweak": "Loot XML generated",
         "utility-config": "Utility panel saved",
         "utility-config-action": "Utility panel updated",
+        "vehicle-loadout-generate": "Vehicle loadout XML generated",
         "vehicle-reset": "Vehicle reset schedule updated",
         "wage": "Wage saved",
         "wage-action": "Wage updated",
@@ -6976,9 +7208,11 @@ def dashboard_audit_summary(payload: dict[str, Any]) -> str:
         "server_name",
         "guild_id",
         "action",
+        "event_name",
         "zone_name",
         "faction_name",
         "item_name",
+        "vehicle_class",
         "channel_id",
         "method",
     )
@@ -7223,6 +7457,329 @@ def xml_attr(value: Any) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def dayz_xml_float(value: Any) -> str:
+    number = float(value)
+    text = f"{number:.6f}".rstrip("0").rstrip(".")
+    return text if text and text != "-0" else "0"
+
+
+def dayz_xml_chance(value: Any, default: float = 1.0) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    number = max(0.0, min(1.0, number))
+    return f"{number:.2f}"
+
+
+def normalize_dayz_angle(value: float) -> float:
+    normalized = (float(value) + 180.0) % 360.0 - 180.0
+    return 180.0 if normalized == -180.0 else normalized
+
+
+def xml_vector(values: list[float] | tuple[float, ...]) -> str:
+    return " ".join(dayz_xml_float(item) for item in values)
+
+
+def sanitize_dayz_classname(value: Any) -> str:
+    text = re.sub(r"[\s\u200b-\u200d\ufeff]+", "", str(value or "").strip())
+    if text.lower() == "m4a1":
+        text = "M4A1"
+    return text if re.fullmatch(r"[A-Za-z0-9_]{2,120}", text) else ""
+
+
+def validate_xml_fragment(label: str, xml_text: str) -> None:
+    try:
+        ET.fromstring(f"<root>{xml_text}</root>")
+    except ET.ParseError as error:
+        raise ValueError(f"{label} XML validation failed: {error}") from error
+
+
+def extract_dayz_vector(raw: Any) -> tuple[float, float, float] | None:
+    if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+        return None
+    try:
+        return (float(raw[0]), float(raw[1]), float(raw[2]))
+    except (TypeError, ValueError):
+        return None
+
+
+def convert_dayz_editor_json(data: Any, event_name_value: Any) -> dict[str, Any]:
+    event_name = sanitize_dayz_classname(event_name_value)
+    if not event_name:
+        raise ValueError("Event Name must be a valid DayZ classname style value, for example Event_MyCustomBase.")
+    if isinstance(data, dict):
+        objects = data.get("EditorObjects")
+    else:
+        objects = data
+    if not isinstance(objects, list):
+        raise ValueError("Invalid DayZ Editor JSON format: missing EditorObjects array.")
+
+    warnings: list[str] = []
+    valid_objects: list[dict[str, Any]] = []
+    for index, item in enumerate(objects):
+        if not isinstance(item, dict):
+            warnings.append(f"Skipped row {index + 1}: object entry is not a JSON object.")
+            continue
+        item_type = sanitize_dayz_classname(item.get("Type"))
+        position = extract_dayz_vector(item.get("Position"))
+        orientation = extract_dayz_vector(item.get("Orientation"))
+        if not item_type or position is None or orientation is None:
+            warnings.append(f"Skipped row {index + 1}: missing or invalid Type, Position or Orientation.")
+            continue
+        valid_objects.append({
+            "source_index": index,
+            "type": item_type,
+            "position": position,
+            "orientation": orientation,
+        })
+    if not valid_objects:
+        raise ValueError("Invalid DayZ Editor JSON format: no valid objects were found.")
+    if valid_objects[0]["source_index"] != 0:
+        warnings.append("The first exported object was invalid, so the first valid object was used as the parent anchor.")
+
+    parent = valid_objects[0]
+    parent_position = parent["position"]
+    parent_orientation = parent["orientation"]
+
+    events_xml = "\n".join([
+        f'<event name="{xml_attr(event_name)}">',
+        "    <nominal>1</nominal>",
+        "    <min>1</min>",
+        "    <max>1</max>",
+        "    <lifetime>3888000</lifetime>",
+        "    <restock>0</restock>",
+        "    <saferadius>100</saferadius>",
+        "    <distanceradius>100</distanceradius>",
+        "    <cleanupradius>100</cleanupradius>",
+        '    <flags deletable="0" init_random="0" remove_damaged="0"/>',
+        "    <position>fixed</position>",
+        "    <limit>child</limit>",
+        "    <active>1</active>",
+        "    <children/>",
+        "</event>",
+    ])
+    eventspawns_xml = "\n".join([
+        f'<event name="{xml_attr(event_name)}">',
+        f'    <zone pos="{xml_attr(xml_vector(parent_position))}" r="10" />',
+        "</event>",
+    ])
+    group_lines = [
+        f'<group name="{xml_attr(event_name)}">',
+        "    <!-- Parent Anchor (always zero offsets, original parent rotation) -->",
+        f'    <child type="{xml_attr(parent["type"])}" offset="0 0 0" rpy="{xml_attr(xml_vector(parent_orientation))}" a="0" />',
+    ]
+    if len(valid_objects) > 1:
+        group_lines.append("    <!-- Child items use offsets from the parent anchor and relative rotation -->")
+    for child in valid_objects[1:]:
+        position = child["position"]
+        orientation = child["orientation"]
+        offset = (
+            position[0] - parent_position[0],
+            position[1] - parent_position[1],
+            position[2] - parent_position[2],
+        )
+        relative_rotation = (
+            normalize_dayz_angle(orientation[0] - parent_orientation[0]),
+            normalize_dayz_angle(orientation[1] - parent_orientation[1]),
+            normalize_dayz_angle(orientation[2] - parent_orientation[2]),
+        )
+        group_lines.append(
+            f'    <child type="{xml_attr(child["type"])}" offset="{xml_attr(xml_vector(offset))}" rpy="{xml_attr(xml_vector(relative_rotation))}" a="0" />'
+        )
+    group_lines.append("</group>")
+    eventgroups_xml = "\n".join(group_lines)
+
+    validate_xml_fragment("events.xml", events_xml)
+    validate_xml_fragment("eventspawns.xml", eventspawns_xml)
+    validate_xml_fragment("eventgroups.xml", eventgroups_xml)
+    return {
+        "events_xml": events_xml,
+        "eventspawns_xml": eventspawns_xml,
+        "eventgroups_xml": eventgroups_xml,
+        "warnings": warnings,
+        "object_count": len(valid_objects),
+    }
+
+
+def read_uploaded_or_pasted_text(file_key: str, text_key: str, payload: dict[str, Any]) -> str:
+    uploaded = request.files.get(file_key)
+    if uploaded and uploaded.filename:
+        return uploaded.read().decode("utf-8-sig", errors="replace")
+    return str(payload.get(text_key) or "").strip()
+
+
+def parse_json_payload_text(text: str) -> Any:
+    if not text:
+        raise ValueError("Upload or paste a JSON file first.")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid DayZ Editor JSON format: {error.msg}") from error
+
+
+def split_class_list(value: Any, limit: int = 80) -> list[str]:
+    rows: list[str] = []
+    for raw in re.split(r"[\n,;]+", str(value or "")):
+        item = sanitize_dayz_classname(raw)
+        if item:
+            rows.append(item)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def validate_types_xml_flags(root: ET.Element) -> None:
+    for flags in root.iter("flags"):
+        for key, value in flags.attrib.items():
+            if str(value) not in {"0", "1"}:
+                raise ValueError(f'types.xml flag {key} must be "0" or "1", not "{value}".')
+
+
+def replace_or_insert_simple_xml_tag(block: str, tag: str, value: int) -> str:
+    pattern = re.compile(rf"(<{re.escape(tag)}>\s*)[^<]*(\s*</{re.escape(tag)}>)", re.IGNORECASE)
+    if pattern.search(block):
+        return pattern.sub(lambda match: f"{match.group(1)}{value}{match.group(2)}", block, count=1)
+    return re.sub(r"(</type\s*>)", f"    <{tag}>{value}</{tag}>\n\\1", block, count=1, flags=re.IGNORECASE)
+
+
+def tweak_types_xml(payload: dict[str, Any]) -> dict[str, Any]:
+    xml_text = str(payload.get("xml_text") or "").strip()
+    if not xml_text:
+        raise ValueError("Paste a full types.xml file or one <type> block first.")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"XML parse failed: {error}") from error
+    if root.tag not in {"types", "type"}:
+        raise ValueError("Input must be a types.xml file or a single <type> block.")
+    validate_types_xml_flags(root)
+    item_name = sanitize_dayz_classname(payload.get("item_name"))
+    if not item_name and root.tag == "type":
+        item_name = sanitize_dayz_classname(root.attrib.get("name"))
+    if not item_name:
+        raise ValueError("Item classname is required.")
+    updates: dict[str, int] = {}
+    for tag in ("nominal", "min", "lifetime", "restock"):
+        raw = str(payload.get(tag) or "").strip()
+        if raw:
+            updates[tag] = max(0, safe_int(raw, 0))
+    if not updates:
+        raise ValueError("Enter at least one numeric field to change.")
+
+    pattern = re.compile(
+        rf"(<type\b[^>]*\bname\s*=\s*['\"]{re.escape(item_name)}['\"][^>]*>)(.*?)(</type\s*>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    match = pattern.search(xml_text)
+    if not match:
+        raise ValueError(f"{item_name} was not found in the pasted XML.")
+    type_block = "".join(match.groups())
+    for tag, value in updates.items():
+        type_block = replace_or_insert_simple_xml_tag(type_block, tag, value)
+    generated_xml = xml_text[:match.start()] + type_block + xml_text[match.end():]
+    try:
+        generated_root = ET.fromstring(generated_xml)
+        validate_types_xml_flags(generated_root)
+    except ET.ParseError as error:
+        raise ValueError(f"Generated XML failed validation: {error}") from error
+    return {"generated_xml": generated_xml, "changed_fields": sorted(updates)}
+
+
+def build_player_loadout_xml(payload: dict[str, Any]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    primary = sanitize_dayz_classname(payload.get("item_name"))
+    if primary:
+        rows.append({
+            "item": primary,
+            "attachments": split_class_list(payload.get("attachments"), 20),
+            "chance": dayz_xml_chance(payload.get("chance"), 1.0),
+        })
+    for raw in re.split(r"[\n;]+", str(payload.get("items") or "")):
+        parts = [part.strip() for part in raw.split("|")]
+        if not parts or not parts[0]:
+            continue
+        item = sanitize_dayz_classname(parts[0])
+        if not item:
+            continue
+        rows.append({
+            "item": item,
+            "attachments": split_class_list(parts[1] if len(parts) > 1 else "", 20),
+            "chance": dayz_xml_chance(parts[2] if len(parts) > 2 else 1.0, 1.0),
+        })
+    if not rows:
+        raise ValueError("Add at least one valid loadout item.")
+    lines: list[str] = []
+    for row in rows[:80]:
+        lines.append(f'<item name="{xml_attr(row["item"])}" chance="{row["chance"]}">')
+        for attachment in row["attachments"]:
+            lines.append(f'    <attachment name="{xml_attr(attachment)}" chance="1.00" />')
+        lines.append("</item>")
+    generated_xml = "\n".join(lines)
+    validate_xml_fragment("loadout", generated_xml)
+    return {"generated_xml": generated_xml, "item_count": len(rows)}
+
+
+def default_vehicle_spawn_parts(vehicle_class: str) -> dict[str, list[str]]:
+    key = vehicle_class.lower()
+    mapping = {
+        "offroadhatchback": {
+            "wheels": ["HatchbackWheel", "HatchbackWheel", "HatchbackWheel", "HatchbackWheel"],
+            "doors": ["HatchbackDoors_Driver", "HatchbackDoors_CoDriver", "HatchbackHood", "HatchbackTrunk"],
+        },
+        "civiliansedan": {
+            "wheels": ["CivSedanWheel", "CivSedanWheel", "CivSedanWheel", "CivSedanWheel"],
+            "doors": ["CivSedanDoors_Driver", "CivSedanDoors_CoDriver", "CivSedanDoors_BackLeft", "CivSedanDoors_BackRight", "CivSedanHood", "CivSedanTrunk"],
+        },
+        "truck_01_covered": {
+            "wheels": ["Truck_01_Wheel", "Truck_01_Wheel", "Truck_01_WheelDouble", "Truck_01_WheelDouble"],
+            "doors": ["Truck_01_Door_1_1", "Truck_01_Door_2_1", "Truck_01_Hood"],
+        },
+    }
+    return mapping.get(key, {
+        "wheels": ["HatchbackWheel", "HatchbackWheel", "HatchbackWheel", "HatchbackWheel"],
+        "doors": ["HatchbackDoors_Driver", "HatchbackDoors_CoDriver"],
+    })
+
+
+def build_vehicle_spawnabletypes_xml(payload: dict[str, Any]) -> dict[str, Any]:
+    vehicle_class = sanitize_dayz_classname(payload.get("vehicle_class"))
+    if not vehicle_class:
+        raise ValueError("Vehicle classname is required.")
+    if disallowed_vehicle_part_class(vehicle_class):
+        raise ValueError("Use a whole vehicle classname, not a wheel, door, radiator or other part.")
+    parts = default_vehicle_spawn_parts(vehicle_class)
+    wheel_chance = dayz_xml_chance(payload.get("wheel_chance"), 0.8)
+    door_chance = dayz_xml_chance(payload.get("door_chance"), 0.5)
+    radiator_chance = dayz_xml_chance(payload.get("radiator_chance"), 1.0)
+    battery_chance = dayz_xml_chance(payload.get("battery_chance"), 1.0)
+    fuel_chance = dayz_xml_chance(payload.get("fuel_chance"), 1.0)
+    lines = [
+        f'<type name="{xml_attr(vehicle_class)}">',
+        '    <attachments chance="1.00">',
+    ]
+    for item in parts["wheels"]:
+        lines.append(f'        <item name="{xml_attr(item)}" chance="{wheel_chance}" />')
+    for item in parts["doors"]:
+        lines.append(f'        <item name="{xml_attr(item)}" chance="{door_chance}" />')
+    lines.extend([
+        f'        <item name="CarRadiator" chance="{radiator_chance}" />',
+        f'        <item name="CarBattery" chance="{battery_chance}" />',
+        f'        <item name="SparkPlug" chance="{fuel_chance}" />',
+        "    </attachments>",
+    ])
+    cargo_items = split_class_list(payload.get("cargo_items"), 40)
+    if cargo_items:
+        lines.append('    <cargo chance="1.00">')
+        for item in cargo_items:
+            lines.append(f'        <item name="{xml_attr(item)}" chance="1.00" />')
+        lines.append("    </cargo>")
+    lines.append("</type>")
+    generated_xml = "\n".join(lines)
+    validate_xml_fragment("cfgspawnabletypes", generated_xml)
+    return {"generated_xml": generated_xml, "part_count": len(parts["wheels"]) + len(parts["doors"]) + 3}
 
 
 def parse_airdrop_positions(value: Any) -> list[dict[str, str]]:
@@ -8752,7 +9309,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_player_counts = True
     needs_shop_counts = True
     needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
-    needs_shop = needs_full or active_section in {"shop", "xml-workshop"}
+    needs_shop = needs_full or active_section in {"shop", "xml-workshop", "loot-engine"}
     needs_wallets = needs_full or active_section in {"economy", "members"}
     needs_factions = needs_full or active_section in {"factions", "zones", "members", "economy"}
     needs_wages = needs_full or active_section == "economy"
@@ -8761,7 +9318,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
-    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "server-rules", "shop", "access"}
+    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "loot-engine", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
@@ -8947,7 +9504,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "server-rules", "moderation", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "server-rules", "moderation", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
@@ -8993,7 +9550,7 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
-        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section == "xml-workshop" and isinstance(selected_server, dict) else []),
+        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine"} and isinstance(selected_server, dict) else []),
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
@@ -9601,6 +10158,65 @@ def api_admin_theme():
     dashboard["theme_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return jsonify({"ok": True, "theme": theme})
+
+
+@APP.post("/api/admin/convert-dayz-xml")
+@APP.post("/api/convert-dayz-xml")
+def api_convert_dayz_xml():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    try:
+        if isinstance(payload.get("editor_json"), (dict, list)):
+            data = payload.get("editor_json")
+        else:
+            data = parse_json_payload_text(read_uploaded_or_pasted_text("dayz_json", "json_text", payload))
+        result = convert_dayz_editor_json(data, payload.get("event_name"))
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({
+        "ok": True,
+        "success": True,
+        **result,
+        "note": f"Generated XML for {result.get('object_count', 0)} object(s).",
+    })
+
+
+@APP.post("/api/admin/loot-tweak")
+def api_loot_tweak():
+    payload, error = require_admin()
+    if error:
+        return error
+    try:
+        result = tweak_types_xml(strip_dashboard_control_fields(payload or {}))
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "success": True, **result, "note": "Generated tweaked types.xml output."})
+
+
+@APP.post("/api/admin/loadout-generate")
+def api_loadout_generate():
+    payload, error = require_admin()
+    if error:
+        return error
+    try:
+        result = build_player_loadout_xml(strip_dashboard_control_fields(payload or {}))
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "success": True, **result, "note": "Generated player loadout XML."})
+
+
+@APP.post("/api/admin/vehicle-loadout-generate")
+def api_vehicle_loadout_generate():
+    payload, error = require_admin()
+    if error:
+        return error
+    try:
+        result = build_vehicle_spawnabletypes_xml(strip_dashboard_control_fields(payload or {}))
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({"ok": True, "success": True, **result, "note": "Generated vehicle spawnabletypes XML."})
 
 
 @APP.post("/api/admin/xml-workshop")
