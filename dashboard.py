@@ -448,24 +448,23 @@ PAGE_TEMPLATE = """
         }
         var embedEdit = closest(event.target, "[data-embed-template-edit]");
         if (embedEdit) {
+          if (!fillEmbed(readCardJson(embedEdit, "[data-embed-template-card]", "[data-embed-template-json]"))) return;
           stop(event);
-          fillEmbed(readCardJson(embedEdit, "[data-embed-template-card]", "[data-embed-template-json]"));
           return;
         }
         var recordEdit = closest(event.target, "[data-dashboard-record-edit]");
         if (recordEdit) {
+          if (!fillRecord(recordEdit)) return;
           stop(event);
-          fillRecord(recordEdit);
           return;
         }
         var zoneEdit = closest(event.target, "[data-zone-edit]");
         if (zoneEdit) {
-          if (!fillZone(zoneEdit)) return;
-          stop(event);
           return;
         }
         var embedDelete = closest(event.target, "[data-embed-template-delete]");
         if (embedDelete) {
+          if (closest(embedDelete, "form")) return;
           stop(event);
           if (embedDelete.getAttribute("data-confirm") && !window.confirm(embedDelete.getAttribute("data-confirm"))) return;
           var embedCard = closest(embedDelete, "[data-embed-template-card]");
@@ -479,6 +478,7 @@ PAGE_TEMPLATE = """
         }
         var recordDelete = closest(event.target, "[data-dashboard-record-delete]");
         if (recordDelete) {
+          if (closest(recordDelete, "form")) return;
           stop(event);
           if (recordDelete.getAttribute("data-confirm") && !window.confirm(recordDelete.getAttribute("data-confirm"))) return;
           var recordCard = closest(recordDelete, "[data-dashboard-record-card]");
@@ -846,11 +846,15 @@ PAGE_TEMPLATE = """
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
     .zone-dot small { position: absolute; left: calc(100% + .35rem); top: 50%; transform: translateY(-50%); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 74%, rgba(255,255,255,.35)); border-radius: .35rem; padding: .22rem .42rem; background: rgba(5,8,6,.86); color: var(--text); font-size: .74rem; font-weight: 900; text-align: left; pointer-events: none; }
     .zone-dot.editing small { color: #fff; border-color: #fff; }
-    .zone-map-popover { position: absolute; z-index: 12; width: min(20rem, calc(100% - 1rem)); transform: translate(.7rem, -50%); border: 1px solid color-mix(in srgb, var(--zone-colour, var(--accent)) 74%, var(--line)); border-radius: .6rem; padding: .75rem; background: color-mix(in srgb, var(--panel) 88%, #000); box-shadow: 0 18px 40px rgba(0,0,0,.42); color: var(--text); }
+    .zone-map-popover { position: absolute; z-index: 12; width: min(25rem, calc(100% - 1rem)); max-height: min(32rem, calc(100% - 1rem)); overflow: auto; transform: translate(.7rem, -50%); border: 1px solid color-mix(in srgb, var(--zone-colour, var(--accent)) 74%, var(--line)); border-radius: .6rem; padding: .75rem; background: color-mix(in srgb, var(--panel) 88%, #000); box-shadow: 0 18px 40px rgba(0,0,0,.42); color: var(--text); }
     .zone-map-popover[data-side="left"] { transform: translate(calc(-100% - .7rem), -50%); }
     .zone-map-popover[hidden] { display: none; }
     .zone-map-popover strong { display: block; margin-bottom: .18rem; color: var(--zone-colour, var(--accent)); font-size: 1rem; }
     .zone-map-popover span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.35; }
+    .zone-popover-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; margin-top: .65rem; }
+    .zone-popover-grid label { gap: .2rem; font-size: .78rem; color: var(--muted); }
+    .zone-popover-grid input, .zone-popover-grid select { min-height: 2.2rem; padding: .34rem .45rem; font-size: .86rem; }
+    .zone-popover-grid label:first-child { grid-column: 1 / -1; }
     .zone-map-popover .zone-popover-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .65rem; }
     .zone-map-popover button { min-height: 2.15rem; padding: .35rem .55rem; font-size: .84rem; }
     .zone-dot.safe { --zone-colour: #22c55e; }
@@ -1273,87 +1277,126 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Embed & Timed Message Builder</h3>
+          {% set edit_embed_key = request.args.get('edit_embed', '') %}
+          {% set edit_embed = namespace(name='server-rules', template_id='server-rules', content_mode='embed', channel_key='', title='Server Rules', colour='#8d963e', author_name='', author_icon_url='', thumbnail_url='', image_url='', footer_text='Wandering Bot', footer_icon_url='', mention_mode='none', mention_role_id='', schedule_type='manual', schedule_time='', event_filter='', event_minimum=0, interval_minutes=60, timezone='Europe/Dublin', button_label='', button_url='', body='Respect the server, no exploits, and keep it fair.', fields_lines='Server Rule | No exploits, duping, or glitch abuse. | false\nRespect | Keep chat and gameplay fair. | false') %}
+          {% if server and edit_embed_key %}
+            {% for template in server.embed_templates %}
+              {% if template.template_id == edit_embed_key or template.name == edit_embed_key %}
+                {% set embed = template.embed or {} %}
+                {% set delivery = template.delivery or {} %}
+                {% set schedule = template.schedule or {} %}
+                {% set edit_embed.name = template.name or 'custom-message' %}
+                {% set edit_embed.template_id = template.template_id or template.id or '' %}
+                {% set edit_embed.content_mode = delivery.content_mode or template.content_mode or 'embed' %}
+                {% set edit_embed.channel_key = delivery.channel_key or template.channel_key or '' %}
+                {% set edit_embed.title = embed.title or template.title or '' %}
+                {% set edit_embed.colour = embed.colour or embed.color or template.colour or '#8d963e' %}
+                {% set edit_embed.author_name = embed.author.name if embed.author else template.author_name or '' %}
+                {% set edit_embed.author_icon_url = embed.author.icon_url if embed.author else template.author_icon_url or '' %}
+                {% set edit_embed.thumbnail_url = embed.thumbnail_url or template.thumbnail_url or '' %}
+                {% set edit_embed.image_url = embed.image_url or template.image_url or '' %}
+                {% set edit_embed.footer_text = embed.footer.text if embed.footer else template.footer_text or '' %}
+                {% set edit_embed.footer_icon_url = embed.footer.icon_url if embed.footer else template.footer_icon_url or '' %}
+                {% set edit_embed.mention_mode = delivery.mention_mode or template.mention_mode or 'none' %}
+                {% set edit_embed.mention_role_id = delivery.mention_role_id or template.mention_role_id or '' %}
+                {% set edit_embed.schedule_type = schedule.type or template.schedule_type or 'manual' %}
+                {% set edit_embed.schedule_time = schedule.time or template.schedule_time or '' %}
+                {% set edit_embed.event_filter = schedule.event_filter or template.event_filter or '' %}
+                {% set edit_embed.event_minimum = schedule.event_minimum if schedule.event_minimum is defined else template.event_minimum or 0 %}
+                {% set edit_embed.interval_minutes = schedule.interval_minutes if schedule.interval_minutes is defined else template.interval_minutes or 60 %}
+                {% set edit_embed.timezone = schedule.timezone or template.timezone or 'Europe/Dublin' %}
+                {% set edit_embed.button_label = delivery.button_label or template.button_label or '' %}
+                {% set edit_embed.button_url = delivery.button_url or template.button_url or '' %}
+                {% set edit_embed.body = embed.description or template.body or '' %}
+                {% set lines = namespace(value='') %}
+                {% for field in embed.fields or [] %}
+                  {% set field_line = (field.name or '') ~ ' | ' ~ (field.value or '') ~ ' | ' ~ ('true' if field.inline else 'false') %}
+                  {% set lines.value = lines.value ~ ('\n' if lines.value else '') ~ field_line %}
+                {% endfor %}
+                {% set edit_embed.fields_lines = lines.value %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
           <form id="embed-template-form" class="admin-form" method="post" action="/api/admin/embed-template" data-route="/api/admin/embed-template">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#embed-template-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Purpose
               <select name="name">
-                <option value="timed-reminder">Timed reminder</option>
-                <option value="server-rules">Server rules</option>
-                <option value="restart-warning">Restart warning</option>
-                <option value="event-announcement">Event announcement</option>
-                <option value="shop-notice">Shop notice</option>
-                <option value="staff-alert">Staff alert</option>
-                <option value="giveaway">Giveaway</option>
-                <option value="level-up">Level up notice</option>
-                <option value="server-stats">Server stats panel</option>
-                <option value="birthday">Birthday message</option>
-                <option value="moderation">Moderation message</option>
-                <option value="custom-command">Custom command response</option>
-                <option value="custom-message">Custom message</option>
+                <option value="timed-reminder" {% if edit_embed.name == 'timed-reminder' %}selected{% endif %}>Timed reminder</option>
+                <option value="server-rules" {% if edit_embed.name == 'server-rules' %}selected{% endif %}>Server rules</option>
+                <option value="restart-warning" {% if edit_embed.name == 'restart-warning' %}selected{% endif %}>Restart warning</option>
+                <option value="event-announcement" {% if edit_embed.name == 'event-announcement' %}selected{% endif %}>Event announcement</option>
+                <option value="shop-notice" {% if edit_embed.name == 'shop-notice' %}selected{% endif %}>Shop notice</option>
+                <option value="staff-alert" {% if edit_embed.name == 'staff-alert' %}selected{% endif %}>Staff alert</option>
+                <option value="giveaway" {% if edit_embed.name == 'giveaway' %}selected{% endif %}>Giveaway</option>
+                <option value="level-up" {% if edit_embed.name == 'level-up' %}selected{% endif %}>Level up notice</option>
+                <option value="server-stats" {% if edit_embed.name == 'server-stats' %}selected{% endif %}>Server stats panel</option>
+                <option value="birthday" {% if edit_embed.name == 'birthday' %}selected{% endif %}>Birthday message</option>
+                <option value="moderation" {% if edit_embed.name == 'moderation' %}selected{% endif %}>Moderation message</option>
+                <option value="custom-command" {% if edit_embed.name == 'custom-command' %}selected{% endif %}>Custom command response</option>
+                <option value="custom-message" {% if edit_embed.name == 'custom-message' %}selected{% endif %}>Custom message</option>
               </select>
             </label>
-            <label>Message key <input name="template_id" value="server-rules" placeholder="unique name for this embed"></label>
+            <label>Message key <input name="template_id" value="{{ edit_embed.template_id }}" placeholder="unique name for this embed"></label>
             <label>Message type
-              <select name="content_mode"><option value="embed">Embed</option><option value="text">Plain text</option><option value="both">Text + embed</option></select>
+              <select name="content_mode"><option value="embed" {% if edit_embed.content_mode == 'embed' %}selected{% endif %}>Embed</option><option value="text" {% if edit_embed.content_mode == 'text' %}selected{% endif %}>Plain text</option><option value="both" {% if edit_embed.content_mode == 'both' %}selected{% endif %}>Text + embed</option></select>
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if edit_embed.channel_key and (channel.value == edit_embed.channel_key or channel.id == edit_embed.channel_key) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label>Title <input name="title" value="Server Rules"></label>
-            <label>Colour <input name="colour" type="color" value="#8d963e"></label>
-            <label>Author name <input name="author_name" placeholder="optional"></label>
-            <label>Author icon URL <input name="author_icon_url" placeholder="https://..."></label>
-            <label>Thumbnail URL <input name="thumbnail_url" placeholder="https://..."></label>
-            <label>Large image URL <input name="image_url" placeholder="https://..."></label>
-            <label>Footer text <input name="footer_text" value="Wandering Bot"></label>
-            <label>Footer icon URL <input name="footer_icon_url" placeholder="https://..."></label>
+            <label>Title <input name="title" value="{{ edit_embed.title }}"></label>
+            <label>Colour <input name="colour" type="color" value="{{ edit_embed.colour }}"></label>
+            <label>Author name <input name="author_name" value="{{ edit_embed.author_name }}" placeholder="optional"></label>
+            <label>Author icon URL <input name="author_icon_url" value="{{ edit_embed.author_icon_url }}" placeholder="https://..."></label>
+            <label>Thumbnail URL <input name="thumbnail_url" value="{{ edit_embed.thumbnail_url }}" placeholder="https://..."></label>
+            <label>Large image URL <input name="image_url" value="{{ edit_embed.image_url }}" placeholder="https://..."></label>
+            <label>Footer text <input name="footer_text" value="{{ edit_embed.footer_text }}"></label>
+            <label>Footer icon URL <input name="footer_icon_url" value="{{ edit_embed.footer_icon_url }}" placeholder="https://..."></label>
             <label>Mention
-              <select name="mention_mode"><option value="none">No mention</option><option value="everyone">@everyone</option><option value="here">@here</option><option value="role">Role mention</option></select>
+              <select name="mention_mode"><option value="none" {% if edit_embed.mention_mode == 'none' %}selected{% endif %}>No mention</option><option value="everyone" {% if edit_embed.mention_mode == 'everyone' %}selected{% endif %}>@everyone</option><option value="here" {% if edit_embed.mention_mode == 'here' %}selected{% endif %}>@here</option><option value="role" {% if edit_embed.mention_mode == 'role' %}selected{% endif %}>Role mention</option></select>
             </label>
-            <label>Role ID to mention <input name="mention_role_id" placeholder="optional role id"></label>
+            <label>Role ID to mention <input name="mention_role_id" value="{{ edit_embed.mention_role_id }}" placeholder="optional role id"></label>
             <label>Schedule / trigger
               <select name="schedule_type">
-                <option value="manual">Manual / save only</option>
-                <option value="timer">Timer</option>
-                <option value="daily">Daily at time</option>
-                <option value="weekly">Weekly at time</option>
-                <option value="interval">Repeat every X minutes</option>
-                <option value="member_join">Member joins</option>
-                <option value="member_leave">Member leaves</option>
-                <option value="level_up">Level up</option>
-                <option value="birthday">Member birthday</option>
-                <option value="stats_refresh">Server stats refresh</option>
-                <option value="player_kill">Player kills another player</option>
-                <option value="player_death">Player dies</option>
-                <option value="zombie_death">Player killed by infected</option>
-                <option value="animal_death">Player killed by animal</option>
-                <option value="longshot">Longshot recorded</option>
-                <option value="flag_raise">Territory flag raised</option>
-                <option value="flag_lower">Territory flag lowered</option>
-                <option value="player_join_server">Player joins DayZ server</option>
-                <option value="player_leave_server">Player leaves DayZ server</option>
-                <option value="chat_keyword">Discord message contains keyword</option>
-                <option value="wallet_change">Wallet balance changes</option>
-                <option value="shop_purchase">Shop purchase queued</option>
-                <option value="quest_complete">PVE quest completed</option>
-                <option value="radar_enter">Player enters radar zone</option>
-                <option value="safe_zone_enter">Player enters safe zone</option>
+                <option value="manual" {% if edit_embed.schedule_type == 'manual' %}selected{% endif %}>Manual / save only</option>
+                <option value="timer" {% if edit_embed.schedule_type == 'timer' %}selected{% endif %}>Timer</option>
+                <option value="daily" {% if edit_embed.schedule_type == 'daily' %}selected{% endif %}>Daily at time</option>
+                <option value="weekly" {% if edit_embed.schedule_type == 'weekly' %}selected{% endif %}>Weekly at time</option>
+                <option value="interval" {% if edit_embed.schedule_type == 'interval' %}selected{% endif %}>Repeat every X minutes</option>
+                <option value="member_join" {% if edit_embed.schedule_type == 'member_join' %}selected{% endif %}>Member joins</option>
+                <option value="member_leave" {% if edit_embed.schedule_type == 'member_leave' %}selected{% endif %}>Member leaves</option>
+                <option value="level_up" {% if edit_embed.schedule_type == 'level_up' %}selected{% endif %}>Level up</option>
+                <option value="birthday" {% if edit_embed.schedule_type == 'birthday' %}selected{% endif %}>Member birthday</option>
+                <option value="stats_refresh" {% if edit_embed.schedule_type == 'stats_refresh' %}selected{% endif %}>Server stats refresh</option>
+                <option value="player_kill" {% if edit_embed.schedule_type == 'player_kill' %}selected{% endif %}>Player kills another player</option>
+                <option value="player_death" {% if edit_embed.schedule_type == 'player_death' %}selected{% endif %}>Player dies</option>
+                <option value="zombie_death" {% if edit_embed.schedule_type == 'zombie_death' %}selected{% endif %}>Player killed by infected</option>
+                <option value="animal_death" {% if edit_embed.schedule_type == 'animal_death' %}selected{% endif %}>Player killed by animal</option>
+                <option value="longshot" {% if edit_embed.schedule_type == 'longshot' %}selected{% endif %}>Longshot recorded</option>
+                <option value="flag_raise" {% if edit_embed.schedule_type == 'flag_raise' %}selected{% endif %}>Territory flag raised</option>
+                <option value="flag_lower" {% if edit_embed.schedule_type == 'flag_lower' %}selected{% endif %}>Territory flag lowered</option>
+                <option value="player_join_server" {% if edit_embed.schedule_type == 'player_join_server' %}selected{% endif %}>Player joins DayZ server</option>
+                <option value="player_leave_server" {% if edit_embed.schedule_type == 'player_leave_server' %}selected{% endif %}>Player leaves DayZ server</option>
+                <option value="chat_keyword" {% if edit_embed.schedule_type == 'chat_keyword' %}selected{% endif %}>Discord message contains keyword</option>
+                <option value="wallet_change" {% if edit_embed.schedule_type == 'wallet_change' %}selected{% endif %}>Wallet balance changes</option>
+                <option value="shop_purchase" {% if edit_embed.schedule_type == 'shop_purchase' %}selected{% endif %}>Shop purchase queued</option>
+                <option value="quest_complete" {% if edit_embed.schedule_type == 'quest_complete' %}selected{% endif %}>PVE quest completed</option>
+                <option value="radar_enter" {% if edit_embed.schedule_type == 'radar_enter' %}selected{% endif %}>Player enters radar zone</option>
+                <option value="safe_zone_enter" {% if edit_embed.schedule_type == 'safe_zone_enter' %}selected{% endif %}>Player enters safe zone</option>
               </select>
             </label>
-            <label>Time / day <input name="schedule_time" placeholder="10:00, Monday 18:00, etc."></label>
-            <label>Player/event filter <input name="event_filter" placeholder="keyword, player name, weapon, zone, any"></label>
-            <label>Minimum value <input name="event_minimum" type="number" value="0" placeholder="distance, kills, amount, etc."></label>
-            <label>Interval minutes <input name="interval_minutes" type="number" value="60"></label>
-            <label>Timezone <input name="timezone" value="Europe/Dublin"></label>
-            <label>Button label <input name="button_label" placeholder="optional link button"></label>
-            <label>Button URL <input name="button_url" placeholder="https://..."></label>
-            <label class="full">Message <textarea name="body">Respect the server, no exploits, and keep it fair.</textarea></label>
-            <label class="full">Embed fields <textarea name="fields_lines">Server Rule | No exploits, duping, or glitch abuse. | false
-Respect | Keep chat and gameplay fair. | false</textarea></label>
+            <label>Time / day <input name="schedule_time" value="{{ edit_embed.schedule_time }}" placeholder="10:00, Monday 18:00, etc."></label>
+            <label>Player/event filter <input name="event_filter" value="{{ edit_embed.event_filter }}" placeholder="keyword, player name, weapon, zone, any"></label>
+            <label>Minimum value <input name="event_minimum" type="number" value="{{ edit_embed.event_minimum }}" placeholder="distance, kills, amount, etc."></label>
+            <label>Interval minutes <input name="interval_minutes" type="number" value="{{ edit_embed.interval_minutes }}"></label>
+            <label>Timezone <input name="timezone" value="{{ edit_embed.timezone }}"></label>
+            <label>Button label <input name="button_label" value="{{ edit_embed.button_label }}" placeholder="optional link button"></label>
+            <label>Button URL <input name="button_url" value="{{ edit_embed.button_url }}" placeholder="https://..."></label>
+            <label class="full">Message <textarea name="body">{{ edit_embed.body }}</textarea></label>
+            <label class="full">Embed fields <textarea name="fields_lines">{{ edit_embed.fields_lines }}</textarea></label>
             <div class="full embed-preview">
               <strong>Embed preview shape</strong>
               <span>Title, description, colour, author, thumbnail/image, footer, custom fields, link button and trigger settings are saved together.</span>
@@ -1371,8 +1414,15 @@ Respect | Keep chat and gameplay fair. | false</textarea></label>
                   <small>Channel: {{ template.delivery.channel_key if template.delivery else 'not set' }}{% if template.schedule and template.schedule.time %} | Time: {{ template.schedule.time }}{% endif %}</small>
                 </div>
                 <div class="inline-actions">
-                  <button type="button" data-embed-template-edit>Edit</button>
-                  <button type="button" data-embed-template-delete data-template-id="{{ template.template_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete embed template {{ template.template_id }}?">Delete</button>
+                  <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}&edit_embed={{ (template.template_id or template.name)|urlencode }}#embed-template-form" data-embed-template-edit>Edit</a>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/embed-template-action" data-route="/api/admin/embed-template-action" data-confirm="Delete embed template {{ template.template_id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#embed-template-form">
+                    <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                    <input class="hidden-field" name="template_id" value="{{ template.template_id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit" data-embed-template-delete data-template-id="{{ template.template_id }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  </form>
                   <span class="result muted" data-template-result></span>
                 </div>
               </div>
@@ -3455,24 +3505,23 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const embedEdit = event.target.closest("[data-embed-template-edit]");
         if (embedEdit) {
+          if (!fillEmbedTemplateForm(readJsonScript(embedEdit.closest("[data-embed-template-card]"), "[data-embed-template-json]"))) return;
           stop(event);
-          fillEmbedTemplateForm(readJsonScript(embedEdit.closest("[data-embed-template-card]"), "[data-embed-template-json]"));
           return;
         }
         const recordEdit = event.target.closest("[data-dashboard-record-edit]");
         if (recordEdit) {
+          if (!fillDashboardRecordForm(recordEdit.dataset.formId, readJsonScript(recordEdit.closest("[data-dashboard-record-card]"), "[data-dashboard-record-json]"))) return;
           stop(event);
-          fillDashboardRecordForm(recordEdit.dataset.formId, readJsonScript(recordEdit.closest("[data-dashboard-record-card]"), "[data-dashboard-record-json]"));
           return;
         }
         const zoneEdit = event.target.closest("[data-zone-edit]");
         if (zoneEdit) {
-          if (!fillZoneForm(zoneFromControl(zoneEdit), zoneEdit)) return;
-          stop(event);
           return;
         }
         const embedDelete = event.target.closest("[data-embed-template-delete]");
         if (embedDelete) {
+          if (embedDelete.closest("form")) return;
           stop(event);
           if (embedDelete.dataset.confirm && !window.confirm(embedDelete.dataset.confirm)) return;
           const card = embedDelete.closest("[data-embed-template-card]");
@@ -3487,6 +3536,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const recordDelete = event.target.closest("[data-dashboard-record-delete]");
         if (recordDelete) {
+          if (recordDelete.closest("form")) return;
           stop(event);
           if (recordDelete.dataset.confirm && !window.confirm(recordDelete.dataset.confirm)) return;
           const card = recordDelete.closest("[data-dashboard-record-card]");
@@ -4460,13 +4510,16 @@ Event pings | bell | 1234567890</textarea></label>
       }
       const embedEdit = event.target.closest("[data-embed-template-edit]");
       if (embedEdit) {
-        event.preventDefault();
         const card = embedEdit.closest("[data-embed-template-card]");
-        fillEmbedTemplateForm(embedTemplateFromCard(card));
+        const template = embedTemplateFromCard(card);
+        if (!template) return;
+        event.preventDefault();
+        fillEmbedTemplateForm(template);
         return;
       }
       const embedDelete = event.target.closest("[data-embed-template-delete]");
       if (embedDelete) {
+        if (embedDelete.closest("form")) return;
         event.preventDefault();
         if (embedDelete.dataset.confirm && !window.confirm(embedDelete.dataset.confirm)) return;
         const card = embedDelete.closest("[data-embed-template-card]");
@@ -4505,13 +4558,16 @@ Event pings | bell | 1234567890</textarea></label>
       }
       const recordEdit = event.target.closest("[data-dashboard-record-edit]");
       if (recordEdit) {
-        event.preventDefault();
         const card = recordEdit.closest("[data-dashboard-record-card]");
-        fillDashboardRecordForm(recordEdit.dataset.formId || dashboardRecordFormId(card?.dataset.section || ""), dashboardRecordFromCard(card));
+        const record = dashboardRecordFromCard(card);
+        if (!record) return;
+        event.preventDefault();
+        fillDashboardRecordForm(recordEdit.dataset.formId || dashboardRecordFormId(card?.dataset.section || ""), record);
         return;
       }
       const recordDelete = event.target.closest("[data-dashboard-record-delete]");
       if (recordDelete) {
+        if (recordDelete.closest("form")) return;
         event.preventDefault();
         if (recordDelete.dataset.confirm && !window.confirm(recordDelete.dataset.confirm)) return;
         const card = recordDelete.closest("[data-dashboard-record-card]");
@@ -4665,21 +4721,44 @@ Event pings | bell | 1234567890</textarea></label>
       details.append(title, summary, small);
       const actions = document.createElement("div");
       actions.className = "inline-actions";
-      const edit = document.createElement("button");
-      edit.type = "button";
+      const id = template.template_id || template.id || "";
+      const guildId = form?.elements?.guild_id?.value || template.guild_id || "";
+      const dashboardPath = window.location.pathname.startsWith("/owner") ? "/owner" : "/admin";
+      const edit = document.createElement("a");
+      edit.className = "button";
+      edit.href = `${dashboardPath}?section=automations&guild_id=${encodeURIComponent(guildId)}&edit_embed=${encodeURIComponent(id || template.name || "")}#embed-template-form`;
       edit.dataset.embedTemplateEdit = "";
       edit.textContent = "Edit";
+      const removeForm = document.createElement("form");
+      removeForm.className = "admin-form inline-action";
+      removeForm.method = "post";
+      removeForm.action = "/api/admin/embed-template-action";
+      removeForm.dataset.route = "/api/admin/embed-template-action";
+      removeForm.dataset.confirm = `Delete embed template ${id || "message"}?`;
+      [
+        ["guild_id", guildId],
+        ["return_to", `${dashboardPath}?section=automations&guild_id=${encodeURIComponent(guildId)}#embed-template-form`],
+        ["dashboard_mode", "{{ mode }}"],
+        ["template_id", id],
+        ["action", "delete"],
+      ].forEach(([name, value]) => {
+        const input = document.createElement("input");
+        input.className = "hidden-field";
+        input.name = name;
+        input.value = value;
+        removeForm.appendChild(input);
+      });
       const remove = document.createElement("button");
-      remove.type = "button";
+      remove.type = "submit";
       remove.dataset.embedTemplateDelete = "";
-      remove.dataset.templateId = template.template_id || template.id || "";
-      remove.dataset.guildId = form?.elements?.guild_id?.value || template.guild_id || "";
-      remove.dataset.confirm = `Delete embed template ${template.template_id || template.id || "message"}?`;
+      remove.dataset.templateId = id;
+      remove.dataset.guildId = guildId;
       remove.textContent = "Delete";
+      removeForm.appendChild(remove);
       const result = document.createElement("span");
       result.className = "result muted";
       result.dataset.templateResult = "";
-      actions.append(edit, remove, result);
+      actions.append(edit, removeForm, result);
       row.append(details, actions);
       const script = document.createElement("script");
       script.type = "application/json";
@@ -5330,11 +5409,36 @@ Event pings | bell | 1234567890</textarea></label>
       }
 
       function saveZoneFromPopover() {
+        applyZonePopoverFields();
+        hideZonePopover();
         if (form.requestSubmit) {
           form.requestSubmit(saveButton || undefined);
         } else if (saveButton) {
           saveButton.click();
         }
+      }
+
+      function applyZonePopoverFields() {
+        if (!popover || popover.hidden) return;
+        const popoverFields = {
+          name: popover.querySelector('[data-zone-popover-field="name"]'),
+          type: popover.querySelector('[data-zone-popover-field="zone_type"]'),
+          x: popover.querySelector('[data-zone-popover-field="x"]'),
+          y: popover.querySelector('[data-zone-popover-field="y"]'),
+          radius: popover.querySelector('[data-zone-popover-field="radius"]'),
+          colour: popover.querySelector('[data-zone-popover-field="colour"]'),
+          enabled: popover.querySelector('[data-zone-popover-field="enabled"]'),
+          action: popover.querySelector('[data-zone-popover-field="action"]'),
+        };
+        if (zoneFields.name && popoverFields.name) zoneFields.name.value = popoverFields.name.value;
+        if (zoneFields.type && popoverFields.type) setSelectValue(zoneFields.type, popoverFields.type.value);
+        if (zoneFields.x && popoverFields.x) zoneFields.x.value = popoverFields.x.value;
+        if (zoneFields.y && popoverFields.y) zoneFields.y.value = popoverFields.y.value;
+        if (zoneFields.enabled && popoverFields.enabled) setSelectValue(zoneFields.enabled, popoverFields.enabled.value);
+        if (zoneFields.action && popoverFields.action) setSelectValue(zoneFields.action, popoverFields.action.value);
+        if (popoverFields.radius) syncRadius(popoverFields.radius.value);
+        if (popoverFields.colour) syncZoneColour(popoverFields.colour.value);
+        placeCursorFromForm();
       }
 
       function showZonePopover(zone = {}, mode = "edit") {
@@ -5345,13 +5449,33 @@ Event pings | bell | 1234567890</textarea></label>
         const zoneName = zone.name || (zoneFields.name ? zoneFields.name.value : "");
         const title = mode === "new" ? "New zone draft" : (zoneName || "Zone");
         const colour = zone.display_colour || zone.colour || zone.color || (colourInput ? colourInput.value : zonePalette[0]);
+        const enabled = zone.enabled === false ? "false" : (zoneFields.enabled ? zoneFields.enabled.value : "true");
+        const action = zone.action || (zoneFields.action ? zoneFields.action.value : "none");
+        const option = (value, label, selected) => `<option value="${escapeHtml(value)}" ${String(selected) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`;
         popover.style.setProperty("--zone-colour", colour);
         popover.style.left = `${clampPercent(point.xPercent)}%`;
         popover.style.top = `${Math.max(8, Math.min(92, point.yPercent))}%`;
         popover.dataset.side = point.xPercent > 62 ? "left" : "right";
         popover.innerHTML = `
           <strong>${escapeHtml(title)}</strong>
-          <span>${escapeHtml(type)} zone - X ${Math.round(point.x)}, Z ${Math.round(point.z)} - radius ${escapeHtml(radius)}m</span>
+          <span>Edit this zone here, then save or close.</span>
+          <div class="zone-popover-grid">
+            <label>Name <input data-zone-popover-field="name" value="${escapeHtml(zoneName || title)}"></label>
+            <label>Type <select data-zone-popover-field="zone_type">
+              ${option("radar", "Radar", type)}
+              ${option("safe", "Safe", type)}
+              ${option("pvp", "PVP", type)}
+              ${option("action", "Action", type)}
+              ${option("faction", "Faction", type)}
+              ${option("custom", "Custom", type)}
+            </select></label>
+            <label>X <input data-zone-popover-field="x" type="number" value="${Math.round(point.x)}"></label>
+            <label>Z <input data-zone-popover-field="y" type="number" value="${Math.round(point.z)}"></label>
+            <label>Radius <input data-zone-popover-field="radius" type="number" min="10" step="10" value="${escapeHtml(radius)}"></label>
+            <label>Colour <input data-zone-popover-field="colour" type="color" value="${escapeHtml(colour)}"></label>
+            <label>Enabled <select data-zone-popover-field="enabled">${option("true", "On", enabled)}${option("false", "Off", enabled)}</select></label>
+            <label>Action <select data-zone-popover-field="action">${option("none", "Notify", action)}${option("manhunt", "Manhunt", action)}${option("ban", "Ban", action)}</select></label>
+          </div>
           <div class="zone-popover-actions">
             <button type="button" data-popover-save>${mode === "new" ? "Save Zone" : "Save Changes"}</button>
             ${mode === "edit" ? '<button type="button" data-popover-delete>Delete</button>' : ""}
@@ -5360,12 +5484,17 @@ Event pings | bell | 1234567890</textarea></label>
         popover.hidden = false;
         popover.querySelector("[data-popover-close]")?.addEventListener("click", hideZonePopover);
         popover.querySelector("[data-popover-save]")?.addEventListener("click", saveZoneFromPopover);
+        popover.querySelectorAll("[data-zone-popover-field]").forEach((field) => {
+          field.addEventListener("input", applyZonePopoverFields);
+          field.addEventListener("change", applyZonePopoverFields);
+        });
         popover.querySelector("[data-popover-delete]")?.addEventListener("click", (event) => {
+          applyZonePopoverFields();
           deleteZone({
             guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
             zone_id: zone.id || (zoneFields.zoneId ? zoneFields.zoneId.value : ""),
-            zone_type: type,
-            name: zoneName,
+            zone_type: zoneFields.type ? zoneFields.type.value : type,
+            name: zoneFields.name ? zoneFields.name.value : zoneName,
             action: "delete",
             dashboard_mode: "{{ mode }}",
           }, event.currentTarget);
@@ -5743,9 +5872,8 @@ Event pings | bell | 1234567890</textarea></label>
           if (editButton.closest("[data-zone-map]")) {
             showZonePopover(zone, "edit");
           } else {
-            form.scrollIntoView({behavior: "smooth", block: "center"});
-            hideZonePopover();
-            if (zoneFields.name) zoneFields.name.focus();
+            showZonePopover(zone, "edit");
+            map.scrollIntoView({behavior: "smooth", block: "center"});
           }
           return;
         }
