@@ -55,13 +55,13 @@ SCENARIO_SPAWN_PRESETS = {
     "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
-    "military_crate": {"label": "Military crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "military_high"},
-    "wooden_crate": {"label": "Wooden crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "survival"},
-    "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate", "loot_preset": "survival"},
-    "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate", "loot_preset": "survival"},
-    "medical_crate": {"label": "Medical crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "medical"},
-    "building_crate": {"label": "Building crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "building"},
-    "food_crate": {"label": "Food crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate", "loot_preset": "food"},
+    "military_crate": {"label": "Military loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "military_high"},
+    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "survival"},
+    "sea_chest": {"label": "Sea chest container", "class": "SeaChest", "event_type": "airdrop", "loot_preset": "survival"},
+    "green_barrel": {"label": "Green barrel container", "class": "Barrel_Green", "event_type": "airdrop", "loot_preset": "survival"},
+    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "medical"},
+    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "building"},
+    "food_crate": {"label": "Food loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "food"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
 SCENARIO_LOOT_PRESETS = {
@@ -2265,7 +2265,7 @@ PAGE_TEMPLATE = """
           <p class="tool-note" style="margin-top:.75rem">Use the Discord quest-workshop channel for AI generation. This dashboard shows the state and lets you control whether each guild has the module enabled.</p>
         </article>
         <article class="admin-panel">
-          <h3>Airdrop / Spawn Event</h3>
+          <h3>Airdrop / Event Builder</h3>
           <form class="admin-form {% if edit_event_key %}dashboard-edit-modal{% endif %}" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event" id="scenario-event-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="event_id" value="{{ edit_event.id }}">
@@ -2273,22 +2273,19 @@ PAGE_TEMPLATE = """
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
               <select name="event_type" data-scenario-type>
-                <option value="airdrop" {% if edit_event.event_type == 'airdrop' %}selected{% endif %}>Airdrop crate</option>
-                <option value="animal_pack" {% if edit_event.event_type == 'animal_pack' %}selected{% endif %}>Animal pack</option>
-                <option value="zombie_horde" {% if edit_event.event_type == 'zombie_horde' %}selected{% endif %}>Zombie horde</option>
-                <option value="loot_crate" {% if edit_event.event_type == 'loot_crate' %}selected{% endif %}>Loot crate</option>
-                <option value="vehicle_spawn" {% if edit_event.event_type == 'vehicle_spawn' %}selected{% endif %}>Vehicle spawn</option>
+                <option value="airdrop" data-default-preset="military_crate" {% if edit_event.event_type in ['airdrop', 'loot_crate'] %}selected{% endif %}>Airdrop loot</option>
+                <option value="animal_pack" data-default-preset="bear" {% if edit_event.event_type == 'animal_pack' %}selected{% endif %}>Airdrop animals</option>
+                <option value="zombie_horde" data-default-preset="civilian_zombie" {% if edit_event.event_type == 'zombie_horde' %}selected{% endif %}>Airdrop horde</option>
+                <option value="vehicle_spawn" data-default-preset="m3s" {% if edit_event.event_type == 'vehicle_spawn' %}selected{% endif %}>Vehicle spawn</option>
               </select>
             </label>
             <label>Spawn type
               <select name="spawn_preset" data-scenario-preset>
-                <option value="military_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="35" data-loot="military_high">Military airdrop crate</option>
-                <option value="wooden_crate" data-type="loot_crate" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="survival">Wooden crate</option>
-                <option value="sea_chest" data-type="loot_crate" data-class="SeaChest" data-count="1" data-radius="20" data-loot="survival">Sea chest</option>
-                <option value="green_barrel" data-type="loot_crate" data-class="Barrel_Green" data-count="1" data-radius="20" data-loot="survival">Green barrel</option>
-                <option value="medical_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot crate</option>
-                <option value="building_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="building">Building loot crate</option>
-                <option value="food_crate" data-type="loot_crate" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="food">Food loot crate</option>
+                <option value="military_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="35" data-loot="military_high">Military loot</option>
+                <option value="wooden_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="survival">Survival loot</option>
+                <option value="medical_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="medical">Medical loot</option>
+                <option value="building_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="building">Building loot</option>
+                <option value="food_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="food">Food loot</option>
                 <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
                 <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
                 <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
@@ -2310,7 +2307,7 @@ PAGE_TEMPLATE = """
             <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"></label>
             <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"></label>
             <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"></label>
-            <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"></label>
+            <label>How many drops / animals / infected <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"></label>
             <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"></label>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
@@ -2378,7 +2375,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
                     {% for action, label in [('upload', 'Retry XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -5485,7 +5482,8 @@ PAGE_TEMPLATE = """
         event.preventDefault();
         form.elements.event_id.value = button.dataset.id || "";
         form.elements.name.value = button.dataset.name || "";
-        form.elements.event_type.value = button.dataset.type || "airdrop";
+        form.elements.event_type.value = button.dataset.type === "loot_crate" ? "airdrop" : (button.dataset.type || "airdrop");
+        if (form.elements.spawn_preset && button.dataset.preset) form.elements.spawn_preset.value = button.dataset.preset;
         form.elements.class_name.value = button.dataset.class || "";
         form.elements.x.value = button.dataset.x || 7500;
         form.elements.y.value = button.dataset.y || 0;
@@ -5499,6 +5497,7 @@ PAGE_TEMPLATE = """
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
+        form.dispatchEvent(new CustomEvent("scenario-prefill"));
         form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "start"});
         form.elements.class_name.focus();
@@ -5556,25 +5555,46 @@ PAGE_TEMPLATE = """
       if (!form) return;
       const typeSelect = form.querySelector("[data-scenario-type]");
       const classInput = form.querySelector("[data-scenario-class]");
-      function chooseFirstPresetForType() {
+      function normalScenarioType(value) {
+        return value === "loot_crate" ? "airdrop" : value;
+      }
+      function optionMatchesType(item, eventType) {
+        const itemType = normalScenarioType(item.dataset.type || "");
+        return item.value === "custom" || !itemType || itemType === normalScenarioType(eventType);
+      }
+      function defaultPresetForType(eventType) {
+        if (!typeSelect) return "";
+        const typeOption = Array.from(typeSelect.options).find((item) => item.value === normalScenarioType(eventType));
+        return typeOption ? (typeOption.dataset.defaultPreset || "") : "";
+      }
+      function chooseFirstPresetForType(forceDefault = false) {
         if (!typeSelect) return;
+        const activeType = normalScenarioType(typeSelect.value);
         const current = presetSelect.selectedOptions[0];
         const options = Array.from(presetSelect.options);
         options.forEach((item) => {
-          const visible = !item.dataset.type || item.dataset.type === typeSelect.value;
+          const visible = optionMatchesType(item, activeType);
           item.hidden = !visible;
           item.disabled = !visible;
         });
-        if (current && !current.disabled && (current.dataset.type === typeSelect.value || current.value === "custom")) return;
-        const match = options.find((item) => item.dataset.type === typeSelect.value && !item.disabled);
+        if (!forceDefault && current && !current.disabled && optionMatchesType(current, activeType)) return;
+        const preferredValue = defaultPresetForType(activeType);
+        const preferred = options.find((item) => item.value === preferredValue && !item.disabled);
+        const match = preferred || options.find((item) => optionMatchesType(item, activeType) && !item.disabled);
         if (match) presetSelect.value = match.value;
       }
       function syncScenarioPreset(event) {
         const selectedBeforeFilter = presetSelect.selectedOptions[0];
-        if (event && event.target === presetSelect && typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && selectedBeforeFilter.dataset.type !== typeSelect.value) {
-          typeSelect.value = selectedBeforeFilter.dataset.type;
+        if (event && event.target === typeSelect) {
+          chooseFirstPresetForType(true);
+        } else if (event && event.target === presetSelect && typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && normalScenarioType(selectedBeforeFilter.dataset.type) !== normalScenarioType(typeSelect.value)) {
+          typeSelect.value = normalScenarioType(selectedBeforeFilter.dataset.type);
+          chooseFirstPresetForType(false);
+        } else if (event && event.type === "scenario-prefill") {
+          chooseFirstPresetForType(false);
+        } else {
+          chooseFirstPresetForType(false);
         }
-        chooseFirstPresetForType();
         const option = presetSelect.selectedOptions[0];
         if (!option) return;
         const customClass = option.value === "custom" || option.value === "custom_vehicle";
@@ -5582,8 +5602,8 @@ PAGE_TEMPLATE = """
           classInput.readOnly = !customClass;
           classInput.placeholder = customClass ? "Type the exact DayZ classname" : "Locked to selected spawn type";
         }
-        if (typeSelect && option.dataset.type) typeSelect.value = option.dataset.type;
-        if (option.dataset.class) form.elements.class_name.value = option.dataset.class;
+        if (typeSelect && option.dataset.type) typeSelect.value = normalScenarioType(option.dataset.type);
+        if (!customClass && option.dataset.class) form.elements.class_name.value = option.dataset.class;
         if (customClass && !form.elements.class_name.value) form.elements.class_name.value = "";
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
         if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
@@ -5591,6 +5611,7 @@ PAGE_TEMPLATE = """
       }
       presetSelect.addEventListener("change", syncScenarioPreset);
       if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
+      form.addEventListener("scenario-prefill", syncScenarioPreset);
       form.addEventListener("submit", syncScenarioPreset);
       syncScenarioPreset();
     });
@@ -8148,6 +8169,20 @@ def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
     return sorted(items, key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
 
 
+def count_shop_items(shop: Any) -> int:
+    if not isinstance(shop, dict):
+        return 0
+    total = 0
+    for item_name, data in shop.items():
+        if not isinstance(data, dict):
+            data = {}
+        is_bundle = str(data.get("type") or "").lower() == "bundle"
+        category = str(data.get("category") or ("Bundles" if is_bundle else "General"))
+        if is_bundle or is_shop_sellable_item(item_name, category):
+            total += 1
+    return total
+
+
 def item_matches_terms(item: dict[str, Any], terms: tuple[str, ...]) -> bool:
     text = f"{item.get('name', '')} {item.get('category', '')}".lower()
     return any(term in text for term in terms)
@@ -8654,6 +8689,8 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     active_section = str(active_section or "overview").strip().lower()
     full_sections = {"overview", "owner", "access"}
     needs_full = active_section in full_sections
+    needs_player_counts = True
+    needs_shop_counts = True
     needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
     needs_shop = needs_full or active_section in {"shop", "xml-workshop"}
     needs_wallets = needs_full or active_section in {"economy", "members"}
@@ -8668,9 +8705,9 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
-    player_stats = (runtime_state.get("player_stats") or load_store("player_stats", {})) if needs_players else {}
+    player_stats = (runtime_state.get("player_stats") or load_store("player_stats", {})) if needs_players or needs_player_counts else {}
     online_players = runtime_state.get("online_players") or load_store("online_players", {})
-    shop = (runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})) if needs_shop else {}
+    shop = (runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})) if needs_shop or needs_shop_counts else {}
     wallets = (runtime_state.get("wallets") or load_store("wallets", {})) if needs_wallets else {}
     factions = (runtime_state.get("factions") or load_store("factions", {})) if needs_factions else {}
     wages = (runtime_state.get("wages") or load_store("wages", {})) if needs_wages else {}
@@ -8704,6 +8741,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
             continue
         guild_id = normalize_guild_id(guild_id)
         players = guild_players(player_stats, guild_id) if needs_players else []
+        player_count = len(players) if needs_players else (len(guild_players(player_stats, guild_id)) if needs_player_counts else 0)
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
@@ -8713,7 +8751,8 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
-        server_shop = shop_for_guild(shop, guild_id) if needs_shop else {}
+        server_shop = shop_for_guild(shop, guild_id) if needs_shop or needs_shop_counts else {}
+        server_shop_item_count = count_shop_items(server_shop) if needs_shop or needs_shop_counts else 0
         server_shop_categories = shop_category_map(server_shop) if needs_shop else {}
         server_shop_items = flat_shop_items(server_shop) if needs_shop else []
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
@@ -8732,10 +8771,10 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
             "kills": sum(player["kills"] for player in players),
             "deaths": sum(player["deaths"] for player in players),
             "builds": sum(player["builds"] for player in players),
-            "players": len(players),
+            "players": player_count,
         }
         total_online += len(online)
-        total_players += len(players)
+        total_players += player_count
         total_kills += totals["kills"]
         dashboard_enabled += 1 if access["enabled"] else 0
         servers.append(
@@ -8764,6 +8803,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "wages": redact(server_wages),
                 "wallets": redact(server_wallets),
                 "shop_items": redact(server_shop_items),
+                "shop_item_count": server_shop_item_count,
                 "shop_categories": redact(server_shop_categories),
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
@@ -8789,7 +8829,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
             "players": total_players,
             "kills": total_kills,
             "dashboard_enabled": dashboard_enabled,
-            "shop_items": sum(count_records(server.get("shop_items")) for server in servers),
+            "shop_items": sum(safe_int(server.get("shop_item_count")) for server in servers),
             "wallets": sum(count_records(server.get("wallets")) for server in servers) or count_records(wallets),
             "delivery_queue": count_records(delivery_queue),
             "factions": sum(count_records(server.get("factions")) for server in servers),
@@ -8828,7 +8868,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
                 "players": sum(safe_int(server.get("totals", {}).get("players")) for server in servers),
                 "kills": sum(safe_int(server.get("totals", {}).get("kills")) for server in servers),
                 "dashboard_enabled": sum(1 for server in servers if server.get("dashboard_access", {}).get("enabled")),
-                "shop_items": sum(count_records(server.get("shop_items")) for server in servers),
+                "shop_items": sum(safe_int(server.get("shop_item_count")) for server in servers),
                 "wallets": sum(count_records(server.get("wallets")) for server in servers),
                 "factions": sum(count_records(server.get("factions")) for server in servers),
                 "wages": sum(count_records(server.get("wages")) for server in servers),
@@ -9661,6 +9701,8 @@ def api_scenario_event():
     guild_id = normalize_guild_id(payload.get("guild_id"))
     return_to = safe_dashboard_return(payload.get("return_to"), f"/admin?section=pve&guild_id={guild_id}#pve-workshop")
     event_type = str(payload.get("event_type") or "airdrop").strip().lower()
+    if event_type == "loot_crate":
+        event_type = "airdrop"
     allowed_types = {"airdrop", "animal_pack", "zombie_horde", "loot_crate", "vehicle_spawn", "vehicle_reset_point", "vehicle_reset_all"}
     if event_type not in allowed_types:
         return jsonify({"ok": False, "error": "unsupported scenario event type"}), 400
@@ -9698,18 +9740,35 @@ def api_scenario_event():
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
     map_size = map_size_for(server_map)
     spawn_preset = str(payload.get("spawn_preset") or "").strip()
+    default_preset_by_type = {
+        "airdrop": "military_crate",
+        "animal_pack": "bear",
+        "zombie_horde": "civilian_zombie",
+        "vehicle_spawn": "m3s",
+    }
     preset = SCENARIO_SPAWN_PRESETS.get(spawn_preset, {})
     if event_type == "vehicle_spawn" and not preset:
         preset = SCENARIO_VEHICLE_PRESETS.get(spawn_preset, {})
+    if spawn_preset not in {"custom", "custom_vehicle"}:
+        preset_type = "vehicle_spawn" if event_type == "vehicle_spawn" and preset in SCENARIO_VEHICLE_PRESETS.values() else str(preset.get("event_type") or "")
+        if preset_type == "loot_crate":
+            preset_type = "airdrop"
+        if not preset or (preset_type and preset_type != event_type):
+            spawn_preset = default_preset_by_type.get(event_type, spawn_preset)
+            preset = SCENARIO_SPAWN_PRESETS.get(spawn_preset, {})
+            if event_type == "vehicle_spawn" and not preset:
+                preset = SCENARIO_VEHICLE_PRESETS.get(spawn_preset, {})
     if preset:
         event_type = str(preset.get("event_type") or event_type)
+        if event_type == "loot_crate":
+            event_type = "airdrop"
     class_name = str(payload.get("class_name") or "").strip()
-    if preset and spawn_preset != "custom":
+    if preset and spawn_preset not in {"custom", "custom_vehicle"} and preset.get("class"):
         class_name = str(preset.get("class") or class_name)
     if not class_name:
         defaults = {
-            "airdrop": "WoodenCrate",
-            "loot_crate": "WoodenCrate",
+            "airdrop": "StaticObj_Misc_WoodenCrate_5x",
+            "loot_crate": "StaticObj_Misc_WoodenCrate_5x",
             "animal_pack": "Animal_UrsusArctos",
             "zombie_horde": "ZmbM_SoldierNormal",
             "vehicle_spawn": "OffroadHatchback",

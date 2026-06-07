@@ -24088,13 +24088,13 @@ SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
-    "military_crate": {"label": "Military airdrop crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
-    "wooden_crate": {"label": "Wooden crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "military_crate": {"label": "Military loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate"},
-    "medical_crate": {"label": "Medical loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
-    "survival_crate": {"label": "Survival loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
-    "building_crate": {"label": "Building loot crate", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "survival_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
 
@@ -30900,7 +30900,7 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
 @app_commands.describe(
     event_type="What kind of scenario to create",
     location="Preset location or custom coordinates",
-    spawn_preset="Specific zombie, animal, crate, or custom classname",
+    spawn_preset="Specific infected, animal, loot, or custom classname",
     count="How many to spawn. Crates usually use 1.",
     radius="Spread spawns around the location in metres",
     permanent="True keeps spawning every restart. False is one restart only.",
@@ -30912,10 +30912,9 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
 )
 @app_commands.choices(
     event_type=[
-        app_commands.Choice(name="Zombie horde", value="zombie_horde"),
-        app_commands.Choice(name="Animal pack", value="animal_pack"),
-        app_commands.Choice(name="Loot crate", value="loot_crate"),
-        app_commands.Choice(name="Airdrop crate", value="airdrop"),
+        app_commands.Choice(name="Airdrop horde", value="zombie_horde"),
+        app_commands.Choice(name="Airdrop animals", value="animal_pack"),
+        app_commands.Choice(name="Airdrop loot", value="airdrop"),
         app_commands.Choice(name="Custom class spawn", value="custom_spawn"),
     ],
     loot_preset=[
