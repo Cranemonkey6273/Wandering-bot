@@ -330,6 +330,7 @@ DEFAULT_CHANNEL_NAMES = {
     "faction_staff": "🛡️🏴・faction-staff・🏴🛡️",
     "help_channel": "❓📘・help-desk・📘❓",
     "economy": "💰🛒・black-market・🛒💰",
+    "money_feed": "💰🧾・money-feed・🧾💰",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
     "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
     "cheat_checks": "🕵️🚫・pc-cheat-check・🚫🕵️",
@@ -386,6 +387,7 @@ CHANNEL_ALIASES = {
     "help_channel": ["helpdesk", "help", "support"],
     "clips_channel": ["dayzclips", "clips", "media"],
     "economy": ["blackmarket", "economy", "shop", "market"],
+    "money_feed": ["moneyfeed", "moneylogs", "financefeed", "penniesfeed", "incomefeed"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
     "dashboard_audit": ["dashboardaudit", "dashboardchanges", "dashboardlogs", "dbchanges"],
@@ -4893,6 +4895,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "cheat_checks",
     "command_logs",
     "dashboard_audit",
+    "money_feed",
     "link_audit",
     "moderation_logs",
     "cuts_feed",
@@ -4948,6 +4951,7 @@ CHANNEL_RESTORE_PACKS = {
     ],
     "economy": [
         "economy",
+        "money_feed",
         "purchase_logs",
         "vehicle_rentals",
         "rental_logs",
@@ -5022,6 +5026,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "faction_staff": "staff_ops",
     "help_channel": "support",
     "economy": "economy",
+    "money_feed": "economy",
     "admin_logs": "staff_ops",
     "dashboard_audit": "staff_ops",
     "cheat_checks": "staff_ops",
@@ -6301,7 +6306,7 @@ async def apply_chat_reward_punishment_rules(message, lower):
         return
 
     matched = []
-    wallet = ensure_wallet(message.author)
+    wallet = ensure_wallet(message.author, guild_id)
 
     for rule in rules:
         keyword = str(rule.get("keyword", "")).lower().strip()
@@ -6323,6 +6328,19 @@ async def apply_chat_reward_punishment_rules(message, lower):
         return
 
     save_wallets()
+
+    await send_money_feed(
+        message.guild,
+        guild_configs.get(guild_id, {}),
+        "AUTOMATED ECONOMY RULE",
+        "\n".join(matched[:5]),
+        [
+            {"name": "Survivor", "value": message.author.mention, "inline": True},
+            {"name": "Balance After", "value": f"{wallet['balance']} pennies", "inline": True},
+        ],
+        color=0xF1C40F,
+        footer="Money Feed - Economy Rule",
+    )
 
     embed = discord.Embed(
         title="Automated Economy Rule",
@@ -15113,6 +15131,22 @@ async def parse_adm(guild_id, config):
                             })
                             wallet["balance"] = int(wallet.get("balance", 0) or 0) + reward
                             save_wallets()
+                            guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                            if guild:
+                                await send_money_feed(
+                                    guild,
+                                    guild_configs.get(str(guild_id), {}),
+                                    "DAILY CHALLENGE REWARD",
+                                    f"**{killer}** earned **{reward} pennies**.",
+                                    [
+                                        {"name": "Survivor", "value": killer, "inline": True},
+                                        {"name": "Challenge", "value": completed_challenge.get("name", "?"), "inline": True},
+                                        {"name": "Reward", "value": f"{reward} pennies", "inline": True},
+                                        {"name": "Balance After", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+                                    ],
+                                    color=0x2ECC71,
+                                    footer="Money Feed - Daily Challenge",
+                                )
                     except Exception as wallet_err:
                         print(f"[CHALLENGE REWARD] failed: {wallet_err}")
                     cc_embed = discord.Embed(
@@ -15672,6 +15706,60 @@ def format_dashboard_audit_details(payload):
     return "\n".join(lines) if lines else "No extra details were supplied."
 
 
+def money_event_value(value, limit=260):
+    text = discord.utils.escape_mentions(str(value or ""))
+    text = text.replace("\n", " ").strip()
+    if len(text) > limit:
+        text = text[: max(0, limit - 3)].rstrip() + "..."
+    return text or "blank"
+
+
+async def send_money_feed(guild, config, title, description="", fields=None, *, color=0xF1C40F, footer="Money Feed"):
+    if not guild:
+        return None
+    config = config if isinstance(config, dict) else guild_configs.setdefault(str(guild.id), {"guild_name": guild.name, "channels": {}})
+    try:
+        channel = await get_or_create_feed_channel(
+            guild,
+            config,
+            "money_feed",
+            DEFAULT_CHANNEL_NAMES["money_feed"],
+            private=True,
+            force=True,
+        )
+        if not channel:
+            return None
+        embed = discord.Embed(
+            title=money_event_value(title, 256),
+            description=discord_safe_content(discord.utils.escape_mentions(str(description or "")), 900) if description else "",
+            color=color,
+        )
+        for field in fields or []:
+            if not isinstance(field, dict):
+                continue
+            embed.add_field(
+                name=money_event_value(field.get("name"), 256),
+                value=discord_safe_content(money_event_value(field.get("value"), 1024), 1024),
+                inline=bool(field.get("inline", True)),
+            )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text=f"Wandering Bot Alpha - {footer}")
+        await channel.send(embed=trim_embed_field_values(style_embed(embed)), allowed_mentions=discord.AllowedMentions.none())
+        return channel
+    except Exception as error:
+        print(f"[MONEY FEED] send failed for {getattr(guild, 'id', '?')}: {error}")
+        return None
+
+
+MONEY_DASHBOARD_ROUTES = {
+    "/api/admin/wage",
+    "/api/admin/wallet-adjustment",
+    "/api/admin/economy-rule",
+    "/api/admin/shop-item",
+    "/api/admin/shop-bundle",
+}
+
+
 def build_dashboard_audit_embed(event, guild):
     title = discord.utils.escape_mentions(str(event.get("title") or "Dashboard change confirmed"))
     summary = discord.utils.escape_mentions(str(event.get("summary") or "").strip())
@@ -15736,6 +15824,20 @@ async def dashboard_audit_loop():
                 embed=build_dashboard_audit_embed(event, guild),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
+            if str(event.get("route") or "") in MONEY_DASHBOARD_ROUTES:
+                await send_money_feed(
+                    guild,
+                    config,
+                    "🧾 DASHBOARD MONEY CHANGE",
+                    event.get("title") or "Dashboard money setting updated.",
+                    [
+                        {"name": "By", "value": event.get("actor"), "inline": True},
+                        {"name": "Route", "value": f"{event.get('method', 'POST')} {event.get('route', '')}", "inline": True},
+                        {"name": "Details", "value": format_dashboard_audit_details(event.get("payload")), "inline": False},
+                    ],
+                    color=0xD5B45F,
+                    footer="Money Feed - Dashboard",
+                )
             sent_ids.add(event_id)
             processed += 1
         except Exception as error:
@@ -16383,6 +16485,20 @@ async def on_message(message):
             tracker["recent_messages"] = 0
 
             save_wallets()
+
+            await send_money_feed(
+                message.guild,
+                guild_configs.get(str(message.guild.id), {}) if message.guild else {},
+                "SWEAR JAR REDEMPTION",
+                f"{message.author.mention} earned **{reward} pennies** for clean messages.",
+                [
+                    {"name": "Survivor", "value": message.author.mention, "inline": True},
+                    {"name": "Reward", "value": f"{reward} pennies", "inline": True},
+                    {"name": "Balance After", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+                ],
+                color=0x2ECC71,
+                footer="Money Feed - Swear Jar",
+            )
 
             redemption_messages = [
                 f"🧼 {message.author.mention} finally cleaned up their language. Miracles do happen. +{reward} pennies 🪙",
@@ -20108,7 +20224,17 @@ async def wage_loop():
                 wage["last_paid_ts"] = now_ts
                 changed = True
 
-                channel = bot.get_channel(config.get("channels", {}).get("economy"))
+                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                channel = None
+                if guild:
+                    channel = await get_or_create_feed_channel(
+                        guild,
+                        config,
+                        "money_feed",
+                        DEFAULT_CHANNEL_NAMES["money_feed"],
+                        private=True,
+                        force=True,
+                    )
                 if channel:
                     embed = discord.Embed(
                         title="RECURRING WAGE PAID",
@@ -20119,7 +20245,7 @@ async def wage_loop():
                     embed.add_field(name="New Balance", value=f"{wallet['balance']} pennies", inline=True)
                     embed.set_thumbnail(url=BOT_IMAGE)
                     embed.set_footer(text="Wandering Bot Alpha - Economy Payroll")
-                    await channel.send(embed=style_embed(embed))
+                    await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
 
             except Exception as error:
                 print(f"WAGE LOOP ERROR {guild_id}: {error}")
@@ -21998,6 +22124,22 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
             paid, reward_status = award_pve_pennies(guild_id, player_name, challenge)
             if not paid:
                 reward_status = f"{challenge.get('reward_pennies', 0)} pennies pending. Survivor must link gamertag with `/linkgamer`."
+            else:
+                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                if guild:
+                    await send_money_feed(
+                        guild,
+                        config,
+                        "PVE REWARD PAID",
+                        f"**{int(challenge.get('reward_pennies', 0) or 0)} pennies** paid for completing `{challenge.get('title', 'PVE quest')}`.",
+                        [
+                            {"name": "Survivor", "value": player_name, "inline": True},
+                            {"name": "Quest", "value": challenge.get("title", "PVE quest"), "inline": True},
+                            {"name": "Amount", "value": f"{int(challenge.get('reward_pennies', 0) or 0)} pennies", "inline": True},
+                        ],
+                        color=0x27AE60,
+                        footer="Money Feed - PVE Rewards",
+                    )
             await send_pve_completion_feed(guild_id, config, player_name, challenge, reward_status)
             channel_key = challenge.get("channel_key") or pve_themed_channel_key(challenge)
             next_kind = PVE_THEMED_QUEST_KINDS.get(channel_key)
@@ -22179,10 +22321,14 @@ async def wages_payout_loop():
             wage["next_pay_iso"] = following_pay.isoformat()
             dirty = True
 
-            # Announce in pve-rewards-public if available, else recap target.
-            target_channel = (
-                guild.get_channel(config.get("channels", {}).get("pve_rewards_public"))
-                or _recap_target_channel(str(guild_id))
+            # Announce wage payouts in the private money feed.
+            target_channel = await get_or_create_feed_channel(
+                guild,
+                config,
+                "money_feed",
+                DEFAULT_CHANNEL_NAMES["money_feed"],
+                private=True,
+                force=True,
             )
             if target_channel and paid_to:
                 try:
@@ -22203,7 +22349,7 @@ async def wages_payout_loop():
                     embed.add_field(name="🔁 Cadence", value=wage.get("cadence", "?").title(), inline=True)
                     embed.add_field(name="⏭️ Next Payout", value=wage["next_pay_iso"][:16].replace("T", " ") + " UTC", inline=True)
                     embed.set_footer(text="Wandering Bot Alpha • 💰 Wage System")
-                    await target_channel.send(embed=style_embed(embed))
+                    await target_channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
                 except Exception as send_error:
                     print(f"[WAGES] Send failed for {guild_id}: {send_error}")
 
@@ -22413,6 +22559,22 @@ async def pvecomplete(interaction: discord.Interaction, quest_id: str, member: d
     wallet["balance"] = wallet.get("balance", 0) + reward
     save_wallets()
     save_pve_challenges()
+
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "PVE REWARD PAID",
+        f"{interaction.user.mention} approved **{reward} pennies** for {member.mention}.",
+        [
+            {"name": "Admin", "value": interaction.user.mention, "inline": True},
+            {"name": "Survivor", "value": member.mention, "inline": True},
+            {"name": "Quest", "value": challenge.get("title", "PVE quest"), "inline": True},
+            {"name": "Amount", "value": f"{reward} pennies", "inline": True},
+            {"name": "Balance After", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+        ],
+        color=0x27AE60,
+        footer="Money Feed - PVE Rewards",
+    )
 
     await send_pve_completion_feed(
         guild_id,
@@ -26759,6 +26921,22 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
     config = guild_configs.get(guild_id, {})
 
+    await send_money_feed(
+        ctx.guild,
+        config,
+        "BLACK MARKET PURCHASE",
+        f"{ctx.author.mention} spent **{price} pennies**.",
+        [
+            {"name": "Survivor", "value": ctx.author.mention, "inline": True},
+            {"name": "Item", "value": item_name, "inline": True},
+            {"name": "Cost", "value": f"{price} pennies", "inline": True},
+            {"name": "Balance After", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+            {"name": "Delivery Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
+        ],
+        color=0x9B59B6,
+        footer="Money Feed - Shop",
+    )
+
     purchase_log_channel = bot.get_channel(
         config.get("channels", {}).get("purchase_logs")
     )
@@ -27015,6 +27193,23 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     # ================= RENTAL LOG =================
 
     config = guild_configs.get(guild_id, {})
+
+    await send_money_feed(
+        ctx.guild,
+        config,
+        "VEHICLE RENTAL PAYMENT",
+        f"{ctx.author.mention} spent **{rental_price} pennies** on a vehicle rental.",
+        [
+            {"name": "Survivor", "value": ctx.author.mention, "inline": True},
+            {"name": "Vehicle", "value": vehicle_name, "inline": True},
+            {"name": "Rental Time", "value": f"{rental_hours} hours", "inline": True},
+            {"name": "Cost", "value": f"{rental_price} pennies", "inline": True},
+            {"name": "Balance After", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+            {"name": "Spawn Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
+        ],
+        color=0x3498DB,
+        footer="Money Feed - Vehicle Rental",
+    )
 
     rental_log_channel = bot.get_channel(
         config.get("channels", {}).get("rental_logs")
@@ -27581,6 +27776,21 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     wallet["balance"] += amount
 
     save_wallets()
+
+    await send_money_feed(
+        ctx.guild,
+        guild_configs.get(str(ctx.guild.id), {}) if ctx.guild else {},
+        "ADMIN PENNIES ADDED",
+        f"{ctx.author.mention} added **{amount} pennies** to {member.mention}.",
+        [
+            {"name": "Admin", "value": ctx.author.mention, "inline": True},
+            {"name": "Recipient", "value": member.mention, "inline": True},
+            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Recipient Balance", "value": f"{wallet.get('balance', 0)} pennies", "inline": True},
+        ],
+        color=0x2ECC71,
+        footer="Money Feed - Admin Grant",
+    )
 
     await ctx.send(
         f"💰 Added {amount} pennies 🪙 to {member.mention}"
@@ -32437,6 +32647,70 @@ async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_sl
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 
 
+@bot.tree.command(name="checkbalance", description="Check your penny balance")
+@app_commands.describe(member="Optional member to check (admin only)")
+async def slash_checkbalance(interaction: discord.Interaction, member: discord.Member = None):
+    target = member or interaction.user
+    if target != interaction.user and not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only when checking another survivor's balance.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    wallet_record = guild_wallet(guild_id, str(target.id), str(target))
+    save_wallets()
+    embed = discord.Embed(
+        title="SURVIVOR BALANCE",
+        description=f"{target.mention} has **{int(wallet_record.get('balance', 0) or 0)} pennies**.",
+        color=0x2ECC71,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Wallet")
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.tree.command(name="sendmoney", description="Send pennies to another survivor")
+@app_commands.describe(recipient="Member to pay", amount="Pennies to send", note="Optional note for the money feed")
+async def slash_sendmoney(interaction: discord.Interaction, recipient: discord.Member, amount: int, note: str = ""):
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
+        return
+    if recipient.bot:
+        await interaction.response.send_message("You cannot send pennies to a bot.", ephemeral=True)
+        return
+    if recipient.id == interaction.user.id:
+        await interaction.response.send_message("You already have those pennies.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    sender_wallet = guild_wallet(guild_id, str(interaction.user.id), str(interaction.user))
+    recipient_wallet = guild_wallet(guild_id, str(recipient.id), str(recipient))
+    if int(sender_wallet.get("balance", 0) or 0) < amount:
+        await interaction.response.send_message("Not enough pennies.", ephemeral=True)
+        return
+    sender_wallet["balance"] = int(sender_wallet.get("balance", 0) or 0) - amount
+    recipient_wallet["balance"] = int(recipient_wallet.get("balance", 0) or 0) + amount
+    save_wallets()
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "PLAYER MONEY TRANSFER",
+        f"{interaction.user.mention} sent **{amount} pennies** to {recipient.mention}.",
+        [
+            {"name": "From", "value": interaction.user.mention, "inline": True},
+            {"name": "To", "value": recipient.mention, "inline": True},
+            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Sender Balance", "value": f"{sender_wallet.get('balance', 0)} pennies", "inline": True},
+            {"name": "Recipient Balance", "value": f"{recipient_wallet.get('balance', 0)} pennies", "inline": True},
+            {"name": "Note", "value": note or "No note.", "inline": False},
+        ],
+        color=0xD5B45F,
+        footer="Money Feed - Transfer",
+    )
+    await interaction.response.send_message(
+        f"Sent **{amount} pennies** to {recipient.mention}. Your balance is now **{sender_wallet.get('balance', 0)} pennies**.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
 @bot.tree.command(name="collectincome", description="Collect any due direct wage income")
 async def slash_collectincome(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -32465,6 +32739,19 @@ async def slash_collectincome(interaction: discord.Interaction):
         return
     save_wallets()
     save_wages()
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "WAGE INCOME COLLECTED",
+        f"{interaction.user.mention} collected **{total} pennies**.",
+        [
+            {"name": "Survivor", "value": interaction.user.mention, "inline": True},
+            {"name": "Amount", "value": f"{total} pennies", "inline": True},
+            {"name": "Details", "value": "\n".join(f"{wage_id}: {amount} pennies" for wage_id, _, amount, _ in collected[:10]), "inline": False},
+        ],
+        color=0xF1C40F,
+        footer="Money Feed - Wage Collection",
+    )
     details = "\n".join(
         f"`{wage_id}`: {amount} pennies ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
         for wage_id, periods, amount, next_pay in collected[:10]
