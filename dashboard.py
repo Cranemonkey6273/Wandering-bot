@@ -1481,9 +1481,9 @@ Event pings | bell | 1234567890</textarea></label>
               <svg class="zone-boundary-layer" viewBox="0 0 100 100" preserveAspectRatio="none" style="--zone-colour: {{ zone.display_colour or zone.colour }};"><polygon points="{{ zone.points_percent }}"></polygon></svg>
               {% endif %}
               {% if zone.shape != "boundary" %}
-              <button type="button" class="zone-radius-ring {{ zone.zone_type }}" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></button>
+              <button type="button" class="zone-radius-ring {{ zone.zone_type }}" title="Edit {{ zone.name }} radius" aria-label="Edit {{ zone.name }} radius" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></button>
               {% endif %}
-              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
+              <button type="button" class="zone-dot {{ zone.zone_type }}" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></button>
               {% endfor %}
               <div class="zone-map-popover" data-zone-popover hidden></div>
             </div>
@@ -1501,7 +1501,7 @@ Event pings | bell | 1234567890</textarea></label>
             <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Center</th><th>Radius</th><th>Action</th><th>Channel</th><th>Actions</th></tr></thead>
             <tbody>
               {% for zone in (server.zones if server else []) %}
-              <tr>
+              <tr data-zone-row data-zone-key="{{ (zone.id or zone.name)|e }}">
                 <td>{{ loop.index }}</td>
                 <td><span class="zone-swatch" style="--zone-colour: {{ zone.display_colour or zone.colour }};"></span>{{ zone.name }}</td>
                 <td>{{ zone.zone_type }}</td>
@@ -1511,9 +1511,10 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
                 <td>
                   <div class="inline-action">
-                    <button type="button" data-zone-edit data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</button>
+                    <button type="button" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</button>
                   </div>
-                  <button type="button" data-zone-delete data-zone-id="{{ zone.id }}" data-zone-type="{{ zone.zone_type }}" data-zone-name="{{ zone.name }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  <button type="button" data-zone-delete data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-id="{{ zone.id }}" data-zone-type="{{ zone.zone_type }}" data-zone-name="{{ zone.name }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  <script type="application/json" data-zone-json data-zone-key="{{ (zone.id or zone.name)|e }}">{{ zone | tojson }}</script>
                 </td>
               </tr>
               {% else %}
@@ -3988,7 +3989,8 @@ Event pings | bell | 1234567890</textarea></label>
     function setFormControl(form, name, value) {
       if (!form || !form.elements[name]) return;
       const control = form.elements[name];
-      const controls = control instanceof RadioNodeList ? Array.from(control) : [control];
+      const hasRadioNodeList = typeof RadioNodeList !== "undefined";
+      const controls = hasRadioNodeList && control instanceof RadioNodeList ? Array.from(control) : [control];
       controls.forEach((item) => {
         if (!item) return;
         if (item.type === "checkbox") {
@@ -5027,76 +5029,87 @@ Event pings | bell | 1234567890</textarea></label>
           display_colour: colourInput ? colourInput.value : zonePalette[0],
         }, "new");
       });
-      document.querySelectorAll("[data-zone-edit]").forEach((button) => {
-        button.addEventListener("click", (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          let zone = {};
-          try { zone = JSON.parse(button.dataset.zone || "{}"); } catch (error) { zone = {}; }
-          if (!zone || !Object.keys(zone).length) return;
-          document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
-          const zoneKey = String(zone.id || zone.name || "");
-          document.querySelectorAll("[data-zone-edit]").forEach((item) => {
-            let itemZone = {};
-            try { itemZone = JSON.parse(item.dataset.zone || "{}"); } catch (error) { itemZone = {}; }
-            if (String(itemZone.id || itemZone.name || "") === zoneKey) item.classList.add("editing");
-          });
-          if (zoneFields.zoneId) zoneFields.zoneId.value = zone.id || zone.name || "";
-          if (zoneFields.name) zoneFields.name.value = zone.name || "";
-          setSelectValue(zoneFields.type, zone.zone_type || zone.type || "radar");
-          const zoneX = Number(zone.x ?? zone.center_x ?? 0);
-          const zoneZ = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0);
-          if (zoneFields.x) zoneFields.x.value = zoneX;
-          if (zoneFields.y) zoneFields.y.value = zoneZ;
-          setSelectValue(zoneFields.shape, zone.shape || "circle");
-          syncRadius(zone.radius || 250);
-          setSelectValue(zoneFields.channel, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
-          if (zoneFields.role) zoneFields.role.value = zone.role_id || zone.mention_role_id || "";
-          setSelectValue(zoneFields.faction, zone.faction_name || zone.faction || "");
-          syncZoneColour(zone.display_colour || button.dataset.zoneColour || zone.colour || zone.color || zonePalette[0]);
-          setSelectValue(zoneFields.enabled, zone.enabled === false ? "false" : "true");
-          setSelectValue(zoneFields.action, zone.action || "none");
-          setSelectValue(zoneFields.banType, zone.ban_type || "temp");
-          if (zoneFields.banMinutes) zoneFields.banMinutes.value = zone.ban_duration_minutes || 1440;
-          setSelectValue(zoneFields.triggerTerritory, zone.trigger_territory || "inside");
-          if (zoneFields.triggers) zoneFields.triggers.value = Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || "");
-          if (zoneFields.ignored) zoneFields.ignored.value = Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || "");
-          boundaryPoints.length = 0;
-          const savedPoints = Array.isArray(zone.boundary_points) ? zone.boundary_points : [];
-          savedPoints.forEach((point) => {
-            const x = Number(point.x || 0);
-            const y = Number((point.z ?? point.y) || 0);
-            boundaryPoints.push({
-              x,
-              y,
-              z: y,
-              xPercent: Number(point.xPercent || ((x / size) * 100)),
-              yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
-            });
-          });
-          renderBoundary();
-          let cursor = map.querySelector(".zone-cursor");
-          if (!cursor) {
-            cursor = document.createElement("span");
-            cursor.className = "zone-cursor";
-            map.appendChild(cursor);
-          }
-          cursor.style.left = `${(Number(zoneFields.x ? zoneFields.x.value : 0) / size) * 100}%`;
-          cursor.style.top = `${100 - ((Number(zoneFields.y ? zoneFields.y.value : 0) / size) * 100)}%`;
-          renderCirclePreview();
-          if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
-          const readout = form.querySelector("[data-map-readout]");
-          if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
-          setZoneEditingState(zone.name || "zone");
-          if (button.closest("[data-zone-map]")) {
-            showZonePopover(zone, "edit");
-          } else {
-            form.scrollIntoView({behavior: "smooth", block: "center"});
-            hideZonePopover();
-            if (zoneFields.name) zoneFields.name.focus();
+      function zoneRecordKey(zone = {}) {
+        return String(zone.id || zone.name || "");
+      }
+      function findZoneJsonByKey(key) {
+        if (!key) return null;
+        const scripts = Array.from(document.querySelectorAll("[data-zone-json]"));
+        return scripts.find((script) => String(script.dataset.zoneKey || "") === String(key)) || null;
+      }
+      function zoneFromControl(control) {
+        if (!control) return {};
+        const rowScript = control.closest("[data-zone-row]")?.querySelector("[data-zone-json]");
+        const keyedScript = rowScript || findZoneJsonByKey(control.dataset.zoneKey || "");
+        if (keyedScript) {
+          try { return JSON.parse(keyedScript.textContent || "{}"); } catch (error) {}
+        }
+        try { return JSON.parse(control.dataset.zone || "{}"); } catch (error) {}
+        return {};
+      }
+      function markZoneEditing(zone, sourceButton) {
+        const key = zoneRecordKey(zone) || String(sourceButton?.dataset.zoneKey || "");
+        document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
+        document.querySelectorAll("[data-zone-edit]").forEach((item) => {
+          if (key && String(item.dataset.zoneKey || "") === key) item.classList.add("editing");
+          else if (!key) {
+            const itemZone = zoneFromControl(item);
+            if (zoneRecordKey(itemZone) === zoneRecordKey(zone)) item.classList.add("editing");
           }
         });
-      });
+      }
+      function fillZoneEditor(zone, sourceButton) {
+        if (!zone || !Object.keys(zone).length) return false;
+        markZoneEditing(zone, sourceButton);
+        if (zoneFields.zoneId) zoneFields.zoneId.value = zone.id || zone.name || "";
+        if (zoneFields.name) zoneFields.name.value = zone.name || "";
+        setSelectValue(zoneFields.type, zone.zone_type || zone.type || "radar");
+        const zoneX = Number(zone.x ?? zone.center_x ?? 0);
+        const zoneZ = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0);
+        if (zoneFields.x) zoneFields.x.value = zoneX;
+        if (zoneFields.y) zoneFields.y.value = zoneZ;
+        setSelectValue(zoneFields.shape, zone.shape || "circle");
+        syncRadius(zone.radius ?? zone.radius_m ?? 250);
+        setSelectValue(zoneFields.channel, zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
+        if (zoneFields.role) zoneFields.role.value = zone.role_id || zone.mention_role_id || "";
+        setSelectValue(zoneFields.faction, zone.faction_name || zone.faction || "");
+        syncZoneColour(zone.display_colour || sourceButton?.dataset.zoneColour || zone.colour || zone.color || zonePalette[0]);
+        setSelectValue(zoneFields.enabled, zone.enabled === false ? "false" : "true");
+        setSelectValue(zoneFields.action, zone.action || "none");
+        setSelectValue(zoneFields.banType, zone.ban_type || "temp");
+        if (zoneFields.banMinutes) zoneFields.banMinutes.value = zone.ban_duration_minutes || 1440;
+        setSelectValue(zoneFields.triggerTerritory, zone.trigger_territory || "inside");
+        if (zoneFields.triggers) zoneFields.triggers.value = Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || "");
+        if (zoneFields.ignored) zoneFields.ignored.value = Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || "");
+        boundaryPoints.length = 0;
+        const savedPoints = Array.isArray(zone.boundary_points) ? zone.boundary_points : [];
+        savedPoints.forEach((point) => {
+          const x = Number(point.x || 0);
+          const y = Number((point.z ?? point.y) || 0);
+          boundaryPoints.push({
+            x,
+            y,
+            z: y,
+            xPercent: Number(point.xPercent || ((x / size) * 100)),
+            yPercent: Number(point.yPercent || (100 - ((y / size) * 100)))
+          });
+        });
+        renderBoundary();
+        let cursor = map.querySelector(".zone-cursor");
+        if (!cursor) {
+          cursor = document.createElement("span");
+          cursor.className = "zone-cursor";
+          map.appendChild(cursor);
+        }
+        cursor.style.left = `${(Number(zoneFields.x ? zoneFields.x.value : 0) / size) * 100}%`;
+        cursor.style.top = `${100 - ((Number(zoneFields.y ? zoneFields.y.value : 0) / size) * 100)}%`;
+        renderCirclePreview();
+        if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
+        const readout = form.querySelector("[data-map-readout]");
+        if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
+        setZoneEditingState(zone.name || "zone");
+        return true;
+      }
       async function deleteZone(payload, button) {
         if (!payload.zone_id && !payload.name) return;
         if (!window.confirm(`Delete ${payload.name || "this zone"} from this server?`)) return;
@@ -5138,19 +5151,34 @@ Event pings | bell | 1234567890</textarea></label>
           await deleteZone(payload, deleteCurrentButton);
         });
       }
-      document.querySelectorAll("[data-zone-delete]").forEach((button) => {
-        button.addEventListener("click", async (event) => {
+      document.addEventListener("click", async (event) => {
+        const editButton = event.target.closest("[data-zone-edit]");
+        if (editButton) {
           event.preventDefault();
-          event.stopPropagation();
+          const zone = zoneFromControl(editButton);
+          if (!fillZoneEditor(zone, editButton)) return;
+          if (editButton.closest("[data-zone-map]")) {
+            showZonePopover(zone, "edit");
+          } else {
+            form.scrollIntoView({behavior: "smooth", block: "center"});
+            hideZonePopover();
+            if (zoneFields.name) zoneFields.name.focus();
+          }
+          return;
+        }
+        const deleteButton = event.target.closest("[data-zone-delete]");
+        if (deleteButton) {
+          event.preventDefault();
+          const zone = zoneFromControl(deleteButton);
           await deleteZone({
-            guild_id: button.dataset.guildId || (zoneFields.guildId ? zoneFields.guildId.value : ""),
-            zone_id: button.dataset.zoneId || "",
-            zone_type: button.dataset.zoneType || "",
-            name: button.dataset.zoneName || "",
+            guild_id: deleteButton.dataset.guildId || (zoneFields.guildId ? zoneFields.guildId.value : ""),
+            zone_id: deleteButton.dataset.zoneId || zone.id || "",
+            zone_type: deleteButton.dataset.zoneType || zone.zone_type || zone.type || "",
+            name: deleteButton.dataset.zoneName || zone.name || "",
             action: "delete",
             dashboard_mode: "{{ mode }}",
-          }, button);
-        });
+          }, deleteButton);
+        }
       });
       setZoneEditingState(zoneFields.zoneId && zoneFields.zoneId.value ? (zoneFields.name ? zoneFields.name.value : "zone") : "");
       syncRadius(radiusInput ? radiusInput.value : 250);
