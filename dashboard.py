@@ -537,20 +537,8 @@ PAGE_TEMPLATE = """
         return true;
       }
       window.wanderingDraftZoneFromMap = function (map, event) {
-        if (draftZoneFromMap(map, event)) {
-          stop(event);
-          return false;
-        }
         return true;
       };
-      document.addEventListener("click", function (event) {
-        var zoneMap = closest(event.target, "[data-zone-map]");
-        if (zoneMap && draftZoneFromMap(zoneMap, event)) stop(event);
-      }, true);
-      document.addEventListener("pointerdown", function (event) {
-        var zoneMap = closest(event.target, "[data-zone-map]");
-        if (zoneMap && draftZoneFromMap(zoneMap, event)) stop(event);
-      }, true);
       function postJson(route, payload, done) {
         var token = new URLSearchParams(window.location.search).get("token");
         var xhr = new XMLHttpRequest();
@@ -580,11 +568,6 @@ PAGE_TEMPLATE = """
           applyZonePopoverFields(closest(save, "[data-zone-popover]"), form);
           if (form && form.requestSubmit) form.requestSubmit(form.querySelector("[data-zone-save-button]") || undefined);
           else if (form && form.querySelector("[data-zone-save-button]")) form.querySelector("[data-zone-save-button]").click();
-          return;
-        }
-        var zoneMap = closest(event.target, "[data-zone-map]");
-        if (zoneMap && draftZoneFromMap(zoneMap, event)) {
-          stop(event);
           return;
         }
         var embedEdit = closest(event.target, "[data-embed-template-edit]");
@@ -6640,8 +6623,15 @@ PAGE_TEMPLATE = """
         return Math.max(2, Math.min(98, Number(value) || 0));
       }
 
+      function mapHitRect() {
+        const hitLayer = map.querySelector("[data-zone-map-hit]") || map.querySelector(".zone-map-hit-layer");
+        const rect = (hitLayer || map).getBoundingClientRect();
+        if (rect.width && rect.height) return rect;
+        return map.getBoundingClientRect();
+      }
+
       function updateMapClickMetrics(event = null) {
-        const rect = map.getBoundingClientRect();
+        const rect = mapHitRect();
         if (!rect.width || !rect.height) return;
         if (mapMetricFields.width) mapMetricFields.width.value = String(Math.round(rect.width));
         if (mapMetricFields.height) mapMetricFields.height.value = String(Math.round(rect.height));
@@ -6927,9 +6917,15 @@ PAGE_TEMPLATE = """
         if (event.target.closest("[data-zone-edit]") || event.target.closest("[data-zone-popover]")) return;
         event.preventDefault();
         event.stopPropagation();
-        const rect = map.getBoundingClientRect();
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+        const rect = mapHitRect();
+        if (!rect.width || !rect.height) return;
         const xPercent = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
         const yPercent = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+        if (mapMetricFields.width) mapMetricFields.width.value = String(Math.round(rect.width));
+        if (mapMetricFields.height) mapMetricFields.height.value = String(Math.round(rect.height));
+        if (mapMetricFields.pointerX) mapMetricFields.pointerX.value = String(Math.max(0, Math.min(rect.width, event.clientX - rect.left)));
+        if (mapMetricFields.pointerY) mapMetricFields.pointerY.value = String(Math.max(0, Math.min(rect.height, event.clientY - rect.top)));
         if (mapMetricFields.percentX) mapMetricFields.percentX.value = String(xPercent);
         if (mapMetricFields.percentY) mapMetricFields.percentY.value = String(yPercent);
         const x = Math.round((xPercent / 100) * size);
