@@ -4243,14 +4243,9 @@ async def maybe_handle_owner_natural_language(message, lower, now_ts):
 
     if any(phrase in lower for phrase in ["sync commands", "resync commands", "refresh commands", "fix commands", "setup command missing"]):
         if message.guild:
-            try:
-                global_synced = await bot.tree.sync()
-                global_count = len(global_synced)
-            except Exception:
-                global_count = 0
-            synced = await sync_slash_commands_for_guild(message.guild)
+            synced = await sync_slash_commands_for_guild(message.guild, sync_global=True)
             await message.channel.send(
-                wb_text("bot", f"Owner recognised: cleared stale guild command copies (`{len(synced)}` remaining) and synced `{global_count}` global commands.")
+                wb_text("bot", f"Owner recognised: cleared stale guild command copies (`{len(synced)}` remaining) and synced global commands.")
             )
         return True
 
@@ -9496,6 +9491,24 @@ def cadence_to_seconds(cadence):
     }.get(str(cadence or "").lower(), 7 * 24 * 3600)
 
 
+def due_wage_periods(wage, now):
+    try:
+        next_pay = datetime.fromisoformat(str(wage.get("next_pay_iso") or ""))
+    except Exception:
+        next_pay = None
+    if next_pay is None:
+        cadence_seconds = max(1, cadence_to_seconds(wage.get("cadence", "weekly")))
+        return 1, now + timedelta(seconds=cadence_seconds)
+    if next_pay.tzinfo is None:
+        next_pay = next_pay.replace(tzinfo=UTC)
+    if now < next_pay:
+        return 0, next_pay
+    cadence_seconds = max(1, cadence_to_seconds(wage.get("cadence", "weekly")))
+    elapsed = max(0, (now - next_pay).total_seconds())
+    periods = int(elapsed // cadence_seconds) + 1
+    return periods, next_pay + timedelta(seconds=cadence_seconds * periods)
+
+
 # =========================================================
 # 👋 NEW PLAYER DETECTION
 # Per-guild dict of every gamertag the bot has ever seen, with the
@@ -11334,13 +11347,16 @@ async def on_guild_channel_delete(channel):
         print(f"CHANNEL DISABLED BY DELETE {guild.id}: {key}")
 
 
-async def sync_slash_commands_for_guild(guild):
+async def sync_slash_commands_for_guild(guild, sync_global=False):
     if not guild:
         return []
     try:
         bot.tree.clear_commands(guild=guild)
         guild_synced = await bot.tree.sync(guild=guild)
         print(f"GUILD SLASH COMMAND COPIES CLEARED {guild.name}: {len(guild_synced)} remaining")
+        if sync_global:
+            global_synced = await bot.tree.sync()
+            print(f"GLOBAL SLASH COMMANDS SYNCED AFTER GUILD JOIN {guild.name}: {len(global_synced)}")
         return guild_synced
     except Exception as sync_error:
         print(f"GUILD SLASH SYNC ERROR {guild.id}: {sync_error}")
@@ -11382,7 +11398,7 @@ async def on_guild_join(guild):
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
-        synced_commands = await sync_slash_commands_for_guild(guild)
+        synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
         await announce_slash_sync_status(guild, synced_commands)
         return
 
@@ -11392,7 +11408,7 @@ async def on_guild_join(guild):
         guild_configs[guild_id]["showcase_mode"] = True
         guild_configs[guild_id]["disabled_channels"] = list(DEFAULT_CHANNEL_NAMES.keys())
         save_guild_configs()
-        synced_commands = await sync_slash_commands_for_guild(guild)
+        synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
         await announce_slash_sync_status(guild, synced_commands)
         return
 
@@ -11564,7 +11580,7 @@ async def on_guild_join(guild):
     except Exception as update_error:
         print(f"BOT UPDATE JOIN ERROR {guild_id}: {update_error}")
 
-    synced_commands = await sync_slash_commands_for_guild(guild)
+    synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
     await announce_slash_sync_status(guild, synced_commands)
 
 # =========================================================
@@ -21627,14 +21643,11 @@ async def wages_payout_loop():
         for wage in payouts:
             if not wage.get("active"):
                 continue
-            try:
-                next_pay = datetime.fromisoformat(wage.get("next_pay_iso"))
-            except Exception:
-                continue
-            if now < next_pay:
+            periods_due, following_pay = due_wage_periods(wage, now)
+            if periods_due <= 0:
                 continue
 
-            amount = int(wage.get("amount", 0) or 0)
+            amount = int(wage.get("amount", 0) or 0) * periods_due
             paid_to = []
             target_type = wage.get("target_type")
 
@@ -21659,7 +21672,7 @@ async def wages_payout_loop():
                 faction_name = wage.get("target_id") or ""
                 faction = (factions.get(str(guild_id)) or {}).get(faction_name) or {}
                 # Pay any Discord user who has the faction's role.
-                role_id = faction.get("discord_role_id")
+                role_id = faction.get("discord_role_id") or faction.get("role_id")
                 if role_id:
                     role = guild.get_role(int(role_id))
                     if role:
@@ -21685,7 +21698,7 @@ async def wages_payout_loop():
             save_wallets()
 
             # Roll the schedule forward.
-            wage["next_pay_iso"] = (now + timedelta(seconds=cadence_to_seconds(wage.get("cadence", "weekly")))).isoformat()
+            wage["next_pay_iso"] = following_pay.isoformat()
             dirty = True
 
             # Announce in pve-rewards-public if available, else recap target.
@@ -21700,6 +21713,7 @@ async def wages_payout_loop():
                         description=(
                             f"Auto-payout fired for **{wage.get('target_label', '?')}**.\n"
                             f"**{amount} pennies** paid to **{len(paid_to)}** survivor(s)."
+                            + (f"\nAccrued **{periods_due}** missed periods." if periods_due > 1 else "")
                         ),
                         color=0xF1C40F,
                     )
@@ -28349,15 +28363,26 @@ async def listwages(interaction: discord.Interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    wages = guild_configs.get(str(interaction.guild.id), {}).get("recurring_wages", [])
-    if not wages:
+    guild_id = str(interaction.guild.id)
+    legacy_wages = guild_configs.get(guild_id, {}).get("recurring_wages", [])
+    dashboard_wages = guild_wages(guild_id)
+    lines = []
+    for wage in dashboard_wages[:25]:
+        next_pay = str(wage.get("next_pay_iso") or "?")[:19].replace("T", " ")
+        status = "on" if wage.get("active", True) else "off"
+        lines.append(
+            f"`{wage.get('id')}` {status} {wage.get('target_label') or wage.get('target_id') or '?'} - "
+            f"{wage.get('amount', 0)} pennies every {wage.get('cadence', 'weekly')} - next {next_pay} UTC"
+        )
+    for wage in legacy_wages[: max(0, 25 - len(lines))]:
+        lines.append(
+            f"`{wage.get('id')}` {'on' if wage.get('enabled', True) else 'off'} <@{wage.get('user_id')}> - "
+            f"{wage.get('amount')} pennies every {wage.get('interval_hours')}h - {wage.get('reason', 'Server wage')}"
+        )
+    if not lines:
         await interaction.response.send_message("No recurring wages configured.", ephemeral=True)
         return
 
-    lines = [
-        f"`{wage.get('id')}` {'on' if wage.get('enabled', True) else 'off'} <@{wage.get('user_id')}> - {wage.get('amount')} pennies every {wage.get('interval_hours')}h - {wage.get('reason', 'Server wage')}"
-        for wage in wages[:25]
-    ]
     embed = discord.Embed(title="RECURRING WAGES", description="\n".join(lines), color=0x2ECC71)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
@@ -28366,15 +28391,24 @@ async def listwages(interaction: discord.Interaction):
 @bot.tree.command(name="removewage", description="Admin: remove a recurring wage")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(wage_id="Wage ID from /listwages")
-async def removewage(interaction: discord.Interaction, wage_id: int):
+async def removewage(interaction: discord.Interaction, wage_id: str):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    config = guild_configs.get(str(interaction.guild.id), {})
-    wages = config.get("recurring_wages", [])
-    kept = [wage for wage in wages if int(wage.get("id", 0)) != int(wage_id)]
-    if len(kept) == len(wages):
+    guild_id = str(interaction.guild.id)
+    dashboard_wages = guild_wages(guild_id)
+    kept_dashboard = [wage for wage in dashboard_wages if str(wage.get("id")) != str(wage_id)]
+    if len(kept_dashboard) != len(dashboard_wages):
+        wages[guild_id] = kept_dashboard
+        save_wages()
+        await interaction.response.send_message(f"Wage `{wage_id}` removed.", ephemeral=True)
+        return
+
+    config = guild_configs.get(guild_id, {})
+    legacy_wages = config.get("recurring_wages", [])
+    kept = [wage for wage in legacy_wages if str(wage.get("id", 0)) != str(wage_id)]
+    if len(kept) == len(legacy_wages):
         await interaction.response.send_message("Wage ID not found.", ephemeral=True)
         return
 
@@ -31684,6 +31718,44 @@ async def slash_staffroles(interaction: discord.Interaction): await run_legacy_a
 async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "mylink")
 @bot.tree.command(name="wallet", description="Show your wallet")
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
+
+
+@bot.tree.command(name="collectincome", description="Collect any due direct wage income")
+async def slash_collectincome(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id)
+    user_id = str(interaction.user.id)
+    now = datetime.now(UTC)
+    total = 0
+    collected = []
+    for wage in guild_wages(guild_id):
+        if not wage.get("active", True):
+            continue
+        if str(wage.get("target_type") or "user") != "user" or str(wage.get("target_id") or "") != user_id:
+            continue
+        periods_due, following_pay = due_wage_periods(wage, now)
+        if periods_due <= 0:
+            continue
+        amount = int(wage.get("amount", 0) or 0) * periods_due
+        if amount <= 0:
+            continue
+        wallet_record = guild_wallet(guild_id, user_id, str(interaction.user))
+        wallet_record["balance"] = int(wallet_record.get("balance", 0) or 0) + amount
+        wage["next_pay_iso"] = following_pay.isoformat()
+        total += amount
+        collected.append((wage.get("id", "?"), periods_due, amount, wage["next_pay_iso"]))
+    if not collected:
+        await interaction.response.send_message("No direct wage income is due yet.", ephemeral=True)
+        return
+    save_wallets()
+    save_wages()
+    details = "\n".join(
+        f"`{wage_id}`: {amount} pennies ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
+        for wage_id, periods, amount, next_pay in collected[:10]
+    )
+    await interaction.response.send_message(
+        f"Collected **{total} pennies**.\n{details}",
+        ephemeral=True,
+    )
 @bot.tree.command(name="shop", description="Show shop")
 async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
 

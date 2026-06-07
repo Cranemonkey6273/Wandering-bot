@@ -15,7 +15,7 @@ import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from threading import Thread
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -1857,7 +1857,7 @@ Event pings | bell | 1234567890</textarea></label>
               {% for wage in (server.wages if server else []) %}
               <tr>
                 <td>{{ wage.id }}</td>
-                <td>{{ wage.target_type }} · {{ wage.target_id }}</td>
+                <td>{{ wage.target_label or (wage.target_type ~ ' · ' ~ wage.target_id) }}</td>
                 <td>{{ wage.amount }}</td>
                 <td>{{ wage.cadence }}</td>
                 <td>{{ 'On' if wage.active else 'Off' }}</td>
@@ -5548,13 +5548,37 @@ def dashboard_credentials_for_config(config: dict[str, Any] | None) -> dict[str,
     return None
 
 
-def session_signature(guild_id: str, password_hash: str) -> str:
-    return hashlib.sha256(f"{guild_id}:{password_hash}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
+def dashboard_session_secret(credentials: dict[str, Any] | None) -> str:
+    if not isinstance(credentials, dict):
+        return ""
+    password_hash = str(credentials.get("password_hash") or "")
+    if password_hash:
+        return f"hash:{password_hash}"
+    for key in (
+        "password",
+        "dashboard_password",
+        "plain_password",
+        "password_plain",
+        "admin_password",
+        "access_password",
+        "dashboard_secret",
+        "secret",
+        "dashboard_pass",
+        "admin_pass",
+    ):
+        legacy_plain = str(credentials.get(key) or "")
+        if legacy_plain:
+            return f"legacy:{legacy_plain}"
+    return ""
+
+
+def session_signature(guild_id: str, credentials: dict[str, Any] | str) -> str:
+    session_secret = credentials if isinstance(credentials, str) else dashboard_session_secret(credentials)
+    return hashlib.sha256(f"{guild_id}:{session_secret}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
 
 
 def make_session_cookie(guild_id: str, credentials: dict[str, Any]) -> str:
-    password_hash = str(credentials.get("password_hash") or "")
-    return f"{guild_id}:{session_signature(guild_id, password_hash)}"
+    return f"{guild_id}:{session_signature(guild_id, credentials)}"
 
 
 def owner_session_signature() -> str:
@@ -5673,7 +5697,7 @@ def current_auth() -> dict[str, Any] | None:
     credentials = dashboard_credentials_for_config(config)
     if not isinstance(credentials, dict):
         return None
-    expected = session_signature(guild_id, str(credentials.get("password_hash") or ""))
+    expected = session_signature(guild_id, credentials)
     if not secrets.compare_digest(signature, expected):
         return None
     return {
@@ -5748,7 +5772,7 @@ def wants_json_response() -> bool:
 
 def safe_dashboard_return(value: Any, fallback: str = "/admin?section=pve") -> str:
     target = str(value or "").strip()
-    if not target.startswith("/admin"):
+    if not (target.startswith("/admin") or target.startswith("/owner")):
         return fallback
     if "\n" in target or "\r" in target:
         return fallback
@@ -5759,7 +5783,8 @@ def dashboard_section_return(section: str, payload: dict[str, Any] | None = None
     payload = payload or {}
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_part = f"&guild_id={guild_id}" if guild_id and guild_id != "global" else ""
-    fallback = f"/admin?section={section}{guild_part}{anchor}"
+    base_path = "/owner" if str(payload.get("dashboard_mode") or "").lower() == "owner" else "/admin"
+    fallback = f"{base_path}?section={section}{guild_part}{anchor}"
     return safe_dashboard_return(payload.get("return_to"), fallback)
 
 
@@ -6785,6 +6810,44 @@ def guild_block(data: Any, guild_id: str, default: Any) -> Any:
     return default
 
 
+def wage_cadence_seconds(cadence: Any) -> int:
+    return {
+        "daily": 24 * 3600,
+        "weekly": 7 * 24 * 3600,
+        "monthly": 30 * 24 * 3600,
+    }.get(str(cadence or "").lower(), 7 * 24 * 3600)
+
+
+def wage_target_label(wage: dict[str, Any], members: list[dict[str, str]], roles: list[dict[str, str]], factions: dict[str, Any]) -> str:
+    target_type = str(wage.get("target_type") or "user")
+    target_id = str(wage.get("target_id") or "")
+    if target_type == "user":
+        match = next((member for member in members if str(member.get("id")) == target_id), None)
+        return str((match or {}).get("label") or wage.get("target_label") or target_id or "Unknown member")
+    if target_type == "role":
+        match = next((role for role in roles if str(role.get("id")) == target_id), None)
+        return str((match or {}).get("label") or wage.get("target_label") or target_id or "Unknown role")
+    if target_type == "faction":
+        faction = factions.get(target_id) if isinstance(factions, dict) else None
+        if isinstance(faction, dict):
+            return str(faction.get("name") or wage.get("target_label") or target_id or "Unknown faction")
+        return str(wage.get("target_label") or target_id or "Unknown faction")
+    return str(wage.get("target_label") or target_id or "Unknown target")
+
+
+def enriched_wage_records(wage_records: Any, members: list[dict[str, str]], roles: list[dict[str, str]], factions: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(wage_records, list):
+        return []
+    enriched = []
+    for wage in wage_records:
+        if not isinstance(wage, dict):
+            continue
+        record = dict(wage)
+        record["target_label"] = wage_target_label(record, members, roles, factions)
+        enriched.append(record)
+    return enriched
+
+
 def list_records(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
@@ -7416,10 +7479,15 @@ def load_dashboard_state() -> dict[str, Any]:
         server_shop_categories = shop_category_map(server_shop)
         server_shop_items = flat_shop_items(server_shop)
         server_wallets = wallet_records_for_guild(wallets, guild_id)
-        server_wages = guild_block(wages, guild_id, [])
         channels = public_channels(config.get("channels", {}), guild_id)
         discord_roles = discord_guild_roles(guild_id)
         discord_members = discord_guild_members(guild_id)
+        server_wages = enriched_wage_records(
+            guild_block(wages, guild_id, []),
+            discord_members,
+            discord_roles,
+            server_factions,
+        )
         discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts)
         if discord_member_count is None:
             discord_member_count = discord_guild_member_count(guild_id)
@@ -9434,15 +9502,28 @@ def api_wage():
             "#wage-form",
         )
     record = next((wage for wage in block if str(wage.get("id")) == wage_id), None)
+    is_new_record = record is None
     if record is None:
         record = {"id": wage_id}
         block.append(record)
+    cadence = str(payload.get("cadence") or record.get("cadence") or "weekly")
+    target_type = str(payload.get("target_type") or record.get("target_type") or "user")
+    target_id = str(payload.get("target_id") or record.get("target_id") or "")
+    if is_new_record or not record.get("next_pay_iso") or cadence != str(record.get("cadence") or ""):
+        record["next_pay_iso"] = (datetime.now(UTC) + timedelta(seconds=wage_cadence_seconds(cadence))).isoformat()
+    target_label = wage_target_label(
+        {"target_type": target_type, "target_id": target_id, "target_label": record.get("target_label")},
+        discord_guild_members(guild_id),
+        discord_guild_roles(guild_id),
+        faction_records_for_guild(load_store("factions", {}), guild_id),
+    )
     record.update(
         {
-            "target_type": str(payload.get("target_type") or record.get("target_type") or "user"),
-            "target_id": str(payload.get("target_id") or record.get("target_id") or ""),
+            "target_type": target_type,
+            "target_id": target_id,
+            "target_label": target_label,
             "amount": safe_int(payload.get("amount", record.get("amount", 0))),
-            "cadence": str(payload.get("cadence") or record.get("cadence") or "weekly"),
+            "cadence": cadence,
             "active": safe_bool(payload.get("active", record.get("active", True))),
             "updated_at": datetime.now(UTC).isoformat(),
         }
