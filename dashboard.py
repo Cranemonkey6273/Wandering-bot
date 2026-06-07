@@ -517,6 +517,10 @@ PAGE_TEMPLATE = """
         var zoneMap = closest(event.target, "[data-zone-map]");
         if (zoneMap && draftZoneFromMap(zoneMap, event)) stop(event);
       }, true);
+      document.addEventListener("pointerdown", function (event) {
+        var zoneMap = closest(event.target, "[data-zone-map]");
+        if (zoneMap && draftZoneFromMap(zoneMap, event)) stop(event);
+      }, true);
       function postJson(route, payload, done) {
         var token = new URLSearchParams(window.location.search).get("token");
         var xhr = new XMLHttpRequest();
@@ -948,8 +952,9 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to add - click marker to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: 0; }
-    .zone-map-hit-layer:focus-visible { opacity: 1; outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
+    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: rgba(255,255,255,.01); cursor: crosshair; color: transparent; }
+    .zone-map-hit-layer::after { content: "Click empty map to add zone"; position: absolute; left: .75rem; bottom: .65rem; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
+    .zone-map-hit-layer:focus-visible { outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
     .zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
