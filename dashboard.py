@@ -3127,7 +3127,7 @@ PAGE_TEMPLATE = """
       {% set vr_interval_unit = (vr.interval_unit or server.config.vehicle_reset_interval_unit or 'days') if server else 'days' %}
       {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
       {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
-      {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'economy_xml') if server else 'economy_xml' %}
+      {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'cfgignorelist') if server else 'cfgignorelist' %}
       <div class="mini-grid" style="margin-bottom:1rem">
         <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
         <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_first_date %} from {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
@@ -3189,7 +3189,7 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
-            <label>Method <select name="vehicle_reset_method"><option value="economy_xml" {% if vr_method != 'bridge' %}selected{% endif %}>Economy XML full wipe</option><option value="bridge" {% if vr_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
+            <label>Method <select name="vehicle_reset_method"><option value="cfgignorelist" {% if vr_method != 'bridge' %}selected{% endif %}>cfgignorelist.xml vehicle-only reset</option><option value="bridge" {% if vr_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
             <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
             <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
             <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
@@ -3209,7 +3209,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}.</span></div>
+            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}. The default method temporarily updates cfgignorelist.xml with vehicle classes only, then restores it.</span></div>
             <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -10005,8 +10005,10 @@ def api_server_control():
     if "vehicle_reset_schedule_enabled" in payload:
         config["vehicle_reset_schedule_enabled"] = safe_bool(payload.get("vehicle_reset_schedule_enabled"), False)
     if "vehicle_reset_method" in payload:
-        method = str(payload.get("vehicle_reset_method") or "economy_xml").strip().lower()
-        config["vehicle_reset_method"] = method if method in {"economy_xml", "bridge"} else "economy_xml"
+        method = str(payload.get("vehicle_reset_method") or "cfgignorelist").strip().lower()
+        if method == "economy_xml":
+            method = "cfgignorelist"
+        config["vehicle_reset_method"] = method if method in {"cfgignorelist", "bridge"} else "cfgignorelist"
     if "vehicle_reset_restarts" in payload:
         config["vehicle_reset_restarts"] = max(1, min(365, safe_int(payload.get("vehicle_reset_restarts"), 7)))
     vehicle_schedule_keys = {
@@ -10035,7 +10037,7 @@ def api_server_control():
         day_of_month = day_of_month if 1 <= day_of_month <= 31 else 0
         schedule = {
             "enabled": safe_bool(payload.get("vehicle_reset_schedule_enabled"), bool(config.get("vehicle_reset_schedule_enabled", False))),
-            "method": str(config.get("vehicle_reset_method") or "economy_xml"),
+            "method": str(config.get("vehicle_reset_method") or "cfgignorelist"),
             "first_date": first_date,
             "time": reset_time,
             "timezone": timezone,
