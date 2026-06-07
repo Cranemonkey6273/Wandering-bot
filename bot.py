@@ -81,6 +81,7 @@ GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
+ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
@@ -6407,6 +6408,31 @@ def save_player_stats():
     save_json(PLAYER_STATS_FILE, player_stats)
 
 
+def load_online_players():
+    global online_players
+    data = load_json(ONLINE_PLAYERS_FILE)
+    online_players = {}
+    if not isinstance(data, dict):
+        return
+
+    for guild_id, players in data.items():
+        if not isinstance(players, list):
+            continue
+        online_players[str(guild_id)] = {
+            str(player).strip()
+            for player in players
+            if str(player).strip()
+        }
+
+
+def save_online_players():
+    data = {
+        str(guild_id): sorted(str(player) for player in players if str(player).strip())
+        for guild_id, players in online_players.items()
+    }
+    save_json(ONLINE_PLAYERS_FILE, data)
+
+
 def load_longshot_records():
     """Load top-N longshots per guild from disk. Migrates the legacy
     single-record-per-guild format (where each value was a dict of one
@@ -9962,6 +9988,33 @@ def remember_player_location_from_adm(guild_id, line):
     }
 
 
+def remember_online_state_from_adm_line(guild_id, line, event_type=None, event_time=None):
+    event_type = event_type or classify_event(line)
+    if event_type not in {"connect", "disconnect"}:
+        return False, event_type, ""
+
+    player_name = extract_player_name(line)
+    if not player_name or player_name == "Unknown":
+        return False, event_type, ""
+
+    ensure_guild_runtime(guild_id)
+    changed = False
+
+    if event_type == "connect":
+        changed = player_name not in online_players[guild_id]
+        online_players[guild_id].add(player_name)
+        player_online_times[guild_id].setdefault(player_name, event_time or datetime.now(UTC))
+    else:
+        changed = player_name in online_players[guild_id]
+        online_players[guild_id].discard(player_name)
+        player_online_times[guild_id].pop(player_name, None)
+
+    if changed:
+        save_online_players()
+
+    return changed, event_type, player_name
+
+
 def classify_event(line):
 
     lower = line.lower()
@@ -10630,6 +10683,10 @@ load_rpt_event_tracker()
 ONLINE_UPDATE_MINUTES = 15
 LEADERBOARD_UPDATE_MINUTES = 60
 HEATMAP_UPDATE_MINUTES = 60
+try:
+    ADM_LOOP_SECONDS = max(20, min(180, int(os.getenv("WANDERING_ADM_LOOP_SECONDS", "30"))))
+except Exception:
+    ADM_LOOP_SECONDS = 30
 
 last_online_message_ids = {}
 last_online_dashboard_snapshots = {}
@@ -13911,12 +13968,34 @@ async def parse_adm(guild_id, config):
         channels.get("disconnects")
     )
 
+    online_state_changed = False
+    online_state_reason = ""
+
     for raw_line in lines[-250:]:
 
         line = raw_line.strip()
 
         if not line:
             continue
+
+        # Parse the in-game event time from the ADM line ONCE per line.
+        # Every embed dispatched off this line will use this timestamp so
+        # Discord shows "when the event actually happened in-game", not
+        # "when the bot got around to processing it". Falls back to "now"
+        # if the line has no parseable HH:MM:SS prefix.
+        parsed_event_time = extract_adm_event_time(line, config=config)
+        event_time = parsed_event_time or datetime.now(UTC)
+        event_type = classify_event(line)
+        changed_online, state_event_type, state_player_name = remember_online_state_from_adm_line(
+            guild_id,
+            line,
+            event_type=event_type,
+            event_time=event_time,
+        )
+        if changed_online:
+            online_state_changed = True
+            if state_player_name:
+                online_state_reason = f"{state_player_name} {'joined' if state_event_type == 'connect' else 'left'}"
 
         line_hash = stable_line_hash(line)
 
@@ -13927,14 +14006,6 @@ async def parse_adm(guild_id, config):
 
         remember_processed_line(guild_id, line_hash)
 
-        # Parse the in-game event time from the ADM line ONCE per line.
-        # Every embed dispatched off this line will use this timestamp so
-        # Discord shows "when the event actually happened in-game", not
-        # "when the bot got around to processing it". Falls back to "now"
-        # if the line has no parseable HH:MM:SS prefix.
-        parsed_event_time = extract_adm_event_time(line, config=config)
-        event_time = parsed_event_time or datetime.now(UTC)
-
         # NOTE: No age guard. The previous PR #27 age guard was over-engineered
         # and silently dropped live events on non-UTC Nitrado nodes (parsed
         # HH:MM:SS in server-local time → anchored to UTC today → looked
@@ -13944,8 +14015,6 @@ async def parse_adm(guild_id, config):
         # to processed_adm_lines.json, and never dispatched twice. When a
         # new ADM file rolls in we re-process it fresh, but already-seen
         # hashes are skipped automatically.
-
-        event_type = classify_event(line)
 
         if not event_type:
             if extract_adm_coords(line):
@@ -15304,6 +15373,9 @@ async def parse_adm(guild_id, config):
                             except Exception as thread_error:
                                 print(f"[THREAD] longshot thread failed: {thread_error}")
 
+    if online_state_changed:
+        await upsert_online_dashboard_message(guild_id, config, online_state_reason or "ADM live sync")
+
 # =========================================================
 # ADM LOOP
 # =========================================================
@@ -15314,8 +15386,8 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
 
     # Per-guild lock prevents two concurrent ADM scans from racing each
     # other and posting the same line twice before either has marked it
-    # as processed. Concurrent triggers used to come from: adm_loop (every
-    # 3 min), on_ready re-firing on reconnect, !restartadm, /forcerefresh.
+    # as processed. Concurrent triggers used to come from: adm_loop,
+    # on_ready re-firing on reconnect, !restartadm, /forcerefresh.
     lock = adm_scan_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
         return False, "ADM scan already in progress for this guild"
@@ -15346,7 +15418,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     # 🗓️ First refresh after bot startup → also ingest the previous 24h
     # of ADM files so we don't miss any kills/events that landed in a
     # rotated log Nitrado has since closed. After this initial sweep the
-    # 3-min loop keeps tailing only the current latest log. Per-line hash
+    # fast ADM loop keeps tailing only the current latest log. Per-line hash
     # dedupe in parse_adm guarantees nothing is ever re-broadcast.
     cold_start = not bool(_adm_history_swept.get(str(guild_id)))
     if cold_start:
@@ -15449,7 +15521,7 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
     return results
 
 
-@tasks.loop(minutes=3)
+@tasks.loop(seconds=ADM_LOOP_SECONDS)
 async def adm_loop():
 
     for guild_id, config in active_guild_config_items():
@@ -18562,6 +18634,7 @@ async def reloadguilds(ctx):
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_online_players()
     load_processed_adm_events()
     load_processed_kill_events()
     bootstrap_runtime_from_connected_guilds()
@@ -18594,6 +18667,7 @@ async def restartadm(ctx, force: str = "no"):
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_online_players()
     bootstrap_runtime_from_connected_guilds()
 
     if adm_loop.is_running():
@@ -35116,6 +35190,7 @@ async def on_ready():
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_online_players()
     bootstrap_runtime_from_connected_guilds()
     await repair_display_names_for_active_guilds()
     await ensure_pve_channels_for_active_guilds()
