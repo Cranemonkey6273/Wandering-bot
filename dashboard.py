@@ -3401,7 +3401,7 @@ PAGE_TEMPLATE = """
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
-    const ITEM_LOOKUP = {{ (server.shop_items if server else [])|tojson }};
+    const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     const DEFAULT_LOADOUT_SLOT = "Head";
     document.body.dataset.section = "{{ active_section }}";
@@ -8264,28 +8264,44 @@ def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dash
     return notes[:10]
 
 
-def load_dashboard_state() -> dict[str, Any]:
+def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     runtime_state = CUSTOM_STATE_PROVIDER() if CUSTOM_STATE_PROVIDER else {}
     if not isinstance(runtime_state, dict):
         runtime_state = {}
 
+    active_section = str(active_section or "overview").strip().lower()
+    full_sections = {"overview", "owner", "access"}
+    needs_full = active_section in full_sections
+    needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
+    needs_shop = needs_full or active_section in {"shop", "xml-workshop"}
+    needs_wallets = needs_full or active_section in {"economy", "members"}
+    needs_factions = needs_full or active_section in {"factions", "zones", "members", "economy"}
+    needs_wages = needs_full or active_section == "economy"
+    needs_delivery = needs_full or active_section == "pve"
+    needs_admin_records = needs_full or active_section == "automations"
+    needs_heatmap = needs_full or active_section == "heatmaps"
+    needs_pve = needs_full or active_section == "pve"
+    needs_leaderboard_extras = needs_full or active_section == "leaderboards"
+    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "server-rules", "shop", "access"}
+    needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
+
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
-    player_stats = runtime_state.get("player_stats") or load_store("player_stats", {})
+    player_stats = (runtime_state.get("player_stats") or load_store("player_stats", {})) if needs_players else {}
     online_players = runtime_state.get("online_players") or load_store("online_players", {})
-    shop = runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})
-    wallets = runtime_state.get("wallets") or load_store("wallets", {})
-    factions = runtime_state.get("factions") or load_store("factions", {})
-    wages = runtime_state.get("wages") or load_store("wages", {})
-    delivery_queue = runtime_state.get("delivery_queue") or load_store("delivery_queue", [])
-    dashboard_admin = load_store("dashboard_admin", {})
-    heatmap = runtime_state.get("territory_heat") or runtime_state.get("heatmap") or load_store("heatmap", {})
-    pve_challenges = runtime_state.get("pve_challenges") or load_store("pve_challenges", {})
-    pve_ai_campaigns = runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})
-    pve_workshop_schedules = runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})
-    swear_jar = runtime_state.get("swear_jar") or load_store("swear_jar", {})
-    longshot_records = runtime_state.get("longshot_records") or load_store("longshot_records", {})
-    shop_categories = shop_category_map(shop)
-    shop_items = flat_shop_items(shop)
+    shop = (runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})) if needs_shop else {}
+    wallets = (runtime_state.get("wallets") or load_store("wallets", {})) if needs_wallets else {}
+    factions = (runtime_state.get("factions") or load_store("factions", {})) if needs_factions else {}
+    wages = (runtime_state.get("wages") or load_store("wages", {})) if needs_wages else {}
+    delivery_queue = (runtime_state.get("delivery_queue") or load_store("delivery_queue", [])) if needs_delivery else []
+    dashboard_admin = load_store("dashboard_admin", {}) if needs_admin_records else {}
+    heatmap = (runtime_state.get("territory_heat") or runtime_state.get("heatmap") or load_store("heatmap", {})) if needs_heatmap else {}
+    pve_challenges = (runtime_state.get("pve_challenges") or load_store("pve_challenges", {})) if needs_pve else {}
+    pve_ai_campaigns = (runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})) if needs_pve else {}
+    pve_workshop_schedules = (runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})) if needs_pve else {}
+    swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
+    longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
+    shop_categories = shop_category_map(shop) if needs_shop else {}
+    shop_items = flat_shop_items(shop) if needs_shop else []
 
     if not isinstance(guild_configs, dict):
         guild_configs = {}
@@ -8305,36 +8321,31 @@ def load_dashboard_state() -> dict[str, Any]:
         if not isinstance(config, dict):
             continue
         guild_id = normalize_guild_id(guild_id)
-        players = guild_players(player_stats, guild_id)
+        players = guild_players(player_stats, guild_id) if needs_players else []
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
-        server_factions = faction_records_for_guild(factions, guild_id)
-        server_members = member_records_for_guild(players, online, server_factions)
+        server_factions = faction_records_for_guild(factions, guild_id) if needs_factions else []
+        server_members = member_records_for_guild(players, online, server_factions) if needs_players or needs_discord_members else []
         zones = normalized_zones(config, server_map, server_factions)
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
-        server_shop = shop_for_guild(shop, guild_id)
-        server_shop_categories = shop_category_map(server_shop)
-        server_shop_items = flat_shop_items(server_shop)
-        server_wallets = wallet_records_for_guild(wallets, guild_id)
+        server_shop = shop_for_guild(shop, guild_id) if needs_shop else {}
+        server_shop_categories = shop_category_map(server_shop) if needs_shop else {}
+        server_shop_items = flat_shop_items(server_shop) if needs_shop else []
+        server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
         channels = public_channels(config.get("channels", {}), guild_id)
-        discord_roles = discord_guild_roles(guild_id)
-        discord_members = discord_guild_members(guild_id)
-        server_wages = enriched_wage_records(
-            guild_block(wages, guild_id, []),
-            discord_members,
-            discord_roles,
-            server_factions,
-        )
-        discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts)
-        if discord_member_count is None:
+        discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
+        discord_members = discord_guild_members(guild_id) if needs_discord_members else []
+        server_wages = enriched_wage_records(guild_block(wages, guild_id, []), discord_members, discord_roles, server_factions) if needs_wages else []
+        discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts) if needs_discord_members else None
+        if discord_member_count is None and needs_discord_members:
             discord_member_count = discord_guild_member_count(guild_id)
         if discord_member_count is None:
             discord_member_count = len(discord_members) if discord_members else len(server_members)
-        server_heatmap = heatmap_summary(heatmap, guild_id)
-        server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels)
+        server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
+        server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
         totals = {
             "kills": sum(player["kills"] for player in players),
             "deaths": sum(player["deaths"] for player in players),
@@ -8453,8 +8464,6 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 
 def page(mode: str, auth: dict[str, Any]):
-    state = load_dashboard_state()
-    state = filter_state_for_auth(state, auth, mode)
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "server-rules", "moderation", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
@@ -8463,6 +8472,8 @@ def page(mode: str, auth: dict[str, Any]):
         active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
+    state = load_dashboard_state(active_section)
+    state = filter_state_for_auth(state, auth, mode)
     focused_guild_id = str(request.args.get("guild_id") or "").strip()
     if focused_guild_id and mode in {"admin", "overview", "owner"}:
         state = dict(state)
@@ -8500,7 +8511,7 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
-        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if isinstance(selected_server, dict) else []),
+        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section == "xml-workshop" and isinstance(selected_server, dict) else []),
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
