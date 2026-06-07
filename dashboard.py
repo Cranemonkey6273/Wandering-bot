@@ -2940,6 +2940,274 @@ Event pings | bell | 1234567890</textarea></label>
         return path;
       }
     }
+    function installDashboardCoreClicks() {
+      if (window.__wanderingDashboardCoreClicks) return;
+      window.__wanderingDashboardCoreClicks = true;
+      function stop(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+      }
+      function parseJson(text) {
+        try { return JSON.parse(text || "{}"); } catch (error) { return {}; }
+      }
+      function readJsonScript(root, selector) {
+        const script = root ? root.querySelector(selector) : null;
+        return script ? parseJson(script.textContent) : {};
+      }
+      function setControl(form, name, value) {
+        if (!form || !form.elements[name]) return;
+        const control = form.elements[name];
+        const controls = typeof control.length === "number" && !control.tagName ? Array.from(control) : [control];
+        controls.forEach((item) => {
+          if (!item) return;
+          if (item.type === "checkbox") item.checked = Boolean(value);
+          else if (item.tagName === "SELECT") {
+            const wanted = String(value ?? "");
+            const option = Array.from(item.options || []).find((entry) => entry.value === wanted || entry.dataset.channelId === wanted);
+            item.value = option ? option.value : wanted;
+            item.dispatchEvent(new Event("change", {bubbles: true}));
+          } else {
+            item.value = value ?? "";
+            item.dispatchEvent(new Event("input", {bubbles: true}));
+          }
+        });
+      }
+      function scrollToForm(form) {
+        if (!form) return;
+        form.scrollIntoView({behavior: "smooth", block: "center"});
+        const first = form.querySelector('input:not([type="hidden"]), select, textarea');
+        if (first) first.focus({preventScroll: true});
+      }
+      function embedFieldsToLines(fields) {
+        if (!Array.isArray(fields)) return "";
+        return fields.map((field) => {
+          const name = String(field && field.name || "").replace(/[|]/g, "/");
+          const value = String(field && field.value || "").replace(/[|]/g, "/");
+          const inline = field && field.inline ? "true" : "false";
+          return `${name} | ${value} | ${inline}`;
+        }).filter((line) => line.trim()).join("\n");
+      }
+      function fillEmbedTemplateForm(template) {
+        const form = document.getElementById("embed-template-form");
+        if (!form || !template || !Object.keys(template).length) return false;
+        const embed = template.embed || {};
+        const delivery = template.delivery || {};
+        const schedule = template.schedule || {};
+        setControl(form, "name", template.name || "custom-message");
+        setControl(form, "template_id", template.template_id || template.id || "");
+        setControl(form, "content_mode", delivery.content_mode || template.content_mode || "embed");
+        setControl(form, "channel_key", delivery.channel_key || template.channel_key || "");
+        setControl(form, "title", embed.title || template.title || "");
+        setControl(form, "colour", embed.colour || embed.color || template.colour || "#8d963e");
+        setControl(form, "author_name", (embed.author && embed.author.name) || template.author_name || "");
+        setControl(form, "author_icon_url", (embed.author && embed.author.icon_url) || template.author_icon_url || "");
+        setControl(form, "thumbnail_url", embed.thumbnail_url || template.thumbnail_url || "");
+        setControl(form, "image_url", embed.image_url || template.image_url || "");
+        setControl(form, "footer_text", (embed.footer && embed.footer.text) || template.footer_text || "");
+        setControl(form, "footer_icon_url", (embed.footer && embed.footer.icon_url) || template.footer_icon_url || "");
+        setControl(form, "mention_mode", delivery.mention_mode || template.mention_mode || "none");
+        setControl(form, "mention_role_id", delivery.mention_role_id || template.mention_role_id || "");
+        setControl(form, "schedule_type", schedule.type || template.schedule_type || "manual");
+        setControl(form, "schedule_time", schedule.time || template.schedule_time || "");
+        setControl(form, "event_filter", schedule.event_filter || template.event_filter || "");
+        setControl(form, "event_minimum", schedule.event_minimum ?? template.event_minimum ?? 0);
+        setControl(form, "interval_minutes", schedule.interval_minutes ?? template.interval_minutes ?? 60);
+        setControl(form, "timezone", schedule.timezone || template.timezone || "Europe/Dublin");
+        setControl(form, "button_label", delivery.button_label || template.button_label || "");
+        setControl(form, "button_url", delivery.button_url || template.button_url || "");
+        setControl(form, "body", embed.description || template.body || "");
+        setControl(form, "fields_lines", embedFieldsToLines(embed.fields));
+        scrollToForm(form);
+        const result = form.querySelector(".result");
+        if (result) result.textContent = "Loaded for editing.";
+        return true;
+      }
+      function fillDashboardRecordForm(formId, record) {
+        const form = document.getElementById(formId || "");
+        if (!form || !record || !Object.keys(record).length) return false;
+        Object.entries(record).forEach(([key, value]) => {
+          if (value && typeof value === "object") return;
+          setControl(form, key, value);
+        });
+        scrollToForm(form);
+        const result = form.querySelector(".result");
+        if (result) result.textContent = "Loaded for editing.";
+        return true;
+      }
+      function zoneKey(zone) {
+        return String((zone && (zone.id || zone.name)) || "");
+      }
+      function zoneFromControl(control) {
+        if (!control) return {};
+        const rowScript = control.closest("[data-zone-row]")?.querySelector("[data-zone-json]");
+        if (rowScript) return parseJson(rowScript.textContent);
+        const key = control.dataset.zoneKey || "";
+        if (key) {
+          const scripts = Array.from(document.querySelectorAll("[data-zone-json]"));
+          const script = scripts.find((item) => String(item.dataset.zoneKey || "") === String(key));
+          if (script) return parseJson(script.textContent);
+        }
+        return parseJson(control.dataset.zone || "{}");
+      }
+      function showZoneFallbackPopover(map, zone, form) {
+        const popover = map ? map.querySelector("[data-zone-popover]") : null;
+        if (!popover) return;
+        const size = Number(map.dataset.mapSize || 15360);
+        const x = Number(zone.x ?? zone.center_x ?? form?.elements.x?.value ?? 0);
+        const z = Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? form?.elements.y?.value ?? 0);
+        const xPercent = Math.max(2, Math.min(98, (x / size) * 100));
+        const yPercent = Math.max(8, Math.min(92, 100 - ((z / size) * 100)));
+        const radius = zone.radius ?? zone.radius_m ?? form?.elements.radius?.value ?? 250;
+        popover.style.left = `${xPercent}%`;
+        popover.style.top = `${yPercent}%`;
+        popover.dataset.side = xPercent > 62 ? "left" : "right";
+        popover.innerHTML = `
+          <strong>${String(zone.name || "Zone").replace(/[&<>"']/g, "")}</strong>
+          <span>${String(zone.zone_type || zone.type || "radar")} zone - X ${Math.round(x)}, Z ${Math.round(z)} - radius ${radius}m</span>
+          <div class="zone-popover-actions">
+            <button type="button" data-zone-popover-save>Save Changes</button>
+            <button type="button" data-zone-delete data-zone-key="${String(zoneKey(zone)).replace(/"/g, "&quot;")}" data-zone-id="${String(zone.id || "").replace(/"/g, "&quot;")}" data-zone-type="${String(zone.zone_type || zone.type || "").replace(/"/g, "&quot;")}" data-zone-name="${String(zone.name || "").replace(/"/g, "&quot;")}" data-guild-id="${String(form?.elements.guild_id?.value || "").replace(/"/g, "&quot;")}">Delete</button>
+            <button type="button" data-zone-popover-close>Close</button>
+          </div>`;
+        popover.hidden = false;
+      }
+      function fillZoneForm(zone, source) {
+        const form = document.getElementById("zone-edit-form");
+        if (!form || !zone || !Object.keys(zone).length) return false;
+        setControl(form, "zone_id", zone.id || zone.name || "");
+        setControl(form, "name", zone.name || "");
+        setControl(form, "zone_type", zone.zone_type || zone.type || "radar");
+        setControl(form, "x", Number(zone.x ?? zone.center_x ?? 0));
+        setControl(form, "y", Number(zone.z ?? zone.y ?? zone.center_z ?? zone.center_y ?? 0));
+        setControl(form, "shape", zone.shape || "circle");
+        setControl(form, "radius", zone.radius ?? zone.radius_m ?? 250);
+        setControl(form, "radius_slider", zone.radius ?? zone.radius_m ?? 250);
+        setControl(form, "channel_key", zone.channel_key || zone.alert_channel_id || zone.report_channel_id || "");
+        setControl(form, "role_id", zone.role_id || zone.mention_role_id || "");
+        setControl(form, "faction_name", zone.faction_name || zone.faction || "");
+        setControl(form, "colour", zone.display_colour || source?.dataset.zoneColour || zone.colour || zone.color || "#8d963e");
+        setControl(form, "enabled", zone.enabled === false ? "false" : "true");
+        setControl(form, "action", zone.action || "none");
+        setControl(form, "ban_type", zone.ban_type || "temp");
+        setControl(form, "ban_duration_minutes", zone.ban_duration_minutes || 1440);
+        setControl(form, "trigger_territory", zone.trigger_territory || "inside");
+        setControl(form, "triggers", Array.isArray(zone.triggers) ? zone.triggers.join(",") : (zone.triggers || ""));
+        setControl(form, "ignored_gamertags", Array.isArray(zone.ignored_gamertags) ? zone.ignored_gamertags.join(",") : (zone.ignored_gamertags || ""));
+        const save = form.querySelector("[data-zone-save-button]");
+        const remove = form.querySelector("[data-zone-delete-current]");
+        const readout = form.querySelector("[data-map-readout]");
+        if (save) save.textContent = "Save Zone Changes";
+        if (remove) remove.disabled = false;
+        if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
+        document.querySelectorAll("[data-zone-edit].editing").forEach((item) => item.classList.remove("editing"));
+        document.querySelectorAll("[data-zone-edit]").forEach((item) => {
+          if (item.dataset.zoneKey && item.dataset.zoneKey === (source?.dataset.zoneKey || zoneKey(zone))) item.classList.add("editing");
+        });
+        const map = source && source.closest("[data-zone-map]");
+        if (map) showZoneFallbackPopover(map, zone, form);
+        else scrollToForm(form);
+        return true;
+      }
+      async function postJson(route, payload) {
+        const token = new URLSearchParams(window.location.search).get("token");
+        const target = token ? `${route}?token=${encodeURIComponent(token)}` : route;
+        const response = await fetch(secureDashboardUrl(target), {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+          body: JSON.stringify(payload),
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok || body.ok === false) throw new Error(body.error || "Request rejected.");
+        return body;
+      }
+      document.addEventListener("click", async (event) => {
+        const popoverClose = event.target.closest("[data-zone-popover-close]");
+        if (popoverClose) {
+          stop(event);
+          const popover = popoverClose.closest("[data-zone-popover]");
+          if (popover) popover.hidden = true;
+          return;
+        }
+        const popoverSave = event.target.closest("[data-zone-popover-save]");
+        if (popoverSave) {
+          stop(event);
+          const form = document.getElementById("zone-edit-form");
+          if (form && form.requestSubmit) form.requestSubmit(form.querySelector("[data-zone-save-button]") || undefined);
+          else form?.querySelector("[data-zone-save-button]")?.click();
+          return;
+        }
+        const embedEdit = event.target.closest("[data-embed-template-edit]");
+        if (embedEdit) {
+          stop(event);
+          fillEmbedTemplateForm(readJsonScript(embedEdit.closest("[data-embed-template-card]"), "[data-embed-template-json]"));
+          return;
+        }
+        const recordEdit = event.target.closest("[data-dashboard-record-edit]");
+        if (recordEdit) {
+          stop(event);
+          fillDashboardRecordForm(recordEdit.dataset.formId, readJsonScript(recordEdit.closest("[data-dashboard-record-card]"), "[data-dashboard-record-json]"));
+          return;
+        }
+        const zoneEdit = event.target.closest("[data-zone-edit]");
+        if (zoneEdit) {
+          stop(event);
+          fillZoneForm(zoneFromControl(zoneEdit), zoneEdit);
+          return;
+        }
+        const embedDelete = event.target.closest("[data-embed-template-delete]");
+        if (embedDelete) {
+          stop(event);
+          if (embedDelete.dataset.confirm && !window.confirm(embedDelete.dataset.confirm)) return;
+          const card = embedDelete.closest("[data-embed-template-card]");
+          await postJson("/api/admin/embed-template-action", {
+            action: "delete",
+            template_id: embedDelete.dataset.templateId || card?.dataset.templateId || "",
+            guild_id: embedDelete.dataset.guildId || "{{ server.guild_id if server else '' }}",
+            dashboard_mode: "{{ mode }}",
+          });
+          if (card) card.remove();
+          return;
+        }
+        const recordDelete = event.target.closest("[data-dashboard-record-delete]");
+        if (recordDelete) {
+          stop(event);
+          if (recordDelete.dataset.confirm && !window.confirm(recordDelete.dataset.confirm)) return;
+          const card = recordDelete.closest("[data-dashboard-record-card]");
+          await postJson("/api/admin/dashboard-record-action", {
+            action: "delete",
+            section: recordDelete.dataset.section || card?.dataset.section || "",
+            record_id: recordDelete.dataset.recordId || card?.dataset.recordId || "",
+            guild_id: recordDelete.dataset.guildId || "{{ server.guild_id if server else '' }}",
+            dashboard_mode: "{{ mode }}",
+          });
+          if (card) card.remove();
+          return;
+        }
+        const zoneDelete = event.target.closest("[data-zone-delete]");
+        if (zoneDelete) {
+          stop(event);
+          const zone = zoneFromControl(zoneDelete);
+          const name = zoneDelete.dataset.zoneName || zone.name || "this zone";
+          if (!window.confirm(`Delete ${name} from this server?`)) return;
+          const form = document.getElementById("zone-edit-form");
+          await postJson("/api/admin/zone-action", {
+            action: "delete",
+            guild_id: zoneDelete.dataset.guildId || form?.elements.guild_id?.value || "{{ server.guild_id if server else '' }}",
+            zone_id: zoneDelete.dataset.zoneId || zone.id || form?.elements.zone_id?.value || "",
+            zone_type: zoneDelete.dataset.zoneType || zone.zone_type || zone.type || form?.elements.zone_type?.value || "",
+            name,
+            dashboard_mode: "{{ mode }}",
+          });
+          const row = zoneDelete.closest("[data-zone-row]");
+          if (row) row.remove();
+          else window.location.reload();
+        }
+      }, true);
+    }
+    installDashboardCoreClicks();
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
       "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
       "/api/admin/welcome-automation": {bodyKey: "automation", message: "Saved welcome automation."},
