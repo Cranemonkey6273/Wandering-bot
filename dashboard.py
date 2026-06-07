@@ -130,6 +130,10 @@ def add_security_headers(response):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+    try:
+        enqueue_dashboard_audit_event(response)
+    except Exception as error:
+        print(f"[DASHBOARD AUDIT] queue failed: {error}")
     return response
 
 SECRET_KEYS = {
@@ -153,6 +157,7 @@ FILES = {
     "factions": "factions.json",
     "wages": "wages.json",
     "delivery_queue": "delivery_queue.json",
+    "dashboard_audit_queue": "dashboard_audit_queue.json",
     "dashboard_admin": "dashboard_admin.json",
     "heatmap": "heatmap.json",
     "pve_challenges": "pve_challenges.json",
@@ -6767,6 +6772,169 @@ def request_payload() -> dict[str, Any]:
     if not isinstance(data, dict):
         data = request.form.to_dict(flat=True)
     return dict(data or {})
+
+
+AUDITED_DASHBOARD_PREFIXES = ("/api/admin/", "/api/owner/")
+DASHBOARD_AUDIT_MAX_QUEUE = 1000
+DASHBOARD_AUDIT_IGNORED_KEYS = {
+    "_scope_denied",
+    "dashboard_mode",
+    "return_to",
+    "token",
+    "csrf",
+    "csrf_token",
+}
+
+
+def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
+    action = str(payload.get("action") or "").strip().lower()
+    route = str(path or "").rstrip("/").split("/")[-1].replace("-", " ")
+    titles = {
+        "channel-config": "Dashboard channel settings updated",
+        "dashboard-record-action": "Dashboard panel updated",
+        "embed-template": "Embed or welcome panel saved",
+        "embed-template-action": "Embed or welcome panel updated",
+        "faction": "Faction saved",
+        "faction-action": "Faction updated",
+        "faction-member": "Faction member updated",
+        "guild-access": "Dashboard access updated",
+        "guild-action": "Owner guild action completed",
+        "link-enforcement": "Link enforcement updated",
+        "link-server": "Linked server settings updated",
+        "leaderboard": "Leaderboard settings updated",
+        "member-action": "Member moderation action queued",
+        "moderation-guard": "Moderation guard updated",
+        "on-screen-message": "On-screen message queued",
+        "reaction-role-panel": "Reaction role panel saved",
+        "reset-schedule": "Reset schedule updated",
+        "scenario-event": "PVE workshop event saved",
+        "scenario-event-action": "PVE workshop event updated",
+        "server-control": "Server control updated",
+        "shop-bundle": "Shop bundle saved",
+        "shop-item": "Shop item saved",
+        "shop-item-action": "Shop item updated",
+        "theme": "Dashboard theme updated",
+        "utility-config": "Utility panel saved",
+        "utility-config-action": "Utility panel updated",
+        "vehicle-reset": "Vehicle reset schedule updated",
+        "wage": "Wage saved",
+        "wage-action": "Wage updated",
+        "wallet-adjustment": "Wallet adjusted",
+        "welcome-automation": "Welcome automation saved",
+        "xml-workshop": "XML workshop updated",
+        "zone": "Zone saved",
+        "zone-action": "Zone updated",
+    }
+    title = titles.get(str(path or "").rstrip("/").split("/")[-1], f"{route.title()} updated")
+    if action in {"delete", "remove"}:
+        return title.replace("saved", "deleted").replace("updated", "deleted")
+    if action in {"cancel", "pause", "approve", "toggle", "refresh"}:
+        return f"{title} ({action})"
+    return title
+
+
+def dashboard_audit_actor(auth: dict[str, Any] | None) -> str:
+    if not isinstance(auth, dict):
+        return "Dashboard session"
+    label = str(auth.get("label") or "").strip()
+    if auth.get("kind") == "owner":
+        return f"Owner dashboard ({label or 'all servers'})"
+    if label:
+        return f"Server dashboard ({label})"
+    return "Server dashboard"
+
+
+def compact_audit_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > 2:
+        return "..."
+    if isinstance(value, dict):
+        compacted: dict[str, Any] = {}
+        for key, item in list(value.items())[:12]:
+            key_text = str(key)
+            if key_text in DASHBOARD_AUDIT_IGNORED_KEYS:
+                continue
+            if any(secret_key in key_text.lower() for secret_key in SECRET_KEYS):
+                compacted[key_text] = "***"
+            else:
+                compacted[key_text] = compact_audit_value(item, depth=depth + 1)
+        if len(value) > 12:
+            compacted["more"] = f"{len(value) - 12} more field(s)"
+        return compacted
+    if isinstance(value, list):
+        items = [compact_audit_value(item, depth=depth + 1) for item in value[:6]]
+        if len(value) > 6:
+            items.append(f"... {len(value) - 6} more")
+        return items
+    text = str(value)
+    if len(text) > 180:
+        return text[:177].rstrip() + "..."
+    return value
+
+
+def dashboard_audit_summary(payload: dict[str, Any]) -> str:
+    priority_keys = (
+        "name",
+        "title",
+        "server_name",
+        "guild_id",
+        "action",
+        "zone_name",
+        "faction_name",
+        "item_name",
+        "channel_id",
+        "method",
+    )
+    parts = []
+    for key in priority_keys:
+        value = payload.get(key)
+        if value in (None, ""):
+            continue
+        text = str(value)
+        if len(text) > 70:
+            text = text[:67].rstrip() + "..."
+        parts.append(f"{key}: {text}")
+    return "; ".join(parts[:5])
+
+
+def enqueue_dashboard_audit_event(response: Any) -> None:
+    if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    if not any(request.path.startswith(prefix) for prefix in AUDITED_DASHBOARD_PREFIXES):
+        return
+    if not (200 <= int(getattr(response, "status_code", 0) or 0) < 400):
+        return
+
+    auth = current_auth()
+    if not auth:
+        return
+    payload = scoped_payload_for_auth(request_payload(), auth)
+    if payload.get("_scope_denied"):
+        return
+
+    guild_id = str(payload.get("guild_id") or auth.get("guild_id") or "").strip()
+    if not guild_id:
+        return
+
+    event = {
+        "id": f"{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+        "guild_id": guild_id,
+        "method": request.method.upper(),
+        "route": request.path,
+        "action": str(payload.get("action") or ""),
+        "title": dashboard_audit_title(request.path, payload),
+        "summary": dashboard_audit_summary(payload),
+        "actor": dashboard_audit_actor(auth),
+        "actor_kind": str(auth.get("kind") or "dashboard"),
+        "payload": compact_audit_value(payload),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    queue = load_store("dashboard_audit_queue", [])
+    if not isinstance(queue, list):
+        queue = []
+    queue.append(event)
+    if len(queue) > DASHBOARD_AUDIT_MAX_QUEUE:
+        queue = queue[-DASHBOARD_AUDIT_MAX_QUEUE:]
+    save_store("dashboard_audit_queue", queue)
 
 
 def require_admin() -> tuple[dict[str, Any] | None, Any | None]:

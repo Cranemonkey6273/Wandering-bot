@@ -78,6 +78,7 @@ def data_path(*parts):
 GUILD_CONFIG_FILE = data_path("guild_configs.json")
 GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
+DASHBOARD_AUDIT_QUEUE_FILE = data_path("dashboard_audit_queue.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
@@ -330,6 +331,7 @@ DEFAULT_CHANNEL_NAMES = {
     "help_channel": "❓📘・help-desk・📘❓",
     "economy": "💰🛒・black-market・🛒💰",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
+    "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
     "cheat_checks": "🕵️🚫・pc-cheat-check・🚫🕵️",
     "command_logs": "📜🛡️・command-logs・🛡️📜",
     "purchase_logs": "💳📦・purchase-logs・📦💳",
@@ -386,6 +388,7 @@ CHANNEL_ALIASES = {
     "economy": ["blackmarket", "economy", "shop", "market"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
+    "dashboard_audit": ["dashboardaudit", "dashboardchanges", "dashboardlogs", "dbchanges"],
     "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
     "command_logs": ["commandlogs", "commands"],
     "purchase_logs": ["purchaselogs", "purchases"],
@@ -4889,6 +4892,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "admin_logs",
     "cheat_checks",
     "command_logs",
+    "dashboard_audit",
     "link_audit",
     "moderation_logs",
     "cuts_feed",
@@ -4936,6 +4940,7 @@ CHANNEL_RESTORE_PACKS = {
         "admin_logs",
         "cheat_checks",
         "command_logs",
+        "dashboard_audit",
         "link_audit",
         "moderation_logs",
         "faction_staff",
@@ -5018,6 +5023,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "help_channel": "support",
     "economy": "economy",
     "admin_logs": "staff_ops",
+    "dashboard_audit": "staff_ops",
     "cheat_checks": "staff_ops",
     "command_logs": "staff_ops",
     "purchase_logs": "economy",
@@ -15606,6 +15612,153 @@ async def dashboard_member_action_loop():
     if changed:
         save_guild_configs()
 
+
+def load_dashboard_audit_queue():
+    try:
+        loaded = load_json(DASHBOARD_AUDIT_QUEUE_FILE)
+    except Exception as error:
+        print(f"[DASHBOARD AUDIT] load failed: {error}")
+        return []
+    if isinstance(loaded, list):
+        return loaded
+    if isinstance(loaded, dict) and isinstance(loaded.get("items"), list):
+        return loaded.get("items", [])
+    return []
+
+
+def save_dashboard_audit_queue(queue):
+    try:
+        save_json(DASHBOARD_AUDIT_QUEUE_FILE, list(queue or []))
+    except Exception as error:
+        print(f"[DASHBOARD AUDIT] save failed: {error}")
+
+
+def dashboard_audit_timestamp(value):
+    try:
+        text = str(value or "").replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return int(parsed.timestamp())
+    except Exception:
+        return int(datetime.now(UTC).timestamp())
+
+
+def dashboard_audit_line_value(value, limit=150):
+    if isinstance(value, (dict, list)):
+        try:
+            value = json.dumps(value, ensure_ascii=False)
+        except Exception:
+            value = str(value)
+    text = discord.utils.escape_mentions(str(value or ""))
+    text = text.replace("\n", " ").strip()
+    if len(text) > limit:
+        text = text[: max(0, limit - 3)].rstrip() + "..."
+    return text or "blank"
+
+
+def format_dashboard_audit_details(payload):
+    if not isinstance(payload, dict) or not payload:
+        return "No extra details were supplied."
+    ignored = {"dashboard_mode", "return_to", "_scope_denied", "csrf", "csrf_token"}
+    lines = []
+    for key, value in payload.items():
+        if key in ignored or value in (None, ""):
+            continue
+        label = str(key).replace("_", " ").title()
+        lines.append(f"**{label}:** {dashboard_audit_line_value(value)}")
+        if len(lines) >= 10:
+            break
+    return "\n".join(lines) if lines else "No extra details were supplied."
+
+
+def build_dashboard_audit_embed(event, guild):
+    title = discord.utils.escape_mentions(str(event.get("title") or "Dashboard change confirmed"))
+    summary = discord.utils.escape_mentions(str(event.get("summary") or "").strip())
+    created_ts = dashboard_audit_timestamp(event.get("created_at"))
+    embed = discord.Embed(
+        title="🛡️ DASHBOARD CHANGE CONFIRMED",
+        description=f"**{title}**" + (f"\n{summary}" if summary else ""),
+        color=0xFF5AA5,
+    )
+    embed.add_field(name="Server", value=discord.utils.escape_mentions(guild.name), inline=True)
+    embed.add_field(name="By", value=dashboard_audit_line_value(event.get("actor"), 220), inline=True)
+    embed.add_field(name="When", value=f"<t:{created_ts}:F>\n<t:{created_ts}:R>", inline=True)
+    embed.add_field(
+        name="Dashboard Route",
+        value=f"`{dashboard_audit_line_value(event.get('method'), 12)} {dashboard_audit_line_value(event.get('route'), 120)}`",
+        inline=False,
+    )
+    embed.add_field(name="What Changed", value=format_dashboard_audit_details(event.get("payload")), inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=f"Wandering Bot Alpha - Dashboard Audit - {event.get('id', 'queued')}")
+    return trim_embed_field_values(style_embed(embed))
+
+
+@tasks.loop(seconds=20)
+async def dashboard_audit_loop():
+    queue = load_dashboard_audit_queue()
+    if not queue:
+        return
+
+    sent_ids = set()
+    failed_attempts = {}
+    processed = 0
+
+    for event in queue:
+        if processed >= 20:
+            break
+        if not isinstance(event, dict):
+            continue
+        event_id = str(event.get("id") or "")
+        guild_id = str(event.get("guild_id") or "").strip()
+        if not event_id or not guild_id or not guild_id.isdigit():
+            sent_ids.add(event_id)
+            continue
+        guild = bot.get_guild(int(guild_id))
+        if not guild:
+            failed_attempts[event_id] = int(event.get("attempts") or 0) + 1
+            continue
+        config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+        try:
+            channel = await get_or_create_feed_channel(
+                guild,
+                config,
+                "dashboard_audit",
+                DEFAULT_CHANNEL_NAMES["dashboard_audit"],
+                private=True,
+                force=True,
+            )
+            if not channel:
+                failed_attempts[event_id] = int(event.get("attempts") or 0) + 1
+                continue
+            await channel.send(
+                embed=build_dashboard_audit_embed(event, guild),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            sent_ids.add(event_id)
+            processed += 1
+        except Exception as error:
+            failed_attempts[event_id] = int(event.get("attempts") or 0) + 1
+            print(f"[DASHBOARD AUDIT] send failed for {guild_id}: {error}")
+
+    if sent_ids or failed_attempts:
+        latest = load_dashboard_audit_queue()
+        remaining = []
+        for event in latest:
+            if not isinstance(event, dict):
+                continue
+            event_id = str(event.get("id") or "")
+            if event_id in sent_ids:
+                continue
+            if event_id in failed_attempts:
+                event["attempts"] = failed_attempts[event_id]
+                if event["attempts"] > 10:
+                    print(f"[DASHBOARD AUDIT] dropping stuck event {event_id}")
+                    continue
+            remaining.append(event)
+        save_dashboard_audit_queue(remaining)
+
 # =========================================================
 # SWEAR JAR
 # =========================================================
@@ -22804,6 +22957,9 @@ async def start_background_tasks():
 
         if not dashboard_member_action_loop.is_running():
             dashboard_member_action_loop.start()
+
+        if not dashboard_audit_loop.is_running():
+            dashboard_audit_loop.start()
 
         if not rpt_event_tracker_loop.is_running():
             rpt_event_tracker_loop.start()
