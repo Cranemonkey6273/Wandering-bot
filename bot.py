@@ -9495,6 +9495,87 @@ def guild_factions(guild_id):
     return factions.setdefault(str(guild_id), {})
 
 
+def all_guild_factions(guild_id):
+    guild_id = str(guild_id)
+    records = {}
+    nested = factions.get(guild_id)
+    if isinstance(nested, dict):
+        for name, faction in nested.items():
+            if not isinstance(faction, dict):
+                continue
+            record = dict(faction)
+            record.setdefault("name", str(name))
+            records[str(record.get("name") or name)] = record
+
+    prefix = f"{guild_id}:"
+    for key, faction in factions.items():
+        if not str(key).startswith(prefix) or not isinstance(faction, dict):
+            continue
+        record = dict(faction)
+        name = str(record.get("name") or str(key)[len(prefix):] or key)
+        record.setdefault("name", name)
+        records.setdefault(name, record)
+    return records
+
+
+def find_guild_faction(guild_id, faction_name):
+    wanted = faction_key(faction_name)
+    if not wanted:
+        return "", {}
+    for name, faction in all_guild_factions(guild_id).items():
+        if faction_key(name) == wanted or faction_key(faction.get("name")) == wanted:
+            return str(faction.get("name") or name), faction
+    return "", {}
+
+
+def member_faction_names(guild_id, member):
+    if not member:
+        return []
+    user_id = str(getattr(member, "id", "") or "")
+    role_ids = {str(getattr(role, "id", "")) for role in getattr(member, "roles", []) or []}
+    link = linked_players.get(user_id, {}) if isinstance(linked_players, dict) else {}
+    gamertag = str(link.get("gamertag") or link.get("player_name") or "").strip().lower()
+    names = []
+    for name, faction in all_guild_factions(guild_id).items():
+        if str(faction.get("leader_id") or "").strip() == user_id:
+            names.append(name)
+            continue
+        faction_role_ids = {
+            str(faction.get("discord_role_id") or "").strip(),
+            str(faction.get("role_id") or "").strip(),
+        }
+        if role_ids.intersection({item for item in faction_role_ids if item}):
+            names.append(name)
+            continue
+        for member_record in faction.get("members", []) or []:
+            if isinstance(member_record, dict):
+                member_id = str(member_record.get("user_id") or member_record.get("discord_id") or member_record.get("id") or "").strip()
+                member_name = str(member_record.get("name") or member_record.get("gamertag") or "").strip().lower()
+            else:
+                member_id = str(member_record).strip()
+                member_name = str(member_record).strip().lower()
+            if member_id == user_id or (gamertag and member_name == gamertag):
+                names.append(name)
+                break
+    return names
+
+
+def can_view_faction_treasury(interaction, faction):
+    if has_interaction_admin_power(interaction):
+        return True
+    member = getattr(interaction, "user", None)
+    if not member:
+        return False
+    return str(faction.get("name") or "") in member_faction_names(getattr(interaction.guild, "id", ""), member)
+
+
+def can_manage_faction_treasury(interaction, faction):
+    if has_interaction_admin_power(interaction):
+        return True
+    user_id = str(getattr(getattr(interaction, "user", None), "id", "") or "")
+    return bool(user_id and str(faction.get("leader_id") or "").strip() == user_id)
+
+
 def find_faction_for_player(guild_id, player_name):
     """Return the faction dict that `player_name` (a DayZ gamertag) belongs
     to, or None. Member match is case-insensitive."""
@@ -22289,31 +22370,12 @@ async def wages_payout_loop():
                         paid_to.append(member.mention)
 
             elif target_type == "faction":
-                faction_name = wage.get("target_id") or ""
-                faction = (factions.get(str(guild_id)) or {}).get(faction_name) or {}
-                # Pay any Discord user who has the faction's role.
-                role_id = faction.get("discord_role_id") or faction.get("role_id")
-                if role_id:
-                    role = guild.get_role(int(role_id))
-                    if role:
-                        for member in role.members:
-                            if member.bot:
-                                continue
-                            w = guild_wallet(guild_id, str(member.id), str(member))
-                            w["balance"] = int(w.get("balance", 0) or 0) + amount
-                            paid_to.append(member.mention)
-                # Also pay any linked-gamertag member that's listed in the faction.
-                gamertags = {str(m).strip().lower() for m in (faction.get("members") or [])}
-                if gamertags:
-                    for user_id, link in (linked_players or {}).items():
-                        gt = str(link.get("gamertag") or "").strip().lower()
-                        if gt and gt in gamertags:
-                            mention = f"<@{user_id}>"
-                            if mention in paid_to:
-                                continue
-                            w = guild_wallet(guild_id, str(user_id), gt)
-                            w["balance"] = int(w.get("balance", 0) or 0) + amount
-                            paid_to.append(mention)
+                faction_name, _ = find_guild_faction(guild_id, wage.get("target_id") or "")
+                faction_name = faction_name or str(wage.get("target_id") or "Faction")
+                w = guild_faction_wallet(guild_id, faction_name)
+                w["balance"] = wallet_balance(w) + amount
+                w["updated_at"] = datetime.now(UTC).isoformat()
+                paid_to.append(f"Faction balance: **{discord.utils.escape_mentions(faction_name)}**")
 
             save_wallets()
 
@@ -22336,7 +22398,7 @@ async def wages_payout_loop():
                         title="💰 WAGE PAYOUT",
                         description=(
                             f"Auto-payout fired for **{wage.get('target_label', '?')}**.\n"
-                            f"**{amount} pennies** paid to **{len(paid_to)}** survivor(s)."
+                            f"**{amount} pennies** paid to **{len(paid_to)}** {'target' if len(paid_to) == 1 else 'targets'}."
                             + (f"\nAccrued **{periods_due}** missed periods." if periods_due > 1 else "")
                         ),
                         color=0xF1C40F,
@@ -23875,6 +23937,46 @@ def guild_wallet(guild_id, user_id, name=""):
     }
     wallets[key] = wallet
     return wallet
+
+
+def faction_wallet_id(faction_name):
+    return f"faction:{faction_key(faction_name)}"
+
+
+def guild_faction_wallet(guild_id, faction_name):
+    display_name, faction = find_guild_faction(guild_id, faction_name)
+    display_name = display_name or str(faction_name or "").strip()
+    wallet_id = faction_wallet_id(display_name)
+    key = wallet_key(str(guild_id) if guild_id else None, wallet_id)
+    wallet = wallets.get(key)
+    if isinstance(wallet, dict):
+        wallet.setdefault("guild_id", str(guild_id) if guild_id else "")
+        wallet.setdefault("user_id", wallet_id)
+        wallet.setdefault("wallet_type", "faction")
+        wallet.setdefault("faction_name", display_name)
+        wallet.setdefault("name", f"Faction: {display_name}")
+        wallet.setdefault("balance", 0)
+        wallet.setdefault("daily_transactions", 0)
+        return wallet
+
+    legacy = wallets.get(wallet_id)
+    if not isinstance(legacy, dict):
+        legacy = {}
+    wallet = {
+        "guild_id": str(guild_id) if guild_id else "",
+        "user_id": wallet_id,
+        "wallet_type": "faction",
+        "faction_name": display_name,
+        "name": f"Faction: {display_name}",
+        "balance": int(legacy.get("balance", 0) or 0),
+        "daily_transactions": int(legacy.get("daily_transactions", 0) or 0),
+    }
+    wallets[key] = wallet
+    return wallet
+
+
+def wallet_balance(wallet):
+    return int((wallet or {}).get("balance", 0) or 0)
 
 
 def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrite=False, guild_id=None):
@@ -30841,6 +30943,12 @@ def autocomplete_matches(options, current):
         return []
 
 
+async def faction_name_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    options = [(name, name) for name in sorted(all_guild_factions(guild_id), key=lambda item: item.lower())]
+    return autocomplete_matches(options, current)
+
+
 async def scenario_location_autocomplete(interaction: discord.Interaction, current: str):
     guild_id = str(interaction.guild.id) if interaction.guild else ""
     map_key = server_map_key(guild_id) if guild_id else "chernarus"
@@ -32710,6 +32818,243 @@ async def slash_sendmoney(interaction: discord.Interaction, recipient: discord.M
     )
 
 
+def resolve_faction_for_command(interaction, faction_name=""):
+    guild_id = str(interaction.guild.id)
+    selected = str(faction_name or "").strip()
+    if not selected:
+        own_factions = member_faction_names(guild_id, interaction.user)
+        if len(own_factions) == 1:
+            selected = own_factions[0]
+        elif len(own_factions) > 1:
+            return "", {}, "Choose which faction to use."
+        else:
+            return "", {}, "Choose a faction first."
+    display_name, faction = find_guild_faction(guild_id, selected)
+    if not faction:
+        return "", {}, f"Faction `{selected}` was not found."
+    faction = dict(faction)
+    faction["name"] = display_name
+    return display_name, faction, ""
+
+
+@bot.tree.command(name="factionbalance", description="Check a faction treasury balance")
+@app_commands.describe(faction="Faction to check; leave blank for your own faction")
+@app_commands.autocomplete(faction=faction_name_autocomplete)
+async def slash_factionbalance(interaction: discord.Interaction, faction: str = ""):
+    faction_name, faction_record, error = resolve_faction_for_command(interaction, faction)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    if not can_view_faction_treasury(interaction, faction_record):
+        await interaction.response.send_message("You can only check your own faction balance unless you are an admin.", ephemeral=True)
+        return
+    wallet_record = guild_faction_wallet(str(interaction.guild.id), faction_name)
+    save_wallets()
+    embed = discord.Embed(
+        title="FACTION BALANCE",
+        description=f"**{discord.utils.escape_mentions(faction_name)}** has **{wallet_balance(wallet_record)} pennies**.",
+        color=0xD5B45F,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Faction Treasury")
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.tree.command(name="factionpay", description="Admin: pay pennies into a faction treasury")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(faction="Faction to pay", amount="Pennies to add", note="Optional note for the money feed")
+@app_commands.autocomplete(faction=faction_name_autocomplete)
+async def slash_factionpay(interaction: discord.Interaction, faction: str, amount: int, note: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
+        return
+    faction_name, faction_record, error = resolve_faction_for_command(interaction, faction)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    wallet_record = guild_faction_wallet(str(interaction.guild.id), faction_name)
+    wallet_record["balance"] = wallet_balance(wallet_record) + amount
+    wallet_record["updated_at"] = datetime.now(UTC).isoformat()
+    save_wallets()
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(str(interaction.guild.id), {}),
+        "ADMIN FACTION PAYOUT",
+        f"{interaction.user.mention} paid **{amount} pennies** into **{discord.utils.escape_mentions(faction_name)}**.",
+        [
+            {"name": "Faction", "value": faction_name, "inline": True},
+            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Faction Balance", "value": f"{wallet_balance(wallet_record)} pennies", "inline": True},
+            {"name": "Note", "value": note or "No note.", "inline": False},
+        ],
+        color=0xD5B45F,
+        footer="Money Feed - Faction Pay",
+    )
+    await interaction.response.send_message(
+        f"Paid **{amount} pennies** into **{faction_name}**. Balance is now **{wallet_balance(wallet_record)} pennies**.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@bot.tree.command(name="factioncollect", description="Collect due faction wages into a faction treasury")
+@app_commands.describe(faction="Faction collecting income; leave blank for your own faction")
+@app_commands.autocomplete(faction=faction_name_autocomplete)
+async def slash_factioncollect(interaction: discord.Interaction, faction: str = ""):
+    faction_name, faction_record, error = resolve_faction_for_command(interaction, faction)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    if not can_manage_faction_treasury(interaction, faction_record):
+        await interaction.response.send_message("Only an admin or the faction leader can collect faction income.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    now = datetime.now(UTC)
+    total = 0
+    collected = []
+    for wage in guild_wages(guild_id):
+        if not wage.get("active", True):
+            continue
+        if str(wage.get("target_type") or "") != "faction":
+            continue
+        if faction_key(wage.get("target_id")) != faction_key(faction_name):
+            continue
+        periods_due, following_pay = due_wage_periods(wage, now)
+        if periods_due <= 0:
+            continue
+        amount = int(wage.get("amount", 0) or 0) * periods_due
+        if amount <= 0:
+            continue
+        wage["next_pay_iso"] = following_pay.isoformat()
+        total += amount
+        collected.append((wage.get("id", "?"), periods_due, amount, wage["next_pay_iso"]))
+    if not collected:
+        await interaction.response.send_message("No faction income is due yet.", ephemeral=True)
+        return
+    wallet_record = guild_faction_wallet(guild_id, faction_name)
+    wallet_record["balance"] = wallet_balance(wallet_record) + total
+    wallet_record["updated_at"] = datetime.now(UTC).isoformat()
+    save_wallets()
+    save_wages()
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "FACTION INCOME COLLECTED",
+        f"**{discord.utils.escape_mentions(faction_name)}** collected **{total} pennies**.",
+        [
+            {"name": "Faction", "value": faction_name, "inline": True},
+            {"name": "Amount", "value": f"{total} pennies", "inline": True},
+            {"name": "Faction Balance", "value": f"{wallet_balance(wallet_record)} pennies", "inline": True},
+            {"name": "Details", "value": "\n".join(f"{wage_id}: {amount} pennies" for wage_id, _, amount, _ in collected[:10]), "inline": False},
+        ],
+        color=0xF1C40F,
+        footer="Money Feed - Faction Collect",
+    )
+    details = "\n".join(
+        f"`{wage_id}`: {amount} pennies ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
+        for wage_id, periods, amount, next_pay in collected[:10]
+    )
+    await interaction.response.send_message(
+        f"Collected **{total} pennies** for **{faction_name}**.\n{details}",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@bot.tree.command(name="factionsend", description="Send pennies from a faction treasury to a member or another faction")
+@app_commands.describe(
+    from_faction="Faction treasury to spend from",
+    amount="Pennies to send",
+    recipient="Discord member to receive pennies",
+    to_faction="Faction treasury to receive pennies",
+    note="Optional note for the money feed",
+)
+@app_commands.autocomplete(from_faction=faction_name_autocomplete, to_faction=faction_name_autocomplete)
+async def slash_factionsend(
+    interaction: discord.Interaction,
+    from_faction: str,
+    amount: int,
+    recipient: discord.Member = None,
+    to_faction: str = "",
+    note: str = "",
+):
+    if amount <= 0:
+        await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
+        return
+    source_name, source_faction, error = resolve_faction_for_command(interaction, from_faction)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    if not can_manage_faction_treasury(interaction, source_faction):
+        await interaction.response.send_message("Only an admin or the faction leader can send faction money.", ephemeral=True)
+        return
+    if recipient and to_faction:
+        await interaction.response.send_message("Choose either a member or a faction to receive the money, not both.", ephemeral=True)
+        return
+    if not recipient and not to_faction:
+        await interaction.response.send_message("Choose a member or a faction to receive the money.", ephemeral=True)
+        return
+    if recipient and recipient.bot:
+        await interaction.response.send_message("You cannot send pennies to a bot.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    source_wallet = guild_faction_wallet(guild_id, source_name)
+    if wallet_balance(source_wallet) < amount:
+        await interaction.response.send_message("That faction does not have enough pennies.", ephemeral=True)
+        return
+
+    target_label = ""
+    target_balance = 0
+    if recipient:
+        target_wallet = guild_wallet(guild_id, str(recipient.id), str(recipient))
+        target_wallet["balance"] = wallet_balance(target_wallet) + amount
+        target_wallet["updated_at"] = datetime.now(UTC).isoformat()
+        target_label = recipient.mention
+        target_balance = wallet_balance(target_wallet)
+    else:
+        target_name, target_faction, target_error = resolve_faction_for_command(interaction, to_faction)
+        if target_error:
+            await interaction.response.send_message(target_error, ephemeral=True)
+            return
+        if faction_key(target_name) == faction_key(source_name):
+            await interaction.response.send_message("That is already the same faction treasury.", ephemeral=True)
+            return
+        target_wallet = guild_faction_wallet(guild_id, target_name)
+        target_wallet["balance"] = wallet_balance(target_wallet) + amount
+        target_wallet["updated_at"] = datetime.now(UTC).isoformat()
+        target_label = target_name
+        target_balance = wallet_balance(target_wallet)
+
+    source_wallet["balance"] = wallet_balance(source_wallet) - amount
+    source_wallet["updated_at"] = datetime.now(UTC).isoformat()
+    save_wallets()
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "FACTION MONEY TRANSFER",
+        f"**{discord.utils.escape_mentions(source_name)}** sent **{amount} pennies** to {target_label}.",
+        [
+            {"name": "From", "value": source_name, "inline": True},
+            {"name": "To", "value": target_label, "inline": True},
+            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Source Balance", "value": f"{wallet_balance(source_wallet)} pennies", "inline": True},
+            {"name": "Recipient Balance", "value": f"{target_balance} pennies", "inline": True},
+            {"name": "Note", "value": note or "No note.", "inline": False},
+        ],
+        color=0xD5B45F,
+        footer="Money Feed - Faction Transfer",
+    )
+    await interaction.response.send_message(
+        f"Sent **{amount} pennies** from **{source_name}** to {target_label}.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
 @bot.tree.command(name="collectincome", description="Collect any due direct wage income")
 async def slash_collectincome(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -34524,10 +34869,10 @@ async def slash_faction_delete(interaction: discord.Interaction, faction: str):
 # 💰 WAGE SLASH COMMANDS (under /server)
 # =========================================================
 
-@server_group.command(name="wageadd", description="Admin: set a recurring wage payout to a user, role, or faction")
+@server_group.command(name="wageadd", description="Admin: set a recurring wage payout to a user, role, or faction balance")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    target_type="Pay a user, a role, or a faction",
+    target_type="Pay a user, a role, or a faction balance",
     amount="Pennies paid each cycle",
     cadence="daily, weekly, or monthly",
     user="Discord user (when target_type=user)",
@@ -34546,6 +34891,7 @@ async def slash_faction_delete(interaction: discord.Interaction, faction: str):
         app_commands.Choice(name="monthly", value="monthly"),
     ],
 )
+@app_commands.autocomplete(faction=faction_name_autocomplete)
 async def slash_wage_add(
     interaction: discord.Interaction,
     target_type: app_commands.Choice[str],
@@ -34580,11 +34926,12 @@ async def slash_wage_add(
         if not faction:
             await interaction.response.send_message("Pass `faction:` (the faction name).", ephemeral=True)
             return
-        if faction not in guild_factions(interaction.guild.id):
+        faction_name, faction_record = find_guild_faction(interaction.guild.id, faction)
+        if not faction_record:
             await interaction.response.send_message(f"Faction `{faction}` not found.", ephemeral=True)
             return
-        target_id = faction
-        target_label = f"🏴 {faction}"
+        target_id = faction_name
+        target_label = f"Faction balance: {faction_name}"
 
     wage_id = f"wage-{int(datetime.now(UTC).timestamp())}-{random.randint(1000, 9999)}"
     next_pay = datetime.now(UTC) + timedelta(seconds=cadence_to_seconds(cadence.value))

@@ -2416,7 +2416,7 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="id" value="">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Pay who?
-              <select name="target_type"><option value="user">One player</option><option value="role">Discord role</option><option value="faction">Whole faction</option></select>
+              <select name="target_type"><option value="user">One player</option><option value="role">Discord role</option><option value="faction">Faction balance</option></select>
             </label>
             <label>Target
               <select name="target_id" data-wage-target>
@@ -2443,10 +2443,18 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/admin/wallet-adjustment" data-route="/api/admin/wallet-adjustment">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Player
-              <select name="user_id">
-                <option value="">Choose Discord member</option>
-                {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}">{{ member.label }}</option>{% endfor %}
+            <label>Wallet type
+              <select name="target_type"><option value="user">Player</option><option value="faction">Faction</option></select>
+            </label>
+            <label>Target
+              <select name="target_id" data-wallet-target>
+                <option value="">Choose player or faction</option>
+                <optgroup label="Discord members">
+                  {% for member in (server.discord_members if server else []) %}<option value="{{ member.id }}" data-target-type="user">{{ member.label }}</option>{% endfor %}
+                </optgroup>
+                <optgroup label="Factions">
+                  {% for faction in (server.factions.values() if server and server.factions else []) %}<option value="{{ faction.name }}" data-target-type="faction">{{ faction.name }}</option>{% endfor %}
+                </optgroup>
               </select>
             </label>
             <label>Amount <input name="amount" type="number" value="100"></label>
@@ -5402,6 +5410,17 @@ PAGE_TEMPLATE = """
       select.addEventListener("change", syncTargetType);
       syncTargetType();
     });
+    document.querySelectorAll("[data-wallet-target]").forEach((select) => {
+      const form = select.closest("form");
+      function syncWalletTargetType() {
+        const selected = select.selectedOptions && select.selectedOptions[0];
+        if (form && form.elements.target_type && selected && selected.dataset.targetType) {
+          form.elements.target_type.value = selected.dataset.targetType;
+        }
+      }
+      select.addEventListener("change", syncWalletTargetType);
+      syncWalletTargetType();
+    });
     document.querySelectorAll("[data-wage-edit]").forEach((button) => {
       button.addEventListener("click", () => {
         const form = document.getElementById("wage-form");
@@ -7048,6 +7067,11 @@ def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
 
 def normalize_guild_id(value: Any) -> str:
     return str(value or "global").strip() or "global"
+
+
+def faction_wallet_id(value: Any) -> str:
+    key = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    return f"faction:{key or 'unknown'}"
 
 
 def safe_int(value: Any, default: int = 0) -> int:
@@ -10969,26 +10993,50 @@ def api_wallet_adjustment():
         return error
     raw_payload = payload or {}
     payload = strip_dashboard_control_fields(raw_payload)
-    user_id = str(payload.get("user_id") or payload.get("member_id") or "").strip()
-    if not user_id:
-        return jsonify({"ok": False, "error": "user_id is required"}), 400
+    target_type = str(payload.get("target_type") or payload.get("wallet_type") or "user").strip().lower()
+    target_id = str(payload.get("target_id") or payload.get("user_id") or payload.get("member_id") or "").strip()
+    if target_type not in {"user", "faction"}:
+        return jsonify({"ok": False, "error": "target_type must be user or faction"}), 400
+    if not target_id:
+        return jsonify({"ok": False, "error": "target is required"}), 400
     amount = safe_int(payload.get("amount"))
     guild_id = normalize_guild_id(payload.get("guild_id"))
     wallets = load_store("wallets", {})
     if not isinstance(wallets, dict):
         wallets = {}
-    key = f"{guild_id}:{user_id}"
-    legacy = wallets.get(user_id, {}) if isinstance(wallets.get(user_id), dict) else {}
-    wallet = wallets.setdefault(
-        key,
-        {
-            "guild_id": guild_id,
-            "user_id": user_id,
-            "name": str(payload.get("name") or legacy.get("name") or ""),
-            "balance": safe_int(legacy.get("balance", 0)),
-            "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
-        },
-    )
+    if target_type == "faction":
+        user_id = faction_wallet_id(target_id)
+        key = f"{guild_id}:{user_id}"
+        legacy = wallets.get(user_id, {}) if isinstance(wallets.get(user_id), dict) else {}
+        wallet = wallets.setdefault(
+            key,
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "wallet_type": "faction",
+                "faction_name": target_id,
+                "name": f"Faction: {target_id}",
+                "balance": safe_int(legacy.get("balance", 0)),
+                "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
+            },
+        )
+        wallet["wallet_type"] = "faction"
+        wallet["faction_name"] = target_id
+        wallet["name"] = f"Faction: {target_id}"
+    else:
+        user_id = target_id
+        key = f"{guild_id}:{user_id}"
+        legacy = wallets.get(user_id, {}) if isinstance(wallets.get(user_id), dict) else {}
+        wallet = wallets.setdefault(
+            key,
+            {
+                "guild_id": guild_id,
+                "user_id": user_id,
+                "name": str(payload.get("name") or legacy.get("name") or ""),
+                "balance": safe_int(legacy.get("balance", 0)),
+                "daily_transactions": safe_int(legacy.get("daily_transactions", 0)),
+            },
+        )
     wallet["guild_id"] = guild_id
     wallet["user_id"] = user_id
     wallet["balance"] = safe_int(wallet.get("balance")) + amount
@@ -10998,6 +11046,7 @@ def api_wallet_adjustment():
             "amount": amount,
             "reason": str(payload.get("reason") or "dashboard adjustment"),
             "guild_id": guild_id,
+            "target_type": target_type,
             "created_at": datetime.now(UTC).isoformat(),
         }
     )
