@@ -11997,7 +11997,6 @@ async def setup_command(
                 "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
                 "`/backfillkills` - post recent ADM kill history into killfeed and longshots\n"
                 "`/setaiimages` - occasional AI-generated DayZ-style pictures\n"
-                "`/aiimagepostnow` - post one AI picture immediately\n"
                 "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
@@ -16682,7 +16681,7 @@ async def helpme(ctx):
             "`/heatmap` - PvP heatmap summary\n"
             "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
             "`/backfillkills` - fill killfeed/longshots from recent ADM history\n"
-            "`/setaiimages`, `/aiimagepostnow`"
+            "`/setaiimages`"
         ),
         inline=False
     )
@@ -19770,7 +19769,6 @@ async def setaiimages(
     )
 
 
-@bot.tree.command(name="aiimagepostnow", description="Admin: post one AI generated DayZ-style picture now")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(style="Optional style override: funny, gritty, or pinup")
 async def aiimagepostnow(interaction: discord.Interaction, style: str = ""):
