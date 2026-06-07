@@ -417,6 +417,91 @@ PAGE_TEMPLATE = """
           "</div>";
         popover.hidden = false;
       }
+      function applyZonePopoverFields(popover, form) {
+        if (!popover || !form) return;
+        Array.prototype.slice.call(popover.querySelectorAll("[data-zone-popover-field]")).forEach(function (field) {
+          var name = field.getAttribute("data-zone-popover-field");
+          if (!name) return;
+          setControl(form, name, field.value);
+          if (name === "radius") setControl(form, "radius_slider", field.value);
+          if (name === "y") setControl(form, "z", field.value);
+        });
+      }
+      function zoneOption(value, label, selected) {
+        return "<option value=\"" + escapeAttr(value) + "\" " + (String(selected) === String(value) ? "selected" : "") + ">" + escapeText(label) + "</option>";
+      }
+      function showZoneDraftPopover(map, form, zone) {
+        var popover = map.querySelector("[data-zone-popover]");
+        if (!popover) return;
+        var size = Number(map.getAttribute("data-map-size") || 15360);
+        var x = Number(firstValue(zone.x, form.elements.x && form.elements.x.value, 0));
+        var z = Number(firstValue(zone.z, zone.y, form.elements.y && form.elements.y.value, 0));
+        var xPercent = Math.max(2, Math.min(98, (x / size) * 100));
+        var yPercent = Math.max(8, Math.min(92, 100 - ((z / size) * 100)));
+        var type = firstValue(zone.zone_type, form.elements.zone_type && form.elements.zone_type.value, "radar");
+        var radius = firstValue(zone.radius, form.elements.radius && form.elements.radius.value, 250);
+        var colour = firstValue(zone.colour, form.elements.colour && form.elements.colour.value, "#8d963e");
+        popover.style.left = xPercent + "%";
+        popover.style.top = yPercent + "%";
+        popover.style.setProperty("--zone-colour", colour);
+        popover.setAttribute("data-side", xPercent > 62 ? "left" : "right");
+        popover.setAttribute("data-zone-draft", "true");
+        popover.innerHTML =
+          "<strong>New zone draft</strong>" +
+          "<span>Edit this spot, then save it as a new zone.</span>" +
+          "<div class=\"zone-popover-grid\">" +
+          "<label>Name <input data-zone-popover-field=\"name\" value=\"" + escapeAttr(firstValue(zone.name, "New " + type + " zone")) + "\"></label>" +
+          "<label>Type <select data-zone-popover-field=\"zone_type\">" +
+          zoneOption("radar", "Radar", type) + zoneOption("safe", "Safe", type) + zoneOption("pvp", "PVP", type) + zoneOption("action", "Action", type) + zoneOption("faction", "Faction", type) + zoneOption("custom", "Custom", type) +
+          "</select></label>" +
+          "<label>X <input data-zone-popover-field=\"x\" type=\"number\" value=\"" + Math.round(x) + "\"></label>" +
+          "<label>Z <input data-zone-popover-field=\"y\" type=\"number\" value=\"" + Math.round(z) + "\"></label>" +
+          "<label>Radius <input data-zone-popover-field=\"radius\" type=\"number\" min=\"10\" step=\"10\" value=\"" + escapeAttr(radius) + "\"></label>" +
+          "<label>Colour <input data-zone-popover-field=\"colour\" type=\"color\" value=\"" + escapeAttr(colour) + "\"></label>" +
+          "</div>" +
+          "<div class=\"zone-popover-actions\">" +
+          "<button type=\"button\" data-zone-popover-save>Save Zone</button>" +
+          "<button type=\"button\" data-zone-popover-close>Close</button>" +
+          "</div>";
+        popover.hidden = false;
+      }
+      function draftZoneFromMap(map, event) {
+        if (!map || closest(event.target, "[data-zone-edit]") || closest(event.target, "[data-zone-popover]")) return false;
+        var form = closest(map, "form");
+        if (!form || !form.elements) return false;
+        var rect = map.getBoundingClientRect();
+        if (!rect.width || !rect.height) return false;
+        var size = Number(map.getAttribute("data-map-size") || 15360);
+        var xPercent = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+        var yPercent = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+        var x = Math.max(0, Math.min(size, Math.round((xPercent / 100) * size)));
+        var z = Math.max(0, Math.min(size, Math.round((1 - (yPercent / 100)) * size)));
+        var type = firstValue(form.elements.zone_type && form.elements.zone_type.value, "radar");
+        var colour = firstValue(form.elements.colour && form.elements.colour.value, "#8d963e");
+        setControl(form, "zone_id", "");
+        setControl(form, "name", "New " + type + " zone");
+        setControl(form, "x", x);
+        setControl(form, "y", z);
+        setControl(form, "enabled", "true");
+        setControl(form, "action", "none");
+        Array.prototype.slice.call(document.querySelectorAll("[data-zone-edit].editing")).forEach(function (item) { item.classList.remove("editing"); });
+        var save = form.querySelector("[data-zone-save-button]");
+        var remove = form.querySelector("[data-zone-delete-current]");
+        var readout = form.querySelector("[data-map-readout]");
+        if (save) save.textContent = "Save Zone";
+        if (remove) remove.disabled = true;
+        if (readout) readout.textContent = "New zone X " + x + ", Z " + z + " - click Save Zone in the popup to create it.";
+        var cursor = map.querySelector(".zone-cursor");
+        if (!cursor) {
+          cursor = document.createElement("span");
+          cursor.className = "zone-cursor";
+          map.appendChild(cursor);
+        }
+        cursor.style.left = xPercent + "%";
+        cursor.style.top = yPercent + "%";
+        showZoneDraftPopover(map, form, {name: "New " + type + " zone", zone_type: type, x: x, z: z, radius: form.elements.radius && form.elements.radius.value, colour: colour});
+        return true;
+      }
       function postJson(route, payload, done) {
         var token = new URLSearchParams(window.location.search).get("token");
         var xhr = new XMLHttpRequest();
@@ -443,8 +528,14 @@ PAGE_TEMPLATE = """
         if (save) {
           stop(event);
           var form = document.getElementById("zone-edit-form");
+          applyZonePopoverFields(closest(save, "[data-zone-popover]"), form);
           if (form && form.requestSubmit) form.requestSubmit(form.querySelector("[data-zone-save-button]") || undefined);
           else if (form && form.querySelector("[data-zone-save-button]")) form.querySelector("[data-zone-save-button]").click();
+          return;
+        }
+        var zoneMap = closest(event.target, "[data-zone-map]");
+        if (zoneMap && draftZoneFromMap(zoneMap, event)) {
+          stop(event);
           return;
         }
         var embedEdit = closest(event.target, "[data-embed-template-edit]");
