@@ -4270,6 +4270,18 @@ Event pings | bell | 1234567890</textarea></label>
       if (route === "/api/admin/server-control" || route === "/api/admin/moderation-guard") return false;
       return REFRESH_AFTER_SAVE_ROUTES.has(route);
     }
+    function removeInlineActionItem(form) {
+      const item = form.closest("[data-scenario-event-row]")
+        || form.closest("[data-dashboard-record-card]")
+        || form.closest("[data-template-card]")
+        || form.closest("tr")
+        || form.closest("li")
+        || form.closest(".notification")
+        || form.closest(".owner-server-card");
+      if (!item) return false;
+      item.remove();
+      return true;
+    }
     document.querySelectorAll(".admin-form").forEach((form) => {
       if (form.dataset.route) {
         if (!form.getAttribute("method")) form.setAttribute("method", "post");
@@ -4306,7 +4318,10 @@ Event pings | bell | 1234567890</textarea></label>
             delete payload[box.name];
           });
         }
-        if (result) result.textContent = "Saving...";
+        if (result) {
+          result.classList.remove("error", "success");
+          result.textContent = "Saving...";
+        }
         if (button) {
           button.disabled = true;
           button.textContent = form.dataset.scenarioActionForm ? "Working..." : "Saving...";
@@ -4323,7 +4338,11 @@ Event pings | bell | 1234567890</textarea></label>
           });
           let body = {};
           try { body = await response.json(); } catch (error) {}
-          if (result) result.textContent = response.ok ? (body.note || "Saved") : (body.error || "Rejected");
+          if (result) {
+            result.classList.toggle("success", response.ok);
+            result.classList.toggle("error", !response.ok);
+            result.textContent = response.ok ? (body.note || "Saved") : (body.error || "Rejected");
+          }
           if (response.ok) {
             const preview = form.querySelector("[data-save-preview]");
             if (preview && body.recipe) {
@@ -4361,9 +4380,10 @@ Event pings | bell | 1234567890</textarea></label>
           if (response.ok && form.classList.contains("inline-action")) {
             const action = String(payload.action || "").toLowerCase();
             if (action === "delete") {
-              const row = form.closest("[data-scenario-event-row]") || form.closest("tr");
-              if (row) row.remove();
-              return;
+              if (removeInlineActionItem(form)) return;
+            }
+            if (action === "remove" || action === "leave" || action === "purge") {
+              if (removeInlineActionItem(form)) return;
             }
             window.location.reload();
           }
@@ -4375,7 +4395,11 @@ Event pings | bell | 1234567890</textarea></label>
           const message = window.location.protocol === "http:"
             ? "Open the secure HTTPS dashboard and try again."
             : `Request failed: ${error && error.message ? error.message : error}`;
-          if (result) result.textContent = message;
+          if (result) {
+            result.classList.remove("success");
+            result.classList.add("error");
+            result.textContent = message;
+          }
           if (form.getAttribute("action") && form.getAttribute("method")) {
             if (result) result.textContent = "Retrying with normal form submit...";
             HTMLFormElement.prototype.submit.call(form);
@@ -4732,7 +4756,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (!popover) return;
         const point = getZonePoint(zone);
         const type = zone.zone_type || zone.type || (zoneFields.type ? zoneFields.type.value : "radar");
-        const radius = zone.radius || (radiusInput ? radiusInput.value : 250);
+        const radius = zone.radius ?? zone.radius_m ?? (radiusInput ? radiusInput.value : 250);
         const zoneName = zone.name || (zoneFields.name ? zoneFields.name.value : "");
         const title = mode === "new" ? "New zone draft" : (zoneName || "Zone");
         const colour = zone.display_colour || zone.colour || zone.color || (colourInput ? colourInput.value : zonePalette[0]);
@@ -4917,7 +4941,7 @@ Event pings | bell | 1234567890</textarea></label>
         renderBoundary();
       });
       function findNearestZoneMarker(event) {
-        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot"));
+        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot, [data-zone-edit].zone-radius-ring"));
         let closest = null;
         let closestDistance = Infinity;
         markers.forEach((marker) => {
@@ -4932,7 +4956,9 @@ Event pings | bell | 1234567890</textarea></label>
         });
         if (!closest) return false;
         const markerRect = closest.getBoundingClientRect();
-        const hitRadius = Math.max(42, markerRect.width / 2 + 24);
+        const hitRadius = closest.classList.contains("zone-radius-ring")
+          ? Math.max(42, markerRect.width / 2 + 18)
+          : Math.max(42, markerRect.width / 2 + 24);
         if (closestDistance <= hitRadius) {
           closest.click();
           return true;
@@ -4940,7 +4966,7 @@ Event pings | bell | 1234567890</textarea></label>
         return false;
       }
       function findZoneByGamePoint(x, z) {
-        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot"));
+        const markers = Array.from(map.querySelectorAll("[data-zone-edit].zone-dot, [data-zone-edit].zone-radius-ring"));
         let closest = null;
         let closestDistance = Infinity;
         markers.forEach((marker) => {
@@ -4952,7 +4978,7 @@ Event pings | bell | 1234567890</textarea></label>
           if (!Number.isFinite(zoneX) || !Number.isFinite(zoneZ)) return;
           const radius = Math.max(75, Number(zone.radius ?? zone.radius_m ?? 250));
           const distance = Math.hypot(Number(x) - zoneX, Number(z) - zoneZ);
-          const hitDistance = radius + 150;
+          const hitDistance = radius + (marker.classList.contains("zone-radius-ring") ? 60 : 150);
           if (distance <= hitDistance && distance < closestDistance) {
             closest = marker;
             closestDistance = distance;
@@ -5082,13 +5108,15 @@ Event pings | bell | 1234567890</textarea></label>
         try {
           const response = await fetch(secureDashboardUrl("/api/admin/zone-action"), {
             method: "POST",
-            headers: {"Content-Type": "application/json"},
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
             body: JSON.stringify(payload),
           });
           const body = await response.json().catch(() => ({}));
           if (!response.ok || body.ok === false) throw new Error(body.error || "Zone delete failed.");
           if (result) result.textContent = body.note || "Zone deleted.";
-          window.location.href = secureDashboardUrl(`/admin?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
+          const dashboardPath = window.location.pathname.startsWith("/owner") ? "/owner" : "/admin";
+          window.location.href = secureDashboardUrl(`${dashboardPath}?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
         } catch (error) {
           if (result) result.textContent = error.message || "Zone delete failed.";
           if (button) {
