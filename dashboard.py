@@ -2820,7 +2820,6 @@ PAGE_TEMPLATE = """
                 <label>Recipe name <input name="recipe_name" value="Military Airdrop"></label>
                 <div class="mini-grid">
                   <label>Event name <input name="event_name" value="Static_WanderingAirdrop"></label>
-                  <label>Group name <input name="group_name" value="WanderingAirdropGrp"></label>
                 </div>
                 <label>Container
                   <select class="picker-select" name="container_class" data-visual-select="containers">
@@ -2829,8 +2828,8 @@ PAGE_TEMPLATE = """
                 </label>
                 <div class="mini-grid">
                   <label>Nominal <input name="nominal" type="number" min="0" value="1"></label>
-                  <label>Min <input name="min_count" type="number" min="0" value="0"></label>
-                  <label>Max <input name="max_count" type="number" min="0" value="0"></label>
+                  <label>Min <input name="min_count" type="number" min="0" value="1"></label>
+                  <label>Max <input name="max_count" type="number" min="0" value="1"></label>
                   <label>Lifetime seconds <input name="lifetime" type="number" min="1" value="1800"></label>
                   <label>Restock seconds <input name="restock" type="number" min="0" value="3600"></label>
                   <label>Safe radius <input name="saferadius" type="number" min="0" value="0"></label>
@@ -2838,7 +2837,6 @@ PAGE_TEMPLATE = """
                   <label>Cleanup radius <input name="cleanupradius" type="number" min="0" value="1500"></label>
                   <label>Loot min <input name="lootmin" type="number" min="0" value="40"></label>
                   <label>Loot max <input name="lootmax" type="number" min="0" value="40"></label>
-                  <label>Proto max <input name="proto_max" type="number" min="0" value="80"></label>
                   <label>Spawn radius <input name="spawn_radius" type="number" min="1" value="20"></label>
                   <label>Zombie guard event
                     <select name="secondary_event">
@@ -2885,22 +2883,6 @@ PAGE_TEMPLATE = """
                   <button type="button" data-airdrop-undo>Undo Location</button>
                   <span class="muted" data-airdrop-readout>Click the map to add airdrop positions.</span>
                 </div>
-                <div>
-                  <strong>Usage flags</strong>
-                  <div class="flag-grid" data-airdrop-flags>
-                    {% for flag in ["Military", "Medic", "Police", "Firefighter", "Civilian", "Farm", "Coast", "Town", "Village", "Hospital"] %}
-                    <label><input type="checkbox" name="usage_flags" value="{{ flag }}" {{ 'checked' if flag == 'Military' else '' }}> {{ flag }}</label>
-                    {% endfor %}
-                  </div>
-                </div>
-                <div>
-                  <strong>Loot categories</strong>
-                  <div class="flag-grid" data-airdrop-categories>
-                    {% for category in ["weapons", "explosives", "containers", "clothes", "food", "tools", "medicine", "vehiclesparts", "books", "money"] %}
-                    <label><input type="checkbox" name="loot_categories" value="{{ category }}" {{ 'checked' if category in ['weapons', 'explosives', 'containers', 'clothes'] else '' }}> {{ category }}</label>
-                    {% endfor %}
-                  </div>
-                </div>
                 <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
                   <div class="item-picker-controls">
                     <label>Optional fixed cargo
@@ -2926,11 +2908,10 @@ PAGE_TEMPLATE = """
                 <div class="xml-file-tabs" data-airdrop-tabs>
                   <button type="button" class="active" data-airdrop-file="events">events.xml</button>
                   <button type="button" data-airdrop-file="spawns">cfgeventspawns.xml</button>
-                  <button type="button" data-airdrop-file="groups">cfgeventgroups.xml</button>
-                  <button type="button" data-airdrop-file="proto">mapgroupproto.xml</button>
+                  <button type="button" data-airdrop-file="spawnable">cfgspawnabletypes.xml</button>
                 </div>
                 <pre class="save-preview" data-live-output data-airdrop-output-file="events"></pre>
-                <div class="embed-preview"><strong>Console airdrop package</strong><span>These four files must agree on event name, group name, container classname, positions and loot pool. Save this draft first; live upload should go through guarded diff/validation.</span></div>
+                <div class="embed-preview"><strong>Console airdrop package</strong><span>These snippets spawn the selected container directly and put cargo on that container class through cfgspawnabletypes.xml.</span></div>
               </aside>
             </div>
           </form>
@@ -3140,7 +3121,7 @@ PAGE_TEMPLATE = """
             <div class="recipe-row">
               <strong>Airdrop: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.event_name }} · {{ recipe.container_class }} · {{ recipe.positions|length }} position(s)</span>
-              <div>{% for category in recipe.loot_categories[:10] %}{{ category }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
             </div>
             {% endfor %}
             {% for recipe in (server.xml_workshop.vehicle_loadouts if server else []) %}
@@ -4771,15 +4752,12 @@ PAGE_TEMPLATE = """
     }
     function buildAirdropPackage(form, items) {
       const eventName = safeXmlName(form.elements.event_name?.value, "Static_WanderingAirdrop");
-      const groupName = safeXmlName(form.elements.group_name?.value, `${eventName}Grp`);
       const containerClass = safeXmlName(form.elements.container_class?.value, "StaticObj_Misc_WoodenCrate_5x");
       const numberValue = (name, fallback) => Math.max(0, Number(form.elements[name]?.value || fallback) || 0);
       const positions = airdropPositions(form);
-      const usageFlags = checkedValues(form, "usage_flags");
-      const lootCategories = checkedValues(form, "loot_categories");
-      const childLootMin = numberValue("lootmin", 40);
-      const childLootMax = numberValue("lootmax", 40);
-      const protoMax = numberValue("proto_max", 80);
+      const nominal = Math.max(1, numberValue("nominal", 1));
+      const minCount = Math.max(1, numberValue("min_count", 1));
+      const maxCount = Math.max(minCount, numberValue("max_count", 1));
       const spawnRadius = Math.max(1, numberValue("spawn_radius", 20));
       const secondaryEvent = safeXmlName(form.elements.secondary_event?.value, "");
       const cargoXml = items.map((item) => `        <cargo chance="1.00">\n            <item name="${xmlEscape(item.item)}" chance="1.00" />\n        </cargo>`).join("\n");
@@ -4788,9 +4766,9 @@ PAGE_TEMPLATE = """
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<events>`,
           `    <event name="${xmlEscape(eventName)}">`,
-          `        <nominal>${numberValue("nominal", 1)}</nominal>`,
-          `        <min>${numberValue("min_count", 0)}</min>`,
-          `        <max>${numberValue("max_count", 0)}</max>`,
+          `        <nominal>${nominal}</nominal>`,
+          `        <min>${minCount}</min>`,
+          `        <max>${maxCount}</max>`,
           `        <lifetime>${numberValue("lifetime", 1800)}</lifetime>`,
           `        <restock>${numberValue("restock", 3600)}</restock>`,
           `        <saferadius>${numberValue("saferadius", 0)}</saferadius>`,
@@ -4801,38 +4779,28 @@ PAGE_TEMPLATE = """
           `        <position>fixed</position>`,
           `        <limit>child</limit>`,
           `        <active>1</active>`,
-          `        <children/>`,
+          `        <children>`,
+          `            <child lootmax="0" lootmin="0" max="1" min="1" type="${xmlEscape(containerClass)}" />`,
+          `        </children>`,
           `    </event>`,
           `</events>`,
-        ].join("\n"),
+        ].filter(Boolean).join("\n"),
         spawns: [
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<eventposdef>`,
           `    <event name="${xmlEscape(eventName)}">`,
-          `        <zone smin="0" smax="0" dmin="15" dmax="20" r="${spawnRadius}" />`,
-          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" y="0" group="${xmlEscape(groupName)}" />`),
+          `        <zone smin="1" smax="1" dmin="1" dmax="1" r="${spawnRadius}" />`,
+          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" y="0" />`),
           `    </event>`,
           `</eventposdef>`,
         ].join("\n"),
-        groups: [
+        spawnable: [
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
-          `<eventgroupdef>`,
-          `    <group name="${xmlEscape(groupName)}">`,
-          `        <child type="${xmlEscape(containerClass)}" deloot="0" lootmax="${childLootMax}" lootmin="${childLootMin}" x="0" z="0" a="0" y="0" dechance="1.00" />`,
-          `    </group>`,
-          `</eventgroupdef>`,
-        ].join("\n"),
-        proto: [
-          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
-          `<map>`,
-          `    <group name="${xmlEscape(containerClass)}" lootmax="${protoMax}">`,
-          ...usageFlags.map((flag) => `        <usage name="${xmlEscape(flag)}" />`),
-          `        <container name="lootFloor" lootmax="${protoMax}">`,
-          ...lootCategories.map((category) => `            <category name="${xmlEscape(category)}" />`),
+          `<spawnabletypes>`,
+          `    <type name="${xmlEscape(containerClass)}">`,
           cargoXml,
-          `        </container>`,
-          `    </group>`,
-          `</map>`,
+          `    </type>`,
+          `</spawnabletypes>`,
         ].filter(Boolean).join("\n"),
       };
     }
@@ -9204,25 +9172,22 @@ def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> st
 
 def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
     event_name = safe_dayz_class(record.get("event_name")) or "Static_WanderingAirdrop"
-    group_name = safe_dayz_class(record.get("group_name")) or f"{event_name}Grp"
     container_class = safe_dayz_class(record.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x"
     positions = record.get("positions")
     if not isinstance(positions, list) or not positions:
         positions = [{"x": "10869", "z": "10937"}]
-    usage_flags = [safe_dayz_class(item) for item in record.get("usage_flags", []) if safe_dayz_class(item)]
-    loot_categories = [safe_dayz_class(item) for item in record.get("loot_categories", []) if safe_dayz_class(item)]
     items = record.get("items") if isinstance(record.get("items"), list) else []
-    loot_min = max(0, safe_int(record.get("lootmin"), 40))
-    loot_max = max(0, safe_int(record.get("lootmax"), 40))
-    proto_max = max(0, safe_int(record.get("proto_max"), 80))
+    nominal = max(1, safe_int(record.get("nominal"), 1))
+    min_count = max(1, safe_int(record.get("min_count"), 1))
+    max_count = max(min_count, safe_int(record.get("max_count"), 1))
     secondary_event = safe_dayz_class(record.get("secondary_event"))
     events_lines = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<events>",
         f'    <event name="{xml_attr(event_name)}">',
-        f'        <nominal>{max(0, safe_int(record.get("nominal"), 1))}</nominal>',
-        f'        <min>{max(0, safe_int(record.get("min_count"), 0))}</min>',
-        f'        <max>{max(0, safe_int(record.get("max_count"), 0))}</max>',
+        f'        <nominal>{nominal}</nominal>',
+        f'        <min>{min_count}</min>',
+        f'        <max>{max_count}</max>',
         f'        <lifetime>{max(1, safe_int(record.get("lifetime"), 1800))}</lifetime>',
         f'        <restock>{max(0, safe_int(record.get("restock"), 3600))}</restock>',
         f'        <saferadius>{max(0, safe_int(record.get("saferadius"), 0))}</saferadius>',
@@ -9236,7 +9201,9 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         "        <position>fixed</position>",
         "        <limit>child</limit>",
         "        <active>1</active>",
-        "        <children/>",
+        "        <children>",
+        f'            <child lootmax="0" lootmin="0" max="1" min="1" type="{xml_attr(container_class)}" />',
+        "        </children>",
         "    </event>",
         "</events>",
     ])
@@ -9246,40 +9213,29 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<eventposdef>",
         f'    <event name="{xml_attr(event_name)}">',
-        f'        <zone smin="0" smax="0" dmin="15" dmax="20" r="{spawn_radius}" />',
-        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" y="0" group="{xml_attr(group_name)}" />' for pos in positions if isinstance(pos, dict)],
+        f'        <zone smin="1" smax="1" dmin="1" dmax="1" r="{spawn_radius}" />',
+        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" y="0" />' for pos in positions if isinstance(pos, dict)],
         "    </event>",
         "</eventposdef>",
     ])
-    groups = "\n".join([
+    spawnable_lines = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-        "<eventgroupdef>",
-        f'    <group name="{xml_attr(group_name)}">',
-        f'        <child type="{xml_attr(container_class)}" deloot="0" lootmax="{loot_max}" lootmin="{loot_min}" x="0" z="0" a="0" y="0" dechance="1.00" />',
-        "    </group>",
-        "</eventgroupdef>",
-    ])
-    proto_lines = [
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-        "<map>",
-        f'    <group name="{xml_attr(container_class)}" lootmax="{proto_max}">',
+        "<spawnabletypes>",
+        f'    <type name="{xml_attr(container_class)}">',
     ]
-    proto_lines.extend(f'        <usage name="{xml_attr(flag)}" />' for flag in usage_flags)
-    proto_lines.append(f'        <container name="lootFloor" lootmax="{proto_max}">')
-    proto_lines.extend(f'            <category name="{xml_attr(category)}" />' for category in loot_categories)
     for item in items:
         if not isinstance(item, dict):
             continue
         item_name = safe_dayz_class(item.get("item"))
         if not item_name:
             continue
-        proto_lines.extend([
-            '            <cargo chance="1.00">',
-            f'                <item name="{xml_attr(item_name)}" chance="1.00" />',
-            "            </cargo>",
+        spawnable_lines.extend([
+            '        <cargo chance="1.00">',
+            f'            <item name="{xml_attr(item_name)}" chance="1.00" />',
+            "        </cargo>",
         ])
-    proto_lines.extend(["        </container>", "    </group>", "</map>"])
-    return {"events": events, "spawns": spawns, "groups": groups, "proto": "\n".join(proto_lines)}
+    spawnable_lines.extend(["    </type>", "</spawnabletypes>"])
+    return {"events": events, "spawns": spawns, "spawnable": "\n".join(spawnable_lines)}
 
 
 def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
@@ -11776,16 +11732,15 @@ def api_xml_workshop():
             return jsonify({"ok": False, "error": "pick at least one airdrop position on the map or use random placement"}), 400
         record.update({
             "event_name": safe_dayz_class(payload.get("event_name")) or "Static_WanderingAirdrop",
-            "group_name": safe_dayz_class(payload.get("group_name")) or "WanderingAirdropGrp",
             "container_class": safe_dayz_class(payload.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x",
             "positions": positions,
             "duration_mode": duration_mode,
             "temporary_restarts": max(1, safe_int(payload.get("temporary_restarts"), 2)),
             "placement_mode": placement_mode,
             "random_count": max(2, min(6, safe_int(payload.get("random_count"), 2))),
-            "nominal": max(0, safe_int(payload.get("nominal"), 1)),
-            "min_count": max(0, safe_int(payload.get("min_count"), 0)),
-            "max_count": max(0, safe_int(payload.get("max_count"), 0)),
+            "nominal": max(1, safe_int(payload.get("nominal"), 1)),
+            "min_count": max(1, safe_int(payload.get("min_count"), 1)),
+            "max_count": max(1, safe_int(payload.get("max_count"), 1)),
             "lifetime": max(1, safe_int(payload.get("lifetime"), 1800)),
             "restock": max(0, safe_int(payload.get("restock"), 3600)),
             "saferadius": max(0, safe_int(payload.get("saferadius"), 0)),
@@ -11793,12 +11748,10 @@ def api_xml_workshop():
             "cleanupradius": max(0, safe_int(payload.get("cleanupradius"), 1500)),
             "lootmin": max(0, safe_int(payload.get("lootmin"), 40)),
             "lootmax": max(0, safe_int(payload.get("lootmax"), 40)),
-            "proto_max": max(0, safe_int(payload.get("proto_max"), 80)),
             "spawn_radius": max(1, safe_int(payload.get("spawn_radius"), 20)),
             "secondary_event": safe_dayz_class(payload.get("secondary_event")),
-            "usage_flags": [safe_dayz_class(item) for item in csv_list(payload.get("usage_flags")) if safe_dayz_class(item)],
-            "loot_categories": [safe_dayz_class(item) for item in csv_list(payload.get("loot_categories")) if safe_dayz_class(item)],
         })
+        record["max_count"] = max(record["min_count"], record["max_count"])
         record["generated_xml"] = build_airdrop_xml_package(record)
     elif kind == "player_loadout":
         record["role_ids"] = csv_list(payload.get("role_ids"))

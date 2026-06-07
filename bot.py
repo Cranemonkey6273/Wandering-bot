@@ -24452,12 +24452,12 @@ SCENARIO_SPAWN_PRESETS = {
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
     "military_crate": {"label": "Military loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
-    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
-    "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "loot_crate"},
-    "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "loot_crate"},
-    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
-    "survival_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
-    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "loot_crate"},
+    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "airdrop"},
+    "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "airdrop"},
+    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "survival_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
 
@@ -25233,6 +25233,66 @@ def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax
     return group_node
 
 
+STALE_AIRDROP_PROTO_CLASSES = {
+    "staticobj_misc_woodencrate_5x",
+    "woodencrate",
+    "supplycrate",
+    "crate",
+    "seachest",
+    "barrel_green",
+}
+
+
+def mapgroupproto_group_looks_like_old_airdrop_proto(group_node):
+    name = str(group_node.get("name") or "").strip().lower()
+    if name not in STALE_AIRDROP_PROTO_CLASSES:
+        return False
+    for value_node in group_node.findall("value"):
+        if str(value_node.get("name") or "").strip().lower() == "tier4":
+            return True
+    for container in group_node.findall("container"):
+        container_name = str(container.get("name") or "").strip().lower()
+        if container_name == "lootfloor" and container.findall("cargo"):
+            return True
+        categories = {
+            str(category.get("name") or "").strip().lower()
+            for category in container.findall("category")
+        }
+        if container_name == "lootfloor" and categories.intersection({"weapons", "explosives", "containers", "clothes", "food", "tools", "medicine", "vehiclesparts", "money"}):
+            return True
+    return False
+
+
+def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
+    removed_groups = 0
+    removed_values = 0
+    changed = False
+    if str(root.tag or "").strip().lower() == "mapgroupproto":
+        root.tag = "map"
+        changed = True
+    map_key = str(map_key or "").strip().lower()
+    bad_values = {"tier4"} if map_key in {"livonia", "enoch", "sakhal"} else set()
+
+    for group_node in list(root.findall("group")):
+        if CONSOLE_CE_EVENT_MARKER.lower() in str(group_node.get("name") or "").lower():
+            root.remove(group_node)
+            removed_groups += 1
+            changed = True
+            continue
+        if mapgroupproto_group_looks_like_old_airdrop_proto(group_node):
+            root.remove(group_node)
+            removed_groups += 1
+            changed = True
+            continue
+        for value_node in list(group_node.findall("value")):
+            if str(value_node.get("name") or "").strip().lower() in bad_values:
+                group_node.remove(value_node)
+                removed_values += 1
+                changed = True
+
+    return changed, removed_groups, removed_values
+
+
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     wanted = str(class_name or "").strip()
     if not wanted:
@@ -25250,63 +25310,35 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
         group_node.set("lootmax", target_lootmax)
         changed = True
 
-    # mapgroupproto.xml uses location usages such as Military/Town, while loot
-    # categories live inside a container block. Mixing those up makes CE reject
-    # the proto with "Unknown usage" and can leave airdrop groups unusable.
-    loot_categories = {"weapons", "explosives", "containers", "clothes"}
-    for usage in list(group_node.findall("usage")):
-        if str(usage.get("name") or "").strip().lower() in loot_categories:
-            group_node.remove(usage)
+    for value_node in list(group_node.findall("value")):
+        if str(value_node.get("name") or "").strip().lower() == "tier4":
+            group_node.remove(value_node)
             changed = True
-    if not group_node.findall("usage"):
-        ET.SubElement(group_node, "usage", {"name": "Military"})
-        changed = True
 
     for direct_category in list(group_node.findall("category")):
         group_node.remove(direct_category)
         changed = True
 
-    container = None
-    for candidate in group_node.findall("container"):
-        if str(candidate.get("name") or "").strip().lower() == "lootfloor":
-            container = candidate
-            break
-    if container is None:
-        container = ET.SubElement(group_node, "container", {"name": "lootFloor"})
-        changed = True
-    if str(container.get("lootmax") or "") != target_lootmax:
-        container.set("lootmax", target_lootmax)
-        changed = True
-
-    existing_categories = {
-        str(category.get("name") or "").strip().lower()
-        for category in container.findall("category")
-    }
-    for category in ("weapons", "explosives", "containers", "clothes"):
-        if category not in existing_categories:
-            ET.SubElement(container, "category", {"name": category})
+    for container in list(group_node.findall("container")):
+        if str(container.get("name") or "").strip().lower() == "lootfloor":
+            group_node.remove(container)
             changed = True
 
-    for candidate in group_node.findall("container"):
-        for misplaced_point in list(candidate.findall("point")):
-            candidate.remove(misplaced_point)
+    for usage in list(group_node.findall("usage")):
+        if str(usage.get("name") or "").strip().lower() in {"weapons", "explosives", "containers", "clothes"}:
+            group_node.remove(usage)
             changed = True
 
-    # Generic crate loot points. Specific modded objects can still use their existing proto.
+    if not group_node.findall("usage"):
+        ET.SubElement(group_node, "usage", {"name": "Military"})
+        changed = True
+
     if not group_node.findall("point"):
-        for x, y, z in [
-            ("0.059926", "5.902591", "1.225610"),
-            ("-0.540074", "5.902591", "1.225610"),
-            ("1.059926", "5.902591", "0.725610"),
-            ("1.059926", "5.902591", "-0.074390"),
-            ("-0.540074", "5.902591", "-1.274390"),
-            ("-1.240075", "5.902591", "0.325610"),
-        ]:
-            ET.SubElement(group_node, "point", {
-                "pos": f"{x} {y} {z}",
-                "range": "0.5",
-                "height": "0.5",
-            })
+        ET.SubElement(group_node, "point", {
+            "pos": "0 0 0",
+            "range": "0.5",
+            "height": "0.5",
+        })
         changed = True
     return group_node, changed
 
@@ -25662,7 +25694,7 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
         fallback_root = "eventgroupdef"
     elif key == "mapgroupproto_path":
         reference_parts = ("mapgroupproto.xml",)
-        fallback_root = "mapgroupproto"
+        fallback_root = "map"
     elif key == "cfgenvironment_path":
         reference_parts = ("cfgenvironment.xml",)
         fallback_root = "env"
@@ -25830,7 +25862,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
-    if eventgroup_records or cleanup_pending:
+    should_cleanup_group_files = bool(records) or cleanup_pending
+    if eventgroup_records or should_cleanup_group_files:
         eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
             config,
             guild_id,
@@ -25844,12 +25877,16 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             ""
         )
         eventgroups_root, eventgroups_parse_warning = parse_xml_root_or_new(eventgroups_text, "eventgroupdef")
-        mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "mapgroupproto")
+        mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "map")
         if eventgroups_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgeventgroups.xml: {eventgroups_parse_warning}")
         if mapgroupproto_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"mapgroupproto.xml: {mapgroupproto_parse_warning}")
         removed_groups = remove_wandering_ce_nodes(eventgroups_root)
+        proto_changed, removed_proto_groups, removed_proto_values = cleanup_stale_mapgroupproto_airdrop_nodes(
+            mapgroupproto_root,
+            server_map_key(guild_id),
+        )
         added_proto = 0
         for record in eventgroup_records:
             add_console_ce_event_group(
@@ -25862,10 +25899,12 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             _, created = add_mapgroupproto_loot_group(mapgroupproto_root, record["class_name"])
             if created:
                 added_proto += 1
-        output["eventgroups_path"] = resolved_eventgroups_path
-        output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
-        output["mapgroupproto_path"] = resolved_mapgroupproto_path
-        output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
+        if removed_groups or eventgroup_records or cleanup_pending:
+            output["eventgroups_path"] = resolved_eventgroups_path
+            output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
+        if proto_changed or added_proto or eventgroup_records or cleanup_pending:
+            output["mapgroupproto_path"] = resolved_mapgroupproto_path
+            output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
         output["messages"].append(eventgroups_source)
         output["messages"].append(mapgroupproto_source)
         for label, source in (("cfgeventgroups.xml", eventgroups_source), ("mapgroupproto.xml", mapgroupproto_source)):
@@ -25875,7 +25914,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         output["messages"].append(
             f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` crate group(s), removed `{removed_groups}` old Wandering Bot group(s)."
         )
-        output["messages"].append(f"Updated `mapgroupproto.xml` with `{added_proto}` new or repaired crate proto group(s).")
+        output["messages"].append(
+            f"Cleaned `mapgroupproto.xml`: removed `{removed_proto_groups}` stale airdrop proto group(s), "
+            f"`{removed_proto_values}` invalid map value(s), and added/repaired `{added_proto}` proto group(s)."
+        )
         if eventgroups_parse_warning:
             output["messages"].append(eventgroups_parse_warning)
         if mapgroupproto_parse_warning:
@@ -25924,7 +25966,7 @@ def validate_console_ce_xml_bundle(built):
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
-        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<mapgroupproto></mapgroupproto>").encode("utf-8"))
+        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<map></map>").encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
     except Exception as error:
         return False, [f"XML validation failed before upload: {error}"]
@@ -26162,15 +26204,6 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
-    cfgenvironment_ok = True
-    if built.get("cfgenvironment_text"):
-        cfgenvironment_ok, cfgenvironment_message = upload_text_file_to_nitrado(
-            config,
-            built["cfgenvironment_path"],
-            built["cfgenvironment_text"]
-        )
-        messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
-
     territory_ok = True
     for territory_file in built.get("animal_territory_files") or []:
         path = territory_file.get("path")
@@ -26182,6 +26215,22 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         one_ok, one_message = upload_text_file_to_nitrado(config, path, text)
         territory_ok = territory_ok and one_ok
         messages.append(f"`{os.path.basename(path)}`: {one_message}")
+
+    cfgenvironment_ok = True
+    if built.get("cfgenvironment_text"):
+        if territory_ok:
+            cfgenvironment_ok, cfgenvironment_message = upload_text_file_to_nitrado(
+                config,
+                built["cfgenvironment_path"],
+                built["cfgenvironment_text"]
+            )
+            messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
+        else:
+            cfgenvironment_ok = False
+            messages.append(
+                "`cfgenvironment.xml` upload skipped because one or more animal territory files failed to upload. "
+                "This prevents the server from referencing missing `env/wanderingbot_*_territories.xml` files."
+            )
 
     success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and territory_ok
     if success:
