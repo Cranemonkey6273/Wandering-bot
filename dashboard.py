@@ -276,6 +276,7 @@ PAGE_TEMPLATE = """
       }
       function scrollToForm(form) {
         if (!form) return;
+        form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "center"});
         var first = form.querySelector('input:not([type="hidden"]), select, textarea');
         if (first && first.focus) {
@@ -722,6 +723,10 @@ PAGE_TEMPLATE = """
     .notification small { display: block; color: var(--muted); margin-top: .15rem; }
     .row-between { display: flex; justify-content: space-between; gap: .8rem; align-items: center; flex-wrap: wrap; }
     .inline-actions { display: inline-flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
+    .dashboard-edit-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 40; width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--line)); border-radius: .65rem; padding: 1rem; background: color-mix(in srgb, var(--panel) 94%, #000); box-shadow: 0 24px 70px rgba(0,0,0,.64); }
+    .dashboard-edit-modal::before { content: "Edit"; position: sticky; top: -.2rem; display: block; margin: -.2rem 0 .7rem; color: var(--accent); font-weight: 900; font-size: 1.05rem; }
+    .admin-form:not(.dashboard-edit-modal) [data-dashboard-modal-close] { display: none; }
+    .modal-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .embed-preview { border-left: 4px solid var(--gold); border-radius: .45rem; background: #202126; padding: .85rem; color: #f4f4f5; }
     .embed-preview strong { display: block; color: #fff; margin-bottom: .25rem; }
@@ -1317,7 +1322,53 @@ PAGE_TEMPLATE = """
               {% endif %}
             {% endfor %}
           {% endif %}
-          <form id="embed-template-form" class="admin-form" method="post" action="/api/admin/embed-template" data-route="/api/admin/embed-template">
+          {% set edit_record_section = request.args.get('edit_record_section', '') %}
+          {% set edit_record_id = request.args.get('edit_record_id', '') %}
+          {% set edit_welcome = namespace(automation_id='', name='new-survivor-welcome', channel_key='', enabled='true', birthday_role_id='', send_hour='10:00', message='Welcome survivor. Read the rules, link your gamer tag, and good luck out there.') %}
+          {% set edit_utility = namespace(module='server_stats', enabled='true', channel_key='', limit=10, xp_per_message=15, cooldown_seconds=60, card_colour='#8d963e', background_url='', notes='Configure this module for this server.') %}
+          {% set edit_panel = namespace(panel_id='', name='server-roles', channel_key='', roles='Verified | yes | 1234567890\nTrader pings | coin | 1234567890\nEvent pings | bell | 1234567890') %}
+          {% if server and edit_record_section == 'welcome_automations' and edit_record_id %}
+            {% for automation in server.welcome_automations %}
+              {% set automation_id = automation.automation_id or automation.name %}
+              {% if automation_id == edit_record_id %}
+                {% set edit_welcome.automation_id = automation_id %}
+                {% set edit_welcome.name = automation.name or 'new-survivor-welcome' %}
+                {% set edit_welcome.channel_key = automation.channel_key or '' %}
+                {% set edit_welcome.enabled = 'true' if automation.enabled else 'false' %}
+                {% set edit_welcome.birthday_role_id = automation.birthday_role_id or '' %}
+                {% set edit_welcome.send_hour = automation.send_hour or '10:00' %}
+                {% set edit_welcome.message = automation.message or '' %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if server and edit_record_section == 'utility_configs' and edit_record_id %}
+            {% for utility in server.utility_configs %}
+              {% set utility_id = utility.module or utility.name %}
+              {% if utility_id == edit_record_id %}
+                {% set edit_utility.module = utility.module or utility.name or 'server_stats' %}
+                {% set edit_utility.enabled = 'true' if utility.enabled else 'false' %}
+                {% set edit_utility.channel_key = utility.channel_key or '' %}
+                {% set edit_utility.limit = utility.limit or 10 %}
+                {% set edit_utility.xp_per_message = utility.xp_per_message or 15 %}
+                {% set edit_utility.cooldown_seconds = utility.cooldown_seconds or 60 %}
+                {% set edit_utility.card_colour = utility.card_colour or '#8d963e' %}
+                {% set edit_utility.background_url = utility.background_url or '' %}
+                {% set edit_utility.notes = utility.notes or '' %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if server and edit_record_section == 'reaction_role_panels' and edit_record_id %}
+            {% for panel in server.reaction_role_panels %}
+              {% set panel_id = panel.panel_id or panel.name %}
+              {% if panel_id == edit_record_id %}
+                {% set edit_panel.panel_id = panel_id %}
+                {% set edit_panel.name = panel.name or 'server-roles' %}
+                {% set edit_panel.channel_key = panel.channel_key or '' %}
+                {% set edit_panel.roles = panel.roles or '' %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          <form id="embed-template-form" class="admin-form {% if edit_embed_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/embed-template" data-route="/api/admin/embed-template">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#embed-template-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1402,7 +1453,7 @@ PAGE_TEMPLATE = """
               <span>Title, description, colour, author, thumbnail/image, footer, custom fields, link button and trigger settings are saved together.</span>
               <small>Fields use: Name | Value | inline true/false</small>
             </div>
-            <div class="full"><button type="submit">Save Message</button> <span class="result muted"></span></div>
+            <div class="full modal-actions"><button type="submit">Save Message</button>{% if edit_embed_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#embed-template-form">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <div class="stack" style="margin-top:.75rem" data-embed-template-list>
             {% for template in (server.embed_templates if server else []) %}
@@ -1435,30 +1486,30 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Welcome, Goodbye & Birthday</h3>
-          <form id="welcome-automation-form" class="admin-form" method="post" action="/api/admin/welcome-automation" data-route="/api/admin/welcome-automation">
+          <form id="welcome-automation-form" class="admin-form {% if edit_record_section == 'welcome_automations' and edit_record_id %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/welcome-automation" data-route="/api/admin/welcome-automation">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#welcome-automation-form">
-            <input class="hidden-field" name="automation_id" value="">
+            <input class="hidden-field" name="automation_id" value="{{ edit_welcome.automation_id }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When should it send?
               <select name="name">
-                <option value="new-survivor-welcome">New survivor joins Discord</option>
-                <option value="member-goodbye">Member leaves Discord</option>
-                <option value="birthday">Member birthday</option>
-                <option value="first-time-seen">New gamertag appears in ADM</option>
-                <option value="returning-player">Returning player reconnects</option>
+                <option value="new-survivor-welcome" {% if edit_welcome.name == 'new-survivor-welcome' %}selected{% endif %}>New survivor joins Discord</option>
+                <option value="member-goodbye" {% if edit_welcome.name == 'member-goodbye' %}selected{% endif %}>Member leaves Discord</option>
+                <option value="birthday" {% if edit_welcome.name == 'birthday' %}selected{% endif %}>Member birthday</option>
+                <option value="first-time-seen" {% if edit_welcome.name == 'first-time-seen' %}selected{% endif %}>New gamertag appears in ADM</option>
+                <option value="returning-player" {% if edit_welcome.name == 'returning-player' %}selected{% endif %}>Returning player reconnects</option>
               </select>
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'welcome' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if (edit_welcome.channel_key and (channel.value == edit_welcome.channel_key or channel.id == edit_welcome.channel_key)) or (not edit_welcome.channel_key and channel.key == 'welcome') %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Assign birthday role ID <input name="birthday_role_id" placeholder="optional role id"></label>
-            <label>Send hour <input name="send_hour" value="10:00"></label>
-            <label class="full">Message <textarea name="message">Welcome survivor. Read the rules, link your gamer tag, and good luck out there.</textarea></label>
-            <div class="full"><button type="submit">Save Welcome</button> <span class="result muted"></span></div>
+            <label>Enabled <select name="enabled"><option value="true" {% if edit_welcome.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_welcome.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
+            <label>Assign birthday role ID <input name="birthday_role_id" value="{{ edit_welcome.birthday_role_id }}" placeholder="optional role id"></label>
+            <label>Send hour <input name="send_hour" value="{{ edit_welcome.send_hour }}"></label>
+            <label class="full">Message <textarea name="message">{{ edit_welcome.message }}</textarea></label>
+            <div class="full modal-actions"><button type="submit">Save Welcome</button>{% if edit_record_section == 'welcome_automations' and edit_record_id %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#welcome-automation-form">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="welcome_automations" data-empty-message="No saved welcome, goodbye or birthday automations for this server yet.">
             {% for automation in (server.welcome_automations if server else []) %}
@@ -1471,8 +1522,16 @@ PAGE_TEMPLATE = """
                   <small>{% if automation.send_hour %}Send hour: {{ automation.send_hour }}{% else %}Manual timing{% endif %}</small>
                 </div>
                 <div class="inline-actions">
-                  <button type="button" data-dashboard-record-edit data-form-id="welcome-automation-form">Edit</button>
-                  <button type="button" data-dashboard-record-delete data-section="welcome_automations" data-record-id="{{ automation_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete welcome automation {{ automation_id }}?">Delete</button>
+                  <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}&edit_record_section=welcome_automations&edit_record_id={{ automation_id|urlencode }}#welcome-automation-form" data-dashboard-record-edit data-form-id="welcome-automation-form">Edit</a>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/dashboard-record-action" data-route="/api/admin/dashboard-record-action" data-confirm="Delete welcome automation {{ automation_id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#welcome-automation-form">
+                    <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                    <input class="hidden-field" name="section" value="welcome_automations">
+                    <input class="hidden-field" name="record_id" value="{{ automation_id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit" data-dashboard-record-delete data-section="welcome_automations" data-record-id="{{ automation_id }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  </form>
                   <span class="result muted" data-dashboard-record-result></span>
                 </div>
               </div>
@@ -1485,36 +1544,36 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Utilities & Server Growth</h3>
-          <form id="utility-config-form" class="admin-form" method="post" action="/api/admin/utility-config" data-route="/api/admin/utility-config">
+          <form id="utility-config-form" class="admin-form {% if edit_record_section == 'utility_configs' and edit_record_id %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/utility-config" data-route="/api/admin/utility-config">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#utility-config-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Module
               <select name="module">
-                <option value="server_stats">Server statistics counters</option>
-                <option value="leveling">Leveling and XP</option>
-                <option value="profile_card">Custom profile/rank card</option>
-                <option value="giveaways">Giveaways</option>
-                <option value="birthdays">Birthday notifications</option>
-                <option value="custom_commands">Custom commands</option>
-                <option value="moderation">Moderation helpers</option>
-                <option value="invite_tracker">Invite tracker</option>
-                <option value="transcripts">Ticket transcripts</option>
+                <option value="server_stats" {% if edit_utility.module == 'server_stats' %}selected{% endif %}>Server statistics counters</option>
+                <option value="leveling" {% if edit_utility.module == 'leveling' %}selected{% endif %}>Leveling and XP</option>
+                <option value="profile_card" {% if edit_utility.module == 'profile_card' %}selected{% endif %}>Custom profile/rank card</option>
+                <option value="giveaways" {% if edit_utility.module == 'giveaways' %}selected{% endif %}>Giveaways</option>
+                <option value="birthdays" {% if edit_utility.module == 'birthdays' %}selected{% endif %}>Birthday notifications</option>
+                <option value="custom_commands" {% if edit_utility.module == 'custom_commands' %}selected{% endif %}>Custom commands</option>
+                <option value="moderation" {% if edit_utility.module == 'moderation' %}selected{% endif %}>Moderation helpers</option>
+                <option value="invite_tracker" {% if edit_utility.module == 'invite_tracker' %}selected{% endif %}>Invite tracker</option>
+                <option value="transcripts" {% if edit_utility.module == 'transcripts' %}selected{% endif %}>Ticket transcripts</option>
               </select>
             </label>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <label>Enabled <select name="enabled"><option value="true" {% if edit_utility.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_utility.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
             <label>Output channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if edit_utility.channel_key and (channel.value == edit_utility.channel_key or channel.id == edit_utility.channel_key) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label>Limit / max count <input name="limit" type="number" value="10"></label>
-            <label>XP per message <input name="xp_per_message" type="number" value="15"></label>
-            <label>Cooldown seconds <input name="cooldown_seconds" type="number" value="60"></label>
-            <label>Card accent colour <input name="card_colour" type="color" value="#8d963e"></label>
-            <label>Background image URL <input name="background_url" placeholder="https://..."></label>
-            <label class="full">Settings note <textarea name="notes">Configure this module for this server.</textarea></label>
-            <div class="full"><button type="submit">Save Utility</button> <span class="result muted"></span></div>
+            <label>Limit / max count <input name="limit" type="number" value="{{ edit_utility.limit }}"></label>
+            <label>XP per message <input name="xp_per_message" type="number" value="{{ edit_utility.xp_per_message }}"></label>
+            <label>Cooldown seconds <input name="cooldown_seconds" type="number" value="{{ edit_utility.cooldown_seconds }}"></label>
+            <label>Card accent colour <input name="card_colour" type="color" value="{{ edit_utility.card_colour }}"></label>
+            <label>Background image URL <input name="background_url" value="{{ edit_utility.background_url }}" placeholder="https://..."></label>
+            <label class="full">Settings note <textarea name="notes">{{ edit_utility.notes }}</textarea></label>
+            <div class="full modal-actions"><button type="submit">Save Utility</button>{% if edit_record_section == 'utility_configs' and edit_record_id %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#utility-config-form">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="utility_configs" data-empty-message="No saved utility modules for this server yet.">
             {% for utility in (server.utility_configs if server else []) %}
@@ -1527,8 +1586,16 @@ PAGE_TEMPLATE = """
                   <small>Limit: {{ utility.limit or 0 }} | XP: {{ utility.xp_per_message or 0 }} | Cooldown: {{ utility.cooldown_seconds or 0 }}s</small>
                 </div>
                 <div class="inline-actions">
-                  <button type="button" data-dashboard-record-edit data-form-id="utility-config-form">Edit</button>
-                  <button type="button" data-dashboard-record-delete data-section="utility_configs" data-record-id="{{ utility_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete utility module {{ utility_id }}?">Delete</button>
+                  <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}&edit_record_section=utility_configs&edit_record_id={{ utility_id|urlencode }}#utility-config-form" data-dashboard-record-edit data-form-id="utility-config-form">Edit</a>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/dashboard-record-action" data-route="/api/admin/dashboard-record-action" data-confirm="Delete utility module {{ utility_id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#utility-config-form">
+                    <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                    <input class="hidden-field" name="section" value="utility_configs">
+                    <input class="hidden-field" name="record_id" value="{{ utility_id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit" data-dashboard-record-delete data-section="utility_configs" data-record-id="{{ utility_id }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  </form>
                   <span class="result muted" data-dashboard-record-result></span>
                 </div>
               </div>
@@ -1541,28 +1608,26 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Reaction Roles</h3>
-          <form id="reaction-role-panel-form" class="admin-form" method="post" action="/api/admin/reaction-role-panel" data-route="/api/admin/reaction-role-panel">
+          <form id="reaction-role-panel-form" class="admin-form {% if edit_record_section == 'reaction_role_panels' and edit_record_id %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/reaction-role-panel" data-route="/api/admin/reaction-role-panel">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#reaction-role-panel-form">
-            <input class="hidden-field" name="panel_id" value="">
+            <input class="hidden-field" name="panel_id" value="{{ edit_panel.panel_id }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Panel type
               <select name="name">
-                <option value="server-roles">Server roles</option>
-                <option value="platform-roles">Platform roles</option>
-                <option value="event-pings">Event pings</option>
-                <option value="faction-alerts">Faction alert roles</option>
+                <option value="server-roles" {% if edit_panel.name == 'server-roles' %}selected{% endif %}>Server roles</option>
+                <option value="platform-roles" {% if edit_panel.name == 'platform-roles' %}selected{% endif %}>Platform roles</option>
+                <option value="event-pings" {% if edit_panel.name == 'event-pings' %}selected{% endif %}>Event pings</option>
+                <option value="faction-alerts" {% if edit_panel.name == 'faction-alerts' %}selected{% endif %}>Faction alert roles</option>
               </select>
             </label>
             <label>Post to channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if edit_panel.channel_key and (channel.value == edit_panel.channel_key or channel.id == edit_panel.channel_key) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label class="full">Role lines <textarea name="roles">Verified | yes | 1234567890
-Trader pings | coin | 1234567890
-Event pings | bell | 1234567890</textarea></label>
-            <div class="full"><button type="submit">Save Panel</button> <span class="result muted"></span></div>
+            <label class="full">Role lines <textarea name="roles">{{ edit_panel.roles }}</textarea></label>
+            <div class="full modal-actions"><button type="submit">Save Panel</button>{% if edit_record_section == 'reaction_role_panels' and edit_record_id %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#reaction-role-panel-form">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <div class="stack" style="margin-top:.75rem" data-dashboard-record-list data-section="reaction_role_panels" data-empty-message="No saved reaction role panels for this server yet.">
             {% for panel in (server.reaction_role_panels if server else []) %}
@@ -1576,8 +1641,16 @@ Event pings | bell | 1234567890</textarea></label>
                   <small>{{ panel_role_lines|length }} role line(s)</small>
                 </div>
                 <div class="inline-actions">
-                  <button type="button" data-dashboard-record-edit data-form-id="reaction-role-panel-form">Edit</button>
-                  <button type="button" data-dashboard-record-delete data-section="reaction_role_panels" data-record-id="{{ panel_id }}" data-guild-id="{{ server.guild_id if server else '' }}" data-confirm="Delete reaction role panel {{ panel_id }}?">Delete</button>
+                  <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}&edit_record_section=reaction_role_panels&edit_record_id={{ panel_id|urlencode }}#reaction-role-panel-form" data-dashboard-record-edit data-form-id="reaction-role-panel-form">Edit</a>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/dashboard-record-action" data-route="/api/admin/dashboard-record-action" data-confirm="Delete reaction role panel {{ panel_id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}#reaction-role-panel-form">
+                    <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                    <input class="hidden-field" name="section" value="reaction_role_panels">
+                    <input class="hidden-field" name="record_id" value="{{ panel_id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <button type="submit" data-dashboard-record-delete data-section="reaction_role_panels" data-record-id="{{ panel_id }}" data-guild-id="{{ server.guild_id if server else '' }}">Delete</button>
+                  </form>
                   <span class="result muted" data-dashboard-record-result></span>
                 </div>
               </div>
@@ -1626,7 +1699,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Faction</h3>
-          <form class="admin-form" method="post" action="/api/admin/faction" data-route="/api/admin/faction" id="faction-edit-form">
+          <form class="admin-form {% if edit_faction_name %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/faction" data-route="/api/admin/faction" id="faction-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=factions&guild_id={{ server.guild_id if server else '' }}#faction-edit-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1652,7 +1725,7 @@ Event pings | bell | 1234567890</textarea></label>
               </select>
             </label>
             <label>Colour <input name="colour" type="color" value="{{ edit_faction.colour }}"></label>
-            <div class="full"><button type="submit">{{ 'Update Faction' if edit_faction_name else 'Save Faction' }}</button> <span class="result muted">{% if edit_faction_name %}Editing {{ edit_faction.name }}.{% endif %}</span></div>
+            <div class="full modal-actions"><button type="submit">{{ 'Update Faction' if edit_faction_name else 'Save Faction' }}</button>{% if edit_faction_name %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=factions&guild_id={{ server.guild_id if server else '' }}#factions-radar">Close</a>{% endif %} <span class="result muted">{% if edit_faction_name %}Editing {{ edit_faction.name }}.{% endif %}</span></div>
           </form>
         </article>
         <article class="admin-panel">
@@ -1767,7 +1840,7 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
-          <form class="admin-form zone-builder-form" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
+          <form class="admin-form zone-builder-form {% if edit_zone_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="zone_id" value="{{ edit_zone.id }}">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
@@ -1845,6 +1918,7 @@ Event pings | bell | 1234567890</textarea></label>
             <div class="full zone-form-actions">
               <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
               <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
+              {% if edit_zone_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">Close</a>{% endif %}
               <span class="result muted"></span>
             </div>
           </form>
@@ -1983,6 +2057,30 @@ Event pings | bell | 1234567890</textarea></label>
     {% endif %}
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
+    {% set edit_event_key = request.args.get('edit_event', '') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='StaticObj_Misc_WoodenCrate_5x', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='false', guard_class='ZmbM_SoldierNormal', guard_count=0, guard_radius=35) %}
+    {% if server and edit_event_key %}
+      {% for event in server.scenario_events %}
+        {% if event.id|string == edit_event_key or event.name == edit_event_key %}
+          {% set edit_event.id = event.id %}
+          {% set edit_event.name = event.name %}
+          {% set edit_event.event_type = event.event_type %}
+          {% set edit_event.class_name = event.class_name %}
+          {% set edit_event.x = event.x %}
+          {% set edit_event.y = event.y %}
+          {% set edit_event.z = event.z %}
+          {% set edit_event.count = event.count %}
+          {% set edit_event.radius = event.radius %}
+          {% set edit_event.permanent = 'true' if event.permanent else 'false' %}
+          {% set edit_event.restarts = event.remaining_restarts %}
+          {% set edit_event.loot_preset = event.loot_preset or 'none' %}
+          {% set edit_event.visual_marker = 'true' if event.visual_marker else 'false' %}
+          {% set edit_event.guard_class = event.guard_class or '' %}
+          {% set edit_event.guard_count = event.guard_count or 0 %}
+          {% set edit_event.guard_radius = event.guard_radius or 35 %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <section class="section-panel" id="pve-workshop">
       <div class="section-head">
         <div>
@@ -2016,18 +2114,18 @@ Event pings | bell | 1234567890</textarea></label>
         </article>
         <article class="admin-panel">
           <h3>Airdrop / Spawn Event</h3>
-          <form class="admin-form" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event" id="scenario-event-form">
+          <form class="admin-form {% if edit_event_key %}dashboard-edit-modal{% endif %}" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event" id="scenario-event-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="event_id" value="">
+            <input class="hidden-field" name="event_id" value="{{ edit_event.id }}">
             <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
               <select name="event_type" data-scenario-type>
-                <option value="airdrop">Airdrop crate</option>
-                <option value="animal_pack">Animal pack</option>
-                <option value="zombie_horde">Zombie horde</option>
-                <option value="loot_crate">Loot crate</option>
-                <option value="vehicle_spawn">Vehicle spawn</option>
+                <option value="airdrop" {% if edit_event.event_type == 'airdrop' %}selected{% endif %}>Airdrop crate</option>
+                <option value="animal_pack" {% if edit_event.event_type == 'animal_pack' %}selected{% endif %}>Animal pack</option>
+                <option value="zombie_horde" {% if edit_event.event_type == 'zombie_horde' %}selected{% endif %}>Zombie horde</option>
+                <option value="loot_crate" {% if edit_event.event_type == 'loot_crate' %}selected{% endif %}>Loot crate</option>
+                <option value="vehicle_spawn" {% if edit_event.event_type == 'vehicle_spawn' %}selected{% endif %}>Vehicle spawn</option>
               </select>
             </label>
             <label>Spawn type
@@ -2055,13 +2153,13 @@ Event pings | bell | 1234567890</textarea></label>
                 <option value="custom">Custom classname</option>
               </select>
             </label>
-            <label>Event name <input name="name" placeholder="Optional display name"></label>
-            <label>Resolved spawn class <input name="class_name" value="StaticObj_Misc_WoodenCrate_5x" data-scenario-class readonly placeholder="Pick Custom classname to type manually"></label>
-            <label>X coordinate <input name="x" type="number" value="7500"></label>
-            <label>Z coordinate <input name="z" type="number" value="7500"></label>
-            <label>Y height <input name="y" type="number" value="0" placeholder="ignored by console CE XML"></label>
-            <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="1"></label>
-            <label>Spread radius <input name="radius" type="number" value="35"></label>
+            <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"></label>
+            <label>Resolved spawn class <input name="class_name" value="{{ edit_event.class_name }}" data-scenario-class readonly placeholder="Pick Custom classname to type manually"></label>
+            <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"></label>
+            <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"></label>
+            <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"></label>
+            <label>How many animals / crates / infected <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"></label>
+            <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"></label>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
               <input type="hidden" name="zombie_mix" data-zombie-mix-value>
@@ -2070,13 +2168,13 @@ Event pings | bell | 1234567890</textarea></label>
             </div>
             <label>Event length
               <select name="permanent">
-                <option value="false">One restart only</option>
-                <option value="true">Permanent until deleted</option>
+                <option value="false" {% if edit_event.permanent == 'false' %}selected{% endif %}>One restart only</option>
+                <option value="true" {% if edit_event.permanent == 'true' %}selected{% endif %}>Permanent until deleted</option>
               </select>
             </label>
-            <label>Runs for restarts <input name="restarts" type="number" value="1" placeholder="Used only for one-time events"></label>
+            <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
             <label>Loot preset
-              <select name="loot_preset"><option value="none">None</option><option value="military_high">Military high tier</option><option value="military_basic">Military basic</option><option value="medical">Medical</option><option value="survival">Survival</option><option value="building">Building</option><option value="food">Food</option><option value="vehicle_car">Vehicle kit</option><option value="vehicle_truck">Truck build kit</option></select>
+              <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
             </label>
             <label>Vehicle condition
               <select name="vehicle_condition"><option value="full">Full fuel, fluids, and common parts</option><option value="random_parts">Random common parts</option><option value="no_parts">Body only / missing parts</option></select>
@@ -2085,12 +2183,12 @@ Event pings | bell | 1234567890</textarea></label>
               <select name="vehicle_cargo_mode"><option value="normal_with_loot">Full vehicle with selected loot</option><option value="normal_no_loot">Full vehicle with no bot-added loot</option><option value="native_only">Use my server files only</option></select>
             </label>
             <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"></label>
-            <label>Visual marker <select name="visual_marker"><option value="false">Off</option><option value="true">On</option></select></label>
-            <label>Guard class <input name="guard_class" value="ZmbM_SoldierNormal" placeholder="optional infected guard classname"></label>
-            <label>Guard count <input name="guard_count" type="number" value="0"></label>
-            <label>Guard radius <input name="guard_radius" type="number" value="35"></label>
+            <label>Visual marker <select name="visual_marker"><option value="false" {% if edit_event.visual_marker == 'false' %}selected{% endif %}>Off</option><option value="true" {% if edit_event.visual_marker == 'true' %}selected{% endif %}>On</option></select></label>
+            <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
+            <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
+            <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
             <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Console events upload through events.xml and cfgeventspawns.xml, so no init.c access is needed. Counts are capped at 250 per event for server safety.</span></div>
-            <div class="full"><button type="submit">Save / Queue Event</button> <span class="result muted"></span></div>
+            <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
         </article>
@@ -2128,7 +2226,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <button type="button" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</button>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
                     {% for action, label in [('upload', 'Retry XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -2270,6 +2368,21 @@ Event pings | bell | 1234567890</textarea></label>
     {% endif %}
 
     {% if mode in ["admin", "owner"] and active_section == "shop" %}
+    {% set edit_shop_key = request.args.get('edit_shop', '') %}
+    {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailsBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids='', blocked_user_ids='') %}
+    {% if server and edit_shop_key %}
+      {% for item in server.shop_items %}
+        {% if item.name == edit_shop_key %}
+          {% set edit_shop.item_name = item.name %}
+          {% set edit_shop.price = item.price %}
+          {% set edit_shop.category = item.category %}
+          {% set edit_shop.enabled = 'true' if item.enabled else 'false' %}
+          {% set edit_shop.daily_limit = item.daily_limit or 0 %}
+          {% set edit_shop.allowed_role_ids = item.allowed_role_ids|join(',') if item.allowed_role_ids else '' %}
+          {% set edit_shop.blocked_user_ids = item.blocked_user_ids|join(',') if item.blocked_user_ids else '' %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
     <section class="section-panel" id="shop-control">
       <div class="section-head">
         <div>
@@ -2280,26 +2393,26 @@ Event pings | bell | 1234567890</textarea></label>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Edit Shop Item</h3>
-          <form class="admin-form" method="post" action="/api/admin/shop-item" data-route="/api/admin/shop-item" id="shop-edit-form">
+          <form class="admin-form {% if edit_shop_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/shop-item" data-route="/api/admin/shop-item" id="shop-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <label>Item name <input name="item_name" value="NailsBox"></label>
-            <label>Price <input name="price" type="number" value="100"></label>
+            <label>Item name <input name="item_name" value="{{ edit_shop.item_name }}"></label>
+            <label>Price <input name="price" type="number" value="{{ edit_shop.price }}"></label>
             <label>Category
               <select name="category">
-                <option value="Building">Building</option>
-                <option value="Weapons">Weapons</option>
-                <option value="Medical">Medical</option>
-                <option value="Food">Food</option>
-                <option value="Tools">Tools</option>
-                <option value="Clothing">Clothing</option>
-                <option value="General">General</option>
+                <option value="Building" {% if edit_shop.category == 'Building' %}selected{% endif %}>Building</option>
+                <option value="Weapons" {% if edit_shop.category == 'Weapons' %}selected{% endif %}>Weapons</option>
+                <option value="Medical" {% if edit_shop.category == 'Medical' %}selected{% endif %}>Medical</option>
+                <option value="Food" {% if edit_shop.category == 'Food' %}selected{% endif %}>Food</option>
+                <option value="Tools" {% if edit_shop.category == 'Tools' %}selected{% endif %}>Tools</option>
+                <option value="Clothing" {% if edit_shop.category == 'Clothing' %}selected{% endif %}>Clothing</option>
+                <option value="General" {% if edit_shop.category == 'General' %}selected{% endif %}>General</option>
               </select>
             </label>
-            <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
-            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
-            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
-            <div class="full"><button type="submit">Save Item</button> <span class="result muted"></span></div>
+            <label>Available <select name="enabled"><option value="true" {% if edit_shop.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_shop.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
+            <label>Daily purchase limit <input name="daily_limit" type="number" value="{{ edit_shop.daily_limit }}" placeholder="0 = server default"></label>
+            <label>Role IDs allowed <input name="allowed_role_ids" value="{{ edit_shop.allowed_role_ids }}" placeholder="optional comma-separated role IDs"></label>
+            <label class="full">Blocked player IDs <input name="blocked_user_ids" value="{{ edit_shop.blocked_user_ids }}" placeholder="optional comma-separated Discord user IDs"></label>
+            <div class="full modal-actions"><button type="submit">Save Item</button>{% if edit_shop_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}#shop-control">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
         </article>
         <article class="admin-panel">
@@ -2364,7 +2477,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
                 <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
-                <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
+                <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
               </tr>
               {% else %}
               <tr><td colspan="6">No shop items available.</td></tr>
@@ -2383,7 +2496,7 @@ Event pings | bell | 1234567890</textarea></label>
                 <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
                 <td>{{ item.price }}</td>
                 <td>{{ 'On' if item.enabled else 'Off' }}</td>
-                <td><button type="button" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</button></td>
+                <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
               </tr>
               {% endfor %}
             </tbody>
@@ -3339,6 +3452,7 @@ Event pings | bell | 1234567890</textarea></label>
       }
       function scrollToForm(form) {
         if (!form) return;
+        form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "center"});
         const first = form.querySelector('input:not([type="hidden"]), select, textarea');
         if (first) first.focus({preventScroll: true});
@@ -4684,6 +4798,7 @@ Event pings | bell | 1234567890</textarea></label>
       setFormControl(form, "fields_lines", embedFieldsToLines(embed.fields));
       const submit = form.querySelector('button[type="submit"]');
       if (submit) submit.textContent = "Save Message";
+      form.classList.add("dashboard-edit-modal");
       form.scrollIntoView({behavior: "smooth", block: "start"});
     }
     function syncEmptyEmbedTemplates(list) {
@@ -4803,6 +4918,7 @@ Event pings | bell | 1234567890</textarea></label>
         if (value && typeof value === "object") return;
         setFormControl(form, key, value);
       });
+      form.classList.add("dashboard-edit-modal");
       form.scrollIntoView({behavior: "smooth", block: "start"});
       const result = form.querySelector(".result");
       if (result) result.textContent = "Loaded for editing.";
@@ -5119,9 +5235,10 @@ Event pings | bell | 1234567890</textarea></label>
       });
     });
     document.querySelectorAll("[data-shop-edit]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
         const form = document.getElementById("shop-edit-form");
         if (!form) return;
+        event.preventDefault();
         form.elements.item_name.value = button.dataset.item || "";
         form.elements.price.value = button.dataset.price || 0;
         form.elements.category.value = button.dataset.category || "General";
@@ -5129,6 +5246,7 @@ Event pings | bell | 1234567890</textarea></label>
         form.elements.daily_limit.value = button.dataset.limit || 0;
         form.elements.allowed_role_ids.value = button.dataset.roles || "";
         form.elements.blocked_user_ids.value = button.dataset.blocked || "";
+        form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "center"});
         form.elements.price.focus();
       });
@@ -5176,9 +5294,10 @@ Event pings | bell | 1234567890</textarea></label>
       status?.addEventListener("change", filterEvents);
     });
     document.querySelectorAll("[data-scenario-edit]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
         const form = document.getElementById("scenario-event-form");
         if (!form) return;
+        event.preventDefault();
         form.elements.event_id.value = button.dataset.id || "";
         form.elements.name.value = button.dataset.name || "";
         form.elements.event_type.value = button.dataset.type || "airdrop";
@@ -5195,14 +5314,16 @@ Event pings | bell | 1234567890</textarea></label>
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
+        form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "start"});
         form.elements.class_name.focus();
       });
     });
     document.querySelectorAll("[data-faction-edit]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", (event) => {
         const form = document.getElementById("faction-edit-form");
         if (!form) return;
+        event.preventDefault();
         function chooseValue(select, value, fallbackLabel) {
           if (!select || value === undefined || value === null) return;
           const text = String(value || "").trim();
@@ -5229,6 +5350,7 @@ Event pings | bell | 1234567890</textarea></label>
         }
         const result = form.querySelector(".result");
         if (result) result.textContent = `Editing ${button.dataset.name || "faction"} now.`;
+        form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "center"});
         form.elements.name.focus();
       });
