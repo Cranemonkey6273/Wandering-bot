@@ -23,6 +23,7 @@ from threading import Thread
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import requests
 from flask import Flask, g, jsonify, make_response, redirect, render_template_string, request, send_file
 
 
@@ -3152,7 +3153,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>DayZ Map JSON Converter</h2>
-          <p class="tool-note">Upload a DayZ Editor JSON export and convert it into the three matching CE snippets: events, event spawns and event groups. This page only generates copy-ready XML and does not upload live server files.</p>
+          <p class="tool-note">Upload a DayZ Editor JSON export and convert it into the three matching CE snippets: events, event spawns and event groups. Generate first, then use guarded merge upload when you are ready to update the live server files.</p>
         </div>
       </div>
       <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/convert-dayz-xml" enctype="multipart/form-data">
@@ -3179,9 +3180,9 @@ PAGE_TEMPLATE = """
               <div class="mini-card"><span class="muted">Input</span><strong>Editor JSON</strong></div>
               <div class="mini-card"><span class="muted">Anchor</span><strong>First valid object</strong></div>
               <div class="mini-card"><span class="muted">Coords</span><strong>6 decimals max</strong></div>
-              <div class="mini-card"><span class="muted">Mode</span><strong>Copy only</strong></div>
+              <div class="mini-card"><span class="muted">Live</span><strong>Backup then merge</strong></div>
             </div>
-            <div class="embed-preview"><strong>Output files</strong><span>Copy each generated block into the matching DayZ XML file. Invalid objects are skipped with warnings instead of crashing the converter.</span></div>
+            <div class="embed-preview"><strong>Output files</strong><span>Copy each generated block or merge the named event/group into the matching live file. Invalid objects are skipped with warnings instead of crashing the converter.</span></div>
           </aside>
         </div>
         <div class="full xml-snippet-grid" data-tool-output-group hidden>
@@ -3198,6 +3199,26 @@ PAGE_TEMPLATE = """
             <textarea readonly data-tool-output="eventgroups_xml"></textarea>
           </div>
         </div>
+        <article class="admin-panel full" data-converter-inject-panel>
+          <h3>Guarded Merge Upload</h3>
+          <p class="tool-note">This downloads each live XML file, backs it up, replaces any matching event/group name, then uploads the merged file. It does not replace the whole file with a snippet.</p>
+          <div class="mini-grid">
+            <label>events.xml path
+              <input name="events_path" value="{{ ce_defaults.events_path }}">
+            </label>
+            <label>event spawns path
+              <input name="eventspawns_path" value="{{ ce_defaults.eventspawns_path }}">
+            </label>
+            <label>event groups path
+              <input name="eventgroups_path" value="{{ ce_defaults.eventgroups_path }}">
+            </label>
+          </div>
+          <div class="toolbar">
+            <button type="button" data-converter-inject>Merge Generated XML to Server</button>
+            <label class="check"><input type="checkbox" name="allow_create"> Create missing XML files if needed</label>
+            <span class="result muted" data-inject-result></span>
+          </div>
+        </article>
       </form>
     </section>
     {% endif %}
@@ -3331,11 +3352,19 @@ PAGE_TEMPLATE = """
             <label>Optional cfggameplay.json override
               <textarea name="cfggameplay_json" placeholder="Leave blank to let the bot create the correct cfggameplay.json"></textarea>
             </label>
+            <label>Server custom_loadout.json path
+              <input name="loadout_path" value="{{ ce_defaults.custom_loadout_path }}">
+            </label>
+            <label>Server cfggameplay.json path
+              <input name="cfggameplay_path" value="{{ ce_defaults.cfggameplay_path }}">
+            </label>
             <div class="toolbar">
               <button type="submit">Download Complete Server Package</button>
+              <button type="button" data-upload-loadout-package>Upload Package to Nitrado</button>
               <button type="button" data-copy-loadout-json>Copy Loadout JSON</button>
               <button type="button" data-reset-loadout>Reset</button>
             </div>
+            <label class="check"><input type="checkbox" name="allow_create" checked> Create missing files/folders if needed</label>
             <span class="result muted" data-package-result></span>
           </form>
         </aside>
@@ -3372,9 +3401,14 @@ PAGE_TEMPLATE = """
             <label>Set lifetime to <input type="number" name="lifetime_value" min="0" placeholder="leave blank to keep"></label>
             <label>Set restock to <input type="number" name="restock_value" min="0" placeholder="leave blank to keep"></label>
             <label>Set min to <input type="number" name="min_value" min="0" placeholder="leave blank to keep"></label>
+            <label class="full">Live server types.xml path
+              <input name="target_path" value="{{ ce_defaults.types_path }}">
+            </label>
             <div class="full toolbar">
               <button type="submit">Run Bulk Tweak</button>
               <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+              <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
+              <label class="check"><input type="checkbox" name="allow_create"> Create file if missing</label>
               <span class="result muted" data-tool-result></span>
             </div>
             <label class="full">Generated types.xml
@@ -3886,7 +3920,7 @@ PAGE_TEMPLATE = """
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
-    const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine"] else [])|tojson }};
+    const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     const DEFAULT_LOADOUT_SLOT = "Head";
     document.body.dataset.section = "{{ active_section }}";
@@ -5282,6 +5316,32 @@ PAGE_TEMPLATE = """
         resetVisualLoadout();
         return;
       }
+      const uploadPackage = event.target.closest("[data-upload-loadout-package]");
+      if (uploadPackage) {
+        const form = uploadPackage.closest("[data-loadout-package-form]");
+        if (!form) return;
+        event.preventDefault();
+        renderLoadoutState();
+        const originalText = uploadPackage.textContent;
+        uploadPackage.disabled = true;
+        uploadPackage.textContent = "Uploading...";
+        setLiveInjectionResult(form, "Validating, backing up and uploading package...", true);
+        const data = new FormData(form);
+        data.set("dashboard_mode", "{{ mode }}");
+        data.set("allow_create", form.elements.allow_create?.checked ? "true" : "false");
+        try {
+          const body = await postFormDataJson("/api/admin/loadout-package-inject", data);
+          setLiveInjectionResult(form, body.note || "Uploaded package with backup protection.", true);
+        } catch (error) {
+          setLiveInjectionResult(form, `Upload failed: ${error && error.message ? error.message : error}`, false);
+        } finally {
+          if (uploadPackage.isConnected) {
+            uploadPackage.disabled = false;
+            uploadPackage.textContent = originalText;
+          }
+        }
+        return;
+      }
       const copyLoadout = event.target.closest("[data-copy-loadout-json]");
       if (copyLoadout) {
         const output = copyLoadout.closest("[data-loadout-package-form]")?.querySelector("[data-loadout-json]");
@@ -5474,6 +5534,103 @@ PAGE_TEMPLATE = """
         }
       }
     }
+    function tokenizedRoute(routePath) {
+      const token = new URLSearchParams(window.location.search).get("token");
+      return token ? `${routePath}?token=${encodeURIComponent(token)}` : routePath;
+    }
+    function setLiveInjectionResult(root, message, ok) {
+      const result = root ? (root.querySelector("[data-inject-result]") || root.querySelector("[data-package-result]") || root.querySelector("[data-tool-result]")) : null;
+      if (!result) return;
+      result.classList.remove("success", "error");
+      result.classList.add(ok ? "success" : "error");
+      result.textContent = message || "";
+    }
+    async function postFormDataJson(routePath, data) {
+      const response = await fetch(secureDashboardUrl(tokenizedRoute(routePath)), {
+        method: "POST",
+        headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+        credentials: "same-origin",
+        body: data
+      });
+      let body = {};
+      try { body = await response.json(); } catch (error) {}
+      if (!response.ok || body.ok === false || body.success === false) throw new Error(body.error || "Upload rejected.");
+      return body;
+    }
+    async function uploadXmlOutput(button) {
+      const form = button.closest("form");
+      if (!form) return;
+      const key = button.dataset.outputKey || "generated_xml";
+      const output = toolOutputFor(form, key);
+      if (!output || !String(output.value || "").trim()) {
+        setLiveInjectionResult(form, "Generate XML first.", false);
+        return;
+      }
+      const targetPath = form.elements.target_path ? String(form.elements.target_path.value || "").trim() : "";
+      if (!targetPath) {
+        setLiveInjectionResult(form, "Set the live server path first.", false);
+        return;
+      }
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Uploading...";
+      setLiveInjectionResult(form, "Backing up and uploading...", true);
+      const data = new FormData();
+      data.set("guild_id", form.elements.guild_id?.value || "{{ server.guild_id if server else '' }}");
+      data.set("dashboard_mode", "{{ mode }}");
+      data.set("target_path", targetPath);
+      data.set("content", output.value);
+      data.set("file_kind", button.dataset.fileKind || "xml");
+      data.set("label", button.dataset.label || "server file");
+      data.set("allow_create", form.elements.allow_create?.checked ? "true" : "false");
+      try {
+        const body = await postFormDataJson("/api/admin/xml-inject", data);
+        setLiveInjectionResult(form, body.note || "Uploaded with backup protection.", true);
+      } catch (error) {
+        setLiveInjectionResult(form, `Upload failed: ${error && error.message ? error.message : error}`, false);
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      }
+    }
+    async function mergeGeneratedConverterXml(button) {
+      const form = button.closest("form");
+      if (!form) return;
+      const eventsXml = toolOutputFor(form, "events_xml")?.value || "";
+      const eventspawnsXml = toolOutputFor(form, "eventspawns_xml")?.value || "";
+      const eventgroupsXml = toolOutputFor(form, "eventgroups_xml")?.value || "";
+      if (!eventsXml.trim() || !eventspawnsXml.trim() || !eventgroupsXml.trim()) {
+        setLiveInjectionResult(form, "Generate the three XML snippets first.", false);
+        return;
+      }
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Merging...";
+      setLiveInjectionResult(form, "Downloading live files, backing up, then merging...", true);
+      const data = new FormData();
+      data.set("guild_id", form.elements.guild_id?.value || "{{ server.guild_id if server else '' }}");
+      data.set("dashboard_mode", "{{ mode }}");
+      data.set("events_xml", eventsXml);
+      data.set("eventspawns_xml", eventspawnsXml);
+      data.set("eventgroups_xml", eventgroupsXml);
+      data.set("events_path", form.elements.events_path?.value || "");
+      data.set("eventspawns_path", form.elements.eventspawns_path?.value || "");
+      data.set("eventgroups_path", form.elements.eventgroups_path?.value || "");
+      data.set("allow_create", form.elements.allow_create?.checked ? "true" : "false");
+      try {
+        const body = await postFormDataJson("/api/admin/dayz-converter-inject", data);
+        setLiveInjectionResult(form, body.note || "Merged with backup protection.", true);
+      } catch (error) {
+        setLiveInjectionResult(form, `Merge failed: ${error && error.message ? error.message : error}`, false);
+      } finally {
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      }
+    }
     document.addEventListener("submit", (event) => {
       const form = event.target && event.target.closest ? event.target.closest("[data-local-generator-form]") : null;
       if (!form) return;
@@ -5491,6 +5648,18 @@ PAGE_TEMPLATE = """
         } else {
           setToolResult(root, "Generate output first.", false);
         }
+        return;
+      }
+      const xmlInject = event.target.closest("[data-xml-inject]");
+      if (xmlInject) {
+        event.preventDefault();
+        uploadXmlOutput(xmlInject);
+        return;
+      }
+      const converterInject = event.target.closest("[data-converter-inject]");
+      if (converterInject) {
+        event.preventDefault();
+        mergeGeneratedConverterXml(converterInject);
         return;
       }
       const processButton = event.target.closest("[data-types-process]");
@@ -7024,6 +7193,9 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
     "/api/admin/loadout-package": "xml_workshop",
+    "/api/admin/loadout-package-inject": "xml_workshop",
+    "/api/admin/dayz-converter-inject": "xml_workshop",
+    "/api/admin/xml-inject": "xml_workshop",
     "/api/admin/vehicle-loadout-generate": "xml_workshop",
     "/api/admin/xml-workshop": "xml_workshop",
 }
@@ -7597,6 +7769,11 @@ DASHBOARD_AUDIT_IGNORED_KEYS = {
     "editor_json",
     "json_text",
     "xml_text",
+    "content",
+    "generated_xml",
+    "events_xml",
+    "eventspawns_xml",
+    "eventgroups_xml",
     "loadout_json",
     "cfggameplay_json",
 }
@@ -7631,10 +7808,13 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "shop-item-action": "Shop item updated",
         "theme": "Dashboard theme updated",
         "convert-dayz-xml": "DayZ map XML generated",
+        "dayz-converter-inject": "DayZ map XML merged to server",
         "loadout-generate": "Player loadout XML generated",
         "loadout-package": "Player loadout package downloaded",
+        "loadout-package-inject": "Player loadout package uploaded",
         "loot-bulk-tweak": "Bulk loot XML generated",
         "loot-tweak": "Loot XML generated",
+        "xml-inject": "XML file uploaded to server",
         "utility-config": "Utility panel saved",
         "utility-config-action": "Utility panel updated",
         "vehicle-loadout-generate": "Vehicle loadout XML generated",
@@ -8203,6 +8383,389 @@ def sanitize_xml_boolean_flags(xml_text: str) -> str:
         )
 
     return re.sub(r"<flags\b[^>]*/?>", tag_replacer, str(xml_text or ""), flags=re.IGNORECASE)
+
+
+def dashboard_canonical_remote_path(path: Any) -> str:
+    clean = str(path or "").replace("\\", "/").strip().strip("`'\"<>")
+    if not clean:
+        return ""
+    clean = re.sub(r"/+", "/", clean)
+    if not clean.startswith("/"):
+        clean = "/" + clean
+    for root in ("dayzxb_missions", "dayzps_missions", "dayz_missions"):
+        clean = re.sub(rf"(/(?:{root}))(?:/{root})+/", r"\1/", clean)
+    for root in ("dayzxb", "dayzps", "dayz"):
+        clean = re.sub(rf"(/(?:{root}))(?:/{root})+/", r"\1/", clean)
+    return clean.rstrip("/") or "/"
+
+
+def validate_dashboard_remote_path(path: Any) -> str:
+    clean = dashboard_canonical_remote_path(path)
+    if not clean or clean == "/":
+        raise ValueError("Remote server path is required.")
+    if "\x00" in clean or re.search(r"[\r\n\t]", clean):
+        raise ValueError("Remote server path contains hidden control characters.")
+    if ".." in clean.split("/"):
+        raise ValueError("Remote server path cannot contain .. segments.")
+    suffix = clean.rsplit("/", 1)[-1].lower()
+    if not re.search(r"\.(xml|json|txt|c)$", suffix):
+        raise ValueError("Remote server path must target a .xml, .json, .txt or .c file.")
+    return clean
+
+
+def normalize_dashboard_server_platform(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    if text in {"ps", "ps4", "ps5", "playstation", "dayzps"}:
+        return "playstation"
+    if text in {"pc", "steam", "windows", "dayzpc"}:
+        return "pc"
+    return "xbox"
+
+
+def dashboard_server_map_key(config: dict[str, Any] | None) -> str:
+    config = config if isinstance(config, dict) else {}
+    configured = str(config.get("server_map") or config.get("map") or "").strip().lower()
+    guild_name = str(config.get("guild_name") or "").strip().lower()
+    text = configured or guild_name
+    if any(term in text for term in ("livonia", "livo", "enoch")):
+        return "livonia"
+    if "sakhal" in text:
+        return "sakhal"
+    return "chernarus"
+
+
+def dashboard_mission_folder_for_map(map_key: str) -> str:
+    if map_key == "livonia":
+        return "dayzOffline.enoch"
+    if map_key == "sakhal":
+        return "dayzOffline.sakhal"
+    return "dayzOffline.chernarusplus"
+
+
+def dashboard_mission_root_for_platform(platform_key: str) -> str:
+    platform_key = normalize_dashboard_server_platform(platform_key)
+    if platform_key == "playstation":
+        return "/dayzps_missions"
+    if platform_key == "pc":
+        return "/mpmissions"
+    return "/dayzxb_missions"
+
+
+def dashboard_default_ce_paths(config: dict[str, Any] | None) -> dict[str, str]:
+    config = config if isinstance(config, dict) else {}
+    map_key = dashboard_server_map_key(config)
+    mission_folder = dashboard_mission_folder_for_map(map_key)
+    platform_key = normalize_dashboard_server_platform(config.get("server_platform") or config.get("platform"))
+    root = dashboard_mission_root_for_platform(platform_key)
+    return {
+        "events_path": f"{root}/{mission_folder}/db/events.xml",
+        "eventspawns_path": f"{root}/{mission_folder}/cfgeventspawns.xml",
+        "eventgroups_path": f"{root}/{mission_folder}/cfgeventgroups.xml",
+        "types_path": f"{root}/{mission_folder}/db/types.xml",
+        "cfggameplay_path": f"{root}/{mission_folder}/cfggameplay.json",
+        "custom_loadout_path": f"{root}/{mission_folder}/custom/custom_loadout.json",
+    }
+
+
+def dashboard_is_noftp_dayz_path(path: Any) -> bool:
+    clean = dashboard_canonical_remote_path(path)
+    prefixes = (
+        "/dayz/",
+        "/dayz_missions",
+        "/dayz_missions/",
+        "/dayzps/",
+        "/dayzps_missions",
+        "/dayzps_missions/",
+        "/dayzxb/",
+        "/dayzxb_missions",
+        "/dayzxb_missions/",
+        "/dayzserver/",
+        "/dayzxbserver/",
+        "/mpmissions/",
+    )
+    return any(clean == prefix.rstrip("/") or clean.startswith(prefix) for prefix in prefixes)
+
+
+def dashboard_nitrado_api_headers(config: dict[str, Any]) -> dict[str, str] | None:
+    token = config.get("nitrado_token")
+    if not token:
+        return None
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+
+def dashboard_nitrado_api_service_url(config: dict[str, Any], endpoint: str) -> str | None:
+    service_id = config.get("service_id")
+    if not service_id:
+        return None
+    endpoint = str(endpoint or "").lstrip("/")
+    return f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/{endpoint}"
+
+
+def dashboard_nitrado_api_file_path(config: dict[str, Any], target_path: Any) -> str:
+    clean = dashboard_canonical_remote_path(target_path)
+    if not clean:
+        return clean
+    if clean.startswith("/games/"):
+        return clean
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if nitrado_user and dashboard_is_noftp_dayz_path(clean):
+        return f"/games/{nitrado_user}/noftp{clean}"
+    if nitrado_user and clean.startswith("/noftp/"):
+        return f"/games/{nitrado_user}{clean}"
+    return clean
+
+
+def dashboard_nitrado_api_file_path_candidates(config: dict[str, Any], target_path: Any) -> list[str]:
+    clean = dashboard_canonical_remote_path(target_path)
+    if not clean:
+        return []
+    candidates = [dashboard_nitrado_api_file_path(config, clean), clean]
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if nitrado_user:
+        if dashboard_is_noftp_dayz_path(clean):
+            candidates.extend([
+                f"/games/{nitrado_user}/noftp{clean}",
+                f"/games/{nitrado_user}{clean}",
+            ])
+        elif clean.startswith("/noftp/"):
+            candidates.append(f"/games/{nitrado_user}{clean}")
+    out: list[str] = []
+    for candidate in candidates:
+        candidate = dashboard_canonical_remote_path(candidate)
+        if candidate and candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def dashboard_split_remote_file_path(target_path: Any) -> tuple[str, str]:
+    clean = dashboard_canonical_remote_path(target_path)
+    folder = os.path.dirname(clean) or "/"
+    name = os.path.basename(clean)
+    return folder, name
+
+
+def dashboard_nitrado_api_token_payload(data: dict[str, Any]) -> tuple[str | None, str | None]:
+    token_data = data.get("token") or data.get("data", {}).get("token") or {}
+    token_url = token_data.get("url") or data.get("url")
+    token_value = token_data.get("token") or data.get("token")
+    if isinstance(token_value, dict):
+        token_value = token_value.get("token")
+    return token_url, token_value
+
+
+def dashboard_download_text_file_from_nitrado(config: dict[str, Any], target_path: Any) -> tuple[bool, str, str | None]:
+    headers = dashboard_nitrado_api_headers(config)
+    url = dashboard_nitrado_api_service_url(config, "download")
+    if not headers or not url:
+        return False, "Nitrado API token or service ID is missing.", None
+    attempts: list[str] = []
+    try:
+        for api_path in dashboard_nitrado_api_file_path_candidates(config, target_path):
+            for param_name in ("file", "path"):
+                response = requests.get(url, headers=headers, params={param_name: api_path}, timeout=15)
+                if response.status_code != 200:
+                    attempts.append(f"{param_name}={api_path}: {response.status_code} {response.text[:160]}")
+                    continue
+                token_url, token_value = dashboard_nitrado_api_token_payload(response.json().get("data", response.json()))
+                if not token_url:
+                    attempts.append(f"{param_name}={api_path}: no download URL")
+                    continue
+                file_response = requests.get(
+                    token_url,
+                    params={"token": token_value} if token_value else None,
+                    timeout=20,
+                )
+                if file_response.status_code != 200:
+                    attempts.append(f"{param_name}={api_path}: file {file_response.status_code} {file_response.text[:160]}")
+                    continue
+                content = file_response.content.decode("utf-8-sig", errors="replace")
+                return True, f"Downloaded `{api_path}`.", content
+    except Exception as error:
+        return False, f"Nitrado API download failed: {error}", None
+    return False, "Nitrado API download failed for all path variants: " + "; ".join(attempts[-6:]), None
+
+
+def dashboard_ensure_nitrado_api_folder(config: dict[str, Any], folder: Any) -> None:
+    headers = dashboard_nitrado_api_headers(config)
+    url = dashboard_nitrado_api_service_url(config, "mkdir")
+    if not headers or not url:
+        return
+    folder = dashboard_nitrado_api_file_path(config, folder)
+    parent = os.path.dirname(folder.rstrip("/")) or "/"
+    name = os.path.basename(folder.rstrip("/"))
+    if not name:
+        return
+    try:
+        requests.post(url, headers=headers, data={"path": parent, "name": name}, timeout=20)
+    except Exception:
+        pass
+
+
+def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: Any, text_content: Any) -> tuple[bool, str]:
+    headers = dashboard_nitrado_api_headers(config)
+    url = dashboard_nitrado_api_service_url(config, "upload")
+    if not headers or not url:
+        return False, "Nitrado API token or service ID is missing."
+    api_target_path = dashboard_nitrado_api_file_path(config, target_path)
+    folder, name = dashboard_split_remote_file_path(api_target_path)
+    if not name:
+        return False, "Remote file name is missing."
+    try:
+        dashboard_ensure_nitrado_api_folder(config, folder)
+        token_response = requests.post(url, headers=headers, data={"path": folder, "file": name}, timeout=20)
+        if token_response.status_code not in (200, 201):
+            return False, f"Nitrado upload token failed with status {token_response.status_code}: {token_response.text[:300]}"
+        token_url, token_value = dashboard_nitrado_api_token_payload(token_response.json().get("data", token_response.json()))
+        if not token_url or not token_value:
+            return False, "Nitrado API did not return an upload URL/token."
+        upload_response = requests.post(
+            token_url,
+            headers={"content-type": "application/binary", "token": token_value},
+            data=str(text_content or "").encode("utf-8"),
+            timeout=30,
+        )
+        if upload_response.status_code not in (200, 201, 204):
+            return False, f"Nitrado file upload failed with status {upload_response.status_code}: {upload_response.text[:300]}"
+        return True, "Uploaded successfully via Nitrado API."
+    except Exception as error:
+        return False, f"Nitrado API upload failed: {error}"
+
+
+def validate_live_injection_content(file_kind: Any, text: Any, label: str) -> str:
+    kind = str(file_kind or "").strip().lower()
+    content = str(text or "").strip()
+    if not content:
+        raise ValueError(f"{label} content is empty.")
+    if kind == "json":
+        parsed = parse_strict_dashboard_json(content, label)
+        return json.dumps(parsed, indent=2, ensure_ascii=False) + "\n"
+    if kind == "xml":
+        content = sanitize_xml_boolean_flags(content)
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError as error:
+            raise ValueError(f"{label} XML failed validation: {error}") from error
+        if root.tag == "types":
+            validate_types_xml_flags(root)
+        return content if content.endswith("\n") else content + "\n"
+    raise ValueError("Unsupported live injection file kind.")
+
+
+def guarded_dashboard_file_injection(
+    config: dict[str, Any],
+    target_path: Any,
+    text_content: Any,
+    *,
+    file_kind: str,
+    label: str,
+    allow_create: bool = False,
+) -> dict[str, Any]:
+    remote_path = validate_dashboard_remote_path(target_path)
+    safe_text = validate_live_injection_content(file_kind, text_content, label)
+    exists, download_message, existing_text = dashboard_download_text_file_from_nitrado(config, remote_path)
+    missing_file = any(term in str(download_message).lower() for term in ("404", "not found", "does not exist", "no such file"))
+    backup_path = ""
+    if exists and existing_text is not None:
+        stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        backup_path = f"{remote_path}.wanderingbot-backup-{stamp}"
+        backup_ok, backup_message = dashboard_upload_text_file_to_nitrado(config, backup_path, existing_text)
+        if not backup_ok:
+            raise ValueError(f"Backup failed before upload: {backup_message}")
+    elif not allow_create or not missing_file:
+        raise ValueError(f"Live file was not found, so upload was stopped: {download_message}")
+
+    upload_ok, upload_message = dashboard_upload_text_file_to_nitrado(config, remote_path, safe_text)
+    if not upload_ok:
+        raise ValueError(upload_message)
+    return {
+        "path": remote_path,
+        "backup_path": backup_path,
+        "created": not exists,
+        "message": upload_message,
+    }
+
+
+def serialize_xml_root(root: ET.Element, *, xml_declaration: bool = True) -> str:
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+    body = ET.tostring(root, encoding="unicode")
+    if not xml_declaration:
+        return body if body.endswith("\n") else body + "\n"
+    return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + body + "\n"
+
+
+def merge_named_xml_child(existing_text: str | None, snippet_text: Any, *, root_tag: str, child_tag: str, label: str) -> tuple[str, str]:
+    snippet = str(snippet_text or "").strip()
+    if not snippet:
+        raise ValueError(f"{label} snippet is empty.")
+    try:
+        child = ET.fromstring(snippet)
+    except ET.ParseError as error:
+        raise ValueError(f"{label} snippet failed validation: {error}") from error
+    if child.tag != child_tag:
+        raise ValueError(f"{label} must be a <{child_tag}> snippet, not <{child.tag}>.")
+    name = str(child.get("name") or "").strip()
+    if not name:
+        raise ValueError(f"{label} snippet is missing a name attribute.")
+
+    existing = str(existing_text or "").strip()
+    if existing:
+        try:
+            root = ET.fromstring(existing)
+        except ET.ParseError as error:
+            raise ValueError(f"Live {label} XML failed validation before merge: {error}") from error
+        if root.tag != root_tag:
+            raise ValueError(f"Live {label} root must be <{root_tag}>, not <{root.tag}>.")
+    else:
+        root = ET.Element(root_tag)
+
+    replaced = False
+    for node in list(root):
+        if node.tag == child_tag and str(node.get("name") or "") == name:
+            root.remove(node)
+            replaced = True
+    root.append(child)
+    return serialize_xml_root(root), ("replaced" if replaced else "added")
+
+
+def guarded_dashboard_xml_merge(
+    config: dict[str, Any],
+    target_path: Any,
+    snippet_text: Any,
+    *,
+    root_tag: str,
+    child_tag: str,
+    label: str,
+    allow_create: bool = False,
+) -> dict[str, Any]:
+    remote_path = validate_dashboard_remote_path(target_path)
+    exists, download_message, existing_text = dashboard_download_text_file_from_nitrado(config, remote_path)
+    missing_file = any(term in str(download_message).lower() for term in ("404", "not found", "does not exist", "no such file"))
+    if not exists and (not allow_create or not missing_file):
+        raise ValueError(f"Live {label} file was not found, so merge was stopped: {download_message}")
+    merged_text, action = merge_named_xml_child(existing_text if exists else None, snippet_text, root_tag=root_tag, child_tag=child_tag, label=label)
+    backup_path = ""
+    if exists and existing_text is not None:
+        stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        backup_path = f"{remote_path}.wanderingbot-backup-{stamp}"
+        backup_ok, backup_message = dashboard_upload_text_file_to_nitrado(config, backup_path, existing_text)
+        if not backup_ok:
+            raise ValueError(f"Backup failed before merge upload: {backup_message}")
+    upload_ok, upload_message = dashboard_upload_text_file_to_nitrado(config, remote_path, merged_text)
+    if not upload_ok:
+        raise ValueError(upload_message)
+    return {
+        "path": remote_path,
+        "backup_path": backup_path,
+        "created": not exists,
+        "merge_action": action,
+        "message": upload_message,
+    }
 
 
 def split_class_list(value: Any, limit: int = 80) -> list[str]:
@@ -10213,6 +10776,7 @@ def page(mode: str, auth: dict[str, Any]):
     xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
+    ce_defaults = dashboard_default_ce_paths(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -10228,7 +10792,8 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
-        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine"} and isinstance(selected_server, dict) else []),
+        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []),
+        ce_defaults=ce_defaults,
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
@@ -10933,6 +11498,142 @@ def api_loadout_package():
         as_attachment=True,
         download_name="MyDayZServerSettings.zip",
     )
+
+
+def dashboard_config_from_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
+    if not isinstance(config, dict):
+        raise ValueError("No server config was found for this dashboard session.")
+    return guild_id, config
+
+
+@APP.post("/api/admin/xml-inject")
+def api_xml_inject():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    try:
+        _guild_id, config = dashboard_config_from_payload(payload)
+        result = guarded_dashboard_file_injection(
+            config,
+            payload.get("target_path"),
+            payload.get("content") or payload.get("generated_xml"),
+            file_kind=str(payload.get("file_kind") or "xml"),
+            label=str(payload.get("label") or "server file"),
+            allow_create=safe_bool(payload.get("allow_create"), False),
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({
+        "ok": True,
+        "success": True,
+        "result": result,
+        "note": f"Uploaded {result['path']} with backup protection.",
+    })
+
+
+@APP.post("/api/admin/loadout-package-inject")
+def api_loadout_package_inject():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    try:
+        _guild_id, config = dashboard_config_from_payload(payload)
+        defaults = dashboard_default_ce_paths(config)
+        loadout_payload = parse_strict_dashboard_json(str(payload.get("loadout_json") or ""), "custom_loadout.json")
+        if not isinstance(loadout_payload, dict):
+            raise ValueError("custom_loadout.json must be a JSON object.")
+        player_data = loadout_payload.get("PlayerData")
+        if not isinstance(player_data, dict) or not isinstance(player_data.get("SpawnGear"), dict):
+            raise ValueError("custom_loadout.json must include PlayerData.SpawnGear.")
+        cfg_text = str(payload.get("cfggameplay_json") or "").strip()
+        cfg_payload = parse_strict_dashboard_json(cfg_text, "cfggameplay.json") if cfg_text else None
+        cfggameplay = normalize_cfggameplay_for_loadout(cfg_payload)
+        loadout_text = json.dumps(loadout_payload, indent=2, ensure_ascii=False) + "\n"
+        cfggameplay_text = json.dumps(cfggameplay, indent=2, ensure_ascii=False) + "\n"
+        allow_create = safe_bool(payload.get("allow_create"), True)
+        uploads = [
+            guarded_dashboard_file_injection(
+                config,
+                payload.get("loadout_path") or defaults["custom_loadout_path"],
+                loadout_text,
+                file_kind="json",
+                label="custom_loadout.json",
+                allow_create=allow_create,
+            ),
+            guarded_dashboard_file_injection(
+                config,
+                payload.get("cfggameplay_path") or defaults["cfggameplay_path"],
+                cfggameplay_text,
+                file_kind="json",
+                label="cfggameplay.json",
+                allow_create=allow_create,
+            ),
+        ]
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({
+        "ok": True,
+        "success": True,
+        "uploads": uploads,
+        "note": "Uploaded custom loadout and cfggameplay.json with backup protection.",
+    })
+
+
+@APP.post("/api/admin/dayz-converter-inject")
+def api_dayz_converter_inject():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    try:
+        _guild_id, config = dashboard_config_from_payload(payload)
+        defaults = dashboard_default_ce_paths(config)
+        allow_create = safe_bool(payload.get("allow_create"), False)
+        uploads = [
+            guarded_dashboard_xml_merge(
+                config,
+                payload.get("events_path") or defaults["events_path"],
+                payload.get("events_xml"),
+                root_tag="events",
+                child_tag="event",
+                label="events.xml",
+                allow_create=allow_create,
+            ),
+            guarded_dashboard_xml_merge(
+                config,
+                payload.get("eventspawns_path") or defaults["eventspawns_path"],
+                payload.get("eventspawns_xml"),
+                root_tag="eventposdef",
+                child_tag="event",
+                label="cfgeventspawns.xml",
+                allow_create=allow_create,
+            ),
+            guarded_dashboard_xml_merge(
+                config,
+                payload.get("eventgroups_path") or defaults["eventgroups_path"],
+                payload.get("eventgroups_xml"),
+                root_tag="eventgroupdef",
+                child_tag="group",
+                label="cfgeventgroups.xml",
+                allow_create=allow_create,
+            ),
+        ]
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({
+        "ok": True,
+        "success": True,
+        "uploads": uploads,
+        "note": "Merged DayZ event XML into live server files with backup protection.",
+    })
 
 
 @APP.post("/api/admin/xml-workshop")
