@@ -18581,6 +18581,71 @@ def nitrado_gameserver_action(config, action):
         return False, f"Nitrado {action} failed: {error}"
 
 
+def _flatten_status_values(value):
+    values = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in {"status", "status_text", "state", "server_status", "query"}:
+                values.extend(_flatten_status_values(item))
+            elif isinstance(item, (dict, list, tuple)):
+                values.extend(_flatten_status_values(item))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            values.extend(_flatten_status_values(item))
+    elif value is not None:
+        values.append(str(value))
+    return values
+
+
+def nitrado_gameserver_status(config):
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    if not token or not service_id:
+        return False, "Missing nitrado_token / service_id."
+    try:
+        response = requests.get(
+            f"https://api.nitrado.net/services/{service_id}/gameservers",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+        if response.status_code != 200:
+            return False, f"Nitrado status failed ({response.status_code}): {response.text[:180]}"
+        data = response.json().get("data", {})
+        gameserver = data.get("gameserver", data)
+        values = _flatten_status_values(gameserver)
+        status_text = " ".join(value for value in values if value).strip()
+        return True, status_text or "Nitrado status returned no readable state."
+    except Exception as error:
+        return False, f"Nitrado status failed: {error}"
+
+
+def nitrado_status_looks_online(status_text):
+    text = str(status_text or "").lower()
+    if any(word in text for word in {"offline", "stopped", "stopping", "restarting", "suspended", "installing"}):
+        return False
+    return any(word in text for word in {"online", "started", "running", "active"})
+
+
+async def wait_for_nitrado_gameserver_online(config):
+    try:
+        timeout_seconds = int(config.get("vehicle_reset_server_online_wait_seconds", 600) or 600)
+    except Exception:
+        timeout_seconds = 600
+    timeout_seconds = max(60, min(1800, timeout_seconds))
+    poll_seconds = 30
+    deadline = datetime.now(UTC) + timedelta(seconds=timeout_seconds)
+    last_message = "No status poll has run yet."
+
+    while datetime.now(UTC) < deadline:
+        ok, status_message = await asyncio.to_thread(nitrado_gameserver_status, config)
+        last_message = status_message
+        if ok and nitrado_status_looks_online(status_message):
+            return True, f"Server appears online: {status_message[:180]}"
+        await asyncio.sleep(poll_seconds)
+
+    return False, f"Server online status was not confirmed after {timeout_seconds}s. Last status: {last_message[:180]}"
+
+
 def build_messages_xml_from_config(config):
     root = ET.Element("messages")
     messages = config.get("onscreen_messages") or {}
@@ -20047,11 +20112,17 @@ async def scheduled_restart_loop():
                         if queued_reset:
                             print(f"SCHEDULED VEHICLE RESET QUEUED BEFORE RESTART {guild_id}: {queued_reset.get('id')}")
 
+                        cfgignorelist_events_before = list(active_cfgignorelist_vehicle_reset_events(config))
+                        cfgignorelist_has_immediate_cycle = any(
+                            not is_scheduled_cfgignorelist_vehicle_reset(event)
+                            for event in cfgignorelist_events_before
+                        )
                         cfgignorelist_results = await process_cfgignorelist_vehicle_reset_events(guild_id, config)
                         if cfgignorelist_results:
                             for ok, message in cfgignorelist_results:
                                 print(f"CFGIGNORELIST VEHICLE RESET {guild_id}: ok={ok} {message}")
-                            continue
+                            if cfgignorelist_has_immediate_cycle:
+                                continue
 
                         economy_results = await process_economy_vehicle_reset_events(guild_id, config)
                         if economy_results:
@@ -26295,6 +26366,83 @@ def build_vehicle_cfgignorelist_xml(original_text, vehicle_classes):
     return True, f"Prepared cfgignorelist.xml with {len(vehicle_classes)} vehicle class(es), adding {added}.", xml_text
 
 
+def scheduled_vehicle_reset_preflight_seconds(config):
+    try:
+        minutes = int(config.get("vehicle_reset_preflight_minutes", 15) or 15)
+    except Exception:
+        minutes = 15
+    return max(2, min(120, minutes)) * 60
+
+
+def scheduled_vehicle_reset_restore_delay_seconds(config):
+    try:
+        seconds = int(config.get("vehicle_reset_post_restart_restore_delay_seconds", 300) or 300)
+    except Exception:
+        seconds = 300
+    return max(60, min(3600, seconds))
+
+
+def cfgignorelist_vehicle_reset_backup_path(path):
+    path = str(path or "").replace("\\", "/").strip()
+    if not path:
+        return ""
+    return f"{path}.wanderingbot-vehicle-reset-backup-latest"
+
+
+def is_scheduled_cfgignorelist_vehicle_reset(event):
+    return (
+        is_cfgignorelist_vehicle_reset_event(event)
+        and str(event.get("created_by") or "") == "dashboard_vehicle_reset_schedule"
+    )
+
+
+def format_reset_time(value):
+    parsed = _parse_schedule_datetime(value)
+    if not parsed:
+        return "unknown time"
+    return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+
+async def post_vehicle_reset_status(guild_id, config, title, description, color=0x3498DB):
+    try:
+        guild = bot.get_guild(int(guild_id))
+    except Exception:
+        guild = None
+    if not guild:
+        return
+
+    channels = config.setdefault("channels", {})
+    channel = bot.get_channel(channels.get("command_logs"))
+    if not channel:
+        try:
+            channel = await get_or_create_feed_channel(
+                guild,
+                config,
+                "command_logs",
+                DEFAULT_CHANNEL_NAMES["command_logs"],
+                private=True,
+            )
+        except Exception:
+            channel = None
+    if not channel:
+        channel = bot.get_channel(channels.get("admin_logs"))
+    if not channel:
+        return
+
+    embed = discord.Embed(
+        title=str(title or "Vehicle reset update")[:256],
+        description=str(description or "")[:3800],
+        color=color,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Vehicle Reset")
+    embed.timestamp = datetime.now(UTC)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as error:
+        print(f"VEHICLE RESET STATUS LOG ERROR {guild_id}: {error}")
+
+
 def economy_xml_path_candidates(guild_id, config):
     configured = str(config.get("vehicle_reset_economy_path") or "").strip()
     paths = [configured] if configured else []
@@ -26488,7 +26636,230 @@ async def process_economy_vehicle_reset_events(guild_id, config):
     return processed
 
 
+async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
+    workflow = config.setdefault("vehicle_reset_cfgignorelist_workflow", {})
+    event_id = str(event.get("id") or "")
+    now = datetime.now(UTC)
+    stage = str(event.get("cfgignorelist_stage") or "pending_prepare").strip().lower()
+    target_restart = _parse_schedule_datetime(
+        event.get("target_restart_utc")
+        or event.get("queued_for_restart_utc")
+        or event.get("created_at")
+    )
+
+    if stage in {"waiting_for_restart", "waiting_to_restore"}:
+        restore_after = _parse_schedule_datetime(event.get("cfgignorelist_restore_after_utc"))
+        if not restore_after:
+            if target_restart:
+                restore_after = target_restart + timedelta(seconds=scheduled_vehicle_reset_restore_delay_seconds(config))
+            else:
+                restore_after = now + timedelta(seconds=scheduled_vehicle_reset_restore_delay_seconds(config))
+            event["cfgignorelist_restore_after_utc"] = restore_after.isoformat()
+
+        if now < restore_after:
+            event["cfgignorelist_stage"] = "waiting_to_restore" if target_restart and now >= target_restart else "waiting_for_restart"
+            event["status"] = (
+                "Vehicle-only cfgignorelist prepared; waiting for scheduled restart "
+                f"at {format_reset_time(target_restart.isoformat() if target_restart else '')} "
+                f"then restore after {format_reset_time(restore_after.isoformat())}."
+            )
+            save_guild_configs()
+            return True, event["status"]
+
+        stage = "restore_original_cfgignorelist"
+        event["cfgignorelist_stage"] = stage
+
+    if stage == "pending_prepare":
+        if workflow.get("running"):
+            return False, "cfgignorelist vehicle reset is already running for this guild."
+
+        workflow.update({
+            "running": True,
+            "event_id": event_id,
+            "started_at": now.isoformat(),
+            "stage": "prepare_before_scheduled_restart",
+        })
+        event["reset_method"] = "cfgignorelist"
+        event["status"] = "Preparing vehicle-only cfgignorelist before the scheduled restart"
+        save_guild_configs()
+
+        try:
+            vehicle_classes = vehicle_reset_cfgignorelist_classes(config)
+            if not vehicle_classes:
+                event["status"] = "No vehicle classes were found for cfgignorelist reset."
+                return False, event["status"]
+
+            ok, path, message, original_text = await asyncio.to_thread(
+                download_cfgignorelist_for_vehicle_reset,
+                guild_id,
+                config,
+            )
+            if not ok:
+                event["status"] = message
+                return False, message
+
+            backup_path = cfgignorelist_vehicle_reset_backup_path(path)
+            if backup_path:
+                backup_ok, backup_message = await asyncio.to_thread(
+                    upload_text_file_to_nitrado,
+                    config,
+                    backup_path,
+                    original_text or empty_cfgignorelist_xml(),
+                )
+                if not backup_ok:
+                    event["status"] = f"Failed to save cfgignorelist restore backup: {backup_message}"
+                    return False, event["status"]
+            else:
+                backup_message = "No backup path could be resolved."
+
+            ok, message, wipe_text = build_vehicle_cfgignorelist_xml(original_text, vehicle_classes)
+            if not ok:
+                event["status"] = message
+                return False, message
+
+            upload_ok, upload_message = await asyncio.to_thread(
+                upload_text_file_to_nitrado,
+                config,
+                path,
+                wipe_text,
+            )
+            if not upload_ok:
+                event["status"] = f"Failed to upload vehicle-only cfgignorelist.xml: {upload_message}"
+                return False, event["status"]
+
+            restore_after = (
+                target_restart + timedelta(seconds=scheduled_vehicle_reset_restore_delay_seconds(config))
+                if target_restart
+                else datetime.now(UTC) + timedelta(seconds=scheduled_vehicle_reset_restore_delay_seconds(config))
+            )
+            event.update({
+                "cfgignorelist_stage": "waiting_for_restart",
+                "cfgignorelist_path": path,
+                "cfgignorelist_backup_path": backup_path,
+                "cfgignorelist_vehicle_class_count": len(vehicle_classes),
+                "cfgignorelist_prepared_at": datetime.now(UTC).isoformat(),
+                "cfgignorelist_restore_after_utc": restore_after.isoformat(),
+                "status": (
+                    f"Vehicle-only cfgignorelist prepared with {len(vehicle_classes)} vehicle class(es); "
+                    f"waiting for scheduled restart at {format_reset_time(target_restart.isoformat() if target_restart else '')}."
+                ),
+            })
+            workflow.update({
+                "stage": "waiting_for_scheduled_restart",
+                "vehicle_class_count": len(vehicle_classes),
+                "last_path": path,
+                "backup_path": backup_path,
+            })
+            save_guild_configs()
+            await post_vehicle_reset_status(
+                guild_id,
+                config,
+                "Vehicle Reset Prepared",
+                (
+                    f"The bot uploaded a vehicle-only cfgignorelist before the scheduled restart.\n\n"
+                    f"Path: `{path}`\n"
+                    f"Backup: `{backup_path or 'none'}`\n"
+                    f"Vehicle classes: `{len(vehicle_classes)}`\n"
+                    f"Restart target: `{format_reset_time(target_restart.isoformat() if target_restart else '')}`\n"
+                    f"Restore due after: `{format_reset_time(restore_after.isoformat())}`\n\n"
+                    f"{backup_message}"
+                ),
+                0xF1C40F,
+            )
+            return True, event["status"]
+
+        finally:
+            workflow["running"] = False
+            workflow["finished_at"] = datetime.now(UTC).isoformat()
+            save_guild_configs()
+
+    if stage == "restore_original_cfgignorelist":
+        if workflow.get("running"):
+            return False, "cfgignorelist vehicle reset restore is already running for this guild."
+
+        path = str(event.get("cfgignorelist_path") or config.get("vehicle_reset_cfgignorelist_path") or "").strip()
+        backup_path = str(event.get("cfgignorelist_backup_path") or cfgignorelist_vehicle_reset_backup_path(path)).strip()
+        if not path or not backup_path:
+            event["status"] = "Cannot restore cfgignorelist because the live path or backup path is missing."
+            save_guild_configs()
+            return False, event["status"]
+
+        workflow.update({
+            "running": True,
+            "event_id": event_id,
+            "started_at": now.isoformat(),
+            "stage": "restore_after_scheduled_restart",
+            "last_path": path,
+            "backup_path": backup_path,
+        })
+        event["status"] = "Restoring original cfgignorelist after the scheduled vehicle reset"
+        save_guild_configs()
+
+        try:
+            wait_ok, wait_message = await wait_for_nitrado_gameserver_online(config)
+            workflow["server_online_wait"] = wait_message
+            if not wait_ok:
+                workflow["server_online_wait_warning"] = wait_message
+
+            backup_ok, backup_message, original_text = await asyncio.to_thread(
+                download_text_file_from_nitrado,
+                config,
+                backup_path,
+            )
+            if not backup_ok or original_text is None:
+                event["status"] = f"Could not download cfgignorelist restore backup: {backup_message}"
+                return False, event["status"]
+
+            restore_ok, restore_message = await asyncio.to_thread(
+                upload_text_file_to_nitrado,
+                config,
+                path,
+                original_text or empty_cfgignorelist_xml(),
+            )
+            if not restore_ok:
+                event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
+                return False, event["status"]
+
+            restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+            if not restart_ok:
+                event["status"] = f"Original cfgignorelist restored, but restore restart failed: {restart_message}"
+                return False, event["status"]
+
+            workflow["stage"] = "complete"
+            workflow["last_completed_at"] = datetime.now(UTC).isoformat()
+            event["cfgignorelist_stage"] = "complete"
+            event["status"] = "cfgignorelist vehicle-only reset complete; original ignore list restored and restart requested"
+            mark_scenario_event_completed(config, event_id)
+            save_guild_configs()
+            await post_vehicle_reset_status(
+                guild_id,
+                config,
+                "Vehicle Reset Restored",
+                (
+                    "The scheduled vehicle reset cycle finished.\n\n"
+                    f"Restored: `{path}`\n"
+                    f"Backup used: `{backup_path}`\n"
+                    f"Server wait: `{wait_message}`\n"
+                    f"Restore restart: `{restart_message}`"
+                ),
+                0x2ECC71,
+            )
+            return True, "cfgignorelist vehicle-only reset complete; restore restart requested."
+
+        finally:
+            workflow["running"] = False
+            workflow["finished_at"] = datetime.now(UTC).isoformat()
+            save_guild_configs()
+
+    event["status"] = f"Unknown cfgignorelist reset stage `{stage}`."
+    save_guild_configs()
+    return False, event["status"]
+
+
 async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
+    if is_scheduled_cfgignorelist_vehicle_reset(event):
+        return await run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, event)
+
     workflow = config.setdefault("vehicle_reset_cfgignorelist_workflow", {})
     if workflow.get("running"):
         return False, "cfgignorelist vehicle reset is already running for this guild."
@@ -26756,11 +27127,26 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
         return None
 
     next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
-    if not next_run or now_utc < next_run:
+    if not next_run:
+        return None
+    queue_at = next_run
+    if method == "cfgignorelist":
+        queue_at = next_run - timedelta(seconds=scheduled_vehicle_reset_preflight_seconds(config))
+    if now_utc < queue_at:
         return None
 
     map_width, map_height = server_map_size(guild_id)
     event_id = next_scenario_event_id(config)
+    status = "Scheduled vehicle reset queued"
+    cfgignorelist_fields = {}
+    if method == "cfgignorelist":
+        status = "Scheduled vehicle reset queued for pre-restart cfgignorelist preparation"
+        cfgignorelist_fields = {
+            "cfgignorelist_stage": "pending_prepare",
+            "target_restart_utc": next_run.isoformat(),
+            "queued_for_restart_utc": next_run.isoformat(),
+            "preflight_seconds": scheduled_vehicle_reset_preflight_seconds(config),
+        }
     event = {
         "id": event_id,
         "name": f"Scheduled vehicle reset #{event_id}",
@@ -26776,9 +27162,10 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
         "permanent": False,
         "remaining_restarts": 1,
         "enabled": True,
-        "status": "Scheduled vehicle reset queued",
+        "status": status,
         "created_by": "dashboard_vehicle_reset_schedule",
         "created_at": now_utc.isoformat(),
+        **cfgignorelist_fields,
     }
     scenario_events_for_config(config).append(event)
     schedule["last_queued_at"] = now_utc.isoformat()

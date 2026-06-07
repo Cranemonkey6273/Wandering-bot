@@ -8,10 +8,12 @@ local JSON state only so the Discord bot can pick up changes on its next read.
 from __future__ import annotations
 
 import json
+import io
 import os
 import re
 import secrets
 import hashlib
+import zipfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -791,6 +793,8 @@ PAGE_TEMPLATE = """
     body[data-section="automations"] { --accent: #6fd3ff; }
     body[data-section="dayz-converter"] { --accent: #79c7dd; }
     body[data-section="loot-engine"] { --accent: #c8d46a; }
+    body[data-section="visual-loadout"] { --accent: #75d89a; }
+    body[data-section="bulk-economy"] { --accent: #e3b65f; }
     body[data-section="factions"] { --accent: #d6a2ff; }
     body[data-section="zones"] { --accent: #75d89a; }
     body[data-section="members"] { --accent: #ff9abc; }
@@ -936,6 +940,36 @@ PAGE_TEMPLATE = """
     .player-loadout-layout .visual-picker-grid { max-height: 30rem; grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr)); }
     .vehicle-workbench { display: grid; gap: .75rem; }
     .vehicle-cargo-board { min-height: 12rem; }
+    .visual-loadout-layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(28rem, 1.35fr) minmax(20rem, .95fr); gap: .85rem; align-items: start; }
+    .visual-browser, .visual-export-panel { position: sticky; top: 6rem; }
+    .loadout-category-row { display: flex; flex-wrap: wrap; gap: .35rem; margin: .65rem 0; }
+    .loadout-category-row button { min-height: 2.1rem; padding: .35rem .55rem; font-size: .8rem; background: #070b08; color: var(--muted); }
+    .loadout-category-row button.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+    .loadout-item-grid { max-height: 34rem; overflow: auto; display: grid; gap: .45rem; padding-right: .15rem; }
+    .loadout-item-card { display: grid; grid-template-columns: 2.7rem minmax(0, 1fr); gap: .5rem; align-items: center; min-height: 4rem; border: 1px solid var(--line); border-radius: .5rem; padding: .42rem; background: #070b08; color: var(--muted); text-align: left; }
+    .loadout-item-card:hover, .loadout-item-card:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 1px var(--accent); }
+    .loadout-item-card img { width: 2.7rem; height: 2.7rem; border-radius: .4rem; border: 1px solid var(--line); background: var(--panel-2); object-fit: contain; }
+    .loadout-item-card strong { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .loadout-item-card small { color: var(--muted); }
+    .visual-canvas { display: grid; gap: .75rem; }
+    .loadout-slot-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
+    .visual-slot { min-height: 5rem; display: grid; align-content: center; gap: .25rem; text-align: left; border-style: dashed; background: #070b08; overflow: hidden; }
+    .visual-slot span { display: block; color: var(--muted); font-size: .78rem; font-weight: 700; }
+    .visual-slot strong { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .visual-slot.active { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .visual-slot.filled { border-style: solid; background: color-mix(in srgb, var(--panel-2) 72%, #000); }
+    .visual-slot.weapon { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+    .loadout-cargo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
+    .cargo-box { min-height: 9rem; border: 1px dashed var(--line); border-radius: .5rem; padding: .55rem; background: #070b08; }
+    .cargo-box.drag-over, .visual-slot.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, #070b08); }
+    .cargo-box > strong { display: block; color: var(--gold); margin-bottom: .45rem; }
+    .cargo-box [data-cargo-items] { display: flex; flex-wrap: wrap; gap: .35rem; min-height: 5rem; align-content: flex-start; }
+    .cargo-chip, .attachment-chip { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; border: 1px solid var(--line); border-radius: .4rem; padding: .28rem .42rem; background: var(--panel-2); color: var(--text); font-size: .82rem; font-weight: 800; }
+    .cargo-chip button, .attachment-chip button { min-height: 1.6rem; padding: 0 .35rem; font-size: .72rem; }
+    .attachment-tray { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; }
+    .attachment-tray [data-attachment-items] { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
+    .visual-export-panel textarea { min-height: 16rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .84rem; line-height: 1.35; }
+    .visual-export-panel textarea[name="cfggameplay_json"] { min-height: 8rem; }
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
@@ -1021,8 +1055,9 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid { grid-template-columns: 1fr; }
       .xml-output-panel { position: static; }
+      .visual-browser, .visual-export-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
       .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
       .metric { text-align: left; }
@@ -1223,6 +1258,8 @@ PAGE_TEMPLATE = """
       {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('dayz-converter') %}<a class="tab-link" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
       {% if section_allowed('loot-engine') %}<a class="tab-link" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
+      {% if section_allowed('visual-loadout') %}<a class="tab-link" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
+      {% if section_allowed('bulk-economy') %}<a class="tab-link" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
@@ -1248,6 +1285,8 @@ PAGE_TEMPLATE = """
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
           {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
           {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
+          {% if section_allowed('visual-loadout') %}<option value="/admin?section=visual-loadout{{ server_qs }}" {{ 'selected' if active_section == 'visual-loadout' else '' }}>Visual Loadout</option>{% endif %}
+          {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk Economy</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
@@ -1271,6 +1310,8 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=dayz-converter{{ server_qs }}"><strong>Map Converter</strong><span>Turn DayZ Editor JSON into events, spawns and event group XML snippets.</span></a>
       <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Engine</strong><span>Edit types.xml values and generate player or vehicle loadout XML.</span></a>
+      <a class="category-link" href="/admin?section=visual-loadout{{ server_qs }}"><strong>Visual Loadout</strong><span>Build spawn gear visually and download the cfggameplay package.</span></a>
+      <a class="category-link" href="/admin?section=bulk-economy{{ server_qs }}"><strong>Bulk Economy</strong><span>Batch-edit types.xml counts and lifetimes with validation.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
@@ -3229,6 +3270,122 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "visual-loadout" %}
+    <section class="section-panel" id="visual-loadout" data-visual-loadout-page>
+      <div class="section-head">
+        <div>
+          <h2>Visual Spawn Loadout</h2>
+          <p class="tool-note">Build spawn gear with body slots, weapon slots, cargo containers and attachment sockets. Download creates a ZIP with <code>custom/custom_loadout.json</code> and <code>cfggameplay.json</code>.</p>
+        </div>
+      </div>
+      <div class="visual-loadout-layout">
+        <aside class="admin-panel visual-browser" data-loadout-browser>
+          <h3>Item Browser</h3>
+          <label>Search items <input data-loadout-search placeholder="M4, backpack, bandage"></label>
+          <div class="loadout-category-row" data-loadout-categories>
+            <button type="button" data-loadout-category="all" class="active">All</button>
+            <button type="button" data-loadout-category="Weapons">Weapons</button>
+            <button type="button" data-loadout-category="Clothing">Clothing</button>
+            <button type="button" data-loadout-category="Ammunition">Ammo</button>
+            <button type="button" data-loadout-category="Medical">Medical</button>
+            <button type="button" data-loadout-category="Food/Drink">Food</button>
+            <button type="button" data-loadout-category="Misc">Misc</button>
+          </div>
+          <div class="loadout-item-grid" data-loadout-items></div>
+        </aside>
+        <article class="admin-panel visual-canvas">
+          <h3>Survivor Canvas</h3>
+          <div class="loadout-selected-slot" data-selected-loadout-slot><strong>No slot selected</strong><span>Pick a slot, then click or drag an item into it.</span></div>
+          <div class="loadout-slot-grid">
+            <button type="button" class="visual-slot" data-loadout-slot="Headgear" data-slot-group="cloth"><span>Headgear</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Mask" data-slot-group="cloth"><span>Mask</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Glasses" data-slot-group="cloth"><span>Glasses</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Torso" data-slot-group="cloth"><span>Torso / Jacket</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Vest" data-slot-group="cloth"><span>Vest</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Gloves" data-slot-group="cloth"><span>Gloves</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Legs" data-slot-group="cloth"><span>Legs / Pants</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Feet" data-slot-group="cloth"><span>Feet / Boots</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot" data-loadout-slot="Backpack" data-slot-group="cloth"><span>Backpack</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot weapon" data-loadout-slot="Shoulder1" data-slot-group="attachments"><span>Shoulder 1</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot weapon" data-loadout-slot="Shoulder2" data-slot-group="attachments"><span>Shoulder 2</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot weapon" data-loadout-slot="Belt" data-slot-group="attachments"><span>Belt</span><strong>Empty</strong></button>
+            <button type="button" class="visual-slot weapon" data-loadout-slot="Holster" data-slot-group="attachments"><span>Holster</span><strong>Empty</strong></button>
+          </div>
+          <div class="loadout-cargo-grid">
+            <div class="cargo-box" data-cargo-container="Backpack"><strong>Backpack Cargo</strong><div data-cargo-items="Backpack"></div></div>
+            <div class="cargo-box" data-cargo-container="Torso"><strong>Jacket Cargo</strong><div data-cargo-items="Torso"></div></div>
+            <div class="cargo-box" data-cargo-container="Legs"><strong>Pants Cargo</strong><div data-cargo-items="Legs"></div></div>
+          </div>
+          <div class="attachment-tray" data-attachment-tray>
+            <div class="row-between"><strong>Weapon Attachments</strong><button type="button" data-clear-selected-slot>Clear Selected</button></div>
+            <div data-attachment-items></div>
+          </div>
+        </article>
+        <aside class="admin-panel visual-export-panel">
+          <h3>Live Export & Package</h3>
+          <form class="xml-tool-form" data-loadout-package-form data-route="/api/admin/loadout-package">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label>Custom loadout JSON
+              <textarea name="loadout_json" data-loadout-json spellcheck="false"></textarea>
+            </label>
+            <label>Optional cfggameplay.json override
+              <textarea name="cfggameplay_json" placeholder="Leave blank to let the bot create the correct cfggameplay.json"></textarea>
+            </label>
+            <div class="toolbar">
+              <button type="submit">Download Complete Server Package</button>
+              <button type="button" data-copy-loadout-json>Copy Loadout JSON</button>
+              <button type="button" data-reset-loadout>Reset</button>
+            </div>
+            <span class="result muted" data-package-result></span>
+          </form>
+        </aside>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "bulk-economy" %}
+    <section class="section-panel" id="bulk-economy">
+      <div class="section-head">
+        <div>
+          <h2>Bulk Economy XML Utility</h2>
+          <p class="tool-note">Paste a full <code>types.xml</code>, filter classnames, multiply nominal values or set lifetime in one guarded pass. Output is validated before it is shown.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel full">
+          <h3>Batch types.xml Editor</h3>
+          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loot-bulk-tweak">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <label class="full">Paste full types.xml
+              <textarea name="xml_text" placeholder='<types><type name="Mag_STANAG_30Rnd"><nominal>20</nominal><lifetime>3600</lifetime><flags count_in_map="1" /></type></types>'></textarea>
+            </label>
+            <label>Filter text <input name="filter_text" placeholder="Mag_ or _Tier3"></label>
+            <label>Match mode
+              <select name="match_mode">
+                <option value="contains">Contains</option>
+                <option value="startswith">Starts with</option>
+                <option value="endswith">Ends with</option>
+                <option value="regex">Regex</option>
+              </select>
+            </label>
+            <label>Multiply nominal by <input type="number" name="nominal_multiplier" min="0" max="20" step="0.01" value="1"></label>
+            <label>Set lifetime to <input type="number" name="lifetime_value" min="0" placeholder="leave blank to keep"></label>
+            <label>Set restock to <input type="number" name="restock_value" min="0" placeholder="leave blank to keep"></label>
+            <label>Set min to <input type="number" name="min_value" min="0" placeholder="leave blank to keep"></label>
+            <div class="full toolbar">
+              <button type="submit">Run Bulk Tweak</button>
+              <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+              <span class="result muted" data-tool-result></span>
+            </div>
+            <label class="full">Generated types.xml
+              <textarea readonly data-tool-output="generated_xml"></textarea>
+            </label>
+          </form>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "moderation" %}
     {% set guard = (server.config.moderation_guard if server and server.config and server.config.moderation_guard else {}) %}
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
@@ -3537,7 +3694,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}. The default method temporarily updates cfgignorelist.xml with vehicle classes only, then restores it.</span></div>
+            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}. The default method stages vehicle classes in cfgignorelist.xml before the restart, waits for the server to return, restores the backup, then requests the restore restart.</span></div>
             <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -4756,7 +4913,7 @@ PAGE_TEMPLATE = """
         return;
       }
       const slotButton = event.target.closest("[data-loadout-slot]");
-      if (slotButton) {
+      if (slotButton && !slotButton.closest("[data-visual-loadout-page]")) {
         event.preventDefault();
         const form = slotButton.closest("form");
         const slotSelect = form ? form.querySelector("[data-picker-slot]") : null;
@@ -4881,6 +5038,331 @@ PAGE_TEMPLATE = """
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
+    const LOADOUT_DB = [
+      {classname: "M4A1", readable: "M4A1 Assault Rifle", category: "Weapons"},
+      {classname: "AKM", readable: "AKM Rifle", category: "Weapons"},
+      {classname: "SKS", readable: "SKS Rifle", category: "Weapons"},
+      {classname: "SVD", readable: "SVD Rifle", category: "Weapons"},
+      {classname: "Mosin9130", readable: "Mosin 9130", category: "Weapons"},
+      {classname: "Glock19", readable: "Glock 19", category: "Weapons"},
+      {classname: "Mag_STANAG_30Rnd", readable: "STANAG 30 Round Mag", category: "Ammunition"},
+      {classname: "Mag_AKM_30Rnd", readable: "AKM 30 Round Mag", category: "Ammunition"},
+      {classname: "Ammo_556x45", readable: "5.56 Ammo", category: "Ammunition"},
+      {classname: "Ammo_762x39", readable: "7.62x39 Ammo", category: "Ammunition"},
+      {classname: "BallisticHelmet_Green", readable: "Ballistic Helmet", category: "Clothing"},
+      {classname: "Mich2001Helmet", readable: "MICH Helmet", category: "Clothing"},
+      {classname: "M65Jacket_Black", readable: "M65 Jacket Black", category: "Clothing"},
+      {classname: "GorkaPants_Green", readable: "Gorka Pants Green", category: "Clothing"},
+      {classname: "PlateCarrierVest", readable: "Plate Carrier Vest", category: "Clothing"},
+      {classname: "TacticalGloves_Black", readable: "Tactical Gloves", category: "Clothing"},
+      {classname: "MilitaryBoots_Black", readable: "Military Boots", category: "Clothing"},
+      {classname: "MountainBag_Green", readable: "Mountain Backpack", category: "Clothing"},
+      {classname: "BalaclavaMask_Black", readable: "Balaclava Mask", category: "Clothing"},
+      {classname: "NVGoggles", readable: "NV Goggles", category: "Misc"},
+      {classname: "BandageDressing", readable: "Bandage", category: "Medical"},
+      {classname: "TetracyclineAntibiotics", readable: "Tetracycline", category: "Medical"},
+      {classname: "Morphine", readable: "Morphine", category: "Medical"},
+      {classname: "SalineBagIV", readable: "Saline IV", category: "Medical"},
+      {classname: "SodaCan_Cola", readable: "Cola", category: "Food/Drink"},
+      {classname: "WaterBottle", readable: "Water Bottle", category: "Food/Drink"},
+      {classname: "TacticalBaconCan", readable: "Tactical Bacon", category: "Food/Drink"},
+      {classname: "HuntingKnife", readable: "Hunting Knife", category: "Misc"},
+      {classname: "Matchbox", readable: "Matchbox", category: "Misc"},
+      {classname: "Compass", readable: "Compass", category: "Misc"},
+      {classname: "M4_RHandGuard", readable: "M4 RIS Handguard", category: "Misc", attachment: true},
+      {classname: "M4_MPBttstck", readable: "M4 MP Buttstock", category: "Misc", attachment: true},
+      {classname: "ACOGOptic", readable: "ACOG Optic", category: "Misc", attachment: true},
+      {classname: "Battery9V", readable: "9V Battery", category: "Misc"}
+    ];
+    const LOADOUT_ATTACHMENTS = {
+      M4A1: ["M4_RHandGuard", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
+      AKM: ["Mag_AKM_30Rnd"],
+      SVD: ["Battery9V"],
+      SKS: ["Ammo_762x39"]
+    };
+    const loadoutState = {selected: "", category: "all", cloth: {}, attachments: {}, weaponAttachments: {}, cargo: {Backpack: [], Torso: [], Legs: []}};
+    function loadoutItemImage(classname) {
+      return `https://db.mydayz.eu/wp-content/uploads/2025/08/${encodeURIComponent(classname)}.png.webp`;
+    }
+    function loadoutFallback(category) {
+      const safe = encodeURIComponent(String(category || "General"));
+      return `/item-thumb/${safe}`;
+    }
+    function loadoutItem(classname) {
+      const key = String(classname || "").toLowerCase();
+      return LOADOUT_DB.find((item) => item.classname.toLowerCase() === key) || {classname, readable: classname, category: "Misc"};
+    }
+    function loadoutPages() {
+      return Array.from(document.querySelectorAll("[data-visual-loadout-page]"));
+    }
+    function selectedSlotLabel(slot) {
+      if (!slot) return "No slot selected";
+      if (slot.startsWith("cargo:")) return `${slot.slice(6)} Cargo`;
+      return slot;
+    }
+    function setSelectedLoadoutSlot(slot) {
+      loadoutState.selected = slot || "";
+      document.querySelectorAll("[data-loadout-slot], [data-cargo-container]").forEach((node) => {
+        const cargoSlot = node.dataset.cargoContainer ? `cargo:${node.dataset.cargoContainer}` : "";
+        const nodeSlot = node.dataset.loadoutSlot || cargoSlot;
+        node.classList.toggle("active", nodeSlot === loadoutState.selected);
+      });
+      loadoutPages().forEach((page) => {
+        const panel = page.querySelector("[data-selected-loadout-slot]");
+        if (!panel) return;
+        panel.innerHTML = `<strong>${selectedSlotLabel(loadoutState.selected)}</strong><span>${loadoutState.selected ? "Click an item to place it here, or drag one in." : "Pick a slot, then click or drag an item into it."}</span>`;
+      });
+      renderAttachmentTray();
+    }
+    function equipLoadoutItem(classname, slot) {
+      const target = slot || loadoutState.selected;
+      if (!target) return false;
+      const item = loadoutItem(classname);
+      if (target.startsWith("cargo:")) {
+        const container = target.slice(6);
+        loadoutState.cargo[container] = loadoutState.cargo[container] || [];
+        loadoutState.cargo[container].push(item.classname);
+      } else {
+        const button = document.querySelector(`[data-loadout-slot="${CSS.escape(target)}"]`);
+        const group = button ? button.dataset.slotGroup || "cloth" : "cloth";
+        loadoutState[group][target] = item.classname;
+        if (group === "attachments") loadoutState.weaponAttachments[target] = loadoutState.weaponAttachments[target] || [];
+      }
+      renderLoadoutState();
+      return true;
+    }
+    function renderLoadoutBrowser(page) {
+      const grid = page.querySelector("[data-loadout-items]");
+      if (!grid) return;
+      const query = String(page.querySelector("[data-loadout-search]")?.value || "").trim().toLowerCase();
+      const category = loadoutState.category || "all";
+      const items = LOADOUT_DB.filter((item) => {
+        const haystack = `${item.classname} ${item.readable} ${item.category}`.toLowerCase();
+        return (!query || haystack.includes(query)) && (category === "all" || item.category === category);
+      });
+      grid.innerHTML = items.map((item) => `
+        <button type="button" class="loadout-item-card" draggable="true" data-loadout-item="${item.classname}">
+          <img src="${loadoutItemImage(item.classname)}" onerror="this.onerror=null;this.src='${loadoutFallback(item.category)}';" alt="">
+          <span><strong>${item.readable}</strong><small>${item.classname} - ${item.category}</small></span>
+        </button>
+      `).join("");
+    }
+    function renderCargo() {
+      document.querySelectorAll("[data-cargo-items]").forEach((node) => {
+        const container = node.dataset.cargoItems || "";
+        const items = loadoutState.cargo[container] || [];
+        node.innerHTML = items.map((classname, index) => `
+          <span class="cargo-chip">${classname}<button type="button" data-remove-cargo="${container}" data-cargo-index="${index}">x</button></span>
+        `).join("");
+      });
+    }
+    function renderAttachmentTray() {
+      const trayItems = document.querySelectorAll("[data-attachment-items]");
+      const selected = loadoutState.selected || "";
+      const selectedClass = loadoutState.attachments[selected] || "";
+      const allowed = LOADOUT_ATTACHMENTS[selectedClass] || [];
+      trayItems.forEach((node) => {
+        if (!selected || !selectedClass || !allowed.length) {
+          node.innerHTML = '<span class="muted">Select a weapon slot with a weapon to add sockets.</span>';
+          return;
+        }
+        const attached = loadoutState.weaponAttachments[selected] || [];
+        node.innerHTML = allowed.map((classname) => {
+          const active = attached.includes(classname);
+          return `<button type="button" class="attachment-chip" data-add-attachment="${classname}">${active ? "Added" : "Add"} ${classname}</button>`;
+        }).join("");
+      });
+    }
+    function renderLoadoutState() {
+      document.querySelectorAll("[data-loadout-slot]").forEach((slot) => {
+        const name = slot.dataset.loadoutSlot || "";
+        const group = slot.dataset.slotGroup || "cloth";
+        const value = loadoutState[group][name] || "";
+        const strong = slot.querySelector("strong");
+        if (strong) strong.textContent = value || "Empty";
+        slot.classList.toggle("filled", Boolean(value));
+      });
+      renderCargo();
+      renderAttachmentTray();
+      const weaponSlots = Object.entries(loadoutState.attachments).filter(([, value]) => value);
+      const weaponAttachments = {};
+      weaponSlots.forEach(([slot, classname]) => {
+        weaponAttachments[slot] = {
+          item: classname,
+          attachments: loadoutState.weaponAttachments[slot] || []
+        };
+      });
+      const exportPayload = {
+        PlayerData: {
+          SpawnGear: {
+            unclothed: false,
+            cloth: Object.values(loadoutState.cloth).filter(Boolean),
+            attachments: weaponSlots.map(([, value]) => value),
+            cargo: Object.values(loadoutState.cargo).flat().filter(Boolean),
+            slots: {
+              cloth: loadoutState.cloth,
+              weapons: weaponAttachments,
+              cargo: loadoutState.cargo
+            }
+          }
+        }
+      };
+      const text = JSON.stringify(exportPayload, null, 2);
+      document.querySelectorAll("[data-loadout-json]").forEach((output) => { output.value = text; });
+    }
+    function resetVisualLoadout() {
+      loadoutState.selected = "";
+      loadoutState.cloth = {};
+      loadoutState.attachments = {};
+      loadoutState.weaponAttachments = {};
+      loadoutState.cargo = {Backpack: [], Torso: [], Legs: []};
+      setSelectedLoadoutSlot("");
+      renderLoadoutState();
+    }
+    loadoutPages().forEach((page) => {
+      renderLoadoutBrowser(page);
+      renderLoadoutState();
+    });
+    document.addEventListener("input", (event) => {
+      const page = event.target.closest("[data-visual-loadout-page]");
+      if (page && event.target.matches("[data-loadout-search]")) renderLoadoutBrowser(page);
+    });
+    document.addEventListener("click", async (event) => {
+      const categoryButton = event.target.closest("[data-loadout-category]");
+      if (categoryButton) {
+        loadoutState.category = categoryButton.dataset.loadoutCategory || "all";
+        categoryButton.closest("[data-loadout-categories]")?.querySelectorAll("[data-loadout-category]").forEach((button) => {
+          button.classList.toggle("active", button === categoryButton);
+        });
+        renderLoadoutBrowser(categoryButton.closest("[data-visual-loadout-page]"));
+        return;
+      }
+      const slotButton = event.target.closest("[data-loadout-slot]");
+      if (slotButton && slotButton.closest("[data-visual-loadout-page]")) {
+        setSelectedLoadoutSlot(slotButton.dataset.loadoutSlot || "");
+        return;
+      }
+      const cargoBox = event.target.closest("[data-cargo-container]");
+      if (cargoBox && !event.target.closest("[data-remove-cargo]")) {
+        setSelectedLoadoutSlot(`cargo:${cargoBox.dataset.cargoContainer || ""}`);
+        return;
+      }
+      const itemButton = event.target.closest("[data-loadout-item]");
+      if (itemButton) {
+        equipLoadoutItem(itemButton.dataset.loadoutItem || "");
+        return;
+      }
+      const attachButton = event.target.closest("[data-add-attachment]");
+      if (attachButton && loadoutState.selected) {
+        const slot = loadoutState.selected;
+        loadoutState.weaponAttachments[slot] = loadoutState.weaponAttachments[slot] || [];
+        const item = attachButton.dataset.addAttachment || "";
+        if (!loadoutState.weaponAttachments[slot].includes(item)) loadoutState.weaponAttachments[slot].push(item);
+        renderLoadoutState();
+        return;
+      }
+      const removeCargo = event.target.closest("[data-remove-cargo]");
+      if (removeCargo) {
+        const container = removeCargo.dataset.removeCargo || "";
+        const index = Number(removeCargo.dataset.cargoIndex || 0);
+        if (loadoutState.cargo[container]) loadoutState.cargo[container].splice(index, 1);
+        renderLoadoutState();
+        return;
+      }
+      const clearSelected = event.target.closest("[data-clear-selected-slot]");
+      if (clearSelected && loadoutState.selected && !loadoutState.selected.startsWith("cargo:")) {
+        delete loadoutState.cloth[loadoutState.selected];
+        delete loadoutState.attachments[loadoutState.selected];
+        delete loadoutState.weaponAttachments[loadoutState.selected];
+        renderLoadoutState();
+        return;
+      }
+      const resetButton = event.target.closest("[data-reset-loadout]");
+      if (resetButton) {
+        resetVisualLoadout();
+        return;
+      }
+      const copyLoadout = event.target.closest("[data-copy-loadout-json]");
+      if (copyLoadout) {
+        const output = copyLoadout.closest("[data-loadout-package-form]")?.querySelector("[data-loadout-json]");
+        if (output && output.value) await navigator.clipboard.writeText(output.value).catch(() => {});
+        const result = copyLoadout.closest("[data-loadout-package-form]")?.querySelector("[data-package-result]");
+        if (result) result.textContent = output && output.value ? "Copied loadout JSON." : "Build a loadout first.";
+      }
+    });
+    document.addEventListener("dragstart", (event) => {
+      const itemButton = event.target.closest("[data-loadout-item]");
+      if (!itemButton) return;
+      event.dataTransfer.setData("application/x-dayz-class", itemButton.dataset.loadoutItem || "");
+      event.dataTransfer.setData("text/plain", itemButton.dataset.loadoutItem || "");
+    });
+    document.addEventListener("dragover", (event) => {
+      const target = event.target.closest("[data-loadout-slot], [data-cargo-container]");
+      if (!target || !target.closest("[data-visual-loadout-page]")) return;
+      event.preventDefault();
+      target.classList.add("drag-over");
+    });
+    document.addEventListener("dragleave", (event) => {
+      const target = event.target.closest("[data-loadout-slot], [data-cargo-container]");
+      if (target && target.closest("[data-visual-loadout-page]")) target.classList.remove("drag-over");
+    });
+    document.addEventListener("drop", (event) => {
+      const target = event.target.closest("[data-loadout-slot], [data-cargo-container]");
+      if (!target || !target.closest("[data-visual-loadout-page]")) return;
+      event.preventDefault();
+      target.classList.remove("drag-over");
+      const classname = event.dataTransfer.getData("application/x-dayz-class") || event.dataTransfer.getData("text/plain");
+      const slot = target.dataset.loadoutSlot || (target.dataset.cargoContainer ? `cargo:${target.dataset.cargoContainer}` : "");
+      if (slot) setSelectedLoadoutSlot(slot);
+      equipLoadoutItem(classname, slot);
+    });
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("[data-loadout-package-form]");
+      if (!form) return;
+      event.preventDefault();
+      renderLoadoutState();
+      const result = form.querySelector("[data-package-result]");
+      const button = event.submitter || form.querySelector('button[type="submit"]');
+      const originalText = button ? button.textContent : "";
+      if (result) result.textContent = "Building package...";
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Building...";
+      }
+      const token = new URLSearchParams(window.location.search).get("token");
+      const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+      try {
+        const response = await fetch(secureDashboardUrl(route), {
+          method: "POST",
+          headers: {"Accept": "application/zip,application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+          body: new FormData(form)
+        });
+        if (!response.ok) {
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (result) result.textContent = body.error || "Package rejected.";
+          return;
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "MyDayZServerSettings.zip";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        if (result) result.textContent = "Package downloaded.";
+      } catch (error) {
+        if (result) result.textContent = `Package failed: ${error && error.message ? error.message : error}`;
+      } finally {
+        if (button && button.isConnected) {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      }
+    });
     document.querySelectorAll("[data-airdrop-map]").forEach((map) => renderAirdropMap(map.closest("form")));
     function prettyXml(xmlDoc) {
       const raw = new XMLSerializer().serializeToString(xmlDoc);
@@ -6469,7 +6951,9 @@ ADMIN_ROUTES = [
     "/api/admin/theme",
     "/api/admin/convert-dayz-xml",
     "/api/admin/loot-tweak",
+    "/api/admin/loot-bulk-tweak",
     "/api/admin/loadout-generate",
+    "/api/admin/loadout-package",
     "/api/admin/vehicle-loadout-generate",
     "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
@@ -6504,6 +6988,8 @@ SECTION_FEATURES = {
     "xml-workshop": "xml_workshop",
     "dayz-converter": "xml_workshop",
     "loot-engine": "xml_workshop",
+    "visual-loadout": "xml_workshop",
+    "bulk-economy": "xml_workshop",
     "server-rules": "server_rules",
     "moderation": "moderation",
     "server-control": "server_control",
@@ -6535,7 +7021,9 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/wallet-adjustment": "economy",
     "/api/admin/convert-dayz-xml": "xml_workshop",
     "/api/admin/loot-tweak": "xml_workshop",
+    "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
+    "/api/admin/loadout-package": "xml_workshop",
     "/api/admin/vehicle-loadout-generate": "xml_workshop",
     "/api/admin/xml-workshop": "xml_workshop",
 }
@@ -7109,6 +7597,8 @@ DASHBOARD_AUDIT_IGNORED_KEYS = {
     "editor_json",
     "json_text",
     "xml_text",
+    "loadout_json",
+    "cfggameplay_json",
 }
 
 
@@ -7142,6 +7632,8 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "theme": "Dashboard theme updated",
         "convert-dayz-xml": "DayZ map XML generated",
         "loadout-generate": "Player loadout XML generated",
+        "loadout-package": "Player loadout package downloaded",
+        "loot-bulk-tweak": "Bulk loot XML generated",
         "loot-tweak": "Loot XML generated",
         "utility-config": "Utility panel saved",
         "utility-config-action": "Utility panel updated",
@@ -7620,6 +8112,99 @@ def parse_json_payload_text(text: str) -> Any:
         raise ValueError(f"Invalid DayZ Editor JSON format: {error.msg}") from error
 
 
+def strip_json_trailing_commas(text: str) -> str:
+    previous = None
+    cleaned = str(text or "").strip()
+    pattern = re.compile(r",(\s*[}\]])")
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = pattern.sub(r"\1", cleaned)
+    return cleaned
+
+
+def parse_strict_dashboard_json(text: str, label: str) -> Any:
+    cleaned = strip_json_trailing_commas(text)
+    if not cleaned:
+        raise ValueError(f"{label} is empty.")
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{label} JSON failed validation at line {error.lineno}, column {error.colno}: {error.msg}") from error
+
+
+def default_cfggameplay_spawngear_config() -> dict[str, Any]:
+    return {
+        "version": 121,
+        "GeneralData": {
+            "disableBaseDamage": False,
+        },
+        "PlayerData": {
+            "disablePersonalLight": False,
+            "SpawnGear": {
+                "useCustomSpawnGear": True,
+                "customSpawnGearFilePath": "custom/custom_loadout.json",
+            },
+        },
+    }
+
+
+def normalize_cfggameplay_for_loadout(raw: Any) -> dict[str, Any]:
+    config = raw if isinstance(raw, dict) else {}
+    if not config:
+        config = default_cfggameplay_spawngear_config()
+    config.setdefault("version", 121)
+    general = config.setdefault("GeneralData", {})
+    if not isinstance(general, dict):
+        general = {}
+        config["GeneralData"] = general
+    general.setdefault("disableBaseDamage", False)
+    player = config.setdefault("PlayerData", {})
+    if not isinstance(player, dict):
+        player = {}
+        config["PlayerData"] = player
+    player.setdefault("disablePersonalLight", False)
+    spawn = player.setdefault("SpawnGear", {})
+    if not isinstance(spawn, dict):
+        spawn = {}
+        player["SpawnGear"] = spawn
+    spawn["useCustomSpawnGear"] = True
+    spawn["customSpawnGearFilePath"] = "custom/custom_loadout.json"
+    return config
+
+
+def build_loadout_package_zip(loadout_payload: Any, cfggameplay_payload: Any | None = None) -> io.BytesIO:
+    if not isinstance(loadout_payload, dict):
+        raise ValueError("custom_loadout.json must be a JSON object.")
+    player_data = loadout_payload.get("PlayerData")
+    if not isinstance(player_data, dict) or not isinstance(player_data.get("SpawnGear"), dict):
+        raise ValueError("custom_loadout.json must include PlayerData.SpawnGear.")
+    cfggameplay = normalize_cfggameplay_for_loadout(cfggameplay_payload)
+    loadout_text = json.dumps(loadout_payload, indent=2, ensure_ascii=False)
+    cfggameplay_text = json.dumps(cfggameplay, indent=2, ensure_ascii=False)
+    parse_strict_dashboard_json(loadout_text, "custom_loadout.json")
+    parse_strict_dashboard_json(cfggameplay_text, "cfggameplay.json")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("custom/custom_loadout.json", loadout_text + "\n")
+        archive.writestr("cfggameplay.json", cfggameplay_text + "\n")
+    buffer.seek(0)
+    return buffer
+
+
+def sanitize_xml_boolean_flags(xml_text: str) -> str:
+    def tag_replacer(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        return re.sub(
+            r"(\b[A-Za-z0-9_:-]+\s*=\s*[\"'])(true|false)([\"'])",
+            lambda flag: f"{flag.group(1)}{'1' if flag.group(2).lower() == 'true' else '0'}{flag.group(3)}",
+            tag,
+            flags=re.IGNORECASE,
+        )
+
+    return re.sub(r"<flags\b[^>]*/?>", tag_replacer, str(xml_text or ""), flags=re.IGNORECASE)
+
+
 def split_class_list(value: Any, limit: int = 80) -> list[str]:
     rows: list[str] = []
     for raw in re.split(r"[\n,;]+", str(value or "")):
@@ -7646,7 +8231,7 @@ def replace_or_insert_simple_xml_tag(block: str, tag: str, value: int) -> str:
 
 
 def tweak_types_xml(payload: dict[str, Any]) -> dict[str, Any]:
-    xml_text = str(payload.get("xml_text") or "").strip()
+    xml_text = sanitize_xml_boolean_flags(str(payload.get("xml_text") or "").strip())
     if not xml_text:
         raise ValueError("Paste a full types.xml file or one <type> block first.")
     try:
@@ -7686,6 +8271,99 @@ def tweak_types_xml(payload: dict[str, Any]) -> dict[str, Any]:
     except ET.ParseError as error:
         raise ValueError(f"Generated XML failed validation: {error}") from error
     return {"generated_xml": generated_xml, "changed_fields": sorted(updates)}
+
+
+def type_matches_bulk_filter(type_node: ET.Element, filter_text: str, match_mode: str) -> bool:
+    if not filter_text:
+        return True
+    name = str(type_node.get("name") or "")
+    haystack = name.lower()
+    needle = filter_text.lower()
+    if match_mode == "startswith":
+        return haystack.startswith(needle)
+    if match_mode == "endswith":
+        return haystack.endswith(needle)
+    if match_mode == "regex":
+        try:
+            return re.search(filter_text, name, flags=re.IGNORECASE) is not None
+        except re.error as error:
+            raise ValueError(f"Invalid regex filter: {error}") from error
+    return needle in haystack
+
+
+def set_simple_xml_child(type_node: ET.Element, tag: str, value: int) -> bool:
+    node = type_node.find(tag)
+    if node is None:
+        node = ET.SubElement(type_node, tag)
+        node.text = str(value)
+        return True
+    old = str(node.text or "").strip()
+    node.text = str(value)
+    return old != str(value)
+
+
+def bulk_tweak_types_xml(payload: dict[str, Any]) -> dict[str, Any]:
+    xml_text = sanitize_xml_boolean_flags(str(payload.get("xml_text") or "").strip())
+    if not xml_text:
+        raise ValueError("Paste a full types.xml file first.")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"XML parse failed: {error}") from error
+    if root.tag not in {"types", "type"}:
+        raise ValueError("Input must be a types.xml file or a single <type> block.")
+    validate_types_xml_flags(root)
+
+    filter_text = str(payload.get("filter_text") or "").strip()
+    match_mode = str(payload.get("match_mode") or "contains").strip().lower()
+    if match_mode not in {"contains", "startswith", "endswith", "regex"}:
+        match_mode = "contains"
+    multiplier_raw = str(payload.get("nominal_multiplier") or "").strip()
+    multiplier = None
+    if multiplier_raw:
+        try:
+            multiplier = max(0.0, min(20.0, float(multiplier_raw)))
+        except ValueError as error:
+            raise ValueError("Multiply nominal must be a number.") from error
+    flat_updates: dict[str, int] = {}
+    for form_key, tag in (("lifetime_value", "lifetime"), ("restock_value", "restock"), ("min_value", "min")):
+        raw = str(payload.get(form_key) or "").strip()
+        if raw:
+            flat_updates[tag] = max(0, safe_int(raw, 0))
+    if multiplier is None and not flat_updates:
+        raise ValueError("Choose a nominal multiplier or at least one flat field update.")
+
+    type_nodes = [root] if root.tag == "type" else list(root.findall(".//type"))
+    matched = 0
+    changed = 0
+    for type_node in type_nodes:
+        if not type_matches_bulk_filter(type_node, filter_text, match_mode):
+            continue
+        matched += 1
+        if multiplier is not None:
+            nominal = type_node.find("nominal")
+            if nominal is not None:
+                current = safe_int(nominal.text, 0)
+                new_value = max(0, int(round(current * multiplier)))
+                if set_simple_xml_child(type_node, "nominal", new_value):
+                    changed += 1
+        for tag, value in flat_updates.items():
+            if set_simple_xml_child(type_node, tag, value):
+                changed += 1
+
+    if matched <= 0:
+        raise ValueError("No <type> entries matched that filter.")
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+    generated_xml = ET.tostring(root, encoding="unicode")
+    try:
+        generated_root = ET.fromstring(generated_xml)
+        validate_types_xml_flags(generated_root)
+    except ET.ParseError as error:
+        raise ValueError(f"Generated XML failed validation: {error}") from error
+    return {"generated_xml": generated_xml, "matched": matched, "changed": changed}
 
 
 def build_player_loadout_xml(payload: dict[str, Any]) -> dict[str, Any]:
@@ -9309,7 +9987,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_player_counts = True
     needs_shop_counts = True
     needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
-    needs_shop = needs_full or active_section in {"shop", "xml-workshop", "loot-engine"}
+    needs_shop = needs_full or active_section in {"shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}
     needs_wallets = needs_full or active_section in {"economy", "members"}
     needs_factions = needs_full or active_section in {"factions", "zones", "members", "economy"}
     needs_wages = needs_full or active_section == "economy"
@@ -9318,7 +9996,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
-    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "loot-engine", "server-rules", "shop", "access"}
+    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
@@ -9504,7 +10182,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "server-rules", "moderation", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner"}
     if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
@@ -10195,6 +10873,23 @@ def api_loot_tweak():
     return jsonify({"ok": True, "success": True, **result, "note": "Generated tweaked types.xml output."})
 
 
+@APP.post("/api/admin/loot-bulk-tweak")
+def api_loot_bulk_tweak():
+    payload, error = require_admin()
+    if error:
+        return error
+    try:
+        result = bulk_tweak_types_xml(strip_dashboard_control_fields(payload or {}))
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return jsonify({
+        "ok": True,
+        "success": True,
+        **result,
+        "note": f"Bulk tweak complete: {result.get('matched', 0)} type(s), {result.get('changed', 0)} value(s) changed.",
+    })
+
+
 @APP.post("/api/admin/loadout-generate")
 def api_loadout_generate():
     payload, error = require_admin()
@@ -10217,6 +10912,27 @@ def api_vehicle_loadout_generate():
     except ValueError as error:
         return jsonify({"ok": False, "success": False, "error": str(error)}), 400
     return jsonify({"ok": True, "success": True, **result, "note": "Generated vehicle spawnabletypes XML."})
+
+
+@APP.post("/api/admin/loadout-package")
+def api_loadout_package():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = strip_dashboard_control_fields(payload or {})
+    try:
+        loadout_payload = parse_strict_dashboard_json(str(payload.get("loadout_json") or ""), "custom_loadout.json")
+        cfg_text = str(payload.get("cfggameplay_json") or "").strip()
+        cfg_payload = parse_strict_dashboard_json(cfg_text, "cfggameplay.json") if cfg_text else None
+        package = build_loadout_package_zip(loadout_payload, cfg_payload)
+    except ValueError as error:
+        return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    return send_file(
+        package,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name="MyDayZServerSettings.zip",
+    )
 
 
 @APP.post("/api/admin/xml-workshop")
