@@ -4356,7 +4356,7 @@ SHOWCASE_COMMAND_HINTS = [
     "💡 `/shop` opens the server shop. Spend your pennies on items, perks, and more.",
     "💡 Ask me anything by mentioning me directly — I can help with bot commands, setup questions, and DayZ advice.",
     "💡 `/admstatus` shows whether the live feed reader is running and when it last processed your server logs.",
-    "💡 The `/heatmap` command renders a visual map of PvP hotspots, raid locations, and more on your actual server map.",
+    "💡 Heatmaps post automatically in the configured heatmap channel when enough activity exists.",
     "💡 `/radarstatus` shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
     "💡 Want AI-generated DayZ art in your server? Ask an admin to enable it with `/aiimageconfig`.",
     "💡 `/toplongshots` is the sniper hall of fame — every kill over 300m gets automatically logged.",
@@ -4420,7 +4420,7 @@ SHOWCASE_QUESTION_RESPONSES = {
     # ── Commands ──────────────────────────────────────────
     "command": [
         "🎮 Every command is documented in **#🎮✨・COMMANDS・✨🎮** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pveinfo`.",
-        "Key commands: `/setup` (admin), `/linkgamer` (everyone), `/wallet`, `/topkills`, `/heatmap`, `/pveinfo`. Full list in **#🎮✨・COMMANDS・✨🎮**.",
+        "Key commands: `/setup` (admin), `/linkgamer` (everyone), `/wallet`, `/topkills`, `/pveinfo`. Full list in **#🎮✨・COMMANDS・✨🎮**.",
     ],
     "slash": [
         "🎮 I respond to 30+ slash commands! Check **#🎮✨・COMMANDS・✨🎮** for the complete guide.",
@@ -5930,9 +5930,9 @@ async def _seed_pve_help_guides(guild, config, pve_help_channel):
             wages_embed.add_field(
                 name="🛠️ Admin Commands",
                 value=(
-                    "• `/server wageadd target_type:<user/role/faction> amount:<pennies> cadence:<daily/weekly/monthly> [user/role/faction:<...>]`\n"
-                    "• `/server wagelist` — see active wages and next-payout times\n"
-                    "• `/server wagecancel wage_id:<id>`"
+                    "• `/addwage member:<member> amount:<pennies> interval_hours:<hours>`\n"
+                    "• `/listwages` — see active wages\n"
+                    "• `/removewage wage_id:<id>`"
                 ),
                 inline=False,
             )
@@ -11991,12 +11991,9 @@ async def setup_command(
                 "`/online` - current tracked survivors online\n"
                 "`/serverstatus` - bot and tracking status\n"
                 "`/map` - admin-only live survivor map using latest ADM positions\n"
-                "`/heatmap` - territory activity summary\n"
                 "`/topkills` - kill leaderboard\n"
                 "`/toplongshots` - global longshot leaderboard\n"
                 "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
-                "`/backfillkills` - post recent ADM kill history into killfeed and longshots\n"
-                "`/setaiimages` - occasional AI-generated DayZ-style pictures\n"
                 "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
             ),
@@ -12025,7 +12022,6 @@ async def setup_command(
                 "`/admintempban member duration reason` - temp-ban with examples like `2h` or `3d`\n"
                 "`/adminunban user_id reason` - unban by Discord user ID\n"
                 "`/cheatchecksetup` - create the private PC cheat-check evidence feed\n"
-                "`/cheatcheckconfig` - turn PC cheat-check detection on/off\n"
                 "`/purge amount` - clear recent messages\n"
                 "`/purgeuser member amount` - clear a member's messages\n"
                 "`/tools purgebots amount` - clear bot messages\n"
@@ -12061,9 +12057,10 @@ async def setup_command(
                 "`/wallet` - check wallet\n"
                 "`/shop` - view black market\n"
                 "`/buy item_name x y` - queue item delivery\n"
+                "`/addwage`, `/listwages`, `/removewage`, `/collectincome` - wages and income\n"
                 "`/tools rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
                 "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`\n"
-                "Admin rules: `/addreward`, `/addpunishment`, `/listrules`, `/removerule`"
+                "Admin rules: `/addreward`, `/addpunishment`"
             ),
             inline=False
         )
@@ -16678,10 +16675,8 @@ async def helpme(ctx):
             "`/online` - online survivors\n"
             "`/serverstatus` - bot status\n"
             "`/map` - admin-only live survivor map\n"
-            "`/heatmap` - PvP heatmap summary\n"
             "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
-            "`/backfillkills` - fill killfeed/longshots from recent ADM history\n"
-            "`/setaiimages`"
+            "`/topkills`, `/toplongshots`"
         ),
         inline=False
     )
@@ -16704,7 +16699,7 @@ async def helpme(ctx):
             "`/tools addstaffrole role`\n"
             "`/tools staffroles`\n"
             "`/shamesetup`, `/adminban`, `/admintempban`, `/adminunban`\n"
-            "`/cheatchecksetup`, `/cheatcheckconfig`, `/cheatcheckstatus`\n"
+            "`/cheatchecksetup`, `/cheatcheckstatus`\n"
             "`/purge amount`\n"
             "`/purgeuser member amount`\n"
             "`/tools purgebots amount`\n"
@@ -16719,11 +16714,7 @@ async def helpme(ctx):
         name="Server Control",
         value=(
             "`/restartserver`, `/admstatus`, `/restartadm force`\n"
-            "`/server setrestartinterval`, `/server setrestartstart`\n"
-            "`/server cancelrestarts`, `/server listrestarts`\n"
-            "`/server togglebasedamage state`\n"
-            "`/server sendmessage <text>` — broadcast in-game chat (via Nitrado)\n"
-            "`/extra reloadguilds`\n"
+            "`/tools reloadguilds`\n"
             "`/setradarchannel channel`, `/radarping x y reason`\n"
             "`/addradarzone`, `/radarstatus`, `/forcelinkgamer`\n"
             "`/setdayzmessages` - owner-only in-game message XML upload\n"
@@ -16737,7 +16728,6 @@ async def helpme(ctx):
         value=(
             "Items: add shop entries with `/addshopitem`; players use `/buy item_name x y`; the bot writes delivery XML for restart.\n"
             "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
-            "PC/custom hosts: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup, or use owner-only `/installdayzbridge`.\n"
             "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
         inline=False
@@ -16747,10 +16737,9 @@ async def helpme(ctx):
         name="Economy & Rules",
         value=(
             "`/wallet`, `/shop`, `/buy`, `/tools rentvehicle`\n"
+            "`/addwage`, `/listwages`, `/removewage`, `/collectincome`\n"
             "`/addreward keyword amount`\n"
             "`/addpunishment keyword amount`\n"
-            "`/listrules`\n"
-            "`/removerule rule_number`\n"
             "`/tools importtypesxml source_path default_price`\n"
             "`/addshopitem item_name price category`\n"
             "`/editshopitem item_name price category`\n"
@@ -18638,7 +18627,6 @@ async def restartadm(ctx, force: str = "no"):
     await ctx.send(embed=style_embed(embed))
 
 
-@bot.tree.command(name="backfillkills", description="Admin: post recent ADM kill history into killfeed and longshots")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     limit="Maximum historical kills to post, 1 to 500",
@@ -19725,7 +19713,6 @@ async def removefeed(interaction: discord.Interaction, feed_id: int):
     await interaction.response.send_message(f"Feed `{feed_id}` removed.", ephemeral=True)
 
 
-@bot.tree.command(name="setaiimages", description="Admin: configure occasional AI generated DayZ-style pictures")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     enabled="Turn occasional AI pictures on or off",
@@ -26883,7 +26870,6 @@ async def player_lottery(interaction: discord.Interaction):
 
 
 
-@bot.tree.command(name="wanderingemoji", description="Show off one of Wandering Bot's own emojis")
 async def wanderingemoji(interaction: discord.Interaction):
     icon = random_wandering_emoji()
     line = random.choice(WANDERING_EMOJI_SHOWCASE_LINES)
@@ -27771,7 +27757,6 @@ async def cheatchecksetup(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="cheatcheckconfig", description="Admin: configure PC cheat-check detection")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     enabled="Turn cheat-check detection on or off",
@@ -28415,7 +28400,6 @@ async def removewage(interaction: discord.Interaction, wage_id: str):
     await interaction.response.send_message(f"Wage `{wage_id}` removed.", ephemeral=True)
 
 
-@bot.tree.command(name="listrules", description="Admin: list reward and punishment rules")
 @app_commands.default_permissions(administrator=True)
 async def listrules(interaction: discord.Interaction):
 
@@ -28442,7 +28426,6 @@ async def listrules(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="removerule", description="Admin: remove a reward/punishment rule by number")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(rule_number="Rule number from /listrules")
 async def removerule(interaction: discord.Interaction, rule_number: int):
@@ -29014,7 +28997,6 @@ async def live_map(interaction: discord.Interaction):
     await send_live_map_response(interaction)
 
 
-@bot.tree.command(name="livemap", description="Admin: show online survivors on the server map")
 @app_commands.default_permissions(administrator=True)
 async def slash_livemap_alias(interaction: discord.Interaction):
     await send_live_map_response(interaction)
@@ -29417,10 +29399,6 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
-bot.tree.add_command(bridge_group)
-
-
-@bot.tree.command(name="installdayzbridge", description="Owner: install the restart delivery bridge into init.c")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     install="False checks/explains only. True backs up and patches init.c.",
@@ -30752,7 +30730,6 @@ async def event_delete(interaction: discord.Interaction, event_id: int):
     await interaction.response.send_message(f"Scenario event `{event_id}` deleted.", ephemeral=True)
 
 
-@events_group.command(name="exportce", description="Admin: export console-safe events.xml and cfgeventspawns.xml")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     events_path="Remote events.xml path to merge from",
@@ -30862,7 +30839,6 @@ async def event_uploadce(
     )
 
 
-@events_group.command(name="exportxml", description="Admin: export deliveries.xml for manual Nitrado upload")
 @app_commands.default_permissions(administrator=True)
 async def event_exportxml(interaction: discord.Interaction):
     if not has_interaction_admin_power(interaction):
@@ -31695,7 +31671,6 @@ async def editradarzone(
 async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
 @extra_tools_group.command(name="swearjar", description="Show swear jar leaderboard")
 async def slash_swearjar(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "swearjar")
-@bot.tree.command(name="heatmap", description="Show territory heatmap summary")
 async def slash_heatmap(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "heatmap")
 @bot.tree.command(name="toplongshots", description="Show longshot leaderboard")
 async def slash_toplongshots(interaction: discord.Interaction):
@@ -34389,7 +34364,6 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
     await interaction.response.send_message(f"📡 Live tracker channel set to {channel.mention}.", ephemeral=True)
 
 
-bot.tree.add_command(server_group)
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
