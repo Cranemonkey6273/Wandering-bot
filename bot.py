@@ -25269,8 +25269,8 @@ def console_ce_records_for_event(event):
     child_lootmin = 0
     child_lootmax = 0
     if event_type == "zombie_horde":
-        family = "Item"
-        limit_type = "custom"
+        family = "Infected"
+        limit_type = "child"
         child_lootmax = 5
         mix = event.get("zombie_mix")
         if isinstance(mix, list):
@@ -25301,9 +25301,11 @@ def console_ce_records_for_event(event):
         family = "Animal"
         limit_type = "child"
 
+    record_name = ce_event_name(event, family=family)
     record = {
-        "name": ce_event_name(event, family=family),
+        "name": record_name,
         "class_name": class_name,
+        "event_child_type": record_name if use_eventgroup else class_name,
         "count": count,
         "lifetime": lifetime,
         "x": event.get("x"),
@@ -25324,12 +25326,18 @@ def console_ce_records_for_event(event):
         "cleanupradius": 1500 if use_eventgroup else 100,
     }
     if event_type == "animal_pack":
+        territory = animal_territory_profile(class_name)
         record.update({
             "nominal": count,
             "min_count": count,
             "max_count": count,
             "saferadius": 2,
             "cleanupradius": 100,
+            "animal_territory": True,
+            "territory_name": record_name,
+            "territory_zone": territory.get("zone"),
+            "territory_color": territory.get("color"),
+            "animal_behavior": territory.get("behavior"),
         })
     records.append(record)
 
@@ -25452,7 +25460,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         add_console_ce_event_definition(
             events_root,
             record["name"],
-            record["class_name"],
+            record.get("event_child_type") or record["class_name"],
             record["count"],
             record["lifetime"],
             restock=record.get("restock", 0),
@@ -25691,8 +25699,13 @@ def validate_console_ce_xml_bundle(built):
         if not child_nodes:
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
-            if not str(child.get("type") or "").strip():
+            child_type = str(child.get("type") or "").strip()
+            if not child_type:
                 messages.append(f"`{name}` has a child with no `type` classname.")
+            if child_type.startswith(("ZmbM_", "ZmbF_")) and not name.startswith("Infected"):
+                messages.append(f"`{name}` spawns infected child `{child_type}` but does not use the `Infected` CE family.")
+            if name.startswith("Infected") and child_type.startswith("Animal_"):
+                messages.append(f"`{name}` is an infected event but has animal child `{child_type}`.")
             try:
                 child_max = int(str(child.get("max") or "0"))
             except Exception:

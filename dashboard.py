@@ -20,7 +20,7 @@ from threading import Thread
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, make_response, redirect, render_template_string, request, send_file
+from flask import Flask, g, jsonify, make_response, redirect, render_template_string, request, send_file
 
 
 DATA_ROOT = (
@@ -6972,7 +6972,10 @@ def enqueue_dashboard_audit_event(response: Any) -> None:
     auth = current_auth()
     if not auth:
         return
-    payload = scoped_payload_for_auth(request_payload(), auth)
+    audit_payload = getattr(g, "dashboard_audit_payload", None)
+    if not isinstance(audit_payload, dict):
+        audit_payload = request_payload()
+    payload = scoped_payload_for_auth(audit_payload, auth)
     if payload.get("_scope_denied"):
         return
 
@@ -9864,6 +9867,21 @@ def api_scenario_event():
         events.append(event)
     else:
         events[existing_index] = event
+    g.dashboard_audit_payload = {
+        "name": event.get("name"),
+        "event_type": event.get("event_type"),
+        "spawn_preset": event.get("preset"),
+        "class_name": event.get("class_name"),
+        "count": event.get("count"),
+        "x": event.get("x"),
+        "z": event.get("z"),
+        "radius": event.get("radius"),
+        "runs": "forever" if event.get("permanent") else event.get("remaining_restarts"),
+        "upload_status": event.get("upload_status"),
+        "status": event.get("status"),
+        "event_id": event.get("id"),
+        "guild_id": guild_id,
+    }
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
     if not wants_json_response():
