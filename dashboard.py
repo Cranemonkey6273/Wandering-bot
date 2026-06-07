@@ -6519,6 +6519,39 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     return upload_result
 
 
+def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> bool:
+    if not CUSTOM_STATE_PROVIDER:
+        return False
+
+    def upload_worker() -> None:
+        try:
+            apply_runtime_scenario_xml_upload(guild_id, event_id, removed)
+        except Exception as error:
+            guild_configs = load_store("guild_configs", {})
+            if not isinstance(guild_configs, dict):
+                return
+            config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+            status_text = f"Native CE XML upload failed: {error}"
+            events = config.get("scenario_events", [])
+            if isinstance(events, list):
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    if event_id and safe_int(event.get("id"), 0) != safe_int(event_id, 0):
+                        continue
+                    event["updated_at"] = datetime.now(UTC).isoformat()
+                    event["upload_status"] = "failed"
+                    event["upload_error"] = status_text
+                    event["status"] = "Native CE XML upload failed"
+            if removed:
+                config["scenario_events_cleanup_error"] = status_text
+            save_store("guild_configs", guild_configs)
+            sync_runtime_store("guild_configs", guild_configs)
+
+    Thread(target=upload_worker, name=f"scenario-upload-{guild_id}-{event_id}", daemon=True).start()
+    return True
+
+
 def run_runtime_messages_xml_upload(guild_id: str) -> dict[str, Any] | None:
     if not CUSTOM_STATE_PROVIDER:
         return None
@@ -9870,17 +9903,12 @@ def api_scenario_event():
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
 
-    upload_result = None
-    if event_type != "vehicle_reset_all":
-        upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id)
-        if upload_result is not None:
-            refreshed_configs = load_store("guild_configs", {})
-            refreshed_config = refreshed_configs.get(guild_id) if isinstance(refreshed_configs, dict) else None
-            refreshed_events = refreshed_config.get("scenario_events", []) if isinstance(refreshed_config, dict) else []
-            for refreshed_event in refreshed_events if isinstance(refreshed_events, list) else []:
-                if isinstance(refreshed_event, dict) and safe_int(refreshed_event.get("id"), 0) == event_id:
-                    event = refreshed_event
-                    break
+    upload_started = False
+    if event_type != "vehicle_reset_all" and CUSTOM_STATE_PROVIDER:
+        event["status"] = "Native CE XML upload starting"
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
+        upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id)
 
     g.dashboard_audit_payload = {
         "name": event.get("name"),
@@ -9903,8 +9931,8 @@ def api_scenario_event():
         "ok": True,
         "event": event,
         "updated": existing_index is not None,
-        "upload": upload_result,
-        "note": "saved; native CE XML upload attempted" if upload_result is not None else "saved; native CE XML upload is queued in the bot background worker",
+        "upload_started": upload_started,
+        "note": "saved; native CE XML upload started in the background" if upload_started else "saved; native CE XML upload is queued in the bot background worker",
     })
 
 
@@ -9971,61 +9999,17 @@ def api_scenario_event_action():
         sync_runtime_store("guild_configs", guild_configs)
 
         if action in {"approve", "upload", "pause"}:
-            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
-            if upload_result is not None:
-                guild_configs = load_store("guild_configs", {})
-                config = guild_configs.setdefault(guild_id, {"channels": {}})
-                events = config.get("scenario_events", [])
-                if not isinstance(events, list):
-                    events = []
-                    config["scenario_events"] = events
-                built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
-                messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
-                upload_ok = bool(upload_result.get("ok"))
-                now_text = datetime.now(UTC).isoformat()
-                status_text = (
-                    f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
-                    if upload_ok
-                    else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
-                )
-                returned_event = None
-                for queued_event in events:
-                    if not isinstance(queued_event, dict):
-                        continue
-                    is_target = safe_int(queued_event.get("id"), 0) == event_id
-                    is_pending_dashboard_event = (
-                        queued_event.get("enabled", True)
-                        and str(queued_event.get("created_by") or "") == "dashboard"
-                        and str(queued_event.get("event_type") or "") != "vehicle_reset_all"
-                        and str(queued_event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed", "uploaded"}
-                    )
-                    if action != "upload" and not is_target:
-                        continue
-                    if action == "upload" and not is_target and not (upload_ok and is_pending_dashboard_event):
-                        continue
-                    queued_event["updated_at"] = now_text
-                    if upload_ok:
-                        if action in {"pause", "cancel"}:
-                            queued_event["upload_status"] = "removed"
-                            queued_event["status"] = "Removed from native CE XML"
-                        else:
-                            queued_event["native_ce_uploaded_at"] = now_text
-                            queued_event["native_ce_events_path"] = built.get("events_path", "")
-                            queued_event["native_ce_spawns_path"] = built.get("spawns_path", "")
-                            queued_event["upload_status"] = "uploaded"
-                            queued_event["status"] = "Native CE XML uploaded / waiting for restart"
-                            queued_event.pop("upload_error", None)
-                    else:
-                        queued_event["upload_attempts"] = int(queued_event.get("upload_attempts") or 0) + 1
-                        queued_event["upload_status"] = "failed"
-                        queued_event["upload_error"] = status_text
-                        queued_event["status"] = "Native CE XML upload failed"
-                    if is_target:
-                        returned_event = queued_event
+            upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
+            if upload_started:
+                if action == "pause":
+                    event["status"] = "Native CE XML removal starting"
+                else:
+                    event["status"] = "Native CE XML upload starting"
                 save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
                 if not wants_json_response():
                     return redirect(return_to)
-                return jsonify({"ok": True, "event": returned_event or event, "upload": upload_result})
+                return jsonify({"ok": True, "event": event, "upload_started": True})
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({"ok": True, "event": event})
