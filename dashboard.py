@@ -127,6 +127,35 @@ SCENARIO_VEHICLE_PRESETS = {
     "m3s": {"label": "M3S covered truck", "class": "Truck_01_Covered", "loot_preset": "vehicle_truck"},
     "custom_vehicle": {"label": "Custom vehicle classname", "class": "", "loot_preset": "vehicle_car"},
 }
+VISUAL_LOADOUT_SLOTS = [
+    {"key": "Headgear", "label": "Headgear", "picker": "Head", "group": "cloth"},
+    {"key": "Mask", "label": "Mask", "picker": "Mask", "group": "cloth"},
+    {"key": "Glasses", "label": "Glasses", "picker": "Eyes", "group": "cloth"},
+    {"key": "Torso", "label": "Torso / Jacket", "picker": "Body", "group": "cloth"},
+    {"key": "Vest", "label": "Vest", "picker": "Vest", "group": "cloth"},
+    {"key": "Gloves", "label": "Gloves", "picker": "Gloves", "group": "cloth"},
+    {"key": "Legs", "label": "Legs / Pants", "picker": "Legs", "group": "cloth"},
+    {"key": "Feet", "label": "Feet / Boots", "picker": "Feet", "group": "cloth"},
+    {"key": "Backpack", "label": "Backpack", "picker": "Back", "group": "cloth"},
+    {"key": "Shoulder1", "label": "Shoulder 1", "picker": "Left Shoulder", "group": "attachments"},
+    {"key": "Shoulder2", "label": "Shoulder 2", "picker": "Right Shoulder", "group": "attachments"},
+    {"key": "Belt", "label": "Belt", "picker": "Hips", "group": "attachments"},
+    {"key": "Holster", "label": "Holster", "picker": "Hands", "group": "attachments"},
+]
+VISUAL_LOADOUT_CARGO_SLOTS = [
+    {"key": "cargo:Backpack", "label": "Backpack Cargo", "container": "Backpack"},
+    {"key": "cargo:Torso", "label": "Jacket Cargo", "container": "Torso"},
+    {"key": "cargo:Legs", "label": "Pants Cargo", "container": "Legs"},
+]
+VISUAL_LOADOUT_CATEGORY_FILTERS = [
+    {"key": "", "label": "Slot Items"},
+    {"key": "Weapons", "label": "Weapons"},
+    {"key": "Clothing", "label": "Clothing"},
+    {"key": "Ammunition", "label": "Ammo"},
+    {"key": "Medical", "label": "Medical"},
+    {"key": "Food/Drink", "label": "Food"},
+    {"key": "Misc", "label": "Misc"},
+]
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
@@ -1025,10 +1054,13 @@ PAGE_TEMPLATE = """
     .visual-loadout-layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(28rem, 1.35fr) minmax(20rem, .95fr); gap: .85rem; align-items: start; }
     .visual-browser, .visual-export-panel { position: sticky; top: 6rem; }
     .loadout-category-row { display: flex; flex-wrap: wrap; gap: .35rem; margin: .65rem 0; }
-    .loadout-category-row button { min-height: 2.1rem; padding: .35rem .55rem; font-size: .8rem; background: #070b08; color: var(--muted); }
-    .loadout-category-row button.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+    .loadout-category-row button, .loadout-category-row a { min-height: 2.1rem; padding: .35rem .55rem; font-size: .8rem; background: #070b08; color: var(--muted); }
+    .loadout-category-row button.active, .loadout-category-row a.active { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
     .loadout-item-grid { max-height: 34rem; overflow: auto; display: grid; gap: .45rem; padding-right: .15rem; }
+    .loadout-item-form { display: block; margin: 0; }
     .loadout-item-card { display: grid; grid-template-columns: 2.7rem minmax(0, 1fr); gap: .5rem; align-items: center; min-height: 4rem; border: 1px solid var(--line); border-radius: .5rem; padding: .42rem; background: #070b08; color: var(--muted); text-align: left; }
+    .loadout-item-form .loadout-item-card { width: 100%; cursor: pointer; }
+    a.loadout-item-card { text-decoration: none; }
     .loadout-item-card:hover, .loadout-item-card:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 1px var(--accent); }
     .loadout-item-card img { width: 2.7rem; height: 2.7rem; border-radius: .4rem; border: 1px solid var(--line); background: var(--panel-2); object-fit: contain; }
     .loadout-item-card strong { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1036,6 +1068,7 @@ PAGE_TEMPLATE = """
     .visual-canvas { display: grid; gap: .75rem; }
     .loadout-slot-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
     .visual-slot { min-height: 5rem; display: grid; align-content: center; gap: .25rem; text-align: left; border-style: dashed; background: #070b08; overflow: hidden; }
+    a.visual-slot { text-decoration: none; color: inherit; }
     .visual-slot span { display: block; color: var(--muted); font-size: .78rem; font-weight: 700; }
     .visual-slot strong { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .visual-slot.active { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -1043,6 +1076,7 @@ PAGE_TEMPLATE = """
     .visual-slot.weapon { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
     .loadout-cargo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
     .cargo-box { min-height: 9rem; border: 1px dashed var(--line); border-radius: .5rem; padding: .55rem; background: #070b08; }
+    a.cargo-box { display: block; text-decoration: none; color: inherit; }
     .cargo-box.drag-over, .visual-slot.drag-over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, #070b08); }
     .cargo-box > strong { display: block; color: var(--gold); margin-bottom: .45rem; }
     .cargo-box [data-cargo-items] { display: flex; flex-wrap: wrap; gap: .35rem; min-height: 5rem; align-content: flex-start; }
@@ -3393,51 +3427,61 @@ PAGE_TEMPLATE = """
           <h3>Item Browser</h3>
           <label>Search items <input data-loadout-search placeholder="M4, backpack, bandage"><small class="field-help">Filter the server item list, then click or drag a card into the player layout.</small></label>
           <div class="loadout-category-row" data-loadout-categories>
-            <button type="button" data-loadout-category="all" class="active">All</button>
-            <button type="button" data-loadout-category="Weapons">Weapons</button>
-            <button type="button" data-loadout-category="Clothing">Clothing</button>
-            <button type="button" data-loadout-category="Ammunition">Ammo</button>
-            <button type="button" data-loadout-category="Medical">Medical</button>
-            <button type="button" data-loadout-category="Food/Drink">Food</button>
-            <button type="button" data-loadout-category="Misc">Misc</button>
+            {% for category in visual_loadout_categories %}
+            <a class="button {% if category.key == visual_loadout_category %}active{% endif %}" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ visual_loadout_slot|urlencode }}{% if category.key %}&loadout_category={{ category.key|urlencode }}{% endif %}#visual-loadout" data-loadout-category="{{ category.key or 'all' }}">{{ category.label }}</a>
+            {% endfor %}
           </div>
-          <div class="loadout-item-grid" data-loadout-items></div>
+          <div class="embed-preview"><strong>{{ visual_loadout_category or visual_loadout_slot }}</strong><span>Click an item card to add it to the selected slot. These cards are rendered by HTML so they still work if browser scripts fail.</span></div>
+          <div class="loadout-item-grid" data-loadout-items>
+            {% for item in visual_loadout_items %}
+            <form class="loadout-item-form" method="post" action="/api/admin/visual-loadout-draft">
+              <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="slot" value="{{ visual_loadout_slot }}">
+              <input class="hidden-field" name="item" value="{{ item.name }}">
+              <input class="hidden-field" name="action" value="add">
+              <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ visual_loadout_slot|urlencode }}{% if visual_loadout_category %}&loadout_category={{ visual_loadout_category|urlencode }}{% endif %}#visual-loadout">
+              <button type="submit" class="loadout-item-card" draggable="true" data-loadout-item="{{ item.name }}">
+                <img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
+                <span><strong>{{ item.label or item.name }}</strong><small>{{ item.name }} - {{ item.category }}</small></span>
+              </button>
+            </form>
+            {% else %}
+            <div class="embed-preview"><strong>No items found</strong><span>No matching items were found for this slot. Try Weapons, Clothing, or another slot.</span></div>
+            {% endfor %}
+          </div>
         </aside>
         <article class="admin-panel visual-canvas">
           <h3>Survivor Canvas</h3>
           <div class="embed-preview"><strong>Drag and drop loadout</strong><span>Drop clothing into body slots, weapons into shoulder/holster slots, and supplies into backpack, jacket, or pants cargo.</span></div>
-          <div class="loadout-selected-slot" data-selected-loadout-slot><strong>No slot selected</strong><span>Pick a slot, then click or drag an item into it.</span></div>
+          <div class="loadout-selected-slot" data-selected-loadout-slot><strong>{{ visual_loadout_slot }}</strong><span>Showing matching items in the browser. Pick another slot below to change the list.</span></div>
           <div class="loadout-slot-grid">
-            <button type="button" class="visual-slot" data-loadout-slot="Headgear" data-slot-group="cloth"><span>Headgear</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Mask" data-slot-group="cloth"><span>Mask</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Glasses" data-slot-group="cloth"><span>Glasses</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Torso" data-slot-group="cloth"><span>Torso / Jacket</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Vest" data-slot-group="cloth"><span>Vest</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Gloves" data-slot-group="cloth"><span>Gloves</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Legs" data-slot-group="cloth"><span>Legs / Pants</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Feet" data-slot-group="cloth"><span>Feet / Boots</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot" data-loadout-slot="Backpack" data-slot-group="cloth"><span>Backpack</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot weapon" data-loadout-slot="Shoulder1" data-slot-group="attachments"><span>Shoulder 1</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot weapon" data-loadout-slot="Shoulder2" data-slot-group="attachments"><span>Shoulder 2</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot weapon" data-loadout-slot="Belt" data-slot-group="attachments"><span>Belt</span><strong>Empty</strong></button>
-            <button type="button" class="visual-slot weapon" data-loadout-slot="Holster" data-slot-group="attachments"><span>Holster</span><strong>Empty</strong></button>
+            {% for slot in visual_loadout_slots %}
+            {% set slot_value = (visual_loadout_draft.attachments.get(slot.key) if slot.group == 'attachments' else visual_loadout_draft.cloth.get(slot.key)) %}
+            <a href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ slot.key|urlencode }}#visual-loadout" class="visual-slot {% if slot.group == 'attachments' %}weapon{% endif %} {% if visual_loadout_slot == slot.key %}active{% endif %} {% if slot_value %}filled{% endif %}" data-loadout-slot="{{ slot.key }}" data-slot-group="{{ slot.group }}"><span>{{ slot.label }}</span><strong>{{ slot_value or 'Empty' }}</strong></a>
+            {% endfor %}
           </div>
           <div class="loadout-cargo-grid">
-            <div class="cargo-box" data-cargo-container="Backpack"><strong>Backpack Cargo</strong><div data-cargo-items="Backpack"></div></div>
-            <div class="cargo-box" data-cargo-container="Torso"><strong>Jacket Cargo</strong><div data-cargo-items="Torso"></div></div>
-            <div class="cargo-box" data-cargo-container="Legs"><strong>Pants Cargo</strong><div data-cargo-items="Legs"></div></div>
+            {% for cargo in visual_loadout_cargo_slots %}
+            <a class="cargo-box {% if visual_loadout_slot == cargo.key %}active drag-over{% endif %}" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ cargo.key|urlencode }}#visual-loadout" data-cargo-container="{{ cargo.container }}"><strong>{{ cargo.label }}</strong><div data-cargo-items="{{ cargo.container }}">{% for item in visual_loadout_draft.cargo.get(cargo.container, []) %}<span class="cargo-chip">{{ item }}</span>{% else %}<span class="muted">Empty</span>{% endfor %}</div></a>
+            {% endfor %}
           </div>
           <div class="attachment-tray" data-attachment-tray>
             <div class="row-between"><strong>Weapon Attachments</strong><button type="button" data-clear-selected-slot>Clear Selected</button></div>
             <div data-attachment-items></div>
           </div>
+          <form method="post" action="/api/admin/visual-loadout-draft" class="toolbar">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="action" value="clear">
+            <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ visual_loadout_slot|urlencode }}#visual-loadout">
+            <button type="submit">Clear Loadout Draft</button>
+          </form>
         </article>
         <aside class="admin-panel visual-export-panel">
           <h3>Live Export & Package</h3>
-          <form class="xml-tool-form" data-loadout-package-form data-route="/api/admin/loadout-package">
+          <form class="xml-tool-form" method="post" action="/api/admin/loadout-package" data-loadout-package-form data-route="/api/admin/loadout-package">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <label>Custom loadout JSON
-              <textarea name="loadout_json" data-loadout-json spellcheck="false"></textarea>
+              <textarea name="loadout_json" data-loadout-json spellcheck="false">{{ visual_loadout_json_text }}</textarea>
             </label>
             <label>Optional cfggameplay.json override
               <textarea name="cfggameplay_json" placeholder="Leave blank to let the bot create the correct cfggameplay.json"></textarea>
@@ -4032,6 +4076,7 @@ PAGE_TEMPLATE = """
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
     const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
+    const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
     const DEFAULT_LOADOUT_SLOT = "Head";
     document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
@@ -5211,7 +5256,14 @@ PAGE_TEMPLATE = """
       SVD: ["Battery9V"],
       SKS: ["Ammo_762x39"]
     };
-    const loadoutState = {selected: "", category: "all", cloth: {}, attachments: {}, weaponAttachments: {}, cargo: {Backpack: [], Torso: [], Legs: []}};
+    const loadoutState = {
+      selected: "{{ visual_loadout_slot }}",
+      category: "all",
+      cloth: VISUAL_LOADOUT_DRAFT.cloth || {},
+      attachments: VISUAL_LOADOUT_DRAFT.attachments || {},
+      weaponAttachments: VISUAL_LOADOUT_DRAFT.weaponAttachments || {},
+      cargo: VISUAL_LOADOUT_DRAFT.cargo || {Backpack: [], Torso: [], Legs: []}
+    };
     function loadoutItemImage(classname) {
       return `https://db.mydayz.eu/wp-content/uploads/2025/08/${encodeURIComponent(classname)}.png.webp`;
     }
@@ -5351,7 +5403,8 @@ PAGE_TEMPLATE = """
       renderLoadoutState();
     }
     loadoutPages().forEach((page) => {
-      renderLoadoutBrowser(page);
+      const grid = page.querySelector("[data-loadout-items]");
+      if (!grid || !grid.children.length) renderLoadoutBrowser(page);
       renderLoadoutState();
     });
     document.addEventListener("input", (event) => {
@@ -7345,6 +7398,7 @@ ADMIN_ROUTES = [
     "/api/admin/loot-bulk-tweak",
     "/api/admin/loadout-generate",
     "/api/admin/loadout-package",
+    "/api/admin/visual-loadout-draft",
     "/api/admin/vehicle-loadout-generate",
     "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
@@ -7416,6 +7470,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
     "/api/admin/loadout-package": "xml_workshop",
+    "/api/admin/visual-loadout-draft": "xml_workshop",
     "/api/admin/loadout-package-inject": "xml_workshop",
     "/api/admin/dayz-converter-inject": "xml_workshop",
     "/api/admin/xml-inject": "xml_workshop",
@@ -9401,6 +9456,119 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def empty_visual_loadout_draft() -> dict[str, Any]:
+    return {
+        "cloth": {},
+        "attachments": {},
+        "weaponAttachments": {},
+        "cargo": {"Backpack": [], "Torso": [], "Legs": []},
+    }
+
+
+def normalize_visual_loadout_draft(value: Any) -> dict[str, Any]:
+    draft = empty_visual_loadout_draft()
+    if not isinstance(value, dict):
+        return draft
+    for group in ("cloth", "attachments", "weaponAttachments"):
+        if isinstance(value.get(group), dict):
+            draft[group] = {
+                str(key): value
+                for key, value in value[group].items()
+                if str(key).strip() and str(value).strip()
+            }
+    cargo = value.get("cargo")
+    if isinstance(cargo, dict):
+        for container in draft["cargo"]:
+            rows = cargo.get(container)
+            if isinstance(rows, list):
+                draft["cargo"][container] = [safe_dayz_class(item) for item in rows if safe_dayz_class(item)]
+    return draft
+
+
+def visual_loadout_slot_meta(slot: Any) -> dict[str, Any] | None:
+    key = str(slot or "").strip()
+    for item in VISUAL_LOADOUT_SLOTS:
+        if item["key"] == key:
+            return dict(item)
+    for item in VISUAL_LOADOUT_CARGO_SLOTS:
+        if item["key"] == key:
+            return dict(item)
+    return None
+
+
+def build_visual_loadout_json(draft_value: Any) -> dict[str, Any]:
+    draft = normalize_visual_loadout_draft(draft_value)
+    weapon_slots = {
+        slot: classname
+        for slot, classname in draft["attachments"].items()
+        if classname
+    }
+    weapon_attachments = {
+        slot: {
+            "item": classname,
+            "attachments": draft["weaponAttachments"].get(slot, []),
+        }
+        for slot, classname in weapon_slots.items()
+    }
+    return {
+        "PlayerData": {
+            "SpawnGear": {
+                "unclothed": False,
+                "cloth": [item for item in draft["cloth"].values() if item],
+                "attachments": [item for item in weapon_slots.values() if item],
+                "cargo": [item for rows in draft["cargo"].values() for item in rows if item],
+                "slots": {
+                    "cloth": draft["cloth"],
+                    "weapons": weapon_attachments,
+                    "cargo": draft["cargo"],
+                },
+            }
+        }
+    }
+
+
+def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: str = "") -> list[dict[str, Any]]:
+    category = str(category or "").strip()
+    if category:
+        all_items = groups.get("all") if isinstance(groups.get("all"), list) else []
+        if category == "Weapons":
+            candidates = groups.get("Left Shoulder", []) + groups.get("Right Shoulder", [])
+        elif category == "Clothing":
+            candidates = []
+            for key in ("Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Gloves", "Armband"):
+                candidates.extend(groups.get(key, []))
+        else:
+            candidates = [
+                item for item in all_items
+                if category.lower() in str(item.get("category") or "").lower()
+                or category.lower().split("/")[0] in str(item.get("name") or "").lower()
+            ]
+        return unique_visual_items(candidates)
+    meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
+    if str(meta.get("key", "")).startswith("cargo:"):
+        return unique_visual_items(groups.get("cargo", []))
+    return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []))
+
+
+def unique_visual_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    rows: list[dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("classname") or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        row = dict(item)
+        row.setdefault("label", name)
+        row.setdefault("category", "General")
+        row.setdefault("image_url", item_image_url(name))
+        row.setdefault("fallback_image_url", f"/item-thumb/{urllib.parse.quote(str(row.get('category') or 'General'))}")
+        rows.append(row)
+    return sorted(rows, key=lambda item: str(item.get("name") or "").lower())[:120]
+
+
 def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> str:
     safe_type = safe_dayz_class(type_name) or "Classname"
     lines = [f'<type name="{safe_type}">']
@@ -11125,6 +11293,17 @@ def page(mode: str, auth: dict[str, Any]):
     ce_defaults = dashboard_default_ce_paths(selected_config if isinstance(selected_config, dict) else {})
     server_map = str(selected_config.get("server_map") or selected_config.get("map") or "chernarus") if isinstance(selected_config, dict) else "chernarus"
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
+    picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
+    picker_groups = xml_picker_groups(picker_source_items)
+    visual_loadout_slot = str(request.args.get("loadout_slot") or "Headgear").strip()
+    if not visual_loadout_slot_meta(visual_loadout_slot):
+        visual_loadout_slot = "Headgear"
+    visual_loadout_category = str(request.args.get("loadout_category") or "").strip()
+    if visual_loadout_category not in {item["key"] for item in VISUAL_LOADOUT_CATEGORY_FILTERS}:
+        visual_loadout_category = ""
+    visual_loadout_items = visual_loadout_items_for_view(picker_groups, visual_loadout_slot, visual_loadout_category)
+    visual_loadout_draft = normalize_visual_loadout_draft(selected_config.get("visual_loadout_draft") if isinstance(selected_config, dict) else {})
+    visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -11141,9 +11320,17 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
-        xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []),
+        xml_picker_groups=picker_groups,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
+        visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
+        visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
+        visual_loadout_categories=VISUAL_LOADOUT_CATEGORY_FILTERS,
+        visual_loadout_slot=visual_loadout_slot,
+        visual_loadout_category=visual_loadout_category,
+        visual_loadout_items=visual_loadout_items,
+        visual_loadout_draft=visual_loadout_draft,
+        visual_loadout_json_text=visual_loadout_json_text,
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
@@ -11860,6 +12047,73 @@ def api_loadout_package():
         as_attachment=True,
         download_name="MyDayZServerSettings.zip",
     )
+
+
+@APP.post("/api/admin/visual-loadout-draft")
+def api_visual_loadout_draft():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    slot = str(payload.get("slot") or "Headgear").strip()
+    action = str(payload.get("action") or "add").strip().lower()
+    item_name = safe_dayz_class(payload.get("item"))
+    return_to = safe_dashboard_return(
+        payload.get("return_to"),
+        f"/admin?section=visual-loadout&guild_id={guild_id}&loadout_slot={urllib.parse.quote(slot or 'Headgear')}#visual-loadout",
+    )
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    draft = normalize_visual_loadout_draft(config.get("visual_loadout_draft"))
+    if action == "clear":
+        draft = empty_visual_loadout_draft()
+    elif action == "remove":
+        meta = visual_loadout_slot_meta(slot)
+        if slot.startswith("cargo:"):
+            container = slot.split(":", 1)[1]
+            index = safe_int(payload.get("index"), -1)
+            rows = draft["cargo"].get(container, [])
+            if 0 <= index < len(rows):
+                rows.pop(index)
+        elif meta and meta.get("group") == "attachments":
+            draft["attachments"].pop(slot, None)
+            draft["weaponAttachments"].pop(slot, None)
+        elif meta:
+            draft["cloth"].pop(slot, None)
+    elif action == "add":
+        if not item_name:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "item is required"}), 400
+            return redirect(return_to)
+        meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
+        if str(meta.get("key", "")).startswith("cargo:"):
+            container = str(meta.get("container") or "Backpack")
+            draft["cargo"].setdefault(container, [])
+            draft["cargo"][container].append(item_name)
+        elif meta.get("group") == "attachments":
+            draft["attachments"][str(meta.get("key"))] = item_name
+            draft["weaponAttachments"].setdefault(str(meta.get("key")), [])
+        else:
+            draft["cloth"][str(meta.get("key"))] = item_name
+    else:
+        if wants_json_response():
+            return jsonify({"ok": False, "error": "action must be add, remove, or clear"}), 400
+        return redirect(return_to)
+    config["visual_loadout_draft"] = draft
+    config["visual_loadout_draft_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    if wants_json_response():
+        return jsonify({
+            "ok": True,
+            "draft": draft,
+            "loadout_json": build_visual_loadout_json(draft),
+            "note": "Updated visual loadout draft.",
+        })
+    return redirect(return_to)
 
 
 def dashboard_config_from_payload(payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
