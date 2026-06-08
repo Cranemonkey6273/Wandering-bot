@@ -256,6 +256,28 @@ PAGE_TEMPLATE = """
           return path;
         }
       }
+      window.wanderingMeasureZoneMapClick = function (event, control) {
+        if (!event || !control || !control.form) return true;
+        var rect = control.getBoundingClientRect ? control.getBoundingClientRect() : null;
+        if (!rect || !rect.width || !rect.height) return true;
+        var pointerX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+        var pointerY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+        var form = control.form;
+        var setField = function (selector, value) {
+          var field = form.querySelector(selector);
+          if (field) field.value = String(value);
+        };
+        setField("[data-map-render-width]", Math.round(rect.width));
+        setField("[data-map-render-height]", Math.round(rect.height));
+        setField("[data-map-pointer-x]", pointerX);
+        setField("[data-map-pointer-y]", pointerY);
+        setField("[data-map-percent-x]", (pointerX / rect.width) * 100);
+        setField("[data-map-percent-y]", (pointerY / rect.height) * 100);
+        var map = closest(control, "[data-zone-map]");
+        var size = map ? Number(map.getAttribute("data-map-size") || 15360) : 15360;
+        setField("[name='map_click_scale']", rect.width ? (size / rect.width) : 10);
+        return true;
+      };
       function setControl(form, name, value) {
         if (!form || !form.elements[name]) return;
         var control = form.elements[name];
@@ -2097,7 +2119,7 @@ PAGE_TEMPLATE = """
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
-              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" data-zone-map-hit>
+              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" onpointerdown="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" onclick="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
               <input class="hidden-field" name="map_render_width" data-map-render-width value="">
               <input class="hidden-field" name="map_render_height" data-map-render-height value="">
@@ -11038,7 +11060,7 @@ def zone_draft_from_image_click(mode: str):
     percent_y = safe_float(request.args.get("map_percent_y"), -1)
     render_width = safe_float(request.args.get("map_render_width"), 0)
     render_height = safe_float(request.args.get("map_render_height"), 0)
-    click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
+    click_scale = max(1.0, safe_float(request.args.get("map_click_scale"), 10))
     if has_click:
         if 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
             zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
