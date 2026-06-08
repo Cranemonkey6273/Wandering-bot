@@ -1006,7 +1006,7 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to add - click marker to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: .01; object-fit: fill; }
+    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: 1; object-fit: fill; }
     .zone-map-hit-label { position: absolute; left: .75rem; bottom: .65rem; z-index: 8; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
     .zone-map-hit-layer:focus-visible { outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
@@ -2097,10 +2097,10 @@ PAGE_TEMPLATE = """
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
-              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ ((server.map_size if server else 15360) / 10)|round|int }}" height="{{ ((server.map_size if server else 15360) / 10)|round|int }}" data-zone-map-hit>
+              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
-              <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
-              <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
+              <input class="hidden-field" name="map_render_width" data-map-render-width value="">
+              <input class="hidden-field" name="map_render_height" data-map-render-height value="">
               <input class="hidden-field" name="map_pointer_x" data-map-pointer-x value="">
               <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
               <input class="hidden-field" name="map_percent_x" data-map-percent-x value="">
