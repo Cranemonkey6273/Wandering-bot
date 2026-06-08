@@ -6,6 +6,7 @@ import os
 import re
 import json
 import random
+import math
 import hashlib
 import base64
 import io
@@ -24489,12 +24490,25 @@ SCENARIO_SPAWN_PRESETS = {
 
 SCENARIO_LOOT_PRESETS = {
     "none": [],
-    "military": ["M4A1", "Mag_STANAG_30Rnd", "Ammo_556x45", "BandageDressing", "Canteen"],
+    "military": [
+        "M4A1", "AKM", "AK74", "SKS", "PlateCarrierVest", "BallisticHelmet_Green",
+        "M65Jacket_Black", "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black",
+        "M67Grenade", "SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
+        "Mag_AK74_30Rnd", "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd",
+        "AmmoBox_545x39_20Rnd", "BandageDressing", "Morphine", "Canteen", "TacticalBaconCan"
+    ],
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "military_high": [
-        "M4A1", "AKM", "SVD", "PlateCarrierVest", "BallisticHelmet_Green",
-        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_SVD_10Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
-        "Grenade_ChemGas", "NVGoggles", "BandageDressing"
+        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "Glock19",
+        "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
+        "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
+        "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
+        "SmokeGrenade_Red", "SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
+        "Mag_AK74_30Rnd", "Mag_SVD_10Rnd", "Mag_Glock_15Rnd", "AmmoBox_556x45_20Rnd",
+        "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd",
+        "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
+        "Ammo_9x19", "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
+        "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan"
     ],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
@@ -24524,29 +24538,38 @@ SCENARIO_AIRDROP_MARKER_CLASS = "StaticObj_Misc_WoodenCrate_5x"
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "M4A1": {
         "attachments": ["M4_RISHndgrd", "M4_MPBttstck", "ACOGOptic", "Mag_STANAG_30Rnd"],
-        "supplies": ["Ammo_556x45", "Mag_STANAG_30Rnd"],
+        "supplies": ["AmmoBox_556x45_20Rnd", "Ammo_556x45", "Mag_STANAG_30Rnd"],
     },
     "AKM": {
         "attachments": ["AK_PlasticHndgrd", "AK_PlasticBttstck", "PSO1Optic", "Mag_AKM_30Rnd"],
-        "supplies": ["Ammo_762x39", "Mag_AKM_30Rnd"],
+        "supplies": ["AmmoBox_762x39_20Rnd", "Ammo_762x39", "Mag_AKM_30Rnd"],
     },
     "AK74": {
         "attachments": ["AK74_Hndgrd", "AK74_WoodBttstck", "Mag_AK74_30Rnd"],
-        "supplies": ["Ammo_545x39", "Mag_AK74_30Rnd"],
+        "supplies": ["AmmoBox_545x39_20Rnd", "Ammo_545x39", "Mag_AK74_30Rnd"],
     },
     "SVD": {
         "attachments": ["PSO1Optic", "Mag_SVD_10Rnd"],
-        "supplies": ["Ammo_762x54", "Mag_SVD_10Rnd"],
+        "supplies": ["AmmoBox_762x54_20Rnd", "Ammo_762x54", "Mag_SVD_10Rnd"],
     },
     "SKS": {
-        "supplies": ["Ammo_762x39"],
+        "supplies": ["AmmoBox_762x39_20Rnd", "Ammo_762x39"],
+    },
+    "Mosin9130": {
+        "supplies": ["AmmoBox_762x54_20Rnd", "Ammo_762x54"],
+    },
+    "Glock19": {
+        "attachments": ["Mag_Glock_15Rnd"],
+        "supplies": ["Ammo_9x19", "Mag_Glock_15Rnd"],
     },
 }
 
 SCENARIO_AIRDROP_GROUND_LOOT = {
-    "M4A1", "AKM", "AK74", "SVD", "SKS",
-    "PlateCarrierVest", "BallisticHelmet_Green", "NVGoggles",
-    "Grenade_ChemGas",
+    "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "Glock19",
+    "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
+    "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
+    "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
+    "SmokeGrenade_Red", "SmokeGrenade_Green",
 }
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
@@ -25211,7 +25234,7 @@ def scenario_airdrop_ground_loot_items(event):
             continue
         seen.add(key)
         items.append(item)
-    return items[:12]
+    return items[:24]
 
 
 def scenario_airdrop_container_loot_items(event):
@@ -25238,7 +25261,7 @@ def scenario_airdrop_container_loot_items(event):
 
 def scenario_spawnabletypes_quantity_attrs(item_name):
     lower = str(item_name or "").strip().lower()
-    if lower.startswith(("mag_", "ammo_")) or lower in {"canteen", "waterbottle"}:
+    if lower.startswith(("mag_", "ammo_", "ammobox_")) or lower in {"canteen", "waterbottle"}:
         return {"quantmin": "100", "quantmax": "100"}
     return {}
 
@@ -25444,34 +25467,16 @@ def scenario_airdrop_child_offsets(index, radius=35):
         radius_value = float(radius or 35)
     except Exception:
         radius_value = 35.0
-    spacing = max(2.0, min(6.0, radius_value / 8.0))
-    offsets = [
-        (spacing, 0.0),
-        (-spacing, 0.0),
-        (0.0, spacing),
-        (0.0, -spacing),
-        (spacing * 0.75, spacing * 0.75),
-        (-spacing * 0.75, spacing * 0.75),
-        (spacing * 0.75, -spacing * 0.75),
-        (-spacing * 0.75, -spacing * 0.75),
-        (spacing * 1.5, spacing * 0.3),
-        (-spacing * 1.5, -spacing * 0.3),
-        (spacing * 0.3, spacing * 1.5),
-        (-spacing * 0.3, -spacing * 1.5),
-    ]
-    return offsets[index % len(offsets)]
+    spread = max(4.0, min(18.0, radius_value / 2.5))
+    ring = index // 8
+    slot = index % 8
+    distance = min(spread, 4.0 + (ring * 3.5))
+    angle = math.radians((slot * 45) + (ring * 22.5))
+    return (math.cos(angle) * distance, math.sin(angle) * distance)
 
 
 def scenario_airdrop_eventgroup_children(event, class_name):
-    children = [{
-        "type": class_name,
-        "lootmin": 20,
-        "lootmax": 80,
-        "x": "0.0",
-        "z": "0.0",
-        "a": "0.0",
-        "y": "0.0",
-    }]
+    children = []
 
     marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
     if event.get("visual_marker") and marker_class and marker_class.lower() != str(class_name or "").lower():
@@ -25479,11 +25484,23 @@ def scenario_airdrop_eventgroup_children(event, class_name):
             "type": marker_class,
             "lootmin": 1,
             "lootmax": 1,
-            "x": "1.2",
-            "z": "0.4",
+            "x": "0.0",
+            "z": "0.0",
             "a": "0.0",
             "y": "0.0",
         })
+
+    crate_x = "2.8" if children else "0.0"
+    crate_z = "-1.6" if children else "0.0"
+    children.append({
+        "type": class_name,
+        "lootmin": 20,
+        "lootmax": 80,
+        "x": crate_x,
+        "z": crate_z,
+        "a": "0.0",
+        "y": "0.0",
+    })
 
     for index, item_name in enumerate(scenario_airdrop_ground_loot_items(event)):
         x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"))
