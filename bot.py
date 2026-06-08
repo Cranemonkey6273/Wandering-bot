@@ -13213,6 +13213,8 @@ def cleanup_wanderingbot_backups_for_path(config, target_path, keep_paths=None, 
             continue
         if not is_wanderingbot_backup_name_for(base_name, name):
             continue
+        if not (name.endswith(".wanderingbot-backup-latest") or ".wanderingbot-backup-" in name or ".wandering-backup-" in name):
+            continue
         ok, message = delete_remote_file_from_nitrado(config, path)
         if ok:
             deleted.append(path)
@@ -25680,7 +25682,7 @@ def remote_mission_base_from_ce_paths(built):
 
 
 def animal_territory_file_name(record):
-    safe = normalize_discord_name(record.get("territory_name") or record.get("name") or "animal")
+    safe = normalize_discord_name(record.get("territory_file_key") or record.get("territory_name") or record.get("name") or "animal")
     return f"wanderingbot_{safe}_territories.xml"[:96]
 
 
@@ -25690,6 +25692,31 @@ def animal_territory_remote_path(mission_base, record):
 
 def animal_territory_usable_name(record):
     return os.path.splitext(animal_territory_file_name(record))[0]
+
+
+def animal_territory_group_key(record):
+    profile = animal_territory_profile(record.get("class_name"))
+    species = normalize_discord_name(profile.get("species") or record.get("class_name") or "animal")
+    behavior = normalize_discord_name(profile.get("behavior") or record.get("animal_behavior") or "animal")
+    return f"{species}_{behavior}"[:60] or "animal"
+
+
+def group_animal_territory_records(records):
+    groups = {}
+    for record in records:
+        key = animal_territory_group_key(record)
+        group = groups.setdefault(key, {
+            "territory_file_key": f"animal_{key}",
+            "territory_name": f"WanderingBot_{key}",
+            "animal_behavior": record.get("animal_behavior"),
+            "territory_zone": record.get("territory_zone"),
+            "territory_color": record.get("territory_color"),
+            "records": [],
+            "event_names": [],
+        })
+        group["records"].append(record)
+        group["event_names"].append(str(record.get("name") or ""))
+    return list(groups.values())
 
 
 def remove_wandering_environment_nodes(root):
@@ -25735,13 +25762,15 @@ def add_animal_environment_entry(root, record):
         "behavior": str(record.get("animal_behavior") or "DZDeerGroupBeh"),
     })
     ET.SubElement(territory_node, "file", {"usable": usable})
-    count = max(1, int(record.get("count") or 1))
+    records = record.get("records") if isinstance(record.get("records"), list) else [record]
+    count = sum(max(1, int(item.get("count") or 1)) for item in records)
+    radius = max([max(2, int(item.get("radius") or 20)) for item in records] or [20])
     for name, value in (
         ("globalCountMax", max(count, 1)),
         ("zoneCountMin", count),
         ("zoneCountMax", count),
         ("playerSpawnRadiusNear", 1),
-        ("playerSpawnRadiusFar", max(2, int(record.get("radius") or 20))),
+        ("playerSpawnRadiusFar", radius),
     ):
         ET.SubElement(territory_node, "item", {"name": name, "val": str(int(value))})
 
@@ -25749,18 +25778,20 @@ def add_animal_environment_entry(root, record):
 def build_animal_territory_text(record):
     root = ET.Element("territory-type")
     territory = ET.SubElement(root, "territory", {"color": str(record.get("territory_color") or "4286611584")})
-    count = max(1, int(record.get("count") or 1))
-    radius = max(1, int(record.get("radius") or 20))
-    ET.SubElement(territory, "zone", {
-        "name": str(record.get("territory_zone") or "Graze"),
-        "smin": str(count),
-        "smax": str(count),
-        "dmin": "0",
-        "dmax": "0",
-        "x": ce_decimal(record.get("x")),
-        "z": ce_decimal(record.get("z")),
-        "r": str(radius),
-    })
+    records = record.get("records") if isinstance(record.get("records"), list) else [record]
+    for item in records:
+        count = max(1, int(item.get("count") or 1))
+        radius = max(1, int(item.get("radius") or 20))
+        ET.SubElement(territory, "zone", {
+            "name": str(item.get("territory_zone") or record.get("territory_zone") or "Graze"),
+            "smin": str(count),
+            "smax": str(count),
+            "dmin": "0",
+            "dmax": "0",
+            "x": ce_decimal(item.get("x")),
+            "z": ce_decimal(item.get("z")),
+            "r": str(radius),
+        })
     return xml_text_from_root(root)
 
 
@@ -26075,13 +26106,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             else:
                 output["messages"].append(f"cfgenvironment.xml cleanup skipped: {env_parse_warning}")
         removed_files, removed_territories = remove_wandering_environment_nodes(env_root)
-        for record in animal_records:
+        animal_territory_groups = group_animal_territory_records(animal_records)
+        for record in animal_territory_groups:
             add_animal_environment_entry(env_root, record)
             territory_path = animal_territory_remote_path(mission_base, record) if mission_base else ""
             output["animal_territory_files"].append({
                 "path": territory_path,
                 "text": build_animal_territory_text(record),
-                "name": record.get("name"),
+                "name": record.get("territory_name"),
+                "event_names": record.get("event_names", []),
             })
         if animal_records or removed_files or removed_territories:
             output["cfgenvironment_path"] = resolved_env_path
@@ -26279,9 +26312,16 @@ def validate_console_ce_xml_bundle(built):
         if spawn_node is None:
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue
-        is_animal_territory_event = name.startswith("Animal") and any(
-            name == str(item.get("name") or "") for item in territory_files
-        )
+        territory_event_names = {
+            str(event_name or "")
+            for item in territory_files
+            for event_name in (
+                item.get("event_names")
+                if isinstance(item.get("event_names"), list)
+                else [item.get("name")]
+            )
+        }
+        is_animal_territory_event = name.startswith("Animal") and name in territory_event_names
         if not spawn_node.findall("pos") and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
         has_group_pos = any(str(pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
@@ -26383,13 +26423,6 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
         ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
     ]
-    for territory_file in built.get("animal_territory_files") or []:
-        # New Wandering Bot territory files are additive; back them up only if they already exist.
-        path = territory_file.get("path")
-        if path:
-            ok, _, content = download_text_file_from_nitrado(config, path)
-            if ok and str(content or "").strip():
-                targets.append((os.path.basename(path), path))
     for label, path in targets:
         if not path:
             continue
