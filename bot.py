@@ -24475,13 +24475,13 @@ SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
-    "military_crate": {"label": "Military loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
-    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "military_crate": {"label": "Military loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "wooden_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "airdrop"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "airdrop"},
-    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
-    "survival_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
-    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop"},
+    "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "survival_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
 
@@ -25130,6 +25130,13 @@ def find_or_create_spawnable_type(root, class_name):
     return ET.SubElement(root, "type", {"name": wanted}), True
 
 
+def scenario_container_class_for_ce(class_name):
+    wanted = str(class_name or "").strip()
+    if wanted in {"StaticObj_Misc_WoodenCrate_5x", "SupplyCrate", "Crate"}:
+        return "WoodenCrate"
+    return wanted
+
+
 def merge_airdrop_loot_into_spawnabletypes(root, events):
     changed_classes = set()
     cargo_blocks = 0
@@ -25138,7 +25145,7 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
         if event.get("event_type") not in {"airdrop", "vehicle_spawn"}:
             continue
 
-        class_name = str(event.get("class_name") or "").strip()
+        class_name = scenario_container_class_for_ce(event.get("class_name"))
         loot = [
             str(item).strip()
             for item in (event.get("loot") or [])
@@ -25580,9 +25587,9 @@ def console_ce_records_for_event(event):
     elif event_type == "animal_pack":
         lifetime = 180
 
-    use_eventgroup = False
-    if event_type in {"airdrop", "loot_crate"} and class_name in {"WoodenCrate", "SupplyCrate", "Crate"}:
-        class_name = "StaticObj_Misc_WoodenCrate_5x"
+    if event_type in {"airdrop", "loot_crate"}:
+        class_name = scenario_container_class_for_ce(class_name)
+    use_eventgroup = event_type in {"airdrop", "loot_crate"}
     family = ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
     child_lootmin = 0
@@ -25680,9 +25687,9 @@ def console_ce_records_for_event(event):
                 f"`{event.get('id')}` has a visual marker set, but marker objects are disabled for native CE uploads so only the requested event spawns."
             )
 
-        if event.get("loot_preset") and event.get("loot_preset") != "none":
+        if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
             warnings.append(
-                f"`{event.get('id')}` keeps its airdrop crate spawn, but exact crate contents need cfgspawnabletypes/types tuning; CE XML alone cannot fill one single crate instance."
+                f"`{event.get('id')}` has loot preset `{event.get('loot_preset')}` but no resolved loot items, so the crate event will spawn without cargo."
             )
 
     if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":

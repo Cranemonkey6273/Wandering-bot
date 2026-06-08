@@ -59,13 +59,13 @@ SCENARIO_SPAWN_PRESETS = {
     "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
-    "military_crate": {"label": "Military loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "military_high"},
-    "wooden_crate": {"label": "Survival loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "survival"},
+    "military_crate": {"label": "Military loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "military_high"},
+    "wooden_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "survival"},
     "sea_chest": {"label": "Sea chest container", "class": "SeaChest", "event_type": "airdrop", "loot_preset": "survival"},
     "green_barrel": {"label": "Green barrel container", "class": "Barrel_Green", "event_type": "airdrop", "loot_preset": "survival"},
-    "medical_crate": {"label": "Medical loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "medical"},
-    "building_crate": {"label": "Building loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "building"},
-    "food_crate": {"label": "Food loot", "class": "StaticObj_Misc_WoodenCrate_5x", "event_type": "airdrop", "loot_preset": "food"},
+    "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "medical"},
+    "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "building"},
+    "food_crate": {"label": "Food loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "food"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
 SCENARIO_LOOT_PRESETS = {
@@ -2307,7 +2307,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='StaticObj_Misc_WoodenCrate_5x', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='false', guard_class='ZmbM_SoldierNormal', guard_count=0, guard_radius=35) %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='false', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -2378,11 +2378,11 @@ PAGE_TEMPLATE = """
             </label>
             <label>Spawn type
               <select name="spawn_preset" data-scenario-preset>
-                <option value="military_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="35" data-loot="military_high">Military loot</option>
-                <option value="wooden_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="survival">Survival loot</option>
-                <option value="medical_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="medical">Medical loot</option>
-                <option value="building_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="building">Building loot</option>
-                <option value="food_crate" data-type="airdrop" data-class="StaticObj_Misc_WoodenCrate_5x" data-count="1" data-radius="20" data-loot="food">Food loot</option>
+                <option value="military_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="35" data-loot="military_high">Military loot</option>
+                <option value="wooden_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="survival">Survival loot</option>
+                <option value="medical_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot</option>
+                <option value="building_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="building">Building loot</option>
+                <option value="food_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="food">Food loot</option>
                 <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
                 <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
                 <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
@@ -11993,8 +11993,8 @@ def api_scenario_event():
         class_name = str(preset.get("class") or class_name)
     if not class_name:
         defaults = {
-            "airdrop": "StaticObj_Misc_WoodenCrate_5x",
-            "loot_crate": "StaticObj_Misc_WoodenCrate_5x",
+            "airdrop": "WoodenCrate",
+            "loot_crate": "WoodenCrate",
             "animal_pack": "Animal_UrsusArctos",
             "zombie_horde": "ZmbM_SoldierNormal",
             "vehicle_spawn": "OffroadHatchback",
