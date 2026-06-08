@@ -25163,6 +25163,16 @@ def cfgspawnabletypes_item_signature(group_node):
     ))
 
 
+def cfgspawnabletypes_damage_is_pristine(type_node):
+    damage_nodes = list(type_node.findall("damage"))
+    if len(damage_nodes) != 1:
+        return False
+    damage_node = damage_nodes[0]
+    min_damage = str(damage_node.get("min") or "").strip()
+    max_damage = str(damage_node.get("max") or "").strip()
+    return min_damage in {"0", "0.0", "0.00"} and max_damage in {"0", "0.0", "0.00"}
+
+
 def find_or_create_spawnable_type(root, class_name):
     wanted = str(class_name or "").strip()
     for type_node in root.findall("type"):
@@ -25233,6 +25243,41 @@ def scenario_spawnabletypes_quantity_attrs(item_name):
     return {}
 
 
+def set_spawnable_type_pristine(type_node):
+    if cfgspawnabletypes_damage_is_pristine(type_node):
+        return False
+    for damage_node in list(type_node.findall("damage")):
+        type_node.remove(damage_node)
+    damage_node = ET.Element("damage", {"min": "0.0", "max": "0.0"})
+    type_node.insert(0, damage_node)
+    return True
+
+
+def scenario_airdrop_pristine_classes(event, class_name):
+    seen = set()
+    classes = []
+
+    def add(item_name):
+        item_name = str(item_name or "").strip()
+        key = item_name.lower()
+        if item_name and key not in seen:
+            seen.add(key)
+            classes.append(item_name)
+
+    add(class_name)
+    marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+    if event.get("visual_marker") and marker_class:
+        add(marker_class)
+    for item_name in scenario_loot_items(event):
+        add(item_name)
+        recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(item_name, {})
+        for child_name in recipe.get("attachments", []):
+            add(child_name)
+        for child_name in recipe.get("supplies", []):
+            add(child_name)
+    return classes
+
+
 def add_cfgspawnabletypes_item(parent_node, item_name, chance="1.00"):
     attrs = {
         "name": str(item_name),
@@ -25281,6 +25326,12 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
         loot = scenario_loot_items(event)
         if not class_name or not loot:
             continue
+
+        if event.get("event_type") == "airdrop":
+            for pristine_class in scenario_airdrop_pristine_classes(event, class_name):
+                pristine_node, _ = find_or_create_spawnable_type(root, pristine_class)
+                if set_spawnable_type_pristine(pristine_node):
+                    changed_classes.add(pristine_class)
 
         for weapon_name in scenario_airdrop_ground_loot_items(event):
             recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon_name, {})
@@ -25337,6 +25388,7 @@ def add_console_ce_event_definition(
     distanceradius=0,
     cleanupradius=100,
     child_records=None,
+    remove_damaged=False,
 ):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
@@ -25356,7 +25408,7 @@ def add_console_ce_event_definition(
     flags = ET.SubElement(event_node, "flags")
     flags.set("deletable", "1")
     flags.set("init_random", "0")
-    flags.set("remove_damaged", "0")
+    flags.set("remove_damaged", "1" if remove_damaged else "0")
 
     position = ET.SubElement(event_node, "position")
     position.text = "fixed"
@@ -25891,6 +25943,7 @@ def console_ce_records_for_event(event):
         "saferadius": 0,
         "distanceradius": 1000 if use_eventgroup else 0,
         "cleanupradius": 1500 if use_eventgroup else 100,
+        "remove_damaged": event_type in {"airdrop", "loot_crate"},
     }
     if event_type == "animal_pack":
         territory = animal_territory_profile(class_name)
@@ -26040,6 +26093,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             distanceradius=record.get("distanceradius", 0),
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
+            remove_damaged=bool(record.get("remove_damaged")),
         )
         add_console_ce_event_spawn(
             spawns_root,
