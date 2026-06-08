@@ -24491,7 +24491,7 @@ SCENARIO_LOOT_PRESETS = {
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "military_high": [
         "M4A1", "AKM", "SVD", "PlateCarrierVest", "BallisticHelmet_Green",
-        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
+        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_SVD_10Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
         "Grenade_ChemGas", "NVGoggles", "BandageDressing"
     ],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
@@ -24517,7 +24517,35 @@ SCENARIO_VEHICLE_CONDITIONS = {
     "random_parts": "Random chance of common parts",
 }
 
-SCENARIO_AIRDROP_MARKER_CLASS = ""
+SCENARIO_AIRDROP_MARKER_CLASS = "StaticObj_Misc_WoodenCrate_5x"
+
+SCENARIO_AIRDROP_WEAPON_RECIPES = {
+    "M4A1": {
+        "attachments": ["M4_RISHndgrd", "M4_MPBttstck", "ACOGOptic", "Mag_STANAG_30Rnd"],
+        "supplies": ["Ammo_556x45", "Mag_STANAG_30Rnd"],
+    },
+    "AKM": {
+        "attachments": ["AK_PlasticHndgrd", "AK_PlasticBttstck", "PSO1Optic", "Mag_AKM_30Rnd"],
+        "supplies": ["Ammo_762x39", "Mag_AKM_30Rnd"],
+    },
+    "AK74": {
+        "attachments": ["AK74_Hndgrd", "AK74_WoodBttstck", "Mag_AK74_30Rnd"],
+        "supplies": ["Ammo_545x39", "Mag_AK74_30Rnd"],
+    },
+    "SVD": {
+        "attachments": ["PSO1Optic", "Mag_SVD_10Rnd"],
+        "supplies": ["Ammo_762x54", "Mag_SVD_10Rnd"],
+    },
+    "SKS": {
+        "supplies": ["Ammo_762x39"],
+    },
+}
+
+SCENARIO_AIRDROP_GROUND_LOOT = {
+    "M4A1", "AKM", "AK74", "SVD", "SKS",
+    "PlateCarrierVest", "BallisticHelmet_Green", "NVGoggles",
+    "Grenade_ChemGas",
+}
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
     "chernarus": "dayzOffline.chernarusplus",
@@ -25121,6 +25149,18 @@ def cfgspawnabletypes_loot_signature(cargo_node):
     ))
 
 
+def cfgspawnabletypes_item_signature(group_node):
+    return tuple(sorted(
+        (
+            str(item.get("name") or "").strip(),
+            str(item.get("quantmin") or "").strip(),
+            str(item.get("quantmax") or "").strip(),
+        )
+        for item in group_node.findall("item")
+        if str(item.get("name") or "").strip()
+    ))
+
+
 def find_or_create_spawnable_type(root, class_name):
     wanted = str(class_name or "").strip()
     for type_node in root.findall("type"):
@@ -25137,6 +25177,96 @@ def scenario_container_class_for_ce(class_name):
     return wanted
 
 
+def scenario_loot_items(event):
+    loot = event.get("loot") or []
+    if isinstance(loot, str):
+        loot = [item.strip() for item in loot.split(",") if item.strip()]
+    return [
+        str(item).strip()
+        for item in loot
+        if str(item).strip()
+    ]
+
+
+def scenario_airdrop_ground_loot_items(event):
+    seen = set()
+    items = []
+    for item in scenario_loot_items(event):
+        if item not in SCENARIO_AIRDROP_GROUND_LOOT and item not in SCENARIO_AIRDROP_WEAPON_RECIPES:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+    return items[:12]
+
+
+def scenario_airdrop_container_loot_items(event):
+    ground = {item.lower() for item in scenario_airdrop_ground_loot_items(event)}
+    compact = []
+    seen = set()
+    for item in scenario_loot_items(event):
+        if item.lower() in ground:
+            continue
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        compact.append(item)
+    for weapon in scenario_airdrop_ground_loot_items(event):
+        recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon, {})
+        for item in recipe.get("supplies", []):
+            key = str(item).lower()
+            if key not in seen:
+                seen.add(key)
+                compact.append(item)
+    return compact[:30]
+
+
+def scenario_spawnabletypes_quantity_attrs(item_name):
+    lower = str(item_name or "").strip().lower()
+    if lower.startswith(("mag_", "ammo_")) or lower in {"canteen", "waterbottle"}:
+        return {"quantmin": "100", "quantmax": "100"}
+    return {}
+
+
+def add_cfgspawnabletypes_item(parent_node, item_name, chance="1.00"):
+    attrs = {
+        "name": str(item_name),
+        "chance": str(chance),
+    }
+    attrs.update(scenario_spawnabletypes_quantity_attrs(item_name))
+    ET.SubElement(parent_node, "item", attrs)
+
+
+def replace_spawnabletypes_group(type_node, tag_name, items):
+    clean_items = [
+        str(item).strip()
+        for item in items
+        if str(item).strip()
+    ]
+    if not clean_items:
+        return False
+
+    signature = tuple(sorted(
+        (
+            item,
+            scenario_spawnabletypes_quantity_attrs(item).get("quantmin", ""),
+            scenario_spawnabletypes_quantity_attrs(item).get("quantmax", ""),
+        )
+        for item in clean_items
+    ))
+    for group_node in list(type_node.findall(tag_name)):
+        if cfgspawnabletypes_item_signature(group_node) == signature:
+            type_node.remove(group_node)
+
+    group_node = ET.SubElement(type_node, tag_name, {"chance": "1.00"})
+    for item in clean_items:
+        add_cfgspawnabletypes_item(group_node, item)
+    return True
+
+
 def merge_airdrop_loot_into_spawnabletypes(root, events):
     changed_classes = set()
     cargo_blocks = 0
@@ -25146,15 +25276,24 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
             continue
 
         class_name = scenario_container_class_for_ce(event.get("class_name"))
-        loot = [
-            str(item).strip()
-            for item in (event.get("loot") or [])
-            if str(item).strip()
-        ]
+        loot = scenario_loot_items(event)
         if not class_name or not loot:
             continue
 
+        for weapon_name in scenario_airdrop_ground_loot_items(event):
+            recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon_name, {})
+            attachments = recipe.get("attachments", [])
+            if not attachments:
+                continue
+            weapon_node, _ = find_or_create_spawnable_type(root, weapon_name)
+            if replace_spawnabletypes_group(weapon_node, "attachments", attachments):
+                changed_classes.add(weapon_name)
+                cargo_blocks += 1
+
         type_node, _ = find_or_create_spawnable_type(root, class_name)
+        loot = scenario_airdrop_container_loot_items(event) if event.get("event_type") == "airdrop" else loot
+        if not loot:
+            continue
         signature = tuple(sorted(loot))
 
         for cargo_node in list(type_node.findall("cargo")):
@@ -25163,10 +25302,7 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
 
         cargo_node = ET.SubElement(type_node, "cargo", {"chance": "1.00"})
         for item_name in loot:
-            ET.SubElement(cargo_node, "item", {
-                "name": item_name,
-                "chance": "1.00",
-            })
+            add_cfgspawnabletypes_item(cargo_node, item_name)
 
         changed_classes.add(class_name)
         cargo_blocks += 1
@@ -25249,18 +25385,88 @@ def add_console_ce_event_definition(
     return event_node
 
 
-def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80):
-    group_node = ET.SubElement(root, "group", {"name": str(group_name)})
-    ET.SubElement(group_node, "child", {
-        "type": str(child_type),
-        "deloot": "1",
-        "lootmin": str(int(lootmin)),
-        "lootmax": str(int(lootmax)),
+def scenario_airdrop_child_offsets(index, radius=35):
+    try:
+        radius_value = float(radius or 35)
+    except Exception:
+        radius_value = 35.0
+    spacing = max(2.0, min(6.0, radius_value / 8.0))
+    offsets = [
+        (spacing, 0.0),
+        (-spacing, 0.0),
+        (0.0, spacing),
+        (0.0, -spacing),
+        (spacing * 0.75, spacing * 0.75),
+        (-spacing * 0.75, spacing * 0.75),
+        (spacing * 0.75, -spacing * 0.75),
+        (-spacing * 0.75, -spacing * 0.75),
+        (spacing * 1.5, spacing * 0.3),
+        (-spacing * 1.5, -spacing * 0.3),
+        (spacing * 0.3, spacing * 1.5),
+        (-spacing * 0.3, -spacing * 1.5),
+    ]
+    return offsets[index % len(offsets)]
+
+
+def scenario_airdrop_eventgroup_children(event, class_name):
+    children = [{
+        "type": class_name,
+        "lootmin": 20,
+        "lootmax": 80,
         "x": "0.0",
         "z": "0.0",
         "a": "0.0",
         "y": "0.0",
-    })
+    }]
+
+    marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+    if event.get("visual_marker") and marker_class and marker_class.lower() != str(class_name or "").lower():
+        children.append({
+            "type": marker_class,
+            "lootmin": 1,
+            "lootmax": 1,
+            "x": "1.2",
+            "z": "0.4",
+            "a": "0.0",
+            "y": "0.0",
+        })
+
+    for index, item_name in enumerate(scenario_airdrop_ground_loot_items(event)):
+        x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"))
+        children.append({
+            "type": item_name,
+            "lootmin": 1,
+            "lootmax": 1,
+            "x": f"{x_offset:.2f}".rstrip("0").rstrip("."),
+            "z": f"{z_offset:.2f}".rstrip("0").rstrip("."),
+            "a": "0.0",
+            "y": "0.0",
+        })
+    return children
+
+
+def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
+    group_node = ET.SubElement(root, "group", {"name": str(group_name)})
+    child_records = child_records if isinstance(child_records, list) and child_records else [{
+        "type": child_type,
+        "lootmin": lootmin,
+        "lootmax": lootmax,
+        "x": "0.0",
+        "z": "0.0",
+        "a": "0.0",
+        "y": "0.0",
+    }]
+    for child_record in child_records:
+        ET.SubElement(group_node, "child", {
+            "type": str(child_record.get("type") or child_type),
+            "deloot": "1",
+            "lootmin": str(max(0, int(child_record.get("lootmin", lootmin) or 0))),
+            "lootmax": str(max(1, int(child_record.get("lootmax", lootmax) or 1))),
+            "x": str(child_record.get("x", "0.0")),
+            "z": str(child_record.get("z", "0.0")),
+            "a": str(child_record.get("a", "0.0")),
+            "y": str(child_record.get("y", "0.0")),
+        })
     return group_node
 
 
@@ -25590,6 +25796,9 @@ def console_ce_records_for_event(event):
     if event_type in {"airdrop", "loot_crate"}:
         class_name = scenario_container_class_for_ce(class_name)
     use_eventgroup = event_type in {"airdrop", "loot_crate"}
+    eventgroup_children = None
+    if event_type == "airdrop":
+        eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name)
     family = ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
     child_lootmin = 0
@@ -25643,6 +25852,7 @@ def console_ce_records_for_event(event):
         "child_lootmin": child_lootmin,
         "child_lootmax": child_lootmax,
         "child_records": child_records,
+        "eventgroup_children": eventgroup_children,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 0 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
@@ -25681,11 +25891,9 @@ def console_ce_records_for_event(event):
                 "radius": event.get("guard_radius") or event.get("radius"),
             })
 
-        marker_class = str(event.get("marker_class") or "").strip()
+        marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
-            warnings.append(
-                f"`{event.get('id')}` has a visual marker set, but marker objects are disabled for native CE uploads so only the requested event spawns."
-            )
+            warnings.append(f"`{event.get('id')}` includes visual marker object `{marker_class}` in the airdrop event group.")
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
             warnings.append(
@@ -25920,16 +26128,26 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         added_proto = 0
         for record in eventgroup_records:
+            eventgroup_children = record.get("eventgroup_children") if isinstance(record.get("eventgroup_children"), list) else None
             add_console_ce_event_group(
                 eventgroups_root,
                 record["name"],
                 record["class_name"],
                 lootmin=record.get("child_lootmin", 40) or 40,
                 lootmax=record.get("child_lootmax", 80) or 80,
+                child_records=eventgroup_children,
             )
-            _, created = add_mapgroupproto_loot_group(mapgroupproto_root, record["class_name"])
-            if created:
-                added_proto += 1
+            proto_classes = [record["class_name"]]
+            if eventgroup_children:
+                proto_classes = [
+                    str(child.get("type") or "").strip()
+                    for child in eventgroup_children
+                    if str(child.get("type") or "").strip()
+                ]
+            for proto_class in dict.fromkeys(proto_classes):
+                _, created = add_mapgroupproto_loot_group(mapgroupproto_root, proto_class)
+                if created:
+                    added_proto += 1
         if removed_groups or eventgroup_records or cleanup_pending:
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)

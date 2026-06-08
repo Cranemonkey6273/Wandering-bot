@@ -70,7 +70,11 @@ SCENARIO_SPAWN_PRESETS = {
 }
 SCENARIO_LOOT_PRESETS = {
     "none": [],
-    "military_high": ["M4A1", "AKM", "SVD", "PlateCarrierVest", "NVGoggles", "BandageDressing"],
+    "military_high": [
+        "M4A1", "AKM", "SVD", "PlateCarrierVest", "BallisticHelmet_Green",
+        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_SVD_10Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_762x54",
+        "Grenade_ChemGas", "NVGoggles", "BandageDressing",
+    ],
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "SalineBagIV", "Morphine"],
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
@@ -2307,7 +2311,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='false', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -3280,7 +3284,7 @@ PAGE_TEMPLATE = """
             <label>Main item <input name="item_name" value="M4A1"></label>
             <label>Chance <input name="chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
             <label class="full">Attachments, comma-separated
-              <input name="attachments" value="M4_RHandGuard, M4_MPBttstck">
+              <input name="attachments" value="M4_RISHndgrd, M4_MPBttstck">
             </label>
             <label class="full">Extra item lines
               <textarea name="items" placeholder="BandageDressing | | 1.00&#10;WaterBottle | | 1.00"></textarea>
@@ -5113,13 +5117,13 @@ PAGE_TEMPLATE = """
       {classname: "HuntingKnife", readable: "Hunting Knife", category: "Misc"},
       {classname: "Matchbox", readable: "Matchbox", category: "Misc"},
       {classname: "Compass", readable: "Compass", category: "Misc"},
-      {classname: "M4_RHandGuard", readable: "M4 RIS Handguard", category: "Misc", attachment: true},
+      {classname: "M4_RISHndgrd", readable: "M4 RIS Handguard", category: "Misc", attachment: true},
       {classname: "M4_MPBttstck", readable: "M4 MP Buttstock", category: "Misc", attachment: true},
       {classname: "ACOGOptic", readable: "ACOG Optic", category: "Misc", attachment: true},
       {classname: "Battery9V", readable: "9V Battery", category: "Misc"}
     ];
     const LOADOUT_ATTACHMENTS = {
-      M4A1: ["M4_RHandGuard", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
+      M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
       AKM: ["Mag_AKM_30Rnd"],
       SVD: ["Battery9V"],
       SKS: ["Ammo_762x39"]
@@ -6465,7 +6469,7 @@ PAGE_TEMPLATE = """
         form.elements.permanent.value = button.dataset.permanent || "false";
         form.elements.restarts.value = button.dataset.restarts || 1;
         form.elements.loot_preset.value = button.dataset.loot || "none";
-        form.elements.visual_marker.value = button.dataset.marker || "false";
+        form.elements.visual_marker.value = button.dataset.marker || "true";
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
@@ -12114,7 +12118,7 @@ def api_scenario_event():
         "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
         "vehicle_cargo_mode": vehicle_cargo_mode,
         "visual_marker": safe_bool(payload.get("visual_marker"), False),
-        "marker_class": "",
+        "marker_class": "StaticObj_Misc_WoodenCrate_5x" if safe_bool(payload.get("visual_marker"), False) else "",
         "guard_class": str(payload.get("guard_class") or "").strip(),
         "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
         "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
