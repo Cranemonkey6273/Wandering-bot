@@ -26516,6 +26516,41 @@ def dashboard_upload_console_ce_event_files(guild_id):
         "",
         False,
     )
+    status_text = (
+        f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+        if success
+        else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+    )
+    now_text = datetime.now(UTC).isoformat()
+    changed = False
+    for event in scenario_events_for_config(config):
+        if not isinstance(event, dict):
+            continue
+        if str(event.get("created_by") or "") != "dashboard":
+            continue
+        if not event.get("enabled", True):
+            continue
+        if is_file_vehicle_reset_event(event):
+            continue
+        if success:
+            event["native_ce_uploaded_at"] = now_text
+            event["native_ce_events_path"] = built.get("events_path", "")
+            event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["upload_status"] = "uploaded"
+            event["status"] = "Done - native CE XML uploaded; restart server to spawn"
+            event["updated_at"] = now_text
+            event.pop("upload_error", None)
+            changed = True
+        elif str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed"}:
+            attempts = int(event.get("upload_attempts") or 0) + 1
+            event["upload_attempts"] = attempts
+            event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
+            event["upload_error"] = status_text
+            event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
+            event["updated_at"] = now_text
+            changed = True
+    if changed:
+        save_guild_configs()
     return {"ok": success, "built": built, "messages": messages}
 
 
