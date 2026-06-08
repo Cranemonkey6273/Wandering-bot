@@ -24493,7 +24493,7 @@ SCENARIO_LOOT_PRESETS = {
     "military": [
         "M4A1", "AKM", "AK74", "SKS", "PlateCarrierVest", "BallisticHelmet_Green",
         "M65Jacket_Black", "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black",
-        "M67Grenade", "SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
+        "M67Grenade", "M18SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
         "Mag_AK74_30Rnd", "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd",
         "AmmoBox_545x39_20Rnd", "BandageDressing", "Morphine", "Canteen", "TacticalBaconCan"
     ],
@@ -24503,7 +24503,7 @@ SCENARIO_LOOT_PRESETS = {
         "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
         "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
         "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
-        "SmokeGrenade_Red", "SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
+        "M18SmokeGrenade_Red", "M18SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
         "Mag_AK74_30Rnd", "Mag_SVD_10Rnd", "Mag_Glock_15Rnd", "AmmoBox_556x45_20Rnd",
         "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd",
         "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
@@ -24569,7 +24569,7 @@ SCENARIO_AIRDROP_GROUND_LOOT = {
     "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
     "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
     "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
-    "SmokeGrenade_Red", "SmokeGrenade_Green",
+    "M18SmokeGrenade_Red", "M18SmokeGrenade_Green",
 }
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
