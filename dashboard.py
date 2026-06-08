@@ -73,7 +73,7 @@ SCENARIO_LOOT_PRESETS = {
     "military_high": [
         "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "Glock19",
         "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
-        "GorkaPants_Green", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
+        "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
         "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
         "M18SmokeGrenade_Red", "M18SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
         "Mag_AK74_30Rnd", "Mag_SVD_10Rnd", "Mag_Glock_15Rnd", "AmmoBox_556x45_20Rnd",
@@ -5107,7 +5107,7 @@ PAGE_TEMPLATE = """
       {classname: "BallisticHelmet_Green", readable: "Ballistic Helmet", category: "Clothing"},
       {classname: "Mich2001Helmet", readable: "MICH Helmet", category: "Clothing"},
       {classname: "M65Jacket_Black", readable: "M65 Jacket Black", category: "Clothing"},
-      {classname: "GorkaPants_Green", readable: "Gorka Pants Green", category: "Clothing"},
+      {classname: "GorkaPants_PautRev", readable: "Gorka Pants PautRev", category: "Clothing"},
       {classname: "PlateCarrierVest", readable: "Plate Carrier Vest", category: "Clothing"},
       {classname: "TacticalGloves_Black", readable: "Tactical Gloves", category: "Clothing"},
       {classname: "MilitaryBoots_Black", readable: "Military Boots", category: "Clothing"},
