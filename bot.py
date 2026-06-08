@@ -25716,6 +25716,8 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         "smax": str(count),
         "dmin": "1",
         "dmax": str(count),
+        "x": ce_decimal(x),
+        "z": ce_decimal(z),
         "r": str(radius),
     })
     ET.SubElement(event_node, "pos", {
@@ -25730,7 +25732,7 @@ ANIMAL_TERRITORY_PROFILES = {
     "Animal_UrsusArctos": {
         "species": "Bear",
         "behavior": "BlissBearGroupBeh",
-        "zone": "Graze",
+        "zone": "HuntingGround",
         "color": "4294923520",
     },
     "Animal_CanisLupus_Grey": {
@@ -25895,10 +25897,10 @@ def build_animal_territory_text(record):
         radius = max(1, int(item.get("radius") or 20))
         ET.SubElement(territory, "zone", {
             "name": str(item.get("territory_zone") or record.get("territory_zone") or "Graze"),
-            "smin": str(count),
-            "smax": str(count),
-            "dmin": "0",
-            "dmax": "0",
+            "smin": "0",
+            "smax": "0",
+            "dmin": str(count),
+            "dmax": str(count),
             "x": ce_decimal(item.get("x")),
             "z": ce_decimal(item.get("z")),
             "r": str(radius),
@@ -25933,7 +25935,7 @@ def console_ce_records_for_event(event):
     elif event_type == "zombie_horde":
         lifetime = 1800
     elif event_type == "animal_pack":
-        lifetime = 180
+        lifetime = 3600
 
     if event_type in {"airdrop", "loot_crate"}:
         class_name = scenario_container_class_for_ce(class_name)
