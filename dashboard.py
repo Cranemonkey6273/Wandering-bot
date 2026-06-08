@@ -1006,7 +1006,7 @@ PAGE_TEMPLATE = """
     }
     .zone-map::before { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1; background-image: linear-gradient(rgba(243,236,217,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(243,236,217,.08) 1px, transparent 1px); background-size: 12.5% 12.5%; }
     .zone-map::after { content: "Click map to add - click marker to edit"; position: absolute; right: .75rem; bottom: .65rem; z-index: 8; pointer-events: none; color: var(--dim); font-size: .85rem; background: rgba(5,8,6,.72); border: 1px solid var(--line); border-radius: .35rem; padding: .3rem .45rem; }
-    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: .01; }
+    .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: .01; object-fit: fill; }
     .zone-map-hit-label { position: absolute; left: .75rem; bottom: .65rem; z-index: 8; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
     .zone-map-hit-layer:focus-visible { outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
@@ -2097,7 +2097,7 @@ PAGE_TEMPLATE = """
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
-              <button type="button" class="zone-map-hit-layer" aria-label="Draft a new zone here" data-zone-map-hit></button>
+              <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" width="{{ ((server.map_size if server else 15360) / 10)|round|int }}" height="{{ ((server.map_size if server else 15360) / 10)|round|int }}" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
               <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
               <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
@@ -6883,6 +6883,10 @@ PAGE_TEMPLATE = """
       });
       function draftZoneFromMapClick(event) {
         if (event.target.closest("[data-zone-edit]") || event.target.closest("[data-zone-popover]")) return;
+        if (event.target.closest("[data-zone-map-hit]")) {
+          updateMapClickMetrics(event);
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         if (event.stopImmediatePropagation) event.stopImmediatePropagation();
@@ -11024,7 +11028,8 @@ def zone_draft_from_image_click(mode: str):
     if not isinstance(config, dict):
         config = {}
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
-    has_click = any(key in request.args for key in ("zone_click.x", "zone_click.y", "zone_click_x", "zone_click_y"))
+    has_native_click = any(key in request.args for key in ("zone_click.x", "zone_click.y", "zone_click_x", "zone_click_y"))
+    has_click = has_native_click or any(key in request.args for key in ("map_pointer_x", "map_pointer_y", "map_percent_x", "map_percent_y"))
     click_x = safe_float(request.args.get("zone_click.x") or request.args.get("zone_click_x"))
     click_y = safe_float(request.args.get("zone_click.y") or request.args.get("zone_click_y"))
     pointer_x = safe_float(request.args.get("map_pointer_x"), -1)
@@ -11035,21 +11040,24 @@ def zone_draft_from_image_click(mode: str):
     render_height = safe_float(request.args.get("map_render_height"), 0)
     click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
     if has_click:
-        if 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
+        if has_native_click and render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
+            zone_x = max(0, min(map_size, round((click_x / render_width) * map_size)))
+            zone_z = max(0, min(map_size, round(map_size - ((click_y / render_height) * map_size))))
+        elif has_native_click and click_scale > 1:
+            zone_x = max(0, min(map_size, round(click_x * click_scale)))
+            zone_z = max(0, min(map_size, round(map_size - (click_y * click_scale))))
+        elif has_native_click and 0 <= click_x <= map_size and 0 <= click_y <= map_size:
+            zone_x = max(0, min(map_size, round(click_x)))
+            zone_z = max(0, min(map_size, round(map_size - click_y)))
+        elif 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
             zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
             zone_z = max(0, min(map_size, round((1 - (percent_y / 100)) * map_size)))
         elif pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
             zone_x = max(0, min(map_size, round((pointer_x / render_width) * map_size)))
             zone_z = max(0, min(map_size, round(map_size - ((pointer_y / render_height) * map_size))))
-        elif render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
-            zone_x = max(0, min(map_size, round((click_x / render_width) * map_size)))
-            zone_z = max(0, min(map_size, round(map_size - ((click_y / render_height) * map_size))))
-        elif 0 <= click_x <= map_size and 0 <= click_y <= map_size:
-            zone_x = max(0, min(map_size, round(click_x)))
-            zone_z = max(0, min(map_size, round(map_size - click_y)))
         else:
-            zone_x = max(0, min(map_size, round(click_x * click_scale)))
-            zone_z = max(0, min(map_size, round(map_size - (click_y * click_scale))))
+            zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
+            zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
     else:
         zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
         zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
