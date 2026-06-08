@@ -817,8 +817,9 @@ PAGE_TEMPLATE = """
     .table { width: 100%; border-collapse: collapse; margin-top: .75rem; }
     .table th, .table td { border-bottom: 1px solid var(--line); padding: .55rem; text-align: left; color: var(--muted); }
     .table th { color: var(--text); font-size: .8rem; text-transform: uppercase; }
-    .section-nav { position: sticky; top: 5rem; z-index: 30; display: flex; flex-wrap: wrap; gap: .5rem; padding: .65rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); backdrop-filter: blur(14px); }
-    .mobile-section-picker { display: none; position: sticky; top: 4.5rem; z-index: 30; padding: .6rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); backdrop-filter: blur(14px); }
+    .section-nav { display: flex; flex-wrap: wrap; gap: .35rem; padding: .45rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .9); }
+    .section-nav a { min-height: 2.1rem; padding: .42rem .6rem; font-size: .84rem; border-radius: .45rem; }
+    .mobile-section-picker { display: none; padding: .5rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5, 8, 6, .92); }
     .mobile-section-picker label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
     .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
     body[data-section="leaderboards"] { --accent: #f1c40f; }
@@ -1020,9 +1021,9 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-    .zone-map-viewport { width: 100%; max-height: min(78vh, 58rem); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); }
-    .zone-map-viewport .zone-map { border: 0; border-radius: 0; margin: 0 auto; }
-    .zone-map { position: relative; width: var(--zone-map-display-size, 100%); max-width: none; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
+    .zone-map-viewport { width: 100%; overflow: visible; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); }
+    .zone-map-viewport .zone-map { border: 0; border-radius: .45rem; margin: 0 auto; }
+    .zone-map { position: relative; width: min(100%, var(--zone-map-display-size, 100%), 72vh); max-width: 100%; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
