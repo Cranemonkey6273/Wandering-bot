@@ -25815,10 +25815,10 @@ def animal_territory_group_key(record):
 def group_animal_territory_records(records):
     groups = {}
     for record in records:
-        key = animal_territory_group_key(record)
+        key = normalize_discord_name(record.get("territory_name") or record.get("name") or animal_territory_group_key(record))
         group = groups.setdefault(key, {
             "territory_file_key": f"animal_{key}",
-            "territory_name": f"WanderingBot_{key}",
+            "territory_name": record.get("territory_name") or record.get("name") or f"WanderingBot_{key}",
             "animal_behavior": record.get("animal_behavior"),
             "territory_zone": record.get("territory_zone"),
             "territory_color": record.get("territory_color"),
@@ -26007,6 +26007,7 @@ def console_ce_records_for_event(event):
     }
     if event_type == "animal_pack":
         territory = animal_territory_profile(class_name)
+        territory_name = record_name[len("Animal"):] if record_name.startswith("Animal") else record_name
         record.update({
             "nominal": count,
             "min_count": count,
@@ -26014,7 +26015,7 @@ def console_ce_records_for_event(event):
             "saferadius": 2,
             "cleanupradius": 100,
             "animal_territory": True,
-            "territory_name": record_name,
+            "territory_name": territory_name,
             "territory_zone": territory.get("zone"),
             "territory_color": territory.get("color"),
             "animal_behavior": territory.get("behavior"),
