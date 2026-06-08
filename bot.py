@@ -24499,15 +24499,18 @@ SCENARIO_LOOT_PRESETS = {
     ],
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "military_high": [
-        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "Glock19",
-        "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
+        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130",
+        "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
+        "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black", "GorkaEJacket_PautRev",
         "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
-        "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
-        "M18SmokeGrenade_Red", "M18SmokeGrenade_Green", "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd",
-        "Mag_AK74_30Rnd", "Mag_SVD_10Rnd", "Mag_Glock_15Rnd", "AmmoBox_556x45_20Rnd",
+        "AssaultBag_Green", "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red",
+        "M18SmokeGrenade_Green", "M18SmokeGrenade_Yellow", "M18SmokeGrenade_Purple",
+        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_AK74_30Rnd", "Mag_SVD_10Rnd",
+        "AmmoBox_556x45_20Rnd",
         "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd",
         "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
-        "Ammo_9x19", "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
+        "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
         "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan"
     ],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
@@ -24544,38 +24547,46 @@ SCENARIO_AIRDROP_SCENE_PROPS = [
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "M4A1": {
         "attachments": ["M4_RISHndgrd", "M4_MPBttstck", "ACOGOptic", "Mag_STANAG_30Rnd"],
-        "supplies": ["AmmoBox_556x45_20Rnd", "Ammo_556x45", "Mag_STANAG_30Rnd"],
+        "supplies": ["AmmoBox_556x45_20Rnd"],
     },
     "AKM": {
         "attachments": ["AK_PlasticHndgrd", "AK_PlasticBttstck", "PSO1Optic", "Mag_AKM_30Rnd"],
-        "supplies": ["AmmoBox_762x39_20Rnd", "Ammo_762x39", "Mag_AKM_30Rnd"],
+        "supplies": ["AmmoBox_762x39_20Rnd"],
     },
     "AK74": {
         "attachments": ["AK74_Hndgrd", "AK74_WoodBttstck", "Mag_AK74_30Rnd"],
-        "supplies": ["AmmoBox_545x39_20Rnd", "Ammo_545x39", "Mag_AK74_30Rnd"],
+        "supplies": ["AmmoBox_545x39_20Rnd"],
     },
     "SVD": {
         "attachments": ["PSO1Optic", "Mag_SVD_10Rnd"],
-        "supplies": ["AmmoBox_762x54_20Rnd", "Ammo_762x54", "Mag_SVD_10Rnd"],
+        "supplies": ["AmmoBox_762x54_20Rnd"],
     },
     "SKS": {
-        "supplies": ["AmmoBox_762x39_20Rnd", "Ammo_762x39"],
+        "supplies": ["AmmoBox_762x39_20Rnd"],
     },
     "Mosin9130": {
-        "supplies": ["AmmoBox_762x54_20Rnd", "Ammo_762x54"],
-    },
-    "Glock19": {
-        "attachments": ["Mag_Glock_15Rnd"],
-        "supplies": ["Ammo_9x19", "Mag_Glock_15Rnd"],
+        "supplies": ["AmmoBox_762x54_20Rnd"],
     },
 }
 
 SCENARIO_AIRDROP_GROUND_LOOT = {
-    "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "Glock19",
-    "PlateCarrierVest", "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black",
+    "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130",
+    "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
+    "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black", "GorkaEJacket_PautRev",
     "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
-    "BalaclavaMask_Black", "NVGoggles", "M67Grenade", "RGD5Grenade", "FlashGrenade",
-    "M18SmokeGrenade_Red", "M18SmokeGrenade_Green",
+    "AssaultBag_Green", "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+    "M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red",
+    "M18SmokeGrenade_Green", "M18SmokeGrenade_Yellow", "M18SmokeGrenade_Purple",
+}
+
+SCENARIO_AIRDROP_CONTAINER_MEDICAL_LOOT = {
+    "BandageDressing",
+    "TetracyclineAntibiotics",
+    "Morphine",
+    "SalineBagIV",
+    "Epinephrine",
+    "BloodBagEmpty",
+    "StartKitIV",
 }
 
 DAYZ_REFERENCE_MAP_FOLDERS = {
@@ -25240,7 +25251,13 @@ def scenario_airdrop_ground_loot_items(event):
             continue
         seen.add(key)
         items.append(item)
-    return items[:24]
+    return items[:32]
+
+
+def scenario_airdrop_container_loot_allowed(item_name):
+    item_name = str(item_name or "").strip()
+    lower = item_name.lower()
+    return lower.startswith("ammobox_") or item_name in SCENARIO_AIRDROP_CONTAINER_MEDICAL_LOOT
 
 
 def scenario_airdrop_container_loot_items(event):
@@ -25250,6 +25267,8 @@ def scenario_airdrop_container_loot_items(event):
     for item in scenario_loot_items(event):
         if item.lower() in ground:
             continue
+        if not scenario_airdrop_container_loot_allowed(item):
+            continue
         key = item.lower()
         if key in seen:
             continue
@@ -25258,10 +25277,14 @@ def scenario_airdrop_container_loot_items(event):
     for weapon in scenario_airdrop_ground_loot_items(event):
         recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon, {})
         for item in recipe.get("supplies", []):
+            if not scenario_airdrop_container_loot_allowed(item):
+                continue
             key = str(item).lower()
             if key not in seen:
                 seen.add(key)
                 compact.append(item)
+    ammo_boxes = [item for item in compact if str(item).lower().startswith("ammobox_")]
+    compact.extend(ammo_boxes)
     return compact[:30]
 
 
@@ -25418,6 +25441,7 @@ def add_console_ce_event_definition(
     cleanupradius=100,
     child_records=None,
     remove_damaged=False,
+    empty_children=False,
 ):
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
@@ -25447,6 +25471,8 @@ def add_console_ce_event_definition(
     active.text = "1"
 
     children = ET.SubElement(event_node, "children")
+    if empty_children:
+        return event_node
     child_records = child_records if isinstance(child_records, list) and child_records else [{
         "type": child_type,
         "count": count,
@@ -25488,8 +25514,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
     if event.get("visual_marker") and marker_class and marker_class.lower() != str(class_name or "").lower():
         children.append({
             "type": marker_class,
-            "lootmin": 1,
-            "lootmax": 1,
+            "spawnsecondary": "false",
             "x": "0.0",
             "z": "0.0",
             "a": "0.0",
@@ -25505,12 +25530,11 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "a": scene_prop["a"],
             })
 
-    crate_x = "2.8" if children else "0.0"
-    crate_z = "-1.6" if children else "0.0"
+    crate_x = "4.6" if children else "0.0"
+    crate_z = "-3.2" if children else "0.0"
     children.append({
         "type": class_name,
-        "lootmin": 20,
-        "lootmax": 80,
+        "spawnsecondary": "false",
         "x": crate_x,
         "z": crate_z,
         "a": "0.0",
@@ -25521,8 +25545,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"))
         children.append({
             "type": item_name,
-            "lootmin": 1,
-            "lootmax": 1,
+            "spawnsecondary": "false",
             "x": f"{x_offset:.2f}".rstrip("0").rstrip("."),
             "z": f"{z_offset:.2f}".rstrip("0").rstrip("."),
             "a": "0.0",
@@ -25972,6 +25995,7 @@ def console_ce_records_for_event(event):
         "child_lootmax": child_lootmax,
         "child_records": child_records,
         "eventgroup_children": eventgroup_children,
+        "empty_event_children": use_eventgroup,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 0 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
@@ -26130,6 +26154,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
             remove_damaged=bool(record.get("remove_damaged")),
+            empty_children=bool(record.get("empty_event_children")),
         )
         add_console_ce_event_spawn(
             spawns_root,
@@ -26373,7 +26398,7 @@ def validate_console_ce_xml_bundle(built):
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
-        if not child_nodes:
+        if not child_nodes and not name.startswith("Static"):
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()
