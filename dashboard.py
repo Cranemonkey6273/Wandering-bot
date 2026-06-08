@@ -1020,7 +1020,7 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-    .zone-map { position: relative; width: 100%; max-width: var(--zone-map-display-size, 100%); margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
+    .zone-map { position: relative; width: var(--zone-map-display-size, 100%); max-width: none; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
@@ -2126,8 +2126,8 @@ PAGE_TEMPLATE = """
               {% endif %}
               <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" onpointerdown="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" onclick="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" data-zone-map-hit>
               <input class="hidden-field" name="map_click_scale" value="10">
-              <input class="hidden-field" name="map_render_width" data-map-render-width value="">
-              <input class="hidden-field" name="map_render_height" data-map-render-height value="">
+              <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
+              <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
               <input class="hidden-field" name="map_pointer_x" data-map-pointer-x value="">
               <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
               <input class="hidden-field" name="map_percent_x" data-map-percent-x value="">
