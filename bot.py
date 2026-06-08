@@ -25840,7 +25840,7 @@ def console_ce_records_for_event(event):
     record = {
         "name": record_name,
         "class_name": class_name,
-        "event_child_type": record_name if use_eventgroup else class_name,
+        "event_child_type": class_name,
         "count": count,
         "lifetime": lifetime,
         "x": event.get("x"),
@@ -26318,6 +26318,15 @@ def validate_console_ce_xml_bundle(built):
         child_nodes = group_node.findall("child")
         if not child_nodes:
             messages.append(f"`{name}` has no eventgroup child object.")
+        event_child_types = {
+            str(child.get("type") or "").strip()
+            for child in (event_node.find("children").findall("child") if event_node.find("children") is not None else [])
+        }
+        if name in event_child_types:
+            messages.append(
+                f"`{name}` uses its event group name as an events.xml child type; "
+                "use the real object classname, such as `WoodenCrate`, and keep the group name only in cfgeventspawns.xml."
+            )
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()
             if not child_type:
