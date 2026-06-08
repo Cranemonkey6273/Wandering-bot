@@ -1671,7 +1671,7 @@ PAGE_TEMPLATE = """
                 <div>
                   <strong>{{ template.template_id }}</strong>
                   <span>{{ template.name }} -> {{ template.schedule.type if template.schedule else 'manual' }}</span>
-                  <small>Channel: {{ template.delivery.channel_key if template.delivery else 'not set' }}{% if template.schedule and template.schedule.time %} | Time: {{ template.schedule.time }}{% endif %}</small>
+                  <small>Channel: {{ channel_label(server.channels if server else [], template.delivery.channel_key if template.delivery else '', 'not set') }}{% if template.schedule and template.schedule.time %} | Time: {{ template.schedule.time }}{% endif %}</small>
                 </div>
                 <div class="inline-actions">
                   <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=automations&guild_id={{ server.guild_id if server else '' }}&edit_embed={{ (template.template_id or template.name)|urlencode }}#embed-template-form" data-embed-template-edit>Edit</a>
@@ -1727,7 +1727,7 @@ PAGE_TEMPLATE = """
               <div class="row-between">
                 <div>
                   <strong>{{ automation.name or automation_id }}</strong>
-                  <span>{{ 'On' if automation.enabled else 'Off' }} -> {{ automation.channel_key or 'no channel' }}</span>
+                  <span>{{ 'On' if automation.enabled else 'Off' }} -> {{ channel_label(server.channels if server else [], automation.channel_key, 'no channel') }}</span>
                   <small>{% if automation.send_hour %}Send hour: {{ automation.send_hour }}{% else %}Manual timing{% endif %}</small>
                 </div>
                 <div class="inline-actions">
@@ -1791,7 +1791,7 @@ PAGE_TEMPLATE = """
               <div class="row-between">
                 <div>
                   <strong>{{ utility.module or utility_id }}</strong>
-                  <span>{{ 'On' if utility.enabled else 'Off' }} -> {{ utility.channel_key or 'no channel' }}</span>
+                  <span>{{ 'On' if utility.enabled else 'Off' }} -> {{ channel_label(server.channels if server else [], utility.channel_key, 'no channel') }}</span>
                   <small>Limit: {{ utility.limit or 0 }} | XP: {{ utility.xp_per_message or 0 }} | Cooldown: {{ utility.cooldown_seconds or 0 }}s</small>
                 </div>
                 <div class="inline-actions">
@@ -1845,7 +1845,7 @@ PAGE_TEMPLATE = """
               <div class="row-between">
                 <div>
                   <strong>{{ panel.name or panel_id }}</strong>
-                  <span>Channel: {{ panel.channel_key or 'no channel' }}</span>
+                  <span>Channel: {{ channel_label(server.channels if server else [], panel.channel_key, 'no channel') }}</span>
                   {% set panel_role_lines = (panel.roles or '').splitlines() %}
                   <small>{{ panel_role_lines|length }} role line(s)</small>
                 </div>
@@ -1929,7 +1929,7 @@ PAGE_TEMPLATE = """
             </label>
             <label>Alert channel
               <select name="alert_channel_key">
-                {% if edit_faction.channel %}<option value="{{ edit_faction.channel }}" selected>Stored channel {{ edit_faction.channel }}</option>{% endif %}
+                {% if edit_faction.channel %}<option value="{{ edit_faction.channel }}" selected>{{ channel_label(server.channels if server else [], edit_faction.channel, 'Stored channel') }}</option>{% endif %}
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == edit_faction.channel or channel.id == edit_faction.channel or channel.key == edit_faction.channel or (not edit_faction.channel and channel.key == 'factions_chat') %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
@@ -1983,7 +1983,7 @@ PAGE_TEMPLATE = """
                 <td>{{ faction.members|length if faction.members else 0 }}</td>
                 <td>{{ faction.leader_id or faction.leader or '-' }}</td>
                 <td>{{ faction.role_id or faction.discord_role_id or '-' }}</td>
-                <td>{{ faction.alert_channel_key or faction.alert_channel_id or '-' }}</td>
+                <td>{{ faction.alert_channel_label or channel_label(server.channels if server else [], faction.alert_channel_key or faction.alert_channel_id, '-') }}</td>
                 <td>
                   <form class="inline-action" method="get" action="/admin#faction-edit-form">
                     <input class="hidden-field" name="section" value="factions">
@@ -2185,7 +2185,7 @@ PAGE_TEMPLATE = """
                 <td>{{ zone.x }}, {{ zone.z or zone.y }}</td>
                 <td>{{ zone.radius }}m</td>
                 <td>{{ zone.action or 'notify' }}</td>
-                <td>{{ zone.channel_key or zone.alert_channel_id or zone.report_channel_id or 'default' }}</td>
+                <td>{{ zone.channel_label or channel_label(server.channels if server else [], zone.channel_key or zone.alert_channel_id or zone.report_channel_id, 'default') }}</td>
                 <td>
                   <div class="inline-action">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</a>
@@ -3930,7 +3930,7 @@ PAGE_TEMPLATE = """
         <div class="columns">
           <section><h3>Online</h3><ul>{% for player in server.online[:6] %}<li><span>{{ player }}</span><span>online</span></li>{% else %}<li>No survivors online</li>{% endfor %}</ul></section>
           <section><h3>Leaders</h3><ul>{% for leader in server.leaders[:6] %}<li><span>{{ leader.name }}</span><span>{{ leader.kills }}</span></li>{% else %}<li>No stats yet</li>{% endfor %}</ul></section>
-          <section><h3>Channels</h3><ul>{% for channel in server.channels[:6] %}<li><span>{{ channel.label }}</span><span>{{ channel.id }}</span></li>{% else %}<li>No channels found</li>{% endfor %}</ul></section>
+          <section><h3>Channels</h3><ul>{% for channel in server.channels[:6] %}<li><span>{{ channel.label }}</span><span>{{ channel.key or channel.name or 'live channel' }}</span></li>{% else %}<li>No channels found</li>{% endfor %}</ul></section>
           <section><h3>Totals</h3><ul><li><span>Kills</span><span>{{ server.totals.kills }}</span></li><li><span>Deaths</span><span>{{ server.totals.deaths }}</span></li><li><span>Safe zones</span><span>{{ server.safe_zones|length }}</span></li><li><span>Factions</span><span>{{ server.factions|length }}</span></li></ul></section>
         </div>
       </article>
@@ -5824,6 +5824,17 @@ PAGE_TEMPLATE = """
         }
       });
     }
+    function channelDisplayFromForm(form, name, value, fallback = "no channel") {
+      const text = String(value || "").trim();
+      if (!text) return fallback;
+      const select = form?.elements?.[name];
+      if (select && select.options) {
+        const match = Array.from(select.options).find((option) => option.value === text || option.dataset.channelId === text || option.textContent.trim() === text);
+        if (match) return match.textContent.trim() || fallback;
+      }
+      if (/^\\d+$/.test(text)) return "Unknown channel";
+      return text.startsWith("#") ? text : `#${text}`;
+    }
     function embedTemplateFromCard(card) {
       if (!card) return null;
       if (card.__embedTemplate) return card.__embedTemplate;
@@ -5897,7 +5908,7 @@ PAGE_TEMPLATE = """
       const summary = document.createElement("span");
       summary.textContent = `${template.name || "custom-message"} -> ${schedule.type || "manual"}`;
       const small = document.createElement("small");
-      small.textContent = `Channel: ${delivery.channel_key || "not set"}${schedule.time ? ` | Time: ${schedule.time}` : ""}`;
+      small.textContent = `Channel: ${channelDisplayFromForm(form, "channel_key", delivery.channel_key || template.channel_key, "not set")}${schedule.time ? ` | Time: ${schedule.time}` : ""}`;
       details.append(title, summary, small);
       const actions = document.createElement("div");
       actions.className = "inline-actions";
@@ -6002,18 +6013,18 @@ PAGE_TEMPLATE = """
         list.appendChild(empty);
       }
     }
-    function dashboardRecordText(section, record) {
+    function dashboardRecordText(section, record, form = null) {
       if (section === "welcome_automations") {
         return {
           title: record.name || dashboardRecordId(section, record) || "welcome automation",
-          summary: `${record.enabled === false ? "Off" : "On"} -> ${record.channel_key || "no channel"}`,
+          summary: `${record.enabled === false ? "Off" : "On"} -> ${channelDisplayFromForm(form, "channel_key", record.channel_key, "no channel")}`,
           detail: record.send_hour ? `Send hour: ${record.send_hour}` : "Manual timing",
         };
       }
       if (section === "utility_configs") {
         return {
           title: record.module || record.name || "utility module",
-          summary: `${record.enabled === false ? "Off" : "On"} -> ${record.channel_key || "no channel"}`,
+          summary: `${record.enabled === false ? "Off" : "On"} -> ${channelDisplayFromForm(form, "channel_key", record.channel_key, "no channel")}`,
           detail: `Limit: ${record.limit || 0} | XP: ${record.xp_per_message || 0} | Cooldown: ${record.cooldown_seconds || 0}s`,
         };
       }
@@ -6021,7 +6032,7 @@ PAGE_TEMPLATE = """
         const roleLines = String(record.roles || "").split(/\r?\n/).filter((line) => line.trim()).length;
         return {
           title: record.name || dashboardRecordId(section, record) || "reaction role panel",
-          summary: `Channel: ${record.channel_key || "no channel"}`,
+          summary: `Channel: ${channelDisplayFromForm(form, "channel_key", record.channel_key, "no channel")}`,
           detail: `${roleLines} role line${roleLines === 1 ? "" : "s"}`,
         };
       }
@@ -6036,7 +6047,7 @@ PAGE_TEMPLATE = """
     function createDashboardRecordCard(section, record, form) {
       const card = document.createElement("div");
       const id = dashboardRecordId(section, record);
-      const text = dashboardRecordText(section, record || {});
+      const text = dashboardRecordText(section, record || {}, form);
       card.className = "notification";
       card.dataset.dashboardRecordCard = "";
       card.dataset.removeRow = "";
@@ -9566,6 +9577,7 @@ def public_channels(channels: Any, guild_id: str = "") -> list[dict[str, str]]:
             continue
         live = live_by_id.get(channel_id, {})
         name = str(live.get("name") or key).strip()
+        display_label = f"#{name}" if name == str(key) else f"#{name} ({key})"
         rows.append(
             {
                 "key": str(key),
@@ -9576,6 +9588,7 @@ def public_channels(channels: Any, guild_id: str = "") -> list[dict[str, str]]:
                 "configured": "true",
             }
         )
+        rows[-1]["label"] = display_label
         seen_ids.add(channel_id)
     for live in live_channels:
         channel_id = str(live.get("id") or "")
@@ -9592,6 +9605,44 @@ def public_channels(channels: Any, guild_id: str = "") -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def channel_label_from_channels(channels: Any, value: Any, default: str = "no channel") -> str:
+    selection = str(value or "").strip()
+    if not selection:
+        return default
+    if not isinstance(channels, list):
+        channels = []
+    for channel in channels:
+        if not isinstance(channel, dict):
+            continue
+        candidates = {
+            str(channel.get("id") or ""),
+            str(channel.get("key") or ""),
+            str(channel.get("value") or ""),
+            str(channel.get("name") or ""),
+            str(channel.get("label") or ""),
+        }
+        if selection in candidates:
+            label = str(channel.get("label") or "").strip()
+            if label:
+                return label
+            name = str(channel.get("name") or channel.get("key") or "").strip()
+            return f"#{name}" if name else default
+    if selection.isdigit():
+        return "Unknown channel"
+    return selection if selection.startswith("#") else f"#{selection}"
+
+
+def enrich_faction_channel_labels(factions: dict[str, Any], channels: list[dict[str, str]]) -> dict[str, Any]:
+    if not isinstance(factions, dict):
+        return {}
+    enriched = {}
+    for name, faction in factions.items():
+        record = dict(faction) if isinstance(faction, dict) else {}
+        record["alert_channel_label"] = channel_label_from_channels(channels, record.get("alert_channel_key") or record.get("alert_channel_id"), "-")
+        enriched[str(name)] = record
+    return enriched
 
 
 def resolve_channel_selection(config: dict[str, Any], value: Any) -> tuple[str, str]:
@@ -10392,7 +10443,7 @@ def map_image_available_for(server_map: str) -> bool:
     return os.path.exists(map_image_file_for(server_map)) or bool(DEFAULT_MAP_IMAGE_SOURCES.get(key))
 
 
-def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str, Any] | None = None, channels: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
     map_size = map_size_for(server_map)
     zones = []
     for zone in list_records(config.get("zones", [])):
@@ -10501,6 +10552,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
         else:
             display_colour = colour
         zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
+        channel_value = str(zone.get("channel_key") or zone.get("alert_channel_id") or zone.get("report_channel_id") or "")
         dedupe_key = (zone_type, zone_id, x, y, radius)
         if dedupe_key in seen:
             continue
@@ -10521,6 +10573,7 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "boundary_points": boundary_points,
                 "points_percent": points_percent,
                 "channel_key": str(zone.get("channel_key") or ""),
+                "channel_label": channel_label_from_channels(channels or [], channel_value, "default"),
                 "alert_channel_id": str(zone.get("alert_channel_id") or ""),
                 "report_channel_id": str(zone.get("report_channel_id") or ""),
                 "role_id": str(zone.get("role_id") or ""),
@@ -10672,9 +10725,11 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
-        server_factions = faction_records_for_guild(factions, guild_id) if needs_factions else []
+        channels = public_channels(config.get("channels", {}), guild_id)
+        server_factions = faction_records_for_guild(factions, guild_id) if needs_factions else {}
+        server_factions = enrich_faction_channel_labels(server_factions, channels) if server_factions else {}
         server_members = member_records_for_guild(players, online, server_factions) if needs_players or needs_discord_members else []
-        zones = normalized_zones(config, server_map, server_factions)
+        zones = normalized_zones(config, server_map, server_factions, channels)
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
@@ -10683,7 +10738,6 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         server_shop_categories = shop_category_map(server_shop) if needs_shop else {}
         server_shop_items = flat_shop_items(server_shop) if needs_shop else []
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
-        channels = public_channels(config.get("channels", {}), guild_id)
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
         discord_members = discord_guild_members(guild_id) if needs_discord_members else []
         server_wages = enriched_wage_records(guild_block(wages, guild_id, []), discord_members, discord_roles, server_factions) if needs_wages else []
@@ -10853,6 +10907,7 @@ def page(mode: str, auth: dict[str, Any]):
         xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
         section_allowed=section_allowed,
+        channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
         auth=auth,
         refresh_seconds=DASHBOARD_REFRESH_SECONDS,
