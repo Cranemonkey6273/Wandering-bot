@@ -68,6 +68,32 @@ SCENARIO_SPAWN_PRESETS = {
     "food_crate": {"label": "Food loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "food"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
+DASHBOARD_AIRDROP_LOCATION_PRESETS = {
+    "chernarus": [
+        {"name": "NWAF", "x": 4481, "z": 10355},
+        {"name": "M&M base", "x": 1084, "z": 6637},
+        {"name": "NEAF", "x": 12136, "z": 12513},
+        {"name": "Tisy", "x": 1612, "z": 14175},
+        {"name": "Skalisty Island", "x": 13532, "z": 3131},
+        {"name": "Balota Airstrip", "x": 4810, "z": 2520},
+        {"name": "Cherno Docks", "x": 6560, "z": 2520},
+        {"name": "Elektro", "x": 10480, "z": 2320},
+        {"name": "Berezino", "x": 12200, "z": 9500},
+        {"name": "Green Mountain", "x": 3700, "z": 6000},
+        {"name": "Vybor Military", "x": 4600, "z": 8400},
+        {"name": "Zelenogorsk", "x": 2520, "z": 5140},
+    ],
+    "livonia": [
+        {"name": "Lukow Airfield", "x": 3800, "z": 11700},
+        {"name": "Brena", "x": 6700, "z": 11200},
+        {"name": "Nadbor", "x": 6100, "z": 4100},
+        {"name": "Topolin", "x": 10800, "z": 7900},
+        {"name": "Sobotka", "x": 6350, "z": 8200},
+        {"name": "Polana", "x": 10700, "z": 5400},
+        {"name": "Tarnow", "x": 9200, "z": 10450},
+        {"name": "Dolnik", "x": 11350, "z": 11350},
+    ],
+}
 SCENARIO_LOOT_PRESETS = {
     "none": [],
     "military_high": [
@@ -823,6 +849,14 @@ PAGE_TEMPLATE = """
     .route-list code { display: block; overflow-wrap: anywhere; }
     .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; align-items: start; }
     .admin-panel { min-width: 0; border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel-3); }
+    .admin-panel:nth-of-type(2n) { background: color-mix(in srgb, var(--panel-3) 84%, #123b46); }
+    .admin-panel:nth-of-type(3n) { background: color-mix(in srgb, var(--panel-3) 86%, #3f3411); }
+    body[data-section="pve"] .admin-panel:nth-of-type(3) { --accent: #f2c14e; background: linear-gradient(135deg, rgba(63,49,15,.72), rgba(15,22,18,.94)); }
+    body[data-section="pve"] .admin-panel:nth-of-type(4) { --accent: #6fd3ff; background: linear-gradient(135deg, rgba(18,48,58,.72), rgba(15,22,18,.94)); }
+    body[data-section="xml-workshop"] .admin-panel:nth-of-type(1) { --accent: #75d89a; background: linear-gradient(135deg, rgba(20,55,34,.72), rgba(15,22,18,.94)); }
+    body[data-section="visual-loadout"] .admin-panel:nth-of-type(1) { --accent: #7ec8ff; background: linear-gradient(135deg, rgba(20,48,66,.74), rgba(15,22,18,.94)); }
+    body[data-section="visual-loadout"] .admin-panel:nth-of-type(2) { --accent: #f2c14e; background: linear-gradient(135deg, rgba(65,51,15,.74), rgba(15,22,18,.94)); }
+    body[data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #75d89a; background: linear-gradient(135deg, rgba(19,57,34,.74), rgba(15,22,18,.94)); }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
@@ -878,6 +912,7 @@ PAGE_TEMPLATE = """
     .lb-value { display: inline-block; border: 1px solid #3f4255; background: #292b3a; color: #f4f4f5; border-radius: .35rem; padding: .05rem .32rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 500; }
     .lb-empty { color: #d8d8dc; font-style: italic; }
     .tool-note { color: var(--muted); font-size: .9rem; line-height: 1.45; }
+    .field-help { display: block; margin-top: .3rem; color: color-mix(in srgb, var(--muted) 72%, #ffffff); font-size: .78rem; line-height: 1.35; font-weight: 500; }
     .option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .option-card { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; background: #070b08; }
     .option-card strong { display: block; color: var(--gold); margin-bottom: .25rem; }
@@ -1093,7 +1128,8 @@ PAGE_TEMPLATE = """
     .trial-notice span { color: var(--muted); }
     .map-readout { margin-top: .4rem; color: var(--gold); font-size: .9rem; }
     .help-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
-    .help-card { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: #070b08; }
+    .help-card { border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: linear-gradient(135deg, color-mix(in srgb, var(--panel-3) 84%, #123b46), #070b08); }
+    .help-card h3 { color: var(--accent); margin-bottom: .55rem; }
     .help-card ol { margin: .5rem 0 0; padding-left: 1.2rem; color: var(--muted); line-height: 1.55; }
     .server-switcher { display: grid; gap: .65rem; }
     .server-tabs { display: flex; flex-wrap: wrap; gap: .5rem; }
@@ -2413,13 +2449,26 @@ PAGE_TEMPLATE = """
                 <option value="custom">Custom classname</option>
               </select>
             </label>
-            <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"></label>
-            <label>Resolved spawn class <input name="class_name" value="{{ edit_event.class_name }}" data-scenario-class readonly placeholder="Pick Custom classname to type manually"></label>
-            <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"></label>
-            <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"></label>
-            <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"></label>
-            <label>How many drops / animals / infected <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"></label>
-            <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"></label>
+            <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"><small class="field-help">Shown in the live manager. Batch airdrops append the location name automatically.</small></label>
+            <label>Saved location
+              <select name="saved_location" data-scenario-location-preset>
+                <option value="">Manual X/Z</option>
+                {% for location in airdrop_location_presets %}
+                <option value="{{ location.name }}" data-x="{{ location.x }}" data-z="{{ location.z }}">{{ location.name }} ({{ location.x }}, {{ location.z }})</option>
+                {% endfor %}
+              </select>
+              <small class="field-help">Pick a common drop spot, or leave manual and type X/Z below.</small>
+            </label>
+            <label>Resolved spawn class <input name="class_name" value="{{ edit_event.class_name }}" data-scenario-class readonly placeholder="Pick Custom classname to type manually"><small class="field-help">The exact DayZ classname used in native CE XML.</small></label>
+            <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"><small class="field-help">East/west map coordinate from iZurvive or the dashboard map.</small></label>
+            <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"><small class="field-help">North/south map coordinate. DayZ uses X/Z here, not X/Y.</small></label>
+            <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"><small class="field-help">Usually leave at 0. Console native events ignore height.</small></label>
+            <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"><small class="field-help">For animals/infected this is how many spawn. For airdrops, use Batch locations for multiple drops.</small></label>
+            <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"><small class="field-help">How wide the event can spread around the chosen position.</small></label>
+            <label class="full">Batch locations
+              <textarea name="batch_locations" data-scenario-batch-locations placeholder="Skalisty Island, 13532, 3131&#10;NWAF, 4481, 10355&#10;Tisy, 1612, 14175"></textarea>
+              <small class="field-help">Optional. One location per line: name, X, Z. Saving creates one event for each line using the same settings.</small>
+            </label>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
               <input type="hidden" name="zombie_mix" data-zombie-mix-value>
@@ -2435,6 +2484,7 @@ PAGE_TEMPLATE = """
             <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
             <label>Loot preset
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
+              <small class="field-help">Airdrop loot is built pristine; ammo/medical goes into crates while larger gear is placed around the scene.</small>
             </label>
             <label>Vehicle condition
               <select name="vehicle_condition"><option value="full">Full fuel, fluids, and common parts</option><option value="random_parts">Random common parts</option><option value="no_parts">Body only / missing parts</option></select>
@@ -2442,12 +2492,12 @@ PAGE_TEMPLATE = """
             <label>Vehicle cargo
               <select name="vehicle_cargo_mode"><option value="normal_with_loot">Full vehicle with selected loot</option><option value="normal_no_loot">Full vehicle with no bot-added loot</option><option value="native_only">Use my server files only</option></select>
             </label>
-            <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"></label>
+            <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"><small class="field-help">Use exact classnames. These are added on top of the selected preset.</small></label>
             <label>Visual marker <select name="visual_marker"><option value="false" {% if edit_event.visual_marker == 'false' %}selected{% endif %}>Off</option><option value="true" {% if edit_event.visual_marker == 'true' %}selected{% endif %}>On</option></select></label>
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
-            <div class="full embed-preview"><strong>Status</strong><span>Queued means accepted. Console events upload through events.xml and cfgeventspawns.xml, so no init.c access is needed. Counts are capped at 250 per event for server safety.</span></div>
+            <div class="full embed-preview"><strong>Status</strong><span>Saved means the dashboard accepted it and asked the bot to upload native CE XML in the background. Counts are capped at 250 per event for server safety.</span></div>
             <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
@@ -3046,6 +3096,7 @@ PAGE_TEMPLATE = """
                   </div>
                 </div>
                 <div class="loadout-workbench">
+                  <div class="embed-preview"><strong>Player loadout builder</strong><span>Pick a body slot, add items from the picker, then drag selected rows to reorder the generated loadout.</span></div>
                   <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="Head">
                     <div class="item-picker-controls">
                       <label>Find item
@@ -3071,6 +3122,7 @@ PAGE_TEMPLATE = """
                   <label>Loadout items
                     <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
                     <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
+                    <small class="field-help">Generated by the picker. Keep damage on Pristine for clean spawn kits.</small>
                   </label>
                 </div>
                 <div><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
@@ -3339,7 +3391,7 @@ PAGE_TEMPLATE = """
       <div class="visual-loadout-layout">
         <aside class="admin-panel visual-browser" data-loadout-browser>
           <h3>Item Browser</h3>
-          <label>Search items <input data-loadout-search placeholder="M4, backpack, bandage"></label>
+          <label>Search items <input data-loadout-search placeholder="M4, backpack, bandage"><small class="field-help">Filter the server item list, then click or drag a card into the player layout.</small></label>
           <div class="loadout-category-row" data-loadout-categories>
             <button type="button" data-loadout-category="all" class="active">All</button>
             <button type="button" data-loadout-category="Weapons">Weapons</button>
@@ -3353,6 +3405,7 @@ PAGE_TEMPLATE = """
         </aside>
         <article class="admin-panel visual-canvas">
           <h3>Survivor Canvas</h3>
+          <div class="embed-preview"><strong>Drag and drop loadout</strong><span>Drop clothing into body slots, weapons into shoulder/holster slots, and supplies into backpack, jacket, or pants cargo.</span></div>
           <div class="loadout-selected-slot" data-selected-loadout-slot><strong>No slot selected</strong><span>Pick a slot, then click or drag an item into it.</span></div>
           <div class="loadout-slot-grid">
             <button type="button" class="visual-slot" data-loadout-slot="Headgear" data-slot-group="cloth"><span>Headgear</span><strong>Empty</strong></button>
@@ -3391,9 +3444,11 @@ PAGE_TEMPLATE = """
             </label>
             <label>Server custom_loadout.json path
               <input name="loadout_path" value="{{ ce_defaults.custom_loadout_path }}">
+              <small class="field-help">Where the generated custom loadout file should upload on Nitrado.</small>
             </label>
             <label>Server cfggameplay.json path
               <input name="cfggameplay_path" value="{{ ce_defaults.cfggameplay_path }}">
+              <small class="field-help">This file points DayZ at custom/custom_loadout.json.</small>
             </label>
             <div class="toolbar">
               <button type="submit">Download Complete Server Package</button>
@@ -3783,39 +3838,57 @@ PAGE_TEMPLATE = """
       </div>
       <div class="help-grid">
         <article class="help-card">
+          <h3>PVE Airdrops</h3>
+          <ol>
+            <li>Use Saved location for common places, or type exact iZurvive X/Z coordinates.</li>
+            <li>Use Batch locations when you want several drops with the same loot settings.</li>
+            <li>One batch line should be name, X, Z, for example Skalisty Island, 13532, 3131.</li>
+            <li>The dashboard saves the event immediately and asks the bot to upload native CE XML in the background.</li>
+            <li>Console airdrops apply after server restart because they use events.xml, cfgeventspawns.xml, and eventgroups.xml.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Loot Scenes</h3>
+          <ol>
+            <li>Military high tier creates a crater-style scene with pristine weapons, clothing, ammo boxes, medical items, and grenades.</li>
+            <li>Ammo and medical supplies are kept in crates where possible.</li>
+            <li>Large weapons and bulky military gear are placed around the scene so small crates do not hide them.</li>
+            <li>Extra loot items must be exact DayZ classnames separated by commas.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Visual Loadout</h3>
+          <ol>
+            <li>Search or filter items, then drag an item onto a body slot, weapon slot, or cargo box.</li>
+            <li>Click a filled weapon slot to add attachment items to that weapon.</li>
+            <li>Copy the generated loadout JSON for checking, or upload the package when the Nitrado paths are correct.</li>
+            <li>custom_loadout.json and cfggameplay.json must both be present for DayZ spawn gear to work.</li>
+          </ol>
+        </article>
+        <article class="help-card">
           <h3>Zones</h3>
           <ol>
-            <li>Open Zones and pick the server at the top of the dashboard.</li>
-            <li>Click the map to fill the X/Y coordinates, then set the radius.</li>
-            <li>Use Radar when you only want a channel or role ping.</li>
-            <li>Use Safe/PVP when the zone needs actions such as notify, manhunt, or Nitrado ban.</li>
-            <li>Existing `/addradarzone` and `/server zone` entries are loaded here automatically.</li>
+            <li>Open Zones and click the map to fill X/Z coordinates.</li>
+            <li>Radar zones only send Discord alerts; Safe/PVP zones can notify, manhunt, or ban.</li>
+            <li>Choose channel names from the picker where available so the dashboard avoids raw Discord IDs.</li>
+            <li>Existing slash-command zones are loaded into the dashboard automatically.</li>
           </ol>
         </article>
         <article class="help-card">
-          <h3>Radar Pings</h3>
+          <h3>XML Safety</h3>
           <ol>
-            <li>Choose Radar ping zone.</li>
-            <li>Pick the channel that should receive alerts.</li>
-            <li>Add a Discord role ID if a role should be pinged.</li>
-            <li>Add ignored gamertags for admins, owners, or faction members who should not trigger it.</li>
+            <li>The guarded uploader keeps live files protected and writes one latest backup marker instead of flooding backups.</li>
+            <li>Native CE XML uploads never need init.c access on console servers.</li>
+            <li>Restart the server after CE XML changes so the economy reloads the new events.</li>
+            <li>If an upload fails, the event row shows Retry XML only for failed events.</li>
           </ol>
         </article>
         <article class="help-card">
-          <h3>Server Rules</h3>
+          <h3>Dashboard Colours</h3>
           <ol>
-            <li>Use Discord Link Enforcement to require players to join Discord and link their gamertag.</li>
-            <li>Notify is safest, temp ban and perm ban push to Nitrado ban files.</li>
-            <li>Restart after ban forces Nitrado to apply the ban immediately.</li>
-            <li>On-screen message changes are file changes and apply after restart.</li>
-          </ol>
-        </article>
-        <article class="help-card">
-          <h3>Themes</h3>
-          <ol>
-            <li>Use the colour circles in the top bar to change the dashboard look.</li>
-            <li>The choice is saved in this browser.</li>
-            <li>The theme only changes dashboard colours, not bot behaviour.</li>
+            <li>Use the top colour circles to change the overall theme in this browser.</li>
+            <li>Tool panels now use different accent colours so separate tools are easier to scan.</li>
+            <li>The theme only changes dashboard colours, not bot behaviour or server files.</li>
           </ol>
         </article>
       </div>
@@ -6120,7 +6193,6 @@ PAGE_TEMPLATE = """
       "/api/admin/faction-member",
       "/api/admin/zone",
       "/api/admin/member-action",
-      "/api/admin/scenario-event",
       "/api/admin/wage",
       "/api/admin/wallet-adjustment",
       "/api/admin/economy-rule",
@@ -6312,6 +6384,16 @@ PAGE_TEMPLATE = """
               statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
             }
             if (body.upload_started && row) pollScenarioStatusRow(row);
+            return;
+          }
+          if (response.ok && routePath === "/api/admin/scenario-event") {
+            const savedCount = body.created_count || (Array.isArray(body.events) ? body.events.length : 1);
+            if (result) result.textContent = body.note || `Saved ${savedCount} event${savedCount === 1 ? "" : "s"}.`;
+            const row = body.event ? document.querySelector(`[data-scenario-event-row="${CSS.escape(String(body.event.id || ""))}"]`) : null;
+            if (row && body.event) {
+              setScenarioRowStatus(row, body.event);
+              pollScenarioStatusRow(row);
+            }
             return;
           }
           if (response.ok && form.classList.contains("inline-action")) {
@@ -6600,6 +6682,20 @@ PAGE_TEMPLATE = """
       form.addEventListener("scenario-prefill", syncScenarioPreset);
       form.addEventListener("submit", syncScenarioPreset);
       syncScenarioPreset();
+    });
+    document.querySelectorAll("[data-scenario-location-preset]").forEach((select) => {
+      const form = select.closest("form");
+      if (!form) return;
+      function syncScenarioLocation() {
+        const option = select.selectedOptions[0];
+        if (!option || !option.value) return;
+        if (form.elements.x && option.dataset.x) form.elements.x.value = option.dataset.x;
+        if (form.elements.z && option.dataset.z) form.elements.z.value = option.dataset.z;
+        if (form.elements.name && !String(form.elements.name.value || "").trim()) {
+          form.elements.name.value = option.value;
+        }
+      }
+      select.addEventListener("change", syncScenarioLocation);
     });
     document.querySelectorAll("[data-zombie-mix-builder]").forEach((builder) => {
       const rows = builder.querySelector("[data-zombie-mix-rows]");
@@ -10515,6 +10611,52 @@ def map_key_for(server_map: str) -> str:
     return "chernarus"
 
 
+def dashboard_airdrop_location_presets(server_map: str) -> list[dict[str, Any]]:
+    key = map_key_for(server_map)
+    presets = DASHBOARD_AIRDROP_LOCATION_PRESETS.get(key) or DASHBOARD_AIRDROP_LOCATION_PRESETS["chernarus"]
+    return [dict(item) for item in presets]
+
+
+def dashboard_airdrop_preset_location(server_map: str, name: Any) -> dict[str, Any] | None:
+    wanted = str(name or "").strip().lower()
+    if not wanted:
+        return None
+    for location in dashboard_airdrop_location_presets(server_map):
+        if str(location.get("name") or "").strip().lower() == wanted:
+            return location
+    return None
+
+
+def parse_scenario_batch_locations(raw: Any, map_size: int) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    seen: set[tuple[int, int, str]] = set()
+    for line in str(raw or "").replace("\r", "\n").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        parts = [part.strip() for part in re.split(r"[,;|\t]+", text) if part.strip()]
+        if len(parts) < 2:
+            continue
+        numbers: list[tuple[int, str]] = []
+        names: list[str] = []
+        for part in parts:
+            if re.fullmatch(r"-?\d+(?:\.\d+)?", part):
+                numbers.append((safe_int(part, 0), part))
+            else:
+                names.append(part)
+        if len(numbers) < 2:
+            continue
+        x = max(0, min(map_size, numbers[0][0]))
+        z = max(0, min(map_size, numbers[1][0]))
+        name = " ".join(names).strip() or f"{x}, {z}"
+        key = (x, z, name.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({"name": name[:80], "x": x, "z": z})
+    return locations
+
+
 def map_image_file_for(server_map: str) -> str:
     return MAP_IMAGE_FILES.get(map_key_for(server_map), MAP_IMAGE_FILES["chernarus"])
 
@@ -10981,6 +11123,8 @@ def page(mode: str, auth: dict[str, Any]):
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
     ce_defaults = dashboard_default_ce_paths(selected_config if isinstance(selected_config, dict) else {})
+    server_map = str(selected_config.get("server_map") or selected_config.get("map") or "chernarus") if isinstance(selected_config, dict) else "chernarus"
+    airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -10999,6 +11143,7 @@ def page(mode: str, auth: dict[str, Any]):
         shop_categories=state.get("shop_categories", {}),
         xml_picker_groups=xml_picker_groups(selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []),
         ce_defaults=ce_defaults,
+        airdrop_location_presets=airdrop_location_presets,
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
@@ -12038,10 +12183,7 @@ def api_scenario_event():
         deleted_int = safe_int(deleted_id, 0)
         if deleted_int > 0:
             existing_ids.append(deleted_int)
-    event_id = requested_event_id if existing_index is not None else max(existing_ids or [0]) + 1
-    tombstones = config.get("scenario_event_tombstones")
-    if isinstance(tombstones, dict):
-        tombstones.pop(str(event_id), None)
+    next_event_id = max(existing_ids or [0]) + 1
     restarts = safe_int(payload.get("restarts"), 1)
     permanent = safe_bool(payload.get("permanent"), False) or restarts <= 0
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
@@ -12092,6 +12234,15 @@ def api_scenario_event():
         x = max(0, min(map_size, safe_int(payload.get("x"), map_size // 2)))
         z = max(0, min(map_size, safe_int(payload.get("z"), payload.get("y") or map_size // 2)))
         radius = max(0, min(30000, safe_int(payload.get("radius"), 35)))
+    location_name = str(payload.get("location") or "").strip()
+    saved_location_name = str(payload.get("saved_location") or "").strip()
+    saved_location = dashboard_airdrop_preset_location(server_map, saved_location_name)
+    if saved_location and event_type != "vehicle_reset_all":
+        x = max(0, min(map_size, safe_int(saved_location.get("x"), x)))
+        z = max(0, min(map_size, safe_int(saved_location.get("z"), z)))
+        location_name = str(saved_location.get("name") or saved_location_name or location_name).strip()
+    batch_locations = [] if existing_index is not None or event_type == "vehicle_reset_all" else parse_scenario_batch_locations(payload.get("batch_locations"), map_size)
+    location_records = batch_locations or [{"name": location_name or "Dashboard", "x": x, "z": z}]
 
     vehicle_cargo_mode = str(payload.get("vehicle_cargo_mode") or "normal_with_loot").strip()
     loot_preset = str(payload.get("loot_preset") or preset.get("loot_preset") or "none")
@@ -12107,62 +12258,81 @@ def api_scenario_event():
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
 
-    event = dict(existing_event)
-    event.update({
-        "id": event_id,
-        "name": str(payload.get("name") or f"{preset.get('label') or event_type.replace('_', ' ').title()} #{event_id}"),
-        "event_type": event_type,
-        "location": str(payload.get("location") or "Dashboard"),
-        "x": x,
-        "y": safe_int(payload.get("y"), 0),
-        "z": z,
-        "class_name": class_name,
-        "map": map_key_for(server_map),
-        "preset": spawn_preset or "custom",
-        "count": event_count,
-        "radius": radius,
-        "loot_preset": loot_preset,
-        "loot": loot,
-        "zombie_mix": zombie_mix if event_type == "zombie_horde" else [],
-        "reset_method": str(payload.get("reset_method") or "bridge"),
-        "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
-        "vehicle_cargo_mode": vehicle_cargo_mode,
-        "visual_marker": safe_bool(payload.get("visual_marker"), False),
-        "marker_class": "StaticObj_Misc_WoodenCrate_5x" if safe_bool(payload.get("visual_marker"), False) else "",
-        "guard_class": str(payload.get("guard_class") or "").strip(),
-        "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
-        "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
-        "permanent": permanent,
-        "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
-        "enabled": True,
-        "status": "Accepted / bot auto-upload queued",
-        "upload_status": "waiting_for_bot_upload",
-        "created_by": existing_event.get("created_by") or "dashboard",
-        "created_at": existing_event.get("created_at") or datetime.now(UTC).isoformat(),
-        "updated_at": datetime.now(UTC).isoformat(),
-    })
-    if event_type == "vehicle_reset_all":
-        event["exclude"] = csv_list(payload.get("excluded_classes", []))
-    if existing_index is None:
-        events.append(event)
-    else:
-        events[existing_index] = event
+    base_name = str(payload.get("name") or "").strip()
+    label_name = str(preset.get("label") or event_type.replace("_", " ").title()).strip()
+    created_events: list[dict[str, Any]] = []
+    tombstones = config.get("scenario_event_tombstones")
+    for location_index, location in enumerate(location_records):
+        current_event_id = requested_event_id if existing_index is not None else next_event_id + location_index
+        if isinstance(tombstones, dict):
+            tombstones.pop(str(current_event_id), None)
+        event = dict(existing_event) if existing_index is not None else {}
+        loc_name = str(location.get("name") or location_name or "Dashboard").strip()
+        if base_name and len(location_records) > 1:
+            display_name = f"{base_name} - {loc_name}" if loc_name.lower() not in base_name.lower() else base_name
+        elif base_name:
+            display_name = base_name
+        else:
+            display_name = f"{loc_name} {label_name}" if loc_name and loc_name != "Dashboard" else f"{label_name} #{current_event_id}"
+        event.update({
+            "id": current_event_id,
+            "name": display_name,
+            "event_type": event_type,
+            "location": loc_name or "Dashboard",
+            "x": max(0, min(map_size, safe_int(location.get("x"), x))),
+            "y": safe_int(payload.get("y"), 0),
+            "z": max(0, min(map_size, safe_int(location.get("z"), z))),
+            "class_name": class_name,
+            "map": map_key_for(server_map),
+            "preset": spawn_preset or "custom",
+            "count": event_count,
+            "radius": radius,
+            "loot_preset": loot_preset,
+            "loot": loot,
+            "zombie_mix": zombie_mix if event_type == "zombie_horde" else [],
+            "reset_method": str(payload.get("reset_method") or "bridge"),
+            "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
+            "vehicle_cargo_mode": vehicle_cargo_mode,
+            "visual_marker": safe_bool(payload.get("visual_marker"), False),
+            "marker_class": "StaticObj_Misc_WoodenCrate_5x" if safe_bool(payload.get("visual_marker"), False) else "",
+            "guard_class": str(payload.get("guard_class") or "").strip(),
+            "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
+            "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
+            "permanent": permanent,
+            "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
+            "enabled": True,
+            "status": "Saved - native CE XML upload requested",
+            "upload_status": "waiting_for_bot_upload",
+            "created_by": existing_event.get("created_by") or "dashboard",
+            "created_at": existing_event.get("created_at") or datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+        })
+        if event_type == "vehicle_reset_all":
+            event["exclude"] = csv_list(payload.get("excluded_classes", []))
+        if existing_index is None:
+            events.append(event)
+        else:
+            events[existing_index] = event
+        created_events.append(event)
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
 
     upload_started = False
     if event_type != "vehicle_reset_all" and CUSTOM_STATE_PROVIDER:
-        event["status"] = "Native CE XML upload starting"
+        for event in created_events:
+            event["status"] = "Native CE XML upload requested"
+            upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(event.get("id"), 0)) or upload_started
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
-        upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id)
 
+    event = created_events[0] if created_events else {}
     g.dashboard_audit_payload = {
         "name": event.get("name"),
         "event_type": event.get("event_type"),
         "spawn_preset": event.get("preset"),
         "class_name": event.get("class_name"),
         "count": event.get("count"),
+        "created_count": len(created_events),
         "x": event.get("x"),
         "z": event.get("z"),
         "radius": event.get("radius"),
@@ -12174,12 +12344,16 @@ def api_scenario_event():
     }
     if not wants_json_response():
         return redirect(return_to)
+    count_text = f"{len(created_events)} events" if len(created_events) != 1 else "1 event"
+    upload_note = "native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker"
     return jsonify({
         "ok": True,
         "event": event,
+        "events": created_events,
+        "created_count": len(created_events),
         "updated": existing_index is not None,
         "upload_started": upload_started,
-        "note": "saved; native CE XML upload started in the background" if upload_started else "saved; native CE XML upload is queued in the bot background worker",
+        "note": f"Saved {count_text}; {upload_note}.",
     })
 
 
