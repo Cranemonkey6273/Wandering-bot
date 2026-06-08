@@ -1023,7 +1023,7 @@ PAGE_TEMPLATE = """
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
     .zone-map-viewport { width: 100%; overflow: visible; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); }
     .zone-map-viewport .zone-map { border: 0; border-radius: .45rem; margin: 0 auto; }
-    .zone-map { position: relative; width: min(100%, var(--zone-map-display-size, 100%), 72vh); max-width: 100%; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
+    .zone-map { position: relative; width: min(100%, var(--zone-map-display-size, 512px)); max-width: 100%; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
       radial-gradient(circle at 38% 38%, rgba(141,150,62,.34), transparent 18%),
@@ -2124,14 +2124,14 @@ PAGE_TEMPLATE = """
               </div>
             </div>
             <div class="full zone-map-viewport">
-            <div class="zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ ((server.map_size if server else 15360) / 10)|round|int }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
+            <div class="zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: 512px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
               <input type="image" class="zone-map-hit-layer" name="zone_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Draft a new zone here" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" onpointerdown="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" onclick="return window.wanderingMeasureZoneMapClick ? window.wanderingMeasureZoneMapClick(event, this) : true" data-zone-map-hit>
-              <input class="hidden-field" name="map_click_scale" value="10">
-              <input class="hidden-field" name="map_render_width" data-map-render-width value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
-              <input class="hidden-field" name="map_render_height" data-map-render-height value="{{ ((server.map_size if server else 15360) / 10)|round|int }}">
+              <input class="hidden-field" name="map_click_scale" value="{{ ((server.map_size if server else 15360) / 512)|round(6) }}">
+              <input class="hidden-field" name="map_render_width" data-map-render-width value="512">
+              <input class="hidden-field" name="map_render_height" data-map-render-height value="512">
               <input class="hidden-field" name="map_pointer_x" data-map-pointer-x value="">
               <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
               <input class="hidden-field" name="map_percent_x" data-map-percent-x value="">
