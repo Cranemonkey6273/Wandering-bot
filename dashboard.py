@@ -1020,6 +1020,8 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
+    .zone-map-viewport { width: 100%; max-height: min(78vh, 58rem); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); }
+    .zone-map-viewport .zone-map { border: 0; border-radius: 0; margin: 0 auto; }
     .zone-map { position: relative; width: var(--zone-map-display-size, 100%); max-width: none; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
@@ -2120,7 +2122,8 @@ PAGE_TEMPLATE = """
                 <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="undo" data-zone-map-hit data-undo-boundary>Undo Point</button>
               </div>
             </div>
-            <div class="full zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ ((server.map_size if server else 15360) / 10)|round|int }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
+            <div class="full zone-map-viewport">
+            <div class="zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ ((server.map_size if server else 15360) / 10)|round|int }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
               {% endif %}
@@ -2157,6 +2160,7 @@ PAGE_TEMPLATE = """
               <a class="zone-dot {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></a>
               {% endfor %}
               <div class="zone-map-popover" data-zone-popover hidden></div>
+            </div>
             </div>
             <div class="full map-readout" data-map-readout>{% if draft_zone_active and edit_zone.shape == 'boundary' %}Boundary draft has {{ draft_point_count }} point{{ '' if draft_point_count == 1 else 's' }}. Click the map again to add another point, then save when it has at least 3 points.{% elif draft_zone_active %}Circle draft at X {{ edit_zone.x }}, Z {{ edit_zone.y }} with {{ edit_zone.radius }}m radius. Adjust the radius/name if needed, then save.{% else %}Click empty map space to draft a new zone. Click a marker or Edit to load an existing zone.{% endif %}</div>
             <div class="full zone-form-actions">
