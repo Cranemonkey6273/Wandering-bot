@@ -28303,7 +28303,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
             event["upload_status"] = "uploaded"
-            event["status"] = "Native CE XML uploaded / waiting for restart"
+            event["status"] = "Done - native CE XML uploaded; restart server to spawn"
             event.pop("upload_error", None)
         else:
             event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"

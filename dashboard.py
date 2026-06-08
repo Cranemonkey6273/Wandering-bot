@@ -2473,7 +2473,7 @@ PAGE_TEMPLATE = """
                 <td>
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
-                    {% for action, label in [('upload', 'Retry XML'), ('approve', 'Approve'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
+                    {% for action, label in [('upload', 'Retry XML'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -6138,6 +6138,71 @@ PAGE_TEMPLATE = """
       item.remove();
       return true;
     }
+    function scenarioStatusIsPending(text, uploadStatus) {
+      const combined = `${text || ""} ${uploadStatus || ""}`.toLowerCase();
+      return combined.includes("upload starting")
+        || combined.includes("upload queued")
+        || combined.includes("retry pending")
+        || combined.includes("waiting_for_bot_upload")
+        || combined.includes("queued in the bot");
+    }
+    function setScenarioRowStatus(row, eventData) {
+      if (!row || !eventData) return;
+      const statusCell = row.querySelector("[data-scenario-status]");
+      const status = eventData.status || "";
+      const uploadStatus = eventData.upload_status || "";
+      const uploadError = eventData.upload_error || "";
+      row.dataset.eventUpload = uploadStatus;
+      if (statusCell) {
+        statusCell.textContent = status || "Saved";
+        if (uploadError) {
+          const detail = document.createElement("small");
+          detail.className = "muted";
+          detail.textContent = uploadError;
+          statusCell.append(document.createElement("br"), detail);
+        }
+      }
+      row.querySelectorAll('[name="action"][value="upload"]').forEach((input) => {
+        const retryForm = input.closest("form");
+        if (retryForm) retryForm.hidden = uploadStatus !== "failed";
+      });
+    }
+    function pollScenarioStatusRow(row) {
+      if (!row || row.dataset.statusPoll === "done") return;
+      const eventId = row.getAttribute("data-scenario-event-row");
+      const statusCell = row.querySelector("[data-scenario-status]");
+      const currentStatus = statusCell ? statusCell.textContent : "";
+      if (!eventId || !scenarioStatusIsPending(currentStatus, row.dataset.eventUpload)) return;
+      row.dataset.statusPoll = "active";
+      let attempts = 0;
+      const poll = async () => {
+        attempts += 1;
+        const params = new URLSearchParams(window.location.search);
+        params.set("event_id", eventId);
+        params.set("dashboard_mode", "{{ mode }}");
+        try {
+          const response = await fetch(secureDashboardUrl(`/api/admin/scenario-event-status?${params.toString()}`), {
+            headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+          });
+          const body = await response.json().catch(() => ({}));
+          if (response.ok && body.event) {
+            setScenarioRowStatus(row, body.event);
+            if (!scenarioStatusIsPending(body.event.status, body.event.upload_status)) {
+              row.dataset.statusPoll = "done";
+              return;
+            }
+          }
+        } catch (error) {}
+        if (attempts < 60 && row.isConnected) {
+          window.setTimeout(poll, attempts < 6 ? 2500 : 5000);
+        } else {
+          row.dataset.statusPoll = "done";
+        }
+      };
+      window.setTimeout(poll, 1500);
+    }
+    document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
     document.querySelectorAll(".admin-form").forEach((form) => {
       if (form.dataset.route) {
         if (!form.getAttribute("method")) form.setAttribute("method", "post");
@@ -6232,6 +6297,7 @@ PAGE_TEMPLATE = """
               const messages = Array.isArray(body.upload.messages) ? body.upload.messages.slice(-2).join(" | ") : "";
               statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
             }
+            if (body.upload_started && row) pollScenarioStatusRow(row);
             return;
           }
           if (response.ok && form.classList.contains("inline-action")) {
@@ -7173,6 +7239,7 @@ ADMIN_ROUTES = [
     "/api/admin/xml-workshop",
     "/api/admin/scenario-event",
     "/api/admin/scenario-event-action",
+    "/api/admin/scenario-event-status",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
     "/api/admin/zone",
@@ -7429,7 +7496,7 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
             event["upload_status"] = "removed" if removed and is_target else "uploaded"
-            event["status"] = "Removed from native CE XML" if removed and is_target else "Native CE XML uploaded / waiting for restart"
+            event["status"] = "Removed from native CE XML" if removed and is_target else "Done - native CE XML uploaded; restart server to spawn"
             event.pop("upload_error", None)
         else:
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
@@ -12100,6 +12167,41 @@ def api_scenario_event():
         "upload_started": upload_started,
         "note": "saved; native CE XML upload started in the background" if upload_started else "saved; native CE XML upload is queued in the bot background worker",
     })
+
+
+@APP.get("/api/admin/scenario-event-status")
+def api_scenario_event_status():
+    auth = current_auth()
+    if not auth:
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    payload = scoped_payload_for_auth(
+        {
+            "guild_id": request.args.get("guild_id"),
+            "dashboard_mode": request.args.get("dashboard_mode"),
+        },
+        auth,
+    )
+    if payload.get("_scope_denied"):
+        return jsonify({"ok": False, "error": "server is not in this admin scope"}), 403
+    guild_id = normalize_guild_id(payload.get("guild_id") or auth.get("guild_id"))
+    event_id = safe_int(request.args.get("event_id") or request.args.get("id"), 0)
+    if event_id <= 0:
+        return jsonify({"ok": False, "error": "event_id is required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+    events = config.get("scenario_events", []) if isinstance(config, dict) else []
+    if not isinstance(events, list):
+        events = []
+    for event in events:
+        if isinstance(event, dict) and safe_int(event.get("id"), 0) == event_id:
+            return jsonify({
+                "ok": True,
+                "event": event,
+                "status": event.get("status") or "",
+                "upload_status": event.get("upload_status") or "",
+                "upload_error": event.get("upload_error") or "",
+            })
+    return jsonify({"ok": False, "error": "event not found"}), 404
 
 
 @APP.post("/api/admin/scenario-event-action")
