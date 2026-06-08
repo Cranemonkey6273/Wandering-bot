@@ -24535,6 +24535,12 @@ SCENARIO_VEHICLE_CONDITIONS = {
 
 SCENARIO_AIRDROP_MARKER_CLASS = "StaticObj_Misc_WoodenCrate_5x"
 
+SCENARIO_AIRDROP_SCENE_PROPS = [
+    {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
+    {"type": "StaticObj_Dead_pile2", "x": "0", "y": "-0.829071", "z": "0", "a": "0"},
+    {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "-5", "z": "1.8", "a": "35"},
+]
+
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "M4A1": {
         "attachments": ["M4_RISHndgrd", "M4_MPBttstck", "ACOGOptic", "Mag_STANAG_30Rnd"],
@@ -25489,6 +25495,15 @@ def scenario_airdrop_eventgroup_children(event, class_name):
             "a": "0.0",
             "y": "0.0",
         })
+        for scene_prop in SCENARIO_AIRDROP_SCENE_PROPS:
+            children.append({
+                "type": scene_prop["type"],
+                "spawnsecondary": "false",
+                "x": scene_prop["x"],
+                "y": scene_prop["y"],
+                "z": scene_prop["z"],
+                "a": scene_prop["a"],
+            })
 
     crate_x = "2.8" if children else "0.0"
     crate_z = "-1.6" if children else "0.0"
@@ -25528,16 +25543,20 @@ def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax
         "y": "0.0",
     }]
     for child_record in child_records:
-        ET.SubElement(group_node, "child", {
+        attrs = {
             "type": str(child_record.get("type") or child_type),
-            "deloot": "1",
-            "lootmin": str(max(0, int(child_record.get("lootmin", lootmin) or 0))),
-            "lootmax": str(max(1, int(child_record.get("lootmax", lootmax) or 1))),
             "x": str(child_record.get("x", "0.0")),
             "z": str(child_record.get("z", "0.0")),
             "a": str(child_record.get("a", "0.0")),
             "y": str(child_record.get("y", "0.0")),
-        })
+        }
+        if str(child_record.get("spawnsecondary") or "").strip():
+            attrs["spawnsecondary"] = str(child_record.get("spawnsecondary"))
+        else:
+            attrs["deloot"] = "1"
+            attrs["lootmin"] = str(max(0, int(child_record.get("lootmin", lootmin) or 0)))
+            attrs["lootmax"] = str(max(1, int(child_record.get("lootmax", lootmax) or 1)))
+        ET.SubElement(group_node, "child", attrs)
     return group_node
 
 
@@ -26451,7 +26470,8 @@ def validate_console_ce_xml_bundle(built):
                 group_lootmax = int(str(child.get("lootmax") or "0"))
             except Exception:
                 group_lootmax = 0
-            if group_lootmax <= 0:
+            is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
+            if group_lootmax <= 0 and not is_static_scene_prop:
                 messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
 
     if territory_files:
