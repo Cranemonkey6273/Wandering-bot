@@ -8558,7 +8558,22 @@ def dashboard_split_remote_file_path(target_path: Any) -> tuple[str, str]:
     return folder, name
 
 
+def dashboard_nitrado_response_json(response: Any, label: str) -> tuple[dict[str, Any] | None, str]:
+    try:
+        data = response.json()
+    except Exception:
+        body = str(getattr(response, "text", "") or "").strip()
+        snippet = body[:300] if body else "<empty response body>"
+        status = getattr(response, "status_code", "unknown")
+        return None, f"{label} returned non-JSON response ({status}): {snippet}"
+    if not isinstance(data, dict):
+        return None, f"{label} returned unexpected JSON payload: {type(data).__name__}"
+    return data, ""
+
+
 def dashboard_nitrado_api_token_payload(data: dict[str, Any]) -> tuple[str | None, str | None]:
+    if not isinstance(data, dict):
+        return None, None
     token_data = data.get("token") or data.get("data", {}).get("token") or {}
     token_url = token_data.get("url") or data.get("url")
     token_value = token_data.get("token") or data.get("token")
@@ -8580,7 +8595,11 @@ def dashboard_download_text_file_from_nitrado(config: dict[str, Any], target_pat
                 if response.status_code != 200:
                     attempts.append(f"{param_name}={api_path}: {response.status_code} {response.text[:160]}")
                     continue
-                token_url, token_value = dashboard_nitrado_api_token_payload(response.json().get("data", response.json()))
+                response_data, json_error = dashboard_nitrado_response_json(response, f"Nitrado download token for `{api_path}`")
+                if json_error:
+                    attempts.append(f"{param_name}={api_path}: {json_error}")
+                    continue
+                token_url, token_value = dashboard_nitrado_api_token_payload(response_data.get("data", response_data))
                 if not token_url:
                     attempts.append(f"{param_name}={api_path}: no download URL")
                     continue
@@ -8629,7 +8648,10 @@ def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: A
         token_response = requests.post(url, headers=headers, data={"path": folder, "file": name}, timeout=20)
         if token_response.status_code not in (200, 201):
             return False, f"Nitrado upload token failed with status {token_response.status_code}: {token_response.text[:300]}"
-        token_url, token_value = dashboard_nitrado_api_token_payload(token_response.json().get("data", token_response.json()))
+        token_data, json_error = dashboard_nitrado_response_json(token_response, f"Nitrado upload token for `{api_target_path}`")
+        if json_error:
+            return False, json_error
+        token_url, token_value = dashboard_nitrado_api_token_payload(token_data.get("data", token_data))
         if not token_url or not token_value:
             return False, "Nitrado API did not return an upload URL/token."
         upload_response = requests.post(
@@ -9776,13 +9798,23 @@ def medal_class(index: int) -> str:
     return {1: "gold", 2: "silver", 3: "bronze"}.get(index, "")
 
 
+def player_display_name(player: Any, fallback: str = "Unknown survivor") -> str:
+    if not isinstance(player, dict):
+        return fallback
+    for key in ("name", "gamertag", "discord_name", "player_name", "username", "discord_id"):
+        value = str(player.get(key) or "").strip()
+        if value:
+            return value
+    return fallback
+
+
 def stat_board(title: str, players: list[dict[str, Any]], key: str, suffix: str, limit: int = 10) -> dict[str, Any]:
     rows = [player for player in players if safe_int(player.get(key)) > 0]
-    rows.sort(key=lambda item: (-safe_int(item.get(key)), str(item.get("name", "")).lower()))
+    rows.sort(key=lambda item: (-safe_int(item.get(key)), player_display_name(item).lower()))
     return {
         "title": title,
         "rows": [
-            {"name": row["name"], "value": f"{safe_int(row.get(key))} {suffix}".strip(), "medal": medal_class(index)}
+            {"name": player_display_name(row), "value": f"{safe_int(row.get(key))} {suffix}".strip(), "medal": medal_class(index)}
             for index, row in enumerate(rows[:limit], start=1)
         ],
     }
@@ -9790,11 +9822,11 @@ def stat_board(title: str, players: list[dict[str, Any]], key: str, suffix: str,
 
 def time_board(players: list[dict[str, Any]]) -> dict[str, Any]:
     rows = [player for player in players if safe_int(player.get("time_online_seconds")) > 0]
-    rows.sort(key=lambda item: (-safe_int(item.get("time_online_seconds")), str(item.get("name", "")).lower()))
+    rows.sort(key=lambda item: (-safe_int(item.get("time_online_seconds")), player_display_name(item).lower()))
     return {
         "title": "⏱️ Most Time Played",
         "rows": [
-            {"name": row["name"], "value": format_seconds(row.get("time_online_seconds")), "medal": medal_class(index)}
+            {"name": player_display_name(row), "value": format_seconds(row.get("time_online_seconds")), "medal": medal_class(index)}
             for index, row in enumerate(rows[:10], start=1)
         ],
     }
@@ -9805,7 +9837,8 @@ def longshot_board(players: list[dict[str, Any]], longshot_records: Any, guild_i
     for player in players:
         distance = safe_int(player.get("longest_shot_distance"))
         if distance > 0:
-            best[player["name"]] = max(best.get(player["name"], 0), distance)
+            name = player_display_name(player)
+            best[name] = max(best.get(name, 0), distance)
     records = guild_block(longshot_records, guild_id, [])
     for record in list_records(records):
         if not isinstance(record, dict):
@@ -9825,7 +9858,7 @@ def longshot_board(players: list[dict[str, Any]], longshot_records: Any, guild_i
 
 
 def swear_board(swear_jar: Any, players: list[dict[str, Any]]) -> dict[str, Any]:
-    known_names = {str(player.get("discord_id", "")): player["name"] for player in players if player.get("discord_id")}
+    known_names = {str(player.get("discord_id", "")): player_display_name(player) for player in players if player.get("discord_id")}
     rows = []
     if isinstance(swear_jar, dict):
         for key, entry in swear_jar.items():

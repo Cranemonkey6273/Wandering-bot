@@ -12661,7 +12661,22 @@ def split_remote_file_path(target_path):
     return folder, name
 
 
+def nitrado_response_json(response, label):
+    try:
+        data = response.json()
+    except Exception as error:
+        body = str(getattr(response, "text", "") or "").strip()
+        snippet = body[:300] if body else "<empty response body>"
+        status = getattr(response, "status_code", "unknown")
+        return None, f"{label} returned non-JSON response ({status}): {snippet}"
+    if not isinstance(data, dict):
+        return None, f"{label} returned unexpected JSON payload: {type(data).__name__}"
+    return data, ""
+
+
 def nitrado_api_token_payload(data):
+    if not isinstance(data, dict):
+        return None, None
     token_data = data.get("token") or data.get("data", {}).get("token") or {}
     token_url = token_data.get("url") or data.get("url")
     token_value = token_data.get("token") or data.get("token")
@@ -12690,7 +12705,12 @@ def download_text_file_from_nitrado_api(config, target_path):
                     attempts.append(f"{param_name}={api_path}: {response.status_code} {response.text[:160]}")
                     continue
 
-                token_url, token_value = nitrado_api_token_payload(response.json().get("data", response.json()))
+                response_data, json_error = nitrado_response_json(response, f"Nitrado download token for `{api_path}`")
+                if json_error:
+                    attempts.append(f"{param_name}={api_path}: {json_error}")
+                    continue
+
+                token_url, token_value = nitrado_api_token_payload(response_data.get("data", response_data))
                 if not token_url:
                     attempts.append(f"{param_name}={api_path}: no download URL")
                     continue
@@ -12757,7 +12777,11 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
         if token_response.status_code not in (200, 201):
             return False, f"Nitrado API upload token failed with status {token_response.status_code}: {token_response.text[:300]}"
 
-        token_url, token_value = nitrado_api_token_payload(token_response.json().get("data", token_response.json()))
+        token_data, json_error = nitrado_response_json(token_response, f"Nitrado upload token for `{api_target_path}`")
+        if json_error:
+            return False, json_error
+
+        token_url, token_value = nitrado_api_token_payload(token_data.get("data", token_data))
         if not token_url or not token_value:
             return False, "Nitrado API did not return an upload URL/token."
 
