@@ -275,7 +275,12 @@ PAGE_TEMPLATE = """
         setField("[data-map-percent-y]", (pointerY / rect.height) * 100);
         var map = closest(control, "[data-zone-map]");
         var size = map ? Number(map.getAttribute("data-map-size") || 15360) : 15360;
+        var zoneX = Math.max(0, Math.min(size, Math.round((pointerX / rect.width) * size)));
+        var zoneZ = Math.max(0, Math.min(size, Math.round(size - ((pointerY / rect.height) * size))));
         setField("[name='map_click_scale']", rect.width ? (size / rect.width) : 10);
+        setField("[name='map_click_override']", "1");
+        setField("[name='x']", zoneX);
+        setField("[name='y']", zoneZ);
         return true;
       };
       function setControl(form, name, value) {
@@ -2127,6 +2132,7 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="map_pointer_y" data-map-pointer-y value="">
               <input class="hidden-field" name="map_percent_x" data-map-percent-x value="">
               <input class="hidden-field" name="map_percent_y" data-map-percent-y value="">
+              <input class="hidden-field" name="map_click_override" value="">
               <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
               <span class="zone-map-hit-label">Click empty map to add zone</span>
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
@@ -11061,7 +11067,10 @@ def zone_draft_from_image_click(mode: str):
     render_width = safe_float(request.args.get("map_render_width"), 0)
     render_height = safe_float(request.args.get("map_render_height"), 0)
     click_scale = max(1.0, safe_float(request.args.get("map_click_scale"), 10))
-    if has_click:
+    if request.args.get("map_click_override") == "1":
+        zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
+        zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
+    elif has_click:
         if 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
             zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
             zone_z = max(0, min(map_size, round((1 - (percent_y / 100)) * map_size)))
