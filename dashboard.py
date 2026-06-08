@@ -156,6 +156,44 @@ VISUAL_LOADOUT_CATEGORY_FILTERS = [
     {"key": "Food/Drink", "label": "Food"},
     {"key": "Misc", "label": "Misc"},
 ]
+VISUAL_LOADOUT_CAPACITY_HINTS = {
+    "alicebag": 90,
+    "mountainbag": 80,
+    "fieldbackpack": 90,
+    "drybag": 63,
+    "taloonbag": 35,
+    "courierbag": 30,
+    "improvisedbag": 42,
+    "huntingbag": 63,
+    "assaultbag": 42,
+    "platecarriervest": 24,
+    "highcapacityvest": 30,
+    "smershvest": 30,
+    "smershbag": 30,
+    "jacket": 42,
+    "pants": 30,
+}
+VISUAL_LOADOUT_SIZE_HINTS = {
+    "m4a1": 27,
+    "akm": 27,
+    "ak74": 27,
+    "sks": 24,
+    "mosin": 30,
+    "svd": 30,
+    "fal": 27,
+    "vss": 24,
+    "platecarrier": 25,
+    "helmet": 9,
+    "mag_": 4,
+    "ammobox": 4,
+    "ammo_": 1,
+    "grenade": 2,
+    "bandage": 1,
+    "canteen": 4,
+    "waterbottle": 4,
+    "knife": 2,
+    "pistol": 6,
+}
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
@@ -1082,6 +1120,16 @@ PAGE_TEMPLATE = """
     .cargo-box [data-cargo-items] { display: flex; flex-wrap: wrap; gap: .35rem; min-height: 5rem; align-content: flex-start; }
     .cargo-chip, .attachment-chip { display: inline-flex; align-items: center; gap: .35rem; max-width: 100%; border: 1px solid var(--line); border-radius: .4rem; padding: .28rem .42rem; background: var(--panel-2); color: var(--text); font-size: .82rem; font-weight: 800; }
     .cargo-chip button, .attachment-chip button { min-height: 1.6rem; padding: 0 .35rem; font-size: .72rem; }
+    .equipped-list { display: grid; gap: .65rem; }
+    .equipped-card { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .6rem; }
+    .equipped-head { display: grid; grid-template-columns: 3.2rem minmax(0, 1fr); gap: .6rem; align-items: center; }
+    .equipped-head img { width: 3.2rem; height: 3.2rem; object-fit: contain; border: 1px solid var(--line); border-radius: .45rem; background: var(--panel-2); }
+    .equipped-head strong, .child-slot strong { display: block; color: var(--text); overflow-wrap: anywhere; }
+    .equipped-meta { display: flex; flex-wrap: wrap; gap: .35rem; color: var(--muted); font-size: .78rem; }
+    .child-slot-grid { display: grid; gap: .55rem; }
+    .child-slot { border: 1px solid var(--line); border-radius: .45rem; padding: .55rem; background: color-mix(in srgb, var(--panel-2) 75%, #000); }
+    .child-choice-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: end; margin-top: .4rem; }
+    .child-choice-row select { min-width: 0; }
     .attachment-tray { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; }
     .attachment-tray [data-attachment-items] { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
     .visual-export-panel textarea { min-height: 16rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .84rem; line-height: 1.35; }
@@ -3455,14 +3503,102 @@ PAGE_TEMPLATE = """
           <div class="embed-preview"><strong>Drag and drop loadout</strong><span>Drop clothing into body slots, weapons into shoulder/holster slots, and supplies into backpack, jacket, or pants cargo.</span></div>
           <div class="loadout-selected-slot" data-selected-loadout-slot><strong>{{ visual_loadout_slot }}</strong><span>Showing matching items in the browser. Pick another slot below to change the list.</span></div>
           <div class="loadout-slot-grid">
-            {% for slot in visual_loadout_slots %}
-            {% set slot_value = (visual_loadout_draft.attachments.get(slot.key) if slot.group == 'attachments' else visual_loadout_draft.cloth.get(slot.key)) %}
-            <a href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ slot.key|urlencode }}#visual-loadout" class="visual-slot {% if slot.group == 'attachments' %}weapon{% endif %} {% if visual_loadout_slot == slot.key %}active{% endif %} {% if slot_value %}filled{% endif %}" data-loadout-slot="{{ slot.key }}" data-slot-group="{{ slot.group }}"><span>{{ slot.label }}</span><strong>{{ slot_value or 'Empty' }}</strong></a>
+            {% for card in visual_loadout_slot_cards %}
+            {% set slot = card.slot %}
+            {% set item = card.item %}
+            <a href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ slot.key|urlencode }}#visual-loadout" class="visual-slot {% if slot.group == 'attachments' %}weapon{% endif %} {% if visual_loadout_slot == slot.key %}active{% endif %} {% if item.name %}filled{% endif %}" data-loadout-slot="{{ slot.key }}" data-slot-group="{{ slot.group }}">
+              <span>{{ slot.label }}</span>
+              {% if item.name %}
+              <img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
+              <strong>{{ item.name }}</strong>
+              <small class="muted">Pristine{% if item.capacity %} · {{ item.capacity }} slots{% elif item.size %} · uses {{ item.size }} slots{% endif %}</small>
+              {% else %}
+              <strong>Empty</strong>
+              {% endif %}
+            </a>
             {% endfor %}
           </div>
           <div class="loadout-cargo-grid">
             {% for cargo in visual_loadout_cargo_slots %}
             <a class="cargo-box {% if visual_loadout_slot == cargo.key %}active drag-over{% endif %}" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ cargo.key|urlencode }}#visual-loadout" data-cargo-container="{{ cargo.container }}"><strong>{{ cargo.label }}</strong><div data-cargo-items="{{ cargo.container }}">{% for item in visual_loadout_draft.cargo.get(cargo.container, []) %}<span class="cargo-chip">{{ item }}</span>{% else %}<span class="muted">Empty</span>{% endfor %}</div></a>
+            {% endfor %}
+          </div>
+          <div class="equipped-list">
+            {% for row in visual_loadout_selected_rows %}
+            <article class="equipped-card">
+              <div class="equipped-head">
+                <img src="{{ row.item.image_url }}" onerror="this.onerror=null;this.src='{{ row.item.fallback_image_url }}';" alt="">
+                <div>
+                  <strong>{{ row.slot.label }}: {{ row.item.name }}</strong>
+                  <div class="equipped-meta">
+                    <span>Pristine</span>
+                    {% if row.item.capacity %}<span>{{ row.item.capacity }} storage slots estimate</span>{% endif %}
+                    {% if row.item.size %}<span>{{ row.item.size }} item slots estimate</span>{% endif %}
+                  </div>
+                </div>
+              </div>
+              {% if row.child_slots %}
+              <div class="child-slot-grid">
+                {% for child in row.child_slots %}
+                <div class="child-slot">
+                  <strong>{{ child.label }}</strong>
+                  {% if child.mode == "multi" %}
+                  <div class="equipped-meta">
+                    {% for added in child.current_values %}
+                    <span class="cargo-chip">{{ added }}</span>
+                    {% endfor %}
+                  </div>
+                  {% elif child.current_values %}
+                  <div class="equipped-meta">{% for added in child.current_values %}<span class="cargo-chip">{{ added }}</span>{% endfor %}</div>
+                  {% endif %}
+                  <form class="child-choice-row" method="post" action="/api/admin/visual-loadout-draft">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="slot" value="{{ row.slot.key }}">
+                    <input class="hidden-field" name="child_slot" value="{{ child.key }}">
+                    <input class="hidden-field" name="action" value="add_child">
+                    <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ row.slot.key|urlencode }}#visual-loadout">
+                    <select name="item">
+                      {% for option in child.items %}
+                      <option value="{{ option.name }}">{{ option.name }} - {{ option.category }}{% if option.size %} ({{ option.size }} slots){% endif %}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit">Add</button>
+                  </form>
+                  {% if child.selected and child.nested_slots %}
+                  <div class="child-slot-grid" style="margin-top:.55rem">
+                    {% for nested in child.nested_slots %}
+                    <div class="child-slot">
+                      <strong>{{ child.selected }} · {{ nested.label }}</strong>
+                      {% if nested.current_values %}
+                      <div class="equipped-meta">{% for added in nested.current_values %}<span class="cargo-chip">{{ added }}</span>{% endfor %}</div>
+                      {% endif %}
+                      <form class="child-choice-row" method="post" action="/api/admin/visual-loadout-draft">
+                        <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                        <input class="hidden-field" name="slot" value="{{ row.slot.key }}">
+                        <input class="hidden-field" name="child_slot" value="{{ child.key }}">
+                        <input class="hidden-field" name="nested_slot" value="{{ nested.key }}">
+                        <input class="hidden-field" name="action" value="add_grandchild">
+                        <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ row.slot.key|urlencode }}#visual-loadout">
+                        <select name="item">
+                          {% for option in nested.items %}
+                          <option value="{{ option.name }}">{{ option.name }} - {{ option.category }}{% if option.size %} ({{ option.size }} slots){% endif %}</option>
+                          {% endfor %}
+                        </select>
+                        <button type="submit">Add</button>
+                      </form>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}
+              <span class="muted">No known child slots for this item yet.</span>
+              {% endif %}
+            </article>
+            {% else %}
+            <div class="embed-preview"><strong>No gear selected</strong><span>Pick a slot, then choose an item from the browser to unlock compatible attachments and cargo options.</span></div>
             {% endfor %}
           </div>
           <div class="attachment-tray" data-attachment-tray>
@@ -5262,6 +5398,7 @@ PAGE_TEMPLATE = """
       cloth: VISUAL_LOADOUT_DRAFT.cloth || {},
       attachments: VISUAL_LOADOUT_DRAFT.attachments || {},
       weaponAttachments: VISUAL_LOADOUT_DRAFT.weaponAttachments || {},
+      children: VISUAL_LOADOUT_DRAFT.children || {},
       cargo: VISUAL_LOADOUT_DRAFT.cargo || {Backpack: [], Torso: [], Legs: []}
     };
     function loadoutItemImage(classname) {
@@ -5385,7 +5522,8 @@ PAGE_TEMPLATE = """
             slots: {
               cloth: loadoutState.cloth,
               weapons: weaponAttachments,
-              cargo: loadoutState.cargo
+              cargo: loadoutState.cargo,
+              children: loadoutState.children || {}
             }
           }
         }
@@ -5398,6 +5536,7 @@ PAGE_TEMPLATE = """
       loadoutState.cloth = {};
       loadoutState.attachments = {};
       loadoutState.weaponAttachments = {};
+      loadoutState.children = {};
       loadoutState.cargo = {Backpack: [], Torso: [], Legs: []};
       setSelectedLoadoutSlot("");
       renderLoadoutState();
@@ -9461,6 +9600,7 @@ def empty_visual_loadout_draft() -> dict[str, Any]:
         "cloth": {},
         "attachments": {},
         "weaponAttachments": {},
+        "children": {},
         "cargo": {"Backpack": [], "Torso": [], "Legs": []},
     }
 
@@ -9476,6 +9616,32 @@ def normalize_visual_loadout_draft(value: Any) -> dict[str, Any]:
                 for key, value in value[group].items()
                 if str(key).strip() and str(value).strip()
             }
+    children = value.get("children")
+    if isinstance(children, dict):
+        for parent_key, parent_children in children.items():
+            if not isinstance(parent_children, dict):
+                continue
+            clean_children: dict[str, Any] = {}
+            for child_slot, child_value in parent_children.items():
+                if isinstance(child_value, dict):
+                    nested_clean: dict[str, Any] = {}
+                    for nested_slot, nested_value in child_value.items():
+                        if isinstance(nested_value, list):
+                            nested_clean[str(nested_slot)] = [safe_dayz_class(item) for item in nested_value if safe_dayz_class(item)]
+                        else:
+                            clean_item = safe_dayz_class(nested_value)
+                            if clean_item:
+                                nested_clean[str(nested_slot)] = clean_item
+                    if nested_clean:
+                        clean_children[str(child_slot)] = nested_clean
+                elif child_slot == "cargo" and isinstance(child_value, list):
+                    clean_children["cargo"] = [safe_dayz_class(item) for item in child_value if safe_dayz_class(item)]
+                else:
+                    clean_item = safe_dayz_class(child_value)
+                    if clean_item:
+                        clean_children[str(child_slot)] = clean_item
+            if clean_children:
+                draft["children"][str(parent_key)] = clean_children
     cargo = value.get("cargo")
     if isinstance(cargo, dict):
         for container in draft["cargo"]:
@@ -9510,6 +9676,15 @@ def build_visual_loadout_json(draft_value: Any) -> dict[str, Any]:
         }
         for slot, classname in weapon_slots.items()
     }
+    slot_details: dict[str, Any] = {}
+    for slot, classname in {**draft["cloth"], **draft["attachments"]}.items():
+        if classname:
+            slot_details[slot] = {
+                "item": classname,
+                "damage": "pristine",
+                "quantity": 100,
+                "children": draft["children"].get(slot, {}),
+            }
     return {
         "PlayerData": {
             "SpawnGear": {
@@ -9521,6 +9696,8 @@ def build_visual_loadout_json(draft_value: Any) -> dict[str, Any]:
                     "cloth": draft["cloth"],
                     "weapons": weapon_attachments,
                     "cargo": draft["cargo"],
+                    "children": draft["children"],
+                    "slotDetails": slot_details,
                 },
             }
         }
@@ -9565,8 +9742,181 @@ def unique_visual_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row.setdefault("category", "General")
         row.setdefault("image_url", item_image_url(name))
         row.setdefault("fallback_image_url", f"/item-thumb/{urllib.parse.quote(str(row.get('category') or 'General'))}")
+        row["capacity"] = visual_item_capacity(name)
+        row["size"] = visual_item_size(name)
         rows.append(row)
     return sorted(rows, key=lambda item: str(item.get("name") or "").lower())[:120]
+
+
+def visual_item_capacity(item_name: Any) -> int:
+    text = str(item_name or "").lower()
+    for term, capacity in VISUAL_LOADOUT_CAPACITY_HINTS.items():
+        if term in text:
+            return capacity
+    return 0
+
+
+def visual_item_size(item_name: Any) -> int:
+    text = str(item_name or "").lower()
+    for term, size in VISUAL_LOADOUT_SIZE_HINTS.items():
+        if term in text:
+            return size
+    return 1
+
+
+def visual_item_detail(item_name: Any, groups: dict[str, Any]) -> dict[str, Any]:
+    name = safe_dayz_class(item_name)
+    if not name:
+        return {}
+    all_items = groups.get("all") if isinstance(groups.get("all"), list) else []
+    match = next((item for item in all_items if str(item.get("name") or "").lower() == name.lower()), None)
+    detail = dict(match) if isinstance(match, dict) else {"name": name, "label": name, "category": "General"}
+    detail.setdefault("name", name)
+    detail.setdefault("label", name)
+    detail.setdefault("category", "General")
+    detail.setdefault("image_url", item_image_url(name))
+    detail.setdefault("fallback_image_url", f"/item-thumb/{urllib.parse.quote(str(detail.get('category') or 'General'))}")
+    detail["capacity"] = visual_item_capacity(name)
+    detail["size"] = visual_item_size(name)
+    return detail
+
+
+def visual_items_matching(groups: dict[str, Any], names: list[str], fallback_category: str) -> list[dict[str, Any]]:
+    all_items = groups.get("all") if isinstance(groups.get("all"), list) else []
+    rows: list[dict[str, Any]] = []
+    for name in names:
+        match = next((item for item in all_items if str(item.get("name") or "").lower() == name.lower()), None)
+        if isinstance(match, dict):
+            rows.append(match)
+        else:
+            rows.append({
+                "name": name,
+                "label": name,
+                "category": fallback_category,
+                "image_url": item_image_url(name),
+                "fallback_image_url": f"/item-thumb/{urllib.parse.quote(fallback_category)}",
+            })
+    return unique_visual_items(rows)
+
+
+def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
+    name = safe_dayz_class(item_name)
+    text = name.lower()
+    if not name:
+        return []
+    slots: list[dict[str, Any]] = []
+
+    def add(slot_key: str, label: str, choices: list[str], category: str, mode: str = "single") -> None:
+        rows = visual_items_matching(groups, choices, category)
+        if rows:
+            slots.append({"key": slot_key, "label": label, "mode": mode, "items": rows})
+
+    if any(term in text for term in ("helmet", "ballistichelmet", "tacticalhelmet", "combathelmet", "mich")):
+        add("nvg", "NVG / head attachment", ["NVGoggles", "NVGHeadstrap", "UniversalLight"], "Attachments")
+        add("battery", "Battery", ["Battery9V"], "Attachments")
+    if "nvg" in text:
+        add("battery", "Battery", ["Battery9V"], "Attachments")
+    if "platecarrier" in text:
+        add("pouches", "Pouches", ["PlateCarrierPouches"], "Attachments")
+        add("holster", "Holster", ["PlateCarrierHolster"], "Attachments")
+        add("grenades", "Grenades", ["M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red", "M18SmokeGrenade_Green"], "Explosives", "multi")
+    if "belt" in text or "holster" in text:
+        add("canteen", "Canteen", ["Canteen"], "Containers")
+        add("sheath", "Knife / sheath", ["CombatKnife", "HuntingKnife", "KitchenKnife", "StoneKnife"], "Tools")
+        add("holster", "Pistol / holster", ["MakarovIJ70", "FNX45", "Glock19", "Deagle", "CZ75", "Colt1911"], "Weapons")
+    if any(term in text for term in ("m4a1", "akm", "ak74", "ak101", "sks", "mosin", "svd", "fal", "vss", "aug", "pistol", "fnx", "glock", "deagle", "cz75", "1911")):
+        if "m4a1" in text:
+            add("magazine", "Magazine", ["Mag_STANAG_30Rnd", "Mag_STANAGCoupled_30Rnd", "Mag_CMAG_40Rnd"], "Ammunition")
+            add("optic", "Optic", ["ACOGOptic", "M68Optic", "M4_T3NRDSOptic", "ReflexOptic", "BUISOptic"], "Attachments")
+            add("handguard", "Handguard", ["M4_RISHndgrd", "M4_MPHndgrd", "M4_PlasticHndgrd"], "Attachments")
+            add("buttstock", "Buttstock", ["M4_OEBttstck", "M4_MPBttstck", "M4_CQBBttstck"], "Attachments")
+            add("muzzle", "Suppressor", ["M4_Suppressor"], "Attachments")
+            add("ammo", "Ammo", ["AmmoBox_556x45_20Rnd", "Ammo_556x45"], "Ammunition")
+        elif "akm" in text:
+            add("magazine", "Magazine", ["Mag_AKM_30Rnd", "Mag_AKM_Drum75Rnd"], "Ammunition")
+            add("optic", "Optic", ["KobraOptic", "PSO1Optic", "PistolOptic"], "Attachments")
+            add("muzzle", "Suppressor", ["AK_Suppressor"], "Attachments")
+            add("ammo", "Ammo", ["AmmoBox_762x39_20Rnd", "Ammo_762x39"], "Ammunition")
+        elif "ak74" in text or "ak101" in text:
+            mag = "Mag_AK101_30Rnd" if "ak101" in text else "Mag_AK74_30Rnd"
+            ammo_box = "AmmoBox_556x45_20Rnd" if "ak101" in text else "AmmoBox_545x39_20Rnd"
+            ammo_loose = "Ammo_556x45" if "ak101" in text else "Ammo_545x39"
+            add("magazine", "Magazine", [mag], "Ammunition")
+            add("optic", "Optic", ["KobraOptic", "PSO1Optic"], "Attachments")
+            add("muzzle", "Suppressor", ["AK_Suppressor"], "Attachments")
+            add("ammo", "Ammo", [ammo_box, ammo_loose], "Ammunition")
+        elif "svd" in text:
+            add("magazine", "Magazine", ["Mag_SVD_10Rnd"], "Ammunition")
+            add("optic", "Optic", ["PSO1Optic"], "Attachments")
+            add("ammo", "Ammo", ["AmmoBox_762x54_20Rnd", "Ammo_762x54"], "Ammunition")
+        elif "sks" in text or "mosin" in text:
+            add("optic", "Optic", ["PUScope", "HuntingOptic"], "Attachments")
+            add("ammo", "Ammo", ["AmmoBox_762x39_20Rnd", "Ammo_762x39", "AmmoBox_762x54_20Rnd", "Ammo_762x54"], "Ammunition")
+        else:
+            add("magazine", "Magazine", ["Mag_FNX45_15Rnd", "Mag_Glock_15Rnd", "Mag_CZ75_15Rnd", "Mag_1911_7Rnd"], "Ammunition")
+            add("ammo", "Ammo", ["AmmoBox_45ACP_25rnd", "AmmoBox_9x19_25rnd", "Ammo_45ACP", "Ammo_9x19"], "Ammunition")
+    capacity = visual_item_capacity(name)
+    if capacity > 0:
+        cargo_choices = [
+            "BandageDressing", "TetracyclineAntibiotics", "Morphine", "Epinephrine",
+            "Canteen", "TacticalBaconCan", "M67Grenade", "RGD5Grenade",
+            "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd",
+            "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "NailBox", "Nail",
+        ]
+        add("cargo", f"Cargo ({capacity} slot estimate)", cargo_choices, "Cargo", "multi")
+    return slots
+
+
+def visual_loadout_selected_rows(draft_value: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
+    draft = normalize_visual_loadout_draft(draft_value)
+    rows: list[dict[str, Any]] = []
+    for slot in VISUAL_LOADOUT_SLOTS:
+        item_name = draft["attachments"].get(slot["key"]) if slot["group"] == "attachments" else draft["cloth"].get(slot["key"])
+        if not item_name:
+            continue
+        detail = visual_item_detail(item_name, groups)
+        children = draft["children"].get(slot["key"], {})
+        child_slots = visual_compatible_child_slots(item_name, groups)
+        for child_slot in child_slots:
+            selected_child = children.get(child_slot.get("key"))
+            if isinstance(selected_child, list):
+                child_slot["current_values"] = selected_child
+            elif isinstance(selected_child, str) and selected_child:
+                child_slot["current_values"] = [selected_child]
+            else:
+                child_slot["current_values"] = []
+            if isinstance(selected_child, str) and selected_child:
+                child_slot["selected"] = selected_child
+                child_slot["selected_detail"] = visual_item_detail(selected_child, groups)
+                child_slot["nested_slots"] = visual_compatible_child_slots(selected_child, groups)
+                child_slot["nested_children"] = children.get(f"{child_slot.get('key')}:children", {})
+                for nested_slot in child_slot["nested_slots"]:
+                    nested_value = child_slot["nested_children"].get(nested_slot.get("key")) if isinstance(child_slot["nested_children"], dict) else None
+                    if isinstance(nested_value, list):
+                        nested_slot["current_values"] = nested_value
+                    elif isinstance(nested_value, str) and nested_value:
+                        nested_slot["current_values"] = [nested_value]
+                    else:
+                        nested_slot["current_values"] = []
+        rows.append({
+            "slot": slot,
+            "item": detail,
+            "children": children,
+            "child_slots": child_slots,
+        })
+    return rows
+
+
+def visual_loadout_slot_cards(draft_value: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
+    draft = normalize_visual_loadout_draft(draft_value)
+    cards: list[dict[str, Any]] = []
+    for slot in VISUAL_LOADOUT_SLOTS:
+        item_name = draft["attachments"].get(slot["key"]) if slot["group"] == "attachments" else draft["cloth"].get(slot["key"])
+        cards.append({
+            "slot": slot,
+            "item": visual_item_detail(item_name, groups) if item_name else {},
+        })
+    return cards
 
 
 def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> str:
@@ -11304,6 +11654,8 @@ def page(mode: str, auth: dict[str, Any]):
     visual_loadout_items = visual_loadout_items_for_view(picker_groups, visual_loadout_slot, visual_loadout_category)
     visual_loadout_draft = normalize_visual_loadout_draft(selected_config.get("visual_loadout_draft") if isinstance(selected_config, dict) else {})
     visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
+    visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups)
+    visual_loadout_slot_card_rows = visual_loadout_slot_cards(visual_loadout_draft, picker_groups)
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -11331,6 +11683,8 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_items=visual_loadout_items,
         visual_loadout_draft=visual_loadout_draft,
         visual_loadout_json_text=visual_loadout_json_text,
+        visual_loadout_selected_rows=visual_loadout_equipped_rows,
+        visual_loadout_slot_cards=visual_loadout_slot_card_rows,
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         admin_routes=ADMIN_ROUTES,
@@ -12057,6 +12411,8 @@ def api_visual_loadout_draft():
     payload = payload or {}
     guild_id = normalize_guild_id(payload.get("guild_id"))
     slot = str(payload.get("slot") or "Headgear").strip()
+    child_slot = str(payload.get("child_slot") or "").strip()
+    nested_slot = str(payload.get("nested_slot") or "").strip()
     action = str(payload.get("action") or "add").strip().lower()
     item_name = safe_dayz_class(payload.get("item"))
     return_to = safe_dashboard_return(
@@ -12081,8 +12437,65 @@ def api_visual_loadout_draft():
         elif meta and meta.get("group") == "attachments":
             draft["attachments"].pop(slot, None)
             draft["weaponAttachments"].pop(slot, None)
+            draft["children"].pop(slot, None)
         elif meta:
             draft["cloth"].pop(slot, None)
+            draft["children"].pop(slot, None)
+    elif action == "add_child":
+        if not item_name or not child_slot:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "item and child_slot are required"}), 400
+            return redirect(return_to)
+        parent_item = draft["attachments"].get(slot) or draft["cloth"].get(slot)
+        if not parent_item:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "select a parent item before adding children"}), 400
+            return redirect(return_to)
+        allowed_slots = visual_compatible_child_slots(parent_item, xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id))))
+        allowed = next((row for row in allowed_slots if row.get("key") == child_slot), None)
+        allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
+        if not allowed or item_name.lower() not in allowed_names:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "that child item is not compatible with the selected parent"}), 400
+            return redirect(return_to)
+        parent_children = draft["children"].setdefault(slot, {})
+        if allowed.get("mode") == "multi" or child_slot == "cargo":
+            rows = parent_children.setdefault(child_slot, [])
+            if isinstance(rows, list):
+                rows.append(item_name)
+            else:
+                parent_children[child_slot] = [item_name]
+        else:
+            parent_children[child_slot] = item_name
+    elif action == "add_grandchild":
+        if not item_name or not child_slot or not nested_slot:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "item, child_slot, and nested_slot are required"}), 400
+            return redirect(return_to)
+        parent_children = draft["children"].setdefault(slot, {})
+        selected_child = parent_children.get(child_slot)
+        if not isinstance(selected_child, str) or not selected_child:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "select the child item before adding its children"}), 400
+            return redirect(return_to)
+        nested_slots = visual_compatible_child_slots(selected_child, xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id))))
+        allowed = next((row for row in nested_slots if row.get("key") == nested_slot), None)
+        allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
+        if not allowed or item_name.lower() not in allowed_names:
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "that nested item is not compatible with the selected child"}), 400
+            return redirect(return_to)
+        nested_key = f"{child_slot}:children"
+        nested_children = parent_children.setdefault(nested_key, {})
+        if isinstance(nested_children, dict):
+            if allowed.get("mode") == "multi" or nested_slot == "cargo":
+                rows = nested_children.setdefault(nested_slot, [])
+                if isinstance(rows, list):
+                    rows.append(item_name)
+                else:
+                    nested_children[nested_slot] = [item_name]
+            else:
+                nested_children[nested_slot] = item_name
     elif action == "add":
         if not item_name:
             if wants_json_response():
@@ -12096,11 +12509,13 @@ def api_visual_loadout_draft():
         elif meta.get("group") == "attachments":
             draft["attachments"][str(meta.get("key"))] = item_name
             draft["weaponAttachments"].setdefault(str(meta.get("key")), [])
+            draft["children"].pop(str(meta.get("key")), None)
         else:
             draft["cloth"][str(meta.get("key"))] = item_name
+            draft["children"].pop(str(meta.get("key")), None)
     else:
         if wants_json_response():
-            return jsonify({"ok": False, "error": "action must be add, remove, or clear"}), 400
+            return jsonify({"ok": False, "error": "action must be add, add_child, add_grandchild, remove, or clear"}), 400
         return redirect(return_to)
     config["visual_loadout_draft"] = draft
     config["visual_loadout_draft_updated_at"] = datetime.now(UTC).isoformat()
