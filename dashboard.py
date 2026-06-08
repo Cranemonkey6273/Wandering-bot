@@ -11040,7 +11040,13 @@ def zone_draft_from_image_click(mode: str):
     render_height = safe_float(request.args.get("map_render_height"), 0)
     click_scale = max(1, safe_int(request.args.get("map_click_scale"), 10))
     if has_click:
-        if has_native_click and render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
+        if 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
+            zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
+            zone_z = max(0, min(map_size, round((1 - (percent_y / 100)) * map_size)))
+        elif pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
+            zone_x = max(0, min(map_size, round((pointer_x / render_width) * map_size)))
+            zone_z = max(0, min(map_size, round(map_size - ((pointer_y / render_height) * map_size))))
+        elif has_native_click and render_width > 0 and render_height > 0 and click_x <= render_width + 2 and click_y <= render_height + 2:
             zone_x = max(0, min(map_size, round((click_x / render_width) * map_size)))
             zone_z = max(0, min(map_size, round(map_size - ((click_y / render_height) * map_size))))
         elif has_native_click and click_scale > 1:
@@ -11049,12 +11055,6 @@ def zone_draft_from_image_click(mode: str):
         elif has_native_click and 0 <= click_x <= map_size and 0 <= click_y <= map_size:
             zone_x = max(0, min(map_size, round(click_x)))
             zone_z = max(0, min(map_size, round(map_size - click_y)))
-        elif 0 <= percent_x <= 100 and 0 <= percent_y <= 100:
-            zone_x = max(0, min(map_size, round((percent_x / 100) * map_size)))
-            zone_z = max(0, min(map_size, round((1 - (percent_y / 100)) * map_size)))
-        elif pointer_x >= 0 and pointer_y >= 0 and render_width > 0 and render_height > 0:
-            zone_x = max(0, min(map_size, round((pointer_x / render_width) * map_size)))
-            zone_z = max(0, min(map_size, round(map_size - ((pointer_y / render_height) * map_size))))
         else:
             zone_x = max(0, min(map_size, safe_int(request.args.get("x") or request.args.get("draft_x"))))
             zone_z = max(0, min(map_size, safe_int(request.args.get("y") or request.args.get("z") or request.args.get("draft_z"))))
