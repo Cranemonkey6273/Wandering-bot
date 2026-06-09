@@ -7771,7 +7771,11 @@ def sync_runtime_store(store_name: str, data: Any) -> None:
         state = CUSTOM_STATE_PROVIDER()
     except Exception:
         return
-    target = state.get(store_name) if isinstance(state, dict) else None
+    if not isinstance(state, dict):
+        return
+    target = state.get(store_name)
+    if target is None and store_name == "shop":
+        target = state.get("shop_items")
     if isinstance(target, dict) and isinstance(data, dict):
         target.clear()
         target.update(data)
@@ -11523,7 +11527,16 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
     player_stats = (runtime_state.get("player_stats") or load_store("player_stats", {})) if needs_players or needs_player_counts else {}
     online_players = runtime_state.get("online_players") or load_store("online_players", {})
-    shop = (runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})) if needs_shop or needs_shop_counts else {}
+    # Shop edits are written through the dashboard to shop.json first. Prefer
+    # that canonical file for shop-facing pages so a refresh cannot show stale
+    # runtime_state["shop_items"] after a price/category edit.
+    if needs_shop or needs_shop_counts:
+        if active_section in {"shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}:
+            shop = load_store("shop", {})
+        else:
+            shop = runtime_state.get("shop_items") or runtime_state.get("shop") or load_store("shop", {})
+    else:
+        shop = {}
     wallets = (runtime_state.get("wallets") or load_store("wallets", {})) if needs_wallets else {}
     factions = (runtime_state.get("factions") or load_store("factions", {})) if needs_factions else {}
     wages = (runtime_state.get("wages") or load_store("wages", {})) if needs_wages else {}
