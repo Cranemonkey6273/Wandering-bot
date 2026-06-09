@@ -1243,7 +1243,8 @@ PAGE_TEMPLATE = """
       h1 { font-size: clamp(1.8rem, 10vw, 2.75rem); line-height: 1; }
       h2 { font-size: 1.35rem; }
       h3 { font-size: 1.05rem; }
-      p, li, .tool-note { font-size: .92rem; }
+      p, li, .tool-note { font-size: .9rem; }
+      .field-help { font-size: .74rem; line-height: 1.25; }
       .stat, .card, .admin-panel, .section-panel { padding: .8rem; }
       .admin-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .section-nav { display: none; }
@@ -1270,6 +1271,15 @@ PAGE_TEMPLATE = """
       .item-table th, .item-table td { padding: .55rem .5rem; font-size: .88rem; }
       .item-picker-controls { grid-template-columns: 1fr; }
       .visual-picker-grid, .visual-select-grid { max-height: 18rem; grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)); }
+      .visual-loadout-layout { gap: .65rem; }
+      .loadout-item-grid { max-height: 28rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+      .loadout-item-card { min-height: 4.5rem; }
+      .loadout-selected-slot span, .embed-preview span { overflow-wrap: anywhere; }
+      body[data-section="pve"] .admin-form label { gap: .25rem; }
+      body[data-section="pve"] .admin-form .field-help { display: none; }
+      body[data-section="pve"] .admin-form label:focus-within .field-help { display: block; }
+      body[data-section="pve"] .embed-preview { padding: .55rem .65rem; }
+      body[data-section="pve"] .embed-preview span { font-size: .82rem; line-height: 1.25; }
       .xml-output-panel { position: static; }
       .table-scroll .item-table { min-width: 40rem; }
       .category-link, .option-card, .help-card { padding: .75rem; }
@@ -2467,7 +2477,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>PVE Quests & Workshop</h2>
-          <p class="tool-note">Track active quests, AI campaigns, scheduled workshop posts, and reward delivery information from the dashboard.</p>
+          <p class="tool-note">⚔️ Quests, drops, hordes, animals, vehicles and rewards.</p>
         </div>
       </div>
       <div class="panel-grid">
@@ -2492,7 +2502,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Rewards</span><strong>{{ server.pve.reward_types|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Quest channels</span><strong>{{ server.pve.quest_channels if server else 0 }}</strong></div>
           </div>
-          <p class="tool-note" style="margin-top:.75rem">Use the Discord quest-workshop channel for AI generation. This dashboard shows the state and lets you control whether each guild has the module enabled.</p>
+          <p class="tool-note" style="margin-top:.75rem">🤖 AI quests live in Discord. This panel shows status and module controls.</p>
         </article>
         <article class="admin-panel">
           <h3>Airdrop / Event Builder</h3>
@@ -2532,7 +2542,7 @@ PAGE_TEMPLATE = """
                 <option value="custom">Custom classname</option>
               </select>
             </label>
-            <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"><small class="field-help">Shown in the live manager. Batch airdrops append the location name automatically.</small></label>
+            <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"><small class="field-help">🏷️ Name shown in Live Events.</small></label>
             <label>Saved location
               <select name="saved_location" data-scenario-location-preset>
                 <option value="">Manual X/Z</option>
@@ -2540,17 +2550,17 @@ PAGE_TEMPLATE = """
                 <option value="{{ location.name }}" data-x="{{ location.x }}" data-z="{{ location.z }}">{{ location.name }} ({{ location.x }}, {{ location.z }})</option>
                 {% endfor %}
               </select>
-              <small class="field-help">Pick a common drop spot, or leave manual and type X/Z below.</small>
+              <small class="field-help">📍 Pick a saved spot or type X/Z.</small>
             </label>
-            <label>Resolved spawn class <input name="class_name" value="{{ edit_event.class_name }}" data-scenario-class readonly placeholder="Pick Custom classname to type manually"><small class="field-help">The exact DayZ classname used in native CE XML.</small></label>
-            <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"><small class="field-help">East/west map coordinate from iZurvive or the dashboard map.</small></label>
-            <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"><small class="field-help">North/south map coordinate. DayZ uses X/Z here, not X/Y.</small></label>
-            <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"><small class="field-help">Usually leave at 0. Console native events ignore height.</small></label>
-            <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"><small class="field-help">For animals/infected this is how many spawn. For airdrops, use Batch locations for multiple drops.</small></label>
-            <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"><small class="field-help">How wide the event can spread around the chosen position.</small></label>
+            <label>Resolved spawn class <input name="class_name" value="{{ edit_event.class_name }}" data-scenario-class readonly placeholder="Pick Custom classname to type manually"><small class="field-help">🧩 DayZ classname for CE XML.</small></label>
+            <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"><small class="field-help">↔️ iZurvive/dashboard X.</small></label>
+            <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"><small class="field-help">↕️ iZurvive/dashboard Z.</small></label>
+            <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"><small class="field-help">⬆️ Usually 0 on console.</small></label>
+            <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"><small class="field-help">🔢 Animals/infected count. Drops use batch for multiples.</small></label>
+            <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"><small class="field-help">⭕ Spread around the point.</small></label>
             <label class="full">Batch locations
               <textarea name="batch_locations" data-scenario-batch-locations placeholder="Skalisty Island, 13532, 3131&#10;NWAF, 4481, 10355&#10;Tisy, 1612, 14175"></textarea>
-              <small class="field-help">Optional. One location per line: name, X, Z. Saving creates one event for each line using the same settings.</small>
+              <small class="field-help">🗺️ One per line: name, X, Z.</small>
             </label>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
@@ -2567,7 +2577,7 @@ PAGE_TEMPLATE = """
             <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
             <label>Loot preset
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
-              <small class="field-help">Airdrop loot is built pristine; ammo/medical goes into crates while larger gear is placed around the scene.</small>
+              <small class="field-help">✨ Pristine loot. Ammo/medical in crates, big gear around scene.</small>
             </label>
             <label>Vehicle condition
               <select name="vehicle_condition"><option value="full">Full fuel, fluids, and common parts</option><option value="random_parts">Random common parts</option><option value="no_parts">Body only / missing parts</option></select>
@@ -2575,7 +2585,7 @@ PAGE_TEMPLATE = """
             <label>Vehicle cargo
               <select name="vehicle_cargo_mode"><option value="normal_with_loot">Full vehicle with selected loot</option><option value="normal_no_loot">Full vehicle with no bot-added loot</option><option value="native_only">Use my server files only</option></select>
             </label>
-            <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"><small class="field-help">Use exact classnames. These are added on top of the selected preset.</small></label>
+            <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"><small class="field-help">➕ Exact classnames, comma separated.</small></label>
             <label>Visual marker <select name="visual_marker"><option value="false" {% if edit_event.visual_marker == 'false' %}selected{% endif %}>Off</option><option value="true" {% if edit_event.visual_marker == 'true' %}selected{% endif %}>On</option></select></label>
             <label>Airdrop scene
               <select name="scene_type">
@@ -2584,19 +2594,19 @@ PAGE_TEMPLATE = """
                 <option value="cargo_plane_wreck" {% if edit_event.scene_type == 'cargo_plane_wreck' %}selected{% endif %}>Cargo plane wreck</option>
                 <option value="convoy_wreck" {% if edit_event.scene_type == 'convoy_wreck' %}selected{% endif %}>Convoy wreck</option>
               </select>
-              <small class="field-help">Used when visual marker is on. Helicopter scenes auto-use at least 100m spread; cargo plane uses at least 120m.</small>
+              <small class="field-help">🚁 Marker scenes. Heli min 100m, plane min 120m.</small>
             </label>
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
-            <div class="full embed-preview"><strong>Status</strong><span>Saved means the dashboard accepted it and asked the bot to upload native CE XML in the background. Counts are capped at 250 per event for server safety.</span></div>
+            <div class="full embed-preview"><strong>✅ Status</strong><span>Save queues native CE XML upload. Max 250 spawns per event.</span></div>
             <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
-          <p class="tool-note" style="margin-top:.75rem">Queued events are saved to the same bot config used by `/events`. For console servers, the bot merges them into the native CE XML files and they apply after a server restart.</p>
+          <p class="tool-note" style="margin-top:.75rem">💾 Events save to bot config. Console CE XML applies after restart.</p>
         </article>
         <article class="admin-panel">
           <h3>Server Control Moved</h3>
-          <p class="tool-note">Vehicle resets, restart schedules, base damage, and container damage now live together in Server Control so spawn events stay separate from server maintenance.</p>
+          <p class="tool-note">🛠️ Restarts, raid damage and vehicle resets moved to Server Control.</p>
           <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
         </article>
         <article class="admin-panel full">
@@ -2625,11 +2635,11 @@ PAGE_TEMPLATE = """
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
               <tr data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Queued ✅' }}{% if event.upload_error %}<br><small class="muted">⚠️ {{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
-                    {% for action, label in [('upload', 'Retry XML'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
+                    {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -3499,7 +3509,7 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="action" value="add">
               <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ visual_loadout_slot|urlencode }}{% if visual_loadout_category %}&loadout_category={{ visual_loadout_category|urlencode }}{% endif %}#visual-loadout">
               <button type="submit" class="loadout-item-card" draggable="true" data-loadout-item="{{ item.name }}">
-                <img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
+                <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
                 <span><strong>{{ item.label or item.name }}</strong><small>{{ item.name }} - {{ item.category }}</small></span>
               </button>
             </form>
@@ -5360,7 +5370,8 @@ PAGE_TEMPLATE = """
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
-    const LOADOUT_DB = [
+    const PLAYER_CARGO_NAMES = new Set({{ visual_player_cargo_names|tojson }});
+    const FALLBACK_LOADOUT_DB = [
       {classname: "M4A1", readable: "M4A1 Assault Rifle", category: "Weapons"},
       {classname: "AKM", readable: "AKM Rifle", category: "Weapons"},
       {classname: "SKS", readable: "SKS Rifle", category: "Weapons"},
@@ -5396,6 +5407,12 @@ PAGE_TEMPLATE = """
       {classname: "ACOGOptic", readable: "ACOG Optic", category: "Misc", attachment: true},
       {classname: "Battery9V", readable: "9V Battery", category: "Misc"}
     ];
+    const SERVER_LOADOUT_DB = (Array.isArray(ITEM_LOOKUP) ? ITEM_LOOKUP : []).map((item) => ({
+      classname: String(item.name || item.classname || "").trim(),
+      readable: String(item.label || item.name || item.classname || "").trim(),
+      category: String(item.category || "Misc").trim() || "Misc"
+    })).filter((item) => item.classname);
+    const LOADOUT_DB = SERVER_LOADOUT_DB.length ? SERVER_LOADOUT_DB : FALLBACK_LOADOUT_DB;
     const LOADOUT_ATTACHMENTS = {
       M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
       AKM: ["Mag_AKM_30Rnd"],
@@ -5421,6 +5438,17 @@ PAGE_TEMPLATE = """
     function loadoutItem(classname) {
       const key = String(classname || "").toLowerCase();
       return LOADOUT_DB.find((item) => item.classname.toLowerCase() === key) || {classname, readable: classname, category: "Misc"};
+    }
+    function loadoutCategoryMatches(item, category) {
+      if (!category || category === "all") return true;
+      const wanted = String(category || "").toLowerCase();
+      const haystack = `${item.classname} ${item.readable} ${item.category}`.toLowerCase();
+      if (wanted === "weapons") return haystack.includes("weapon") || haystack.includes("rifle") || haystack.includes("pistol") || haystack.includes("shotgun") || haystack.includes("m4") || haystack.includes("ak") || haystack.includes("mosin") || haystack.includes("sks");
+      if (wanted === "ammunition") return haystack.includes("ammo") || haystack.includes("mag_") || haystack.includes("magazine") || haystack.includes("round");
+      if (wanted === "clothing") return haystack.includes("cloth") || haystack.includes("jacket") || haystack.includes("pants") || haystack.includes("helmet") || haystack.includes("vest") || haystack.includes("boots") || haystack.includes("glove");
+      if (wanted === "medical") return haystack.includes("medical") || haystack.includes("bandage") || haystack.includes("morphine") || haystack.includes("saline") || haystack.includes("epi") || haystack.includes("tetra");
+      if (wanted === "food/drink") return haystack.includes("food") || haystack.includes("drink") || haystack.includes("water") || haystack.includes("canteen") || haystack.includes("can");
+      return haystack.includes(wanted);
     }
     function loadoutPages() {
       return Array.from(document.querySelectorAll("[data-visual-loadout-page]"));
@@ -5466,13 +5494,15 @@ PAGE_TEMPLATE = """
       if (!grid) return;
       const query = String(page.querySelector("[data-loadout-search]")?.value || "").trim().toLowerCase();
       const category = loadoutState.category || "all";
+      const cargoMode = String(loadoutState.selected || "").startsWith("cargo:");
       const items = LOADOUT_DB.filter((item) => {
         const haystack = `${item.classname} ${item.readable} ${item.category}`.toLowerCase();
-        return (!query || haystack.includes(query)) && (category === "all" || item.category === category);
+        if (cargoMode && PLAYER_CARGO_NAMES.size && !PLAYER_CARGO_NAMES.has(item.classname)) return false;
+        return (!query || haystack.includes(query)) && loadoutCategoryMatches(item, category);
       });
       grid.innerHTML = items.map((item) => `
         <button type="button" class="loadout-item-card" draggable="true" data-loadout-item="${item.classname}">
-          <img src="${loadoutItemImage(item.classname)}" onerror="this.onerror=null;this.src='${loadoutFallback(item.category)}';" alt="">
+          <img src="${loadoutItemImage(item.classname)}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='${loadoutFallback(item.category)}';" alt="">
           <span><strong>${item.readable}</strong><small>${item.classname} - ${item.category}</small></span>
         </button>
       `).join("");
@@ -11710,6 +11740,11 @@ def page(mode: str, auth: dict[str, Any]):
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
     picker_groups = xml_picker_groups(picker_source_items)
+    visual_player_cargo_names = [
+        str(item.get("name") or "").strip()
+        for item in (picker_groups.get("player_cargo") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
     visual_loadout_slot = str(request.args.get("loadout_slot") or "Headgear").strip()
     if not visual_loadout_slot_meta(visual_loadout_slot):
         visual_loadout_slot = "Headgear"
@@ -11743,6 +11778,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
         visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
         visual_loadout_categories=VISUAL_LOADOUT_CATEGORY_FILTERS,
+        visual_player_cargo_names=visual_player_cargo_names,
         visual_loadout_slot=visual_loadout_slot,
         visual_loadout_category=visual_loadout_category,
         visual_loadout_items=visual_loadout_items,
