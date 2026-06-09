@@ -24538,11 +24538,61 @@ SCENARIO_VEHICLE_CONDITIONS = {
 
 SCENARIO_AIRDROP_MARKER_CLASS = "StaticObj_Misc_WoodenCrate_5x"
 
-SCENARIO_AIRDROP_SCENE_PROPS = [
-    {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
-    {"type": "StaticObj_Dead_pile2", "x": "0", "y": "-0.829071", "z": "0", "a": "0"},
-    {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "-5", "z": "1.8", "a": "35"},
-]
+SCENARIO_AIRDROP_SCENES = {
+    "compact_crater": {
+        "label": "Compact crater",
+        "min_radius": 35,
+        "crate_offset": ("4.6", "-3.2"),
+        "ground_spread": 18,
+        "marker": SCENARIO_AIRDROP_MARKER_CLASS,
+        "props": [
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "0", "y": "-0.829071", "z": "0", "a": "0"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "-5", "z": "1.8", "a": "35"},
+        ],
+    },
+    "helicopter_crash": {
+        "label": "Helicopter crash",
+        "min_radius": 100,
+        "crate_offset": ("24", "14"),
+        "ground_spread": 45,
+        "marker": "Wreck_Mi8_Crashed",
+        "props": [
+            {"type": "StaticObj_ShellCrater2_Large", "x": "2.4", "y": "-2.22027", "z": "-2.2", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "-4.2", "y": "-0.829071", "z": "3.6", "a": "22"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "16", "y": "-5", "z": "9", "a": "35"},
+            {"type": "M18SmokeGrenade_Red", "x": "-8", "y": "0", "z": "-6", "a": "0"},
+        ],
+    },
+    "cargo_plane_wreck": {
+        "label": "Cargo plane wreck",
+        "min_radius": 120,
+        "crate_offset": ("34", "18"),
+        "ground_spread": 60,
+        "marker": "Land_Wreck_C130J_Cargo",
+        "props": [
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "-7", "y": "-0.829071", "z": "6", "a": "15"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "20", "y": "-5", "z": "10", "a": "35"},
+            {"type": "M18SmokeGrenade_Purple", "x": "-12", "y": "0", "z": "-10", "a": "0"},
+        ],
+    },
+    "convoy_wreck": {
+        "label": "Convoy wreck",
+        "min_radius": 80,
+        "crate_offset": ("15", "-8"),
+        "ground_spread": 32,
+        "marker": "StaticObj_Wreck_HMMWV_DE",
+        "props": [
+            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-12", "y": "0", "z": "8", "a": "35"},
+            {"type": "StaticObj_Wreck_Ural_DE", "x": "12", "y": "0", "z": "10", "a": "305"},
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "6", "y": "-5", "z": "-5", "a": "35"},
+        ],
+    },
+}
+
+SCENARIO_AIRDROP_SCENE_PROPS = SCENARIO_AIRDROP_SCENES["compact_crater"]["props"]
 
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "M4A1": {
@@ -25320,6 +25370,11 @@ def scenario_airdrop_pristine_classes(event, class_name):
     marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
     if event.get("visual_marker") and marker_class:
         add(marker_class)
+    if event.get("visual_marker"):
+        scene = scenario_airdrop_scene_config(event)
+        add(scene.get("marker"))
+        for scene_prop in scene.get("props") or []:
+            add(scene_prop.get("type"))
     for item_name in scenario_loot_items(event):
         add(item_name)
         recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(item_name, {})
@@ -25494,15 +25549,30 @@ def add_console_ce_event_definition(
     return event_node
 
 
-def scenario_airdrop_child_offsets(index, radius=35):
+def scenario_airdrop_scene_type(event):
+    scene_type = re.sub(r"[^a-z0-9_]+", "_", str((event or {}).get("scene_type") or "compact_crater").strip().lower()).strip("_")
+    return scene_type if scene_type in SCENARIO_AIRDROP_SCENES else "compact_crater"
+
+
+def scenario_airdrop_scene_config(event):
+    return SCENARIO_AIRDROP_SCENES[scenario_airdrop_scene_type(event)]
+
+
+def scenario_airdrop_scene_min_radius(event):
+    scene = scenario_airdrop_scene_config(event)
+    return max(0, int(scene.get("min_radius") or 0))
+
+
+def scenario_airdrop_child_offsets(index, radius=35, max_spread=None):
     try:
         radius_value = float(radius or 35)
     except Exception:
         radius_value = 35.0
-    spread = max(4.0, min(18.0, radius_value / 2.5))
+    spread_cap = float(max_spread or 18)
+    spread = max(4.0, min(spread_cap, radius_value / 2.5))
     ring = index // 8
     slot = index % 8
-    distance = min(spread, 4.0 + (ring * 3.5))
+    distance = min(spread, 5.5 + (ring * 6.0))
     angle = math.radians((slot * 45) + (ring * 22.5))
     return (math.cos(angle) * distance, math.sin(angle) * distance)
 
@@ -25510,7 +25580,8 @@ def scenario_airdrop_child_offsets(index, radius=35):
 def scenario_airdrop_eventgroup_children(event, class_name):
     children = []
 
-    marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+    scene = scenario_airdrop_scene_config(event)
+    marker_class = str(scene.get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
     if event.get("visual_marker") and marker_class and marker_class.lower() != str(class_name or "").lower():
         children.append({
             "type": marker_class,
@@ -25520,7 +25591,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
             "a": "0.0",
             "y": "0.0",
         })
-        for scene_prop in SCENARIO_AIRDROP_SCENE_PROPS:
+        for scene_prop in scene.get("props") or SCENARIO_AIRDROP_SCENE_PROPS:
             children.append({
                 "type": scene_prop["type"],
                 "spawnsecondary": "false",
@@ -25530,8 +25601,9 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "a": scene_prop["a"],
             })
 
-    crate_x = "4.6" if children else "0.0"
-    crate_z = "-3.2" if children else "0.0"
+    crate_x, crate_z = scene.get("crate_offset") or ("4.6", "-3.2")
+    if not children:
+        crate_x, crate_z = "0.0", "0.0"
     children.append({
         "type": class_name,
         "spawnsecondary": "false",
@@ -25541,8 +25613,9 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "y": "0.0",
     })
 
+    ground_spread = max(18, float(scene.get("ground_spread") or 18))
     for index, item_name in enumerate(scenario_airdrop_ground_loot_items(event)):
-        x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"))
+        x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"), ground_spread)
         children.append({
             "type": item_name,
             "spawnsecondary": "false",
@@ -25939,6 +26012,9 @@ def console_ce_records_for_event(event):
 
     if event_type in {"airdrop", "loot_crate"}:
         class_name = scenario_container_class_for_ce(class_name)
+        min_scene_radius = scenario_airdrop_scene_min_radius(event) if event.get("visual_marker") else 0
+        if min_scene_radius:
+            event["radius"] = max(safe_int(event.get("radius"), 35), min_scene_radius)
     use_eventgroup = event_type in {"airdrop", "loot_crate"}
     eventgroup_children = None
     if event_type == "airdrop":
@@ -26038,9 +26114,10 @@ def console_ce_records_for_event(event):
                 "radius": event.get("guard_radius") or event.get("radius"),
             })
 
-        marker_class = str(event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+        marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
-            warnings.append(f"`{event.get('id')}` includes visual marker object `{marker_class}` in the airdrop event group.")
+            scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
+            warnings.append(f"`{event.get('id')}` includes `{scene_label}` visual object `{marker_class}` in the airdrop event group.")
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
             warnings.append(
@@ -32521,6 +32598,7 @@ async def event_vehicle(
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
     visual_marker="Spawn a crash/debris marker object beside the crate",
+    scene_type="Visual scene to place around the airdrop when marker is on",
     zombie_guards="Spawn infected guards around the airdrop",
     guard_preset="Guard infected type",
     guard_count="How many guards to spawn",
@@ -32535,6 +32613,12 @@ async def event_vehicle(
     app_commands.Choice(name=label, value=value)
     for label, value in SCENARIO_LOOT_PRESET_OPTIONS
 ])
+@app_commands.choices(scene_type=[
+    app_commands.Choice(name="Compact crater", value="compact_crater"),
+    app_commands.Choice(name="Helicopter crash", value="helicopter_crash"),
+    app_commands.Choice(name="Cargo plane wreck", value="cargo_plane_wreck"),
+    app_commands.Choice(name="Convoy wreck", value="convoy_wreck"),
+])
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
     guard_preset=scenario_guard_autocomplete,
@@ -32547,6 +32631,7 @@ async def event_airdrop(
     restarts: int = 1,
     permanent: bool = False,
     visual_marker: bool = True,
+    scene_type: str = "compact_crater",
     zombie_guards: bool = True,
     guard_preset: str = "military_zombie",
     guard_count: int = 8,
@@ -32586,6 +32671,10 @@ async def event_airdrop(
 
     guard_count = max(0, min(80, int(guard_count or 0)))
     guard_radius = max(5, min(500, int(guard_radius or 35)))
+    scene_type = re.sub(r"[^a-z0-9_]+", "_", str(scene_type or "compact_crater").strip().lower()).strip("_")
+    if scene_type not in SCENARIO_AIRDROP_SCENES:
+        scene_type = "compact_crater"
+    scene_radius = scenario_airdrop_scene_min_radius({"scene_type": scene_type}) if visual_marker else 35
     events = scenario_events_for_config(config)
     event_id = next_scenario_event_id(config)
     event_record = {
@@ -32600,11 +32689,12 @@ async def event_airdrop(
         "preset": "airdrop",
         "map": map_key,
         "count": 1,
-        "radius": 0,
+        "radius": scene_radius,
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
         "visual_marker": bool(visual_marker),
         "marker_class": SCENARIO_AIRDROP_MARKER_CLASS if visual_marker else "",
+        "scene_type": scene_type,
         "guard_class": guard_class if zombie_guards else "",
         "guard_count": guard_count if zombie_guards else 0,
         "guard_radius": guard_radius if zombie_guards else 0,
@@ -32628,6 +32718,7 @@ async def event_airdrop(
     embed.add_field(name="Crate", value=f"`{crate_class}`", inline=True)
     embed.add_field(name="Loot", value=f"`{loot_key}` ({len(event_record['loot'])} item types)", inline=True)
     embed.add_field(name="Marker", value="On" if visual_marker else "Off", inline=True)
+    embed.add_field(name="Scene", value=SCENARIO_AIRDROP_SCENES[scene_type]["label"] if visual_marker else "Off", inline=True)
     embed.add_field(name="Guards", value=f"`{guard_count}`x {guard_label}" if zombie_guards else "Off", inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
     embed.add_field(name="Controls", value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.", inline=False)

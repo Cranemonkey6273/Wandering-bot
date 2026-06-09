@@ -2439,7 +2439,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -2456,6 +2456,7 @@ PAGE_TEMPLATE = """
           {% set edit_event.restarts = event.remaining_restarts %}
           {% set edit_event.loot_preset = event.loot_preset or 'none' %}
           {% set edit_event.visual_marker = 'true' if event.visual_marker else 'false' %}
+          {% set edit_event.scene_type = event.scene_type or 'compact_crater' %}
           {% set edit_event.guard_class = event.guard_class or '' %}
           {% set edit_event.guard_count = event.guard_count or 0 %}
           {% set edit_event.guard_radius = event.guard_radius or 35 %}
@@ -2576,6 +2577,15 @@ PAGE_TEMPLATE = """
             </label>
             <label class="full">Extra loot items <input name="loot_items" placeholder="Optional extras only, comma-separated"><small class="field-help">Use exact classnames. These are added on top of the selected preset.</small></label>
             <label>Visual marker <select name="visual_marker"><option value="false" {% if edit_event.visual_marker == 'false' %}selected{% endif %}>Off</option><option value="true" {% if edit_event.visual_marker == 'true' %}selected{% endif %}>On</option></select></label>
+            <label>Airdrop scene
+              <select name="scene_type">
+                <option value="compact_crater" {% if edit_event.scene_type == 'compact_crater' %}selected{% endif %}>Compact crater</option>
+                <option value="helicopter_crash" {% if edit_event.scene_type == 'helicopter_crash' %}selected{% endif %}>Helicopter crash</option>
+                <option value="cargo_plane_wreck" {% if edit_event.scene_type == 'cargo_plane_wreck' %}selected{% endif %}>Cargo plane wreck</option>
+                <option value="convoy_wreck" {% if edit_event.scene_type == 'convoy_wreck' %}selected{% endif %}>Convoy wreck</option>
+              </select>
+              <small class="field-help">Used when visual marker is on. Helicopter scenes auto-use at least 100m spread; cargo plane uses at least 120m.</small>
+            </label>
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
@@ -2618,7 +2628,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ 'forever' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Accepted / waiting for restart' }}{% if event.upload_error %}<br><small class="muted">{{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
                     {% for action, label in [('upload', 'Retry XML'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -6754,6 +6764,7 @@ PAGE_TEMPLATE = """
         form.elements.restarts.value = button.dataset.restarts || 1;
         form.elements.loot_preset.value = button.dataset.loot || "none";
         form.elements.visual_marker.value = button.dataset.marker || "true";
+        if (form.elements.scene_type) form.elements.scene_type.value = button.dataset.scene || "compact_crater";
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
@@ -12903,6 +12914,17 @@ def api_scenario_event():
         x = max(0, min(map_size, safe_int(payload.get("x"), map_size // 2)))
         z = max(0, min(map_size, safe_int(payload.get("z"), payload.get("y") or map_size // 2)))
         radius = max(0, min(30000, safe_int(payload.get("radius"), 35)))
+    scene_type = str(payload.get("scene_type") or "compact_crater").strip().lower()
+    scene_min_radius = {
+        "compact_crater": 35,
+        "helicopter_crash": 100,
+        "cargo_plane_wreck": 120,
+        "convoy_wreck": 80,
+    }
+    if scene_type not in scene_min_radius:
+        scene_type = "compact_crater"
+    if event_type in {"airdrop", "loot_crate"} and safe_bool(payload.get("visual_marker"), False):
+        radius = max(radius, scene_min_radius[scene_type])
     location_name = str(payload.get("location") or "").strip()
     saved_location_name = str(payload.get("saved_location") or "").strip()
     saved_location = dashboard_airdrop_preset_location(server_map, saved_location_name)
@@ -12964,6 +12986,7 @@ def api_scenario_event():
             "vehicle_cargo_mode": vehicle_cargo_mode,
             "visual_marker": safe_bool(payload.get("visual_marker"), False),
             "marker_class": "StaticObj_Misc_WoodenCrate_5x" if safe_bool(payload.get("visual_marker"), False) else "",
+            "scene_type": scene_type if event_type in {"airdrop", "loot_crate"} else "compact_crater",
             "guard_class": str(payload.get("guard_class") or "").strip(),
             "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
             "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
