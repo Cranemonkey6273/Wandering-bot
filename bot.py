@@ -26746,14 +26746,19 @@ def dashboard_upload_console_ce_event_files(guild_id):
     config = guild_configs.get(guild_id)
     if not isinstance(config, dict):
         return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
-    success, built, messages = upload_console_ce_event_files(
-        guild_id,
-        config,
-        "",
-        "",
-        "",
-        False,
-    )
+    try:
+        success, built, messages = upload_console_ce_event_files(
+            guild_id,
+            config,
+            "",
+            "",
+            "",
+            False,
+        )
+    except Exception as error:
+        success = False
+        built = {}
+        messages = [str(error)]
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if success
@@ -28259,6 +28264,18 @@ def safe_xml_attr(value):
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
+
+
+def safe_int(value, default=0):
+    try:
+        if value is None:
+            return default
+        text = str(value).strip()
+        if not text:
+            return default
+        return int(float(text.replace(",", "")))
+    except Exception:
+        return default
 
 
 def parse_dayz_map_number(value):

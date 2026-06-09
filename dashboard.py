@@ -812,6 +812,7 @@ PAGE_TEMPLATE = """
     html[data-theme="toxic"], body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
     html[data-theme="violet"], body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
     html[data-theme="rose"], body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
+    html[data-theme="command"], body[data-theme="command"] { --bg: #03070a; --panel: #091014; --panel-2: #132127; --panel-3: #071114; --line: rgba(103, 245, 231, .30); --text: #effcff; --muted: #a8bec3; --dim: #6f858b; --olive: #94ff64; --gold: #67f5e7; --accent: #67f5e7; }
     html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
@@ -822,6 +823,7 @@ PAGE_TEMPLATE = """
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       overflow-x: hidden;
     }
+    body[data-theme="command"] { background: linear-gradient(180deg, #071014 0%, var(--bg) 100%); }
     a { color: var(--gold); text-decoration: none; }
     h1, h2, h3, p { margin-top: 0; }
     header {
@@ -837,6 +839,7 @@ PAGE_TEMPLATE = """
       border-bottom: 1px solid var(--line);
       backdrop-filter: blur(16px);
     }
+    body[data-theme="command"] header { background: rgba(3, 7, 10, .94); }
     .brand { display: flex; align-items: center; gap: .75rem; min-width: 0; }
     .brand img { width: 3rem; height: 3rem; border-radius: .75rem; object-fit: cover; }
     .brand strong { display: block; text-transform: uppercase; letter-spacing: .08em; }
@@ -859,6 +862,7 @@ PAGE_TEMPLATE = """
     .theme-picker button[data-theme-choice="toxic"] { background: linear-gradient(135deg, #1b2109 0 50%, #e1f25a 50%); }
     .theme-picker button[data-theme-choice="violet"] { background: linear-gradient(135deg, #1c1228 0 50%, #d6a2ff 50%); }
     .theme-picker button[data-theme-choice="rose"] { background: linear-gradient(135deg, #26111a 0 50%, #ff9abc 50%); }
+    .theme-picker button[data-theme-choice="command"] { background: linear-gradient(135deg, #071114 0 50%, #67f5e7 50%); }
     .theme-picker button.active { box-shadow: 0 0 0 2px var(--text); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
     nav a, button, .button, .tab-link {
@@ -918,12 +922,22 @@ PAGE_TEMPLATE = """
     .admin-panel { min-width: 0; border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel-3); }
     .admin-panel:nth-of-type(2n) { background: color-mix(in srgb, var(--panel-3) 84%, #123b46); }
     .admin-panel:nth-of-type(3n) { background: color-mix(in srgb, var(--panel-3) 86%, #3f3411); }
+    body[data-theme="command"] .admin-panel:nth-of-type(2n) { background: color-mix(in srgb, var(--panel-3) 88%, #0c3a3f); }
+    body[data-theme="command"] .admin-panel:nth-of-type(3n) { background: color-mix(in srgb, var(--panel-3) 90%, #24410d); }
+    body[data-theme="command"] nav a,
+    body[data-theme="command"] button,
+    body[data-theme="command"] .button,
+    body[data-theme="command"] .tab-link { background: color-mix(in srgb, var(--panel-2) 88%, #061013); }
+    body[data-theme="command"] .brand img { box-shadow: 0 0 0 1px var(--line), 0 0 22px rgba(103,245,231,.20); }
     body[data-section="pve"] .admin-panel:nth-of-type(3) { --accent: #f2c14e; background: linear-gradient(135deg, rgba(63,49,15,.72), rgba(15,22,18,.94)); }
     body[data-section="pve"] .admin-panel:nth-of-type(4) { --accent: #6fd3ff; background: linear-gradient(135deg, rgba(18,48,58,.72), rgba(15,22,18,.94)); }
     body[data-section="xml-workshop"] .admin-panel:nth-of-type(1) { --accent: #75d89a; background: linear-gradient(135deg, rgba(20,55,34,.72), rgba(15,22,18,.94)); }
     body[data-section="visual-loadout"] .admin-panel:nth-of-type(1) { --accent: #7ec8ff; background: linear-gradient(135deg, rgba(20,48,66,.74), rgba(15,22,18,.94)); }
     body[data-section="visual-loadout"] .admin-panel:nth-of-type(2) { --accent: #f2c14e; background: linear-gradient(135deg, rgba(65,51,15,.74), rgba(15,22,18,.94)); }
     body[data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #75d89a; background: linear-gradient(135deg, rgba(19,57,34,.74), rgba(15,22,18,.94)); }
+    body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(1),
+    body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(2),
+    body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #67f5e7; background: linear-gradient(135deg, rgba(7,32,37,.82), rgba(5,10,12,.96)); }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
@@ -1326,6 +1340,7 @@ PAGE_TEMPLATE = """
           <option value="toxic">Toxic</option>
           <option value="violet">Violet</option>
           <option value="rose">Rose</option>
+          <option value="command">Command</option>
         </select>
       </label>
       <button type="button" data-theme-choice="default" title="Wandering" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('default')"></button>
@@ -1342,6 +1357,7 @@ PAGE_TEMPLATE = """
       <button type="button" data-theme-choice="toxic" title="Toxic" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('toxic')"></button>
       <button type="button" data-theme-choice="violet" title="Violet" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('violet')"></button>
       <button type="button" data-theme-choice="rose" title="Rose" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('rose')"></button>
+      <button type="button" data-theme-choice="command" title="Command" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('command')"></button>
     </div>
     <script>
       (function () {
@@ -10831,6 +10847,7 @@ def dashboard_admin_records(dashboard_admin: Any, section: str, guild_id: str) -
 VALID_DASHBOARD_THEMES = {
     "default", "forest", "amber", "steel", "highland", "daylight", "sandstorm",
     "midnight", "bloodmoon", "radioactive", "arctic", "toxic", "violet", "rose",
+    "command",
 }
 
 
