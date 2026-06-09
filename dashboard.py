@@ -3568,7 +3568,7 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="action" value="add_child">
                     <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ row.slot.key|urlencode }}#visual-loadout">
                     <select name="item">
-                      {% for option in child.items %}
+                      {% for option in child["items"] %}
                       <option value="{{ option.name }}">{{ option.name }} - {{ option.category }}{% if option.size %} ({{ option.size }} slots){% endif %}</option>
                       {% endfor %}
                     </select>
@@ -3590,7 +3590,7 @@ PAGE_TEMPLATE = """
                         <input class="hidden-field" name="action" value="add_grandchild">
                         <input class="hidden-field" name="return_to" value="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ row.slot.key|urlencode }}#visual-loadout">
                         <select name="item">
-                          {% for option in nested.items %}
+                          {% for option in nested["items"] %}
                           <option value="{{ option.name }}">{{ option.name }} - {{ option.category }}{% if option.size %} ({{ option.size }} slots){% endif %}</option>
                           {% endfor %}
                         </select>
