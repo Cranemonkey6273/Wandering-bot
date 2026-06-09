@@ -9717,11 +9717,14 @@ def build_visual_loadout_json(draft_value: Any) -> dict[str, Any]:
 
 def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: str = "") -> list[dict[str, Any]]:
     category = str(category or "").strip()
+    meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
+    is_cargo_slot = str(meta.get("key", "")).startswith("cargo:")
     if category:
-        all_items = groups.get("all") if isinstance(groups.get("all"), list) else []
-        if category == "Weapons":
+        all_items = groups.get("player_cargo") if is_cargo_slot and isinstance(groups.get("player_cargo"), list) else groups.get("all")
+        all_items = all_items if isinstance(all_items, list) else []
+        if category == "Weapons" and not is_cargo_slot:
             candidates = groups.get("Left Shoulder", []) + groups.get("Right Shoulder", [])
-        elif category == "Clothing":
+        elif category == "Clothing" and not is_cargo_slot:
             candidates = []
             for key in ("Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Gloves", "Armband"):
                 candidates.extend(groups.get(key, []))
@@ -9731,14 +9734,13 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
                 if category.lower() in str(item.get("category") or "").lower()
                 or category.lower().split("/")[0] in str(item.get("name") or "").lower()
             ]
-        return unique_visual_items(candidates)
-    meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
+        return unique_visual_items(candidates, None if is_cargo_slot else 120)
     if str(meta.get("key", "")).startswith("cargo:"):
-        return unique_visual_items(groups.get("cargo", []))
+        return unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
     return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []))
 
 
-def unique_visual_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def unique_visual_items(items: list[dict[str, Any]], limit: int | None = 120) -> list[dict[str, Any]]:
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
     for item in items or []:
@@ -9756,7 +9758,8 @@ def unique_visual_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["capacity"] = visual_item_capacity(name)
         row["size"] = visual_item_size(name)
         rows.append(row)
-    return sorted(rows, key=lambda item: str(item.get("name") or "").lower())[:120]
+    rows = sorted(rows, key=lambda item: str(item.get("name") or "").lower())
+    return rows if limit is None else rows[:limit]
 
 
 def visual_item_capacity(item_name: Any) -> int:
@@ -9822,6 +9825,11 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
         if rows:
             slots.append({"key": slot_key, "label": label, "mode": mode, "items": rows})
 
+    def add_player_cargo(slot_key: str, label: str, mode: str = "multi") -> None:
+        rows = unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
+        if rows:
+            slots.append({"key": slot_key, "label": label, "mode": mode, "items": rows})
+
     if any(term in text for term in ("helmet", "ballistichelmet", "tacticalhelmet", "combathelmet", "mich")):
         add("nvg", "NVG / head attachment", ["NVGoggles", "NVGHeadstrap", "UniversalLight"], "Attachments")
         add("battery", "Battery", ["Battery9V"], "Attachments")
@@ -9868,13 +9876,7 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
             add("ammo", "Ammo", ["AmmoBox_45ACP_25rnd", "AmmoBox_9x19_25rnd", "Ammo_45ACP", "Ammo_9x19"], "Ammunition")
     capacity = visual_item_capacity(name)
     if capacity > 0:
-        cargo_choices = [
-            "BandageDressing", "TetracyclineAntibiotics", "Morphine", "Epinephrine",
-            "Canteen", "TacticalBaconCan", "M67Grenade", "RGD5Grenade",
-            "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd",
-            "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "NailBox", "Nail",
-        ]
-        add("cargo", f"Cargo ({capacity} slot estimate)", cargo_choices, "Cargo", "multi")
+        add_player_cargo("cargo", f"Cargo ({capacity} slot estimate)")
     return slots
 
 
@@ -10991,6 +10993,40 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "radiator",
         "sparkplug",
     )
+    player_cargo_storage_terms = (
+        "backpack",
+        "alicebag",
+        "assaultbag",
+        "courierbag",
+        "drybag",
+        "huntingbag",
+        "improvisedbag",
+        "mountainbag",
+        "taloonbag",
+        "barrel",
+        "crate",
+        "seachest",
+        "sea chest",
+        "protectorcase",
+        "container",
+        "cartent",
+        "largetent",
+        "mediumtent",
+        "partytent",
+        "tent",
+    )
+    player_cargo_building_names = {
+        "woodenlog",
+        "woodenplank",
+        "metalplate",
+        "sheetmetal",
+        "stone",
+        "smallstone",
+        "fencekit",
+        "watchtowerkit",
+        "territoryflagkit",
+        "flagpolekit",
+    }
 
     known_vehicles = [
         fallback_item("OffroadHatchback", "Vehicles"),
@@ -11046,9 +11082,26 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             return group_items
         return [fallback_item(name, category) for name in fallback_names]
 
+    def is_player_cargo_item(item: dict[str, Any]) -> bool:
+        name = str(item.get("name", "")).strip()
+        lower = name.lower()
+        category = str(item.get("category", "")).lower()
+        if not name:
+            return False
+        if is_whole_vehicle(item) or any(term in lower for term in vehicle_part_terms):
+            return False
+        if lower in player_cargo_building_names or lower.startswith(("woodenlog", "woodenplank", "metalplate", "sheetmetal")):
+            return False
+        if any(term in lower for term in player_cargo_storage_terms):
+            return False
+        if any(term in category for term in ("container", "storage", "vehicle", "animal", "infected", "zombie")):
+            return False
+        return item_not_matching_terms(item, excluded_loot_terms)
+
     groups = {
         "all": items,
         "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
+        "player_cargo": [item for item in items if is_player_cargo_item(item)],
         "containers": [item for item in items if item_matches_terms(item, container_terms)],
         "vehicles": [item for item in items if is_whole_vehicle(item)],
         "Head": group_or_fallback([item for item in items if item_name_matches_terms(item, head_terms)], ["BallisticHelmet", "BaseballCap_Black", "BoonieHat_Green"], "Clothes"),
@@ -11069,6 +11122,7 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
     groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
     groups["containers"] = unique_named(groups["containers"] + known_containers)
     groups["cargo"] = groups["cargo"] or items
+    groups["player_cargo"] = groups["player_cargo"] or groups["cargo"]
     groups["Unsorted"] = groups["cargo"]
     return groups
 
