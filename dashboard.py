@@ -1380,6 +1380,181 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .loadout-slot-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
     }
+    body[data-theme="command"] .command-page-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1rem;
+      align-items: end;
+      padding: 1rem 1.05rem;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background:
+        linear-gradient(120deg, rgba(18,37,44,.90), rgba(6,14,17,.96) 64%),
+        radial-gradient(circle at 92% 0%, rgba(38,239,228,.16), transparent 36%);
+      box-shadow: 0 18px 42px rgba(0,0,0,.25);
+    }
+    body[data-theme="command"] .command-page-head span {
+      color: #26efe4;
+      font-size: .68rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    body[data-theme="command"] .command-page-head h1 {
+      margin: .18rem 0 .22rem;
+      color: #f3fbfc;
+      font-size: clamp(1.45rem, 2.5vw, 2.35rem);
+      line-height: 1.05;
+    }
+    body[data-theme="command"] .command-page-head p {
+      margin: 0;
+      max-width: 68rem;
+      color: #a7b9be;
+      line-height: 1.45;
+    }
+    body[data-theme="command"] .command-page-meta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: .4rem;
+      max-width: 28rem;
+    }
+    body[data-theme="command"] .command-page-meta span {
+      min-height: 1.8rem;
+      padding: .36rem .55rem;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .35rem;
+      background: rgba(2,9,11,.54);
+      color: #d8e8eb;
+      font-size: .72rem;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    body[data-theme="command"] .section-panel {
+      padding: 0;
+      overflow: hidden;
+      border-color: rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background: linear-gradient(180deg, rgba(17,31,37,.86), rgba(5,11,14,.98));
+      box-shadow: 0 18px 44px rgba(0,0,0,.25);
+    }
+    body[data-theme="command"] .section-panel > .section-head {
+      margin: 0;
+      padding: .95rem 1rem;
+      border-bottom: 1px solid rgba(103,245,231,.11);
+      background: linear-gradient(90deg, rgba(18,41,48,.72), rgba(5,12,15,.48));
+    }
+    body[data-theme="command"] .section-panel > .section-head h2,
+    body[data-theme="command"] .admin-panel h3 {
+      color: #effcff;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    body[data-theme="command"] .section-panel > .section-head .tool-note {
+      max-width: 62rem;
+      color: #9fb4ba;
+    }
+    body[data-theme="command"] .section-panel > :not(.section-head) {
+      margin: .85rem;
+    }
+    body[data-theme="command"] .panel-grid {
+      grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    }
+    body[data-theme="command"] .admin-panel,
+    body[data-theme="command"] .mini-card,
+    body[data-theme="command"] .option-card,
+    body[data-theme="command"] .item-picker,
+    body[data-theme="command"] .embed-preview,
+    body[data-theme="command"] .notification,
+    body[data-theme="command"] .cargo-box,
+    body[data-theme="command"] .visual-slot,
+    body[data-theme="command"] .equipped-card,
+    body[data-theme="command"] .child-slot {
+      border-color: rgba(103,245,231,.13);
+      background: linear-gradient(180deg, rgba(12,25,30,.78), rgba(2,9,11,.88));
+      box-shadow: none;
+    }
+    body[data-theme="command"] .admin-panel:nth-of-type(2n),
+    body[data-theme="command"] .admin-panel:nth-of-type(3n) {
+      background: linear-gradient(180deg, rgba(12,25,30,.78), rgba(2,9,11,.88));
+    }
+    body[data-theme="command"] input,
+    body[data-theme="command"] textarea,
+    body[data-theme="command"] select {
+      border-color: rgba(103,245,231,.16);
+      background: #031014;
+      color: #f1fbfc;
+    }
+    body[data-theme="command"] input[readonly] {
+      color: #8ded63;
+      background: rgba(141,237,99,.08);
+    }
+    body[data-theme="command"] button,
+    body[data-theme="command"] .button {
+      border-color: rgba(103,245,231,.20);
+      border-radius: .38rem;
+      background: linear-gradient(180deg, rgba(31,55,64,.9), rgba(10,23,28,.96));
+      color: #effcff;
+    }
+    body[data-theme="command"] button:hover,
+    body[data-theme="command"] .button:hover {
+      border-color: rgba(38,239,228,.55);
+      background: linear-gradient(180deg, rgba(24,86,91,.88), rgba(10,29,34,.98));
+    }
+    body[data-theme="command"] .table th,
+    body[data-theme="command"] .item-table th,
+    body[data-theme="command"] .command-table th {
+      color: #9bb2b8;
+      font-size: .68rem;
+      letter-spacing: .06em;
+    }
+    body[data-theme="command"] .table td,
+    body[data-theme="command"] .item-table td {
+      color: #d5e4e8;
+      border-bottom-color: rgba(103,245,231,.09);
+    }
+    body[data-theme="command"] .tool-note,
+    body[data-theme="command"] .field-help,
+    body[data-theme="command"] .muted {
+      color: #9fb4ba;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
+      align-items: start;
+      gap: .85rem;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-browser,
+    body[data-theme="command"][data-section="visual-loadout"] .visual-export-panel {
+      position: sticky;
+      top: 8.25rem;
+      max-height: calc(100vh - 10.5rem);
+      overflow: auto;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-canvas {
+      min-height: 44rem;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
+      grid-template-columns: minmax(9rem, .64fr) minmax(17rem, 1.05fr) minmax(9rem, .64fr);
+      gap: .85rem;
+      padding: 1rem;
+      background:
+        radial-gradient(circle at center, rgba(38,239,228,.18), transparent 42%),
+        linear-gradient(180deg, rgba(9,24,29,.78), rgba(2,9,11,.38));
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll {
+      min-height: 30rem;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img {
+      width: min(20rem, 98%);
+      max-height: 29rem;
+      border-radius: 0;
+      object-fit: contain;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-gear-card {
+      min-height: 5.1rem;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .loadout-item-grid {
+      grid-template-columns: 1fr;
+    }
     @media (max-width: 1180px) {
       body[data-theme="command"] { --sidebar-w: 0rem; }
       body[data-theme="command"] header { left: 0; }
@@ -1402,6 +1577,14 @@ PAGE_TEMPLATE = """
       .command-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .command-grid, .command-row { grid-template-columns: 1fr; }
       .command-status-bar { left: 0; }
+      body[data-theme="command"] .command-page-head { grid-template-columns: 1fr; }
+      body[data-theme="command"] .command-page-meta { justify-content: flex-start; }
+      body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout { grid-template-columns: 1fr; }
+      body[data-theme="command"][data-section="visual-loadout"] .visual-browser,
+      body[data-theme="command"][data-section="visual-loadout"] .visual-export-panel {
+        position: static;
+        max-height: none;
+      }
     }
     @media (max-width: 720px) {
       body[data-theme="command"] header { padding: .55rem .7rem; }
@@ -1422,6 +1605,13 @@ PAGE_TEMPLATE = """
       .command-table { min-width: 46rem; }
       .command-card { overflow-x: auto; }
       .command-status-bar { position: static; margin-inline: -.55rem; }
+      body[data-theme="command"] .command-page-head { padding: .85rem; }
+      body[data-theme="command"] .command-page-meta span { width: 100%; }
+      body[data-theme="command"] .section-panel > :not(.section-head) { margin: .65rem; }
+      body[data-theme="command"] .panel-grid { grid-template-columns: 1fr; }
+      body[data-theme="command"][data-section="visual-loadout"] .loadout-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll { min-height: 18rem; }
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img { max-height: 17rem; }
     }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
@@ -1991,6 +2181,21 @@ PAGE_TEMPLATE = """
         </select>
       </label>
     </section>
+
+    {% if active_section != "overview" %}
+    <section class="command-page-head" aria-label="Current command section">
+      <div>
+        <span>{{ command_section.kicker }}</span>
+        <h1>{{ command_section.title }}</h1>
+        <p>{{ command_section.body }}</p>
+      </div>
+      <div class="command-page-meta">
+        <span>{{ server.guild_name if server else view_title }}</span>
+        <span>{{ server.platform_label if server else 'Xbox' }}</span>
+        <span>{{ (server.map|capitalize) if server else 'Chernarus' }}</span>
+      </div>
+    </section>
+    {% endif %}
 
     {% if active_section == "overview" %}
     <section class="command-overview" aria-label="Command overview">
@@ -11514,6 +11719,30 @@ VALID_DASHBOARD_THEMES = {
     "command",
 }
 
+COMMAND_SECTION_META = {
+    "overview": {"kicker": "Operations", "title": "Command Overview", "body": "Live server state, active events, zones, economy and loadout readiness in one control room."},
+    "leaderboards": {"kicker": "Progression", "title": "Leaderboards", "body": "Review player rankings, activity totals and competitive server stats."},
+    "automations": {"kicker": "Comms", "title": "Embeds & Welcome", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
+    "factions": {"kicker": "Groups", "title": "Factions", "body": "Manage faction records, balances, wages and server-linked group data."},
+    "zones": {"kicker": "Territory", "title": "Zones & Map", "body": "Draft radar, safe and PVP zones with map-first editing and coordinate readouts."},
+    "members": {"kicker": "Roster", "title": "Members", "body": "Inspect linked members, wallet state, faction status and dashboard-facing player data."},
+    "heatmaps": {"kicker": "Intel", "title": "Heatmaps", "body": "Read activity hotspots and movement signals from your server logs."},
+    "pve": {"kicker": "Live Ops", "title": "PVE Workshop", "body": "Queue, upload and track airdrops, hordes, animal packs, vehicles and CE XML event scenes."},
+    "economy": {"kicker": "Banking", "title": "Economy", "body": "Control private money, faction treasury tools and transfer records."},
+    "shop": {"kicker": "Trading", "title": "Manage Shop", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
+    "xml-workshop": {"kicker": "Files", "title": "XML Workshop", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
+    "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
+    "loot-engine": {"kicker": "Loot", "title": "Loot Engine", "body": "Build curated loot pools, container cargo and pristine item templates."},
+    "visual-loadout": {"kicker": "Spawn Gear", "title": "Visual Loadout", "body": "Assemble player loadouts with body slots, cargo, child attachments and exportable server files."},
+    "bulk-economy": {"kicker": "Economy", "title": "Bulk Economy", "body": "Run wider economy edits and batch wallet or faction updates."},
+    "server-rules": {"kicker": "Rules", "title": "Server Rules", "body": "Publish and maintain server rules for players and Discord panels."},
+    "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
+    "server-control": {"kicker": "Console", "title": "Server Control", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
+    "help": {"kicker": "Guide", "title": "Help", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
+    "access": {"kicker": "Owner", "title": "Access Control", "body": "Control dashboard access, private login details and server visibility."},
+    "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
+}
+
 
 def dashboard_theme_from_config(config: dict[str, Any]) -> str:
     return "command"
@@ -12428,6 +12657,7 @@ def page(mode: str, auth: dict[str, Any]):
 
     if not section_allowed(active_section):
         active_section = "overview"
+    command_section = COMMAND_SECTION_META.get(active_section, COMMAND_SECTION_META["overview"])
     xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
@@ -12456,6 +12686,7 @@ def page(mode: str, auth: dict[str, Any]):
         PAGE_TEMPLATE,
         mode=mode,
         active_section=active_section,
+        command_section=command_section,
         xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
         section_allowed=section_allowed,
