@@ -35,6 +35,7 @@ DATA_ROOT = (
 )
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
+BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
@@ -1254,16 +1255,14 @@ PAGE_TEMPLATE = """
       filter: blur(10px);
     }
     .command-character .command-character-portrait {
-      position: absolute;
-      left: 50%;
-      top: -.75rem;
-      width: 33rem;
+      position: relative;
+      width: min(18rem, 96%);
       max-width: none;
-      height: 33rem;
-      max-height: none;
-      transform: translateX(-50%);
-      object-fit: cover;
-      object-position: center top;
+      height: auto;
+      max-height: 23rem;
+      transform: none;
+      object-fit: contain;
+      object-position: center bottom;
       filter: drop-shadow(0 24px 32px rgba(0,0,0,.55));
     }
     .command-gear-column { display: grid; gap: .45rem; }
@@ -1586,9 +1585,9 @@ PAGE_TEMPLATE = """
         linear-gradient(180deg, rgba(16,35,42,.58), rgba(2,9,11,.08));
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
-      width: 36rem;
-      height: 36rem;
-      top: -1.3rem;
+      width: min(21rem, 98%);
+      height: auto;
+      max-height: 29rem;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-gear-card {
       min-height: 5.1rem;
@@ -1655,9 +1654,9 @@ PAGE_TEMPLATE = """
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) { max-height: 17rem; }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character { min-height: 18rem; }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
-        width: 24rem;
-        height: 24rem;
-        top: -.85rem;
+        width: min(15rem, 96%);
+        height: auto;
+        max-height: 17rem;
       }
     }
     .admin-panel form { margin-top: .75rem; }
@@ -2300,7 +2299,7 @@ PAGE_TEMPLATE = """
               </a>
               {% endfor %}
             </div>
-            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-character" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[4:8] %}
               {% set item = card.item %}
@@ -4427,7 +4426,7 @@ PAGE_TEMPLATE = """
               </a>
               {% endfor %}
             </div>
-            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-character" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[5:10] %}
               {% set item = card.item %}
@@ -12905,6 +12904,15 @@ def healthz():
 
 @APP.get("/brand-image")
 def brand_image():
+    if os.path.exists(BOT_IMAGE_FILE):
+        return send_file(BOT_IMAGE_FILE)
+    return ("", 404)
+
+
+@APP.get("/brand-character")
+def brand_character():
+    if os.path.exists(BOT_CHARACTER_FILE):
+        return send_file(BOT_CHARACTER_FILE)
     if os.path.exists(BOT_IMAGE_FILE):
         return send_file(BOT_IMAGE_FILE)
     return ("", 404)

@@ -233,6 +233,31 @@ last_showcase_greeting_image = {} # guild_id -> timestamp
 last_showcase_discussion_time = {} # guild_id -> timestamp
 last_showcase_reaction_time = {}  # channel_id -> timestamp
 owner_natural_language_cooldowns = {}
+translation_runtime_stats = {}
+
+TRANSLATION_LANGUAGE_ALIASES = {
+    "english": "en",
+    "eng": "en",
+    "uk": "en",
+    "british": "en",
+    "spanish": "es",
+    "spain": "es",
+    "french": "fr",
+    "france": "fr",
+    "german": "de",
+    "deutsch": "de",
+    "italian": "it",
+    "portuguese": "pt",
+    "polish": "pl",
+    "russian": "ru",
+    "ukrainian": "uk",
+    "dutch": "nl",
+    "turkish": "tr",
+    "arabic": "ar",
+    "auto-detect": "auto",
+    "autodetect": "auto",
+    "detect": "auto",
+}
 
 HEATMAP_MODES = [
     "pvp",
@@ -6089,10 +6114,43 @@ def ensure_wallet(user, guild_id=None):
     return guild_wallet(guild_id, user_id, str(user))
 
 
+def normalize_translation_language(value, default="auto"):
+    code = str(value or default or "").strip().lower().replace("_", "-")
+    code = TRANSLATION_LANGUAGE_ALIASES.get(code, code)
+    if not code:
+        return default
+    if code in {"auto", "autodetect"}:
+        return "auto"
+    if "-" in code:
+        code = code.split("-", 1)[0]
+    return re.sub(r"[^a-z]", "", code)[:8] or default
+
+
+def record_translation_runtime_stat(guild_id, key, detail=""):
+    stats = translation_runtime_stats.setdefault(str(guild_id or "global"), {
+        "seen": 0,
+        "posted": 0,
+        "failed": 0,
+        "skipped": 0,
+        "last_error": "",
+        "last_success": "",
+        "updated_at": "",
+    })
+    stats[key] = int(stats.get(key, 0) or 0) + 1
+    if detail:
+        if key == "posted":
+            stats["last_success"] = str(detail)[:240]
+        elif key in {"failed", "skipped"}:
+            stats["last_error"] = str(detail)[:240]
+    stats["updated_at"] = datetime.now(UTC).isoformat()
+    return stats
+
+
 async def _translate_via_mymemory(text, target_language, source_language):
     """Free, no-API-key translation via MyMemory (5000 chars/day per IP).
     Stable and well-supported — used as the primary backend."""
-    src = source_language or "auto"
+    src = normalize_translation_language(source_language, "auto")
+    target_language = normalize_translation_language(target_language, "en")
     # MyMemory doesn't accept 'auto' literally — use 'autodetect'
     if src.lower() in ("auto", "autodetect", ""):
         src = "autodetect"
@@ -6134,8 +6192,8 @@ async def _translate_via_libretranslate(text, target_language, source_language):
         return None
     payload = {
         "q": text,
-        "source": source_language or "auto",
-        "target": target_language or "en",
+        "source": normalize_translation_language(source_language, "auto"),
+        "target": normalize_translation_language(target_language, "en"),
         "format": "text",
         "api_key": TRANSLATE_API_KEY,
     }
@@ -6188,7 +6246,7 @@ def _get_translation_rules(config):
     return []
 
 
-def _rule_matches_channel(rule, channel_id):
+def _rule_matches_channel(rule, channel):
     """A rule fires when no source_channel is set (all channels) or the
     incoming message channel matches the rule's source_channel_id."""
     if not rule.get("enabled", True):
@@ -6197,7 +6255,10 @@ def _rule_matches_channel(rule, channel_id):
     if not src_id:
         return True
     try:
-        return int(src_id) == int(channel_id)
+        source_id = int(src_id)
+        channel_id = int(getattr(channel, "id", 0) or 0)
+        parent_id = int(getattr(channel, "parent_id", 0) or 0)
+        return source_id in {channel_id, parent_id}
     except (TypeError, ValueError):
         return False
 
@@ -6207,7 +6268,6 @@ async def maybe_translate_message(message):
     if not message.guild or not message.content.strip():
         return
 
-    # Don't translate bots / our own webhooks
     if message.author.bot or message.webhook_id:
         return
 
@@ -6221,16 +6281,14 @@ async def maybe_translate_message(message):
     if not rules:
         return
 
-    # Run every rule that matches this channel. Multiple rules can fire on
-    # the same message — that is how channel-A↔channel-B bi-directional
-    # translation works (one rule per direction).
     fired_targets = set()
     for rule_index, rule in enumerate(rules, start=1):
-        if not _rule_matches_channel(rule, message.channel.id):
+        if not _rule_matches_channel(rule, message.channel):
             continue
 
-        target_lang = (rule.get("target_language") or "en").lower().strip()
-        src_lang = (rule.get("source_language") or "auto").lower().strip()
+        record_translation_runtime_stat(guild_id, "seen")
+        target_lang = normalize_translation_language(rule.get("target_language"), "en")
+        src_lang = normalize_translation_language(rule.get("source_language"), "auto")
         mode = (rule.get("mode") or "same").lower().strip()
 
         print(f"[TRANSLATE] rule#{rule_index} guild={guild_id} "
@@ -6246,15 +6304,15 @@ async def maybe_translate_message(message):
 
         if not translated:
             print(f"[TRANSLATE] rule#{rule_index} backend returned None")
+            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} backend returned None")
             continue
 
-        # If the translated text matches the source (case-insensitive +
-        # punctuation-stripped), the message was likely already in the
-        # target language — don't post a useless duplicate.
         def _norm(s):
             return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+
         if _norm(translated) == _norm(message.content):
-            print(f"[TRANSLATE] rule#{rule_index} skipped — already in target lang")
+            print(f"[TRANSLATE] rule#{rule_index} skipped - already in target lang")
+            record_translation_runtime_stat(guild_id, "skipped", f"rule#{rule_index} already in target lang")
             continue
 
         target_channel = message.channel
@@ -6263,21 +6321,20 @@ async def maybe_translate_message(message):
             target_channel = bot.get_channel(int(target_channel_id)) if target_channel_id else None
 
         if not target_channel:
-            print(f"[TRANSLATE] rule#{rule_index} no target channel resolved — mode={mode}")
+            print(f"[TRANSLATE] rule#{rule_index} no target channel resolved - mode={mode}")
+            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} no target channel")
             continue
 
-        # Prevent duplicate posts when two rules end up pointing at the
-        # same target channel with the same target language for the same
-        # message (e.g. two overlapping "all channels" rules).
         target_key = (target_channel.id, target_lang)
         if target_key in fired_targets:
+            record_translation_runtime_stat(guild_id, "skipped", f"rule#{rule_index} duplicate target")
             continue
         fired_targets.add(target_key)
 
         embed = discord.Embed(
-            title=f"🌍 Translation → {target_lang.upper()}",
+            title=f"Translation -> {target_lang.upper()}",
             description=translated[:1500],
-            color=0x1ABC9C
+            color=0x1ABC9C,
         )
         embed.add_field(name="From", value=message.author.mention, inline=True)
         if mode == "channel":
@@ -6285,14 +6342,17 @@ async def maybe_translate_message(message):
 
         try:
             await target_channel.send(embed=style_embed(embed))
+            record_translation_runtime_stat(guild_id, "posted", f"rule#{rule_index} posted to {getattr(target_channel, 'id', '')}")
             print(f"[TRANSLATE] rule#{rule_index} posted to "
                   f"#{getattr(target_channel, 'name', target_channel.id)}")
         except discord.Forbidden as forbidden_err:
             print(f"[TRANSLATE] rule#{rule_index} FORBIDDEN posting to "
                   f"#{getattr(target_channel, 'name', '?')}: {forbidden_err}. "
                   f"Bot is missing 'Send Messages' / 'Embed Links' in that channel.")
+            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} forbidden in target channel")
         except Exception as send_err:
             print(f"[TRANSLATE] rule#{rule_index} send failed: {send_err}")
+            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} send failed: {send_err}")
 
 
 async def apply_chat_reward_punishment_rules(message, lower):
@@ -30579,7 +30639,7 @@ async def translationconfig(
         }
 
     # ── Multi-rule storage ───────────────────────────────────────
-    # Each call to /translationconfig now adds (or replaces) a rule
+    # Each call to /translation config now appends a rule
     # in `translations` rather than overwriting the whole config.
     # That makes it possible to set up multiple directions, e.g.
     #   • Channel A (EN→ES) → Channel B
@@ -30595,7 +30655,7 @@ async def translationconfig(
             rules.append(legacy)
 
     if mode == "off":
-        # `/translationconfig mode:off` with no source_channel clears EVERY
+        # `/translation config mode:off` with no source_channel clears EVERY
         # rule. With a source_channel, it only disables matching rules.
         if source_channel:
             removed = 0
@@ -30624,22 +30684,14 @@ async def translationconfig(
     new_rule = {
         "enabled": True,
         "mode": mode,
-        "target_language": target_language.lower().strip(),
-        "source_language": source_language.lower().strip(),
+        "target_language": normalize_translation_language(target_language, "en"),
+        "source_language": normalize_translation_language(source_language, "auto"),
         "source_channel_id": source_channel.id if source_channel else None,
         "target_channel_id": target_channel.id if target_channel else None,
     }
 
-    # Replace an existing rule that targets the same (source_channel,
-    # target_channel, target_language) triple to avoid duplicates, then
-    # append the new rule.
-    def _same_rule(existing):
-        return (
-            existing.get("source_channel_id") == new_rule["source_channel_id"]
-            and existing.get("target_channel_id") == new_rule["target_channel_id"]
-            and (existing.get("target_language") or "").lower() == new_rule["target_language"]
-        )
-    rules = [r for r in rules if not _same_rule(r)]
+    # Append every rule. Admins may intentionally stack many rules for the
+    # same channel, language, or target when running multilingual servers.
     rules.append(new_rule)
     guild_cfg["translations"] = rules
 
@@ -30654,8 +30706,8 @@ async def translationconfig(
             sample = "Hello, this is a translation test."
             sample_translated = await translate_text(
                 sample,
-                target_language.lower().strip() or "en",
-                source_language.lower().strip() or "auto",
+                normalize_translation_language(target_language, "en"),
+                normalize_translation_language(source_language, "auto"),
             )
             if sample_translated:
                 verification = (
@@ -30678,10 +30730,10 @@ async def translationconfig(
     embed = discord.Embed(
         title="Translation Rule Added",
         description=(
-            "Translation rules **stack** — every call to `/translationconfig` "
+            "Translation rules **stack** — every call to `/translation config` "
             "adds a new rule rather than replacing your previous setup. "
-            "Use `/translationlist` to see all rules, `/translationremove` to "
-            "delete one, and `/translationclear` to wipe them all.\n\n"
+            "Use `/translation list` to see all rules, `/translation remove` to "
+            "delete one, and `/translation clear` to wipe them all.\n\n"
             "`same` posts translations in the same chat.\n"
             "`channel` forwards translations into the target channel.\n"
             "`off` disables / removes translation rules."
@@ -30724,38 +30776,57 @@ async def translationlist(interaction: discord.Interaction):
 
     if not rules:
         await interaction.response.send_message(
-            "No translation rules configured. Use `/translationconfig` to add one.",
-            ephemeral=True
+            "No translation rules configured. Use `/translation config` to add one.",
+            ephemeral=True,
         )
         return
 
-    embed = discord.Embed(
-        title="🌍 Active Translation Rules",
-        description=f"This server has **{len(rules)}** translation rule(s). "
-                    f"Remove one with `/translationremove rule_number:<n>`.",
-        color=0x1ABC9C
-    )
+    stats = translation_runtime_stats.get(guild_id, {})
+    page_size = 15
+    pages = [rules[i:i + page_size] for i in range(0, len(rules), page_size)]
 
-    for index, rule in enumerate(rules, start=1):
-        src_id = rule.get("source_channel_id")
-        tgt_id = rule.get("target_channel_id")
-        src = f"<#{src_id}>" if src_id else "All channels"
-        tgt = f"<#{tgt_id}>" if tgt_id else "Same channel as source"
-        mode = rule.get("mode", "same")
-        src_lang = rule.get("source_language") or "auto"
-        tgt_lang = rule.get("target_language") or "en"
-        enabled = "🟢" if rule.get("enabled", True) else "⚪"
-        embed.add_field(
-            name=f"{enabled} Rule #{index} — {src_lang} → {tgt_lang} ({mode})",
-            value=f"**From:** {src}\n**To:** {tgt}",
-            inline=False,
+    async def send_page(page_index, page_rules):
+        embed = discord.Embed(
+            title=f"Active Translation Rules ({page_index + 1}/{len(pages)})",
+            description=(
+                f"This server has **{len(rules)}** translation rule(s). "
+                "Rules are stored as a list with no bot-side cap; Discord only paginates the display."
+            ),
+            color=0x1ABC9C,
         )
+        lines = []
+        base = page_index * page_size
+        for offset, rule in enumerate(page_rules, start=1):
+            index = base + offset
+            src_id = rule.get("source_channel_id")
+            tgt_id = rule.get("target_channel_id")
+            src = f"<#{src_id}>" if src_id else "All channels"
+            tgt = f"<#{tgt_id}>" if tgt_id else "Same channel"
+            mode = rule.get("mode", "same")
+            src_lang = normalize_translation_language(rule.get("source_language"), "auto")
+            tgt_lang = normalize_translation_language(rule.get("target_language"), "en")
+            enabled = "on" if rule.get("enabled", True) else "off"
+            lines.append(f"`#{index}` **{src_lang}->{tgt_lang}** `{mode}` `{enabled}` | {src} -> {tgt}")
+        embed.add_field(name="Rules", value="\n".join(lines)[:3900], inline=False)
+        if stats:
+            embed.add_field(
+                name="Runtime stats since bot start",
+                value=(
+                    f"Seen: `{stats.get('seen', 0)}` | Posted: `{stats.get('posted', 0)}` | "
+                    f"Skipped: `{stats.get('skipped', 0)}` | Failed: `{stats.get('failed', 0)}`\n"
+                    f"Last note: `{stats.get('last_error') or stats.get('last_success') or 'none yet'}`"
+                )[:1024],
+                inline=False,
+            )
+        return style_embed(embed)
 
-    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+    await interaction.response.send_message(embed=await send_page(0, pages[0]), ephemeral=True)
+    for page_index, page_rules in enumerate(pages[1:], start=1):
+        await interaction.followup.send(embed=await send_page(page_index, page_rules), ephemeral=True)
 
 
 @translation_group.command(name="remove", description="Admin: remove a specific translation rule by number")
-@app_commands.describe(rule_number="The rule number shown in /translationlist (1, 2, 3, ...)")
+@app_commands.describe(rule_number="The rule number shown in /translation list (1, 2, 3, ...)")
 async def translationremove(interaction: discord.Interaction, rule_number: int):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -30778,14 +30849,14 @@ async def translationremove(interaction: discord.Interaction, rule_number: int):
 
     if not rules:
         await interaction.response.send_message(
-            "No translation rules to remove. Use `/translationlist` to see them.",
+            "No translation rules to remove. Use `/translation list` to see them.",
             ephemeral=True
         )
         return
 
     if rule_number < 1 or rule_number > len(rules):
         await interaction.response.send_message(
-            f"Rule number must be between 1 and {len(rules)}. Use `/translationlist`.",
+            f"Rule number must be between 1 and {len(rules)}. Use `/translation list`.",
             ephemeral=True
         )
         return
@@ -30825,7 +30896,7 @@ async def translationclear(interaction: discord.Interaction):
 
     await interaction.response.send_message(
         f"Cleared {cleared} translation rule(s). The bot will no longer auto-translate "
-        f"messages until you set up new rules with `/translationconfig`.",
+        f"messages until you set up new rules with `/translation config`.",
         ephemeral=True
     )
 
