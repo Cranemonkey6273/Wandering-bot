@@ -1016,6 +1016,45 @@ PAGE_TEMPLATE = """
     .command-logo small { color: var(--muted); }
     .command-status { display: flex; align-items: center; gap: .35rem; color: #8ded63; font-size: .74rem; font-weight: 900; text-transform: uppercase; }
     .command-dot { width: .48rem; height: .48rem; border-radius: 50%; background: #8ded63; box-shadow: 0 0 12px rgba(141,237,99,.65); }
+    .command-server-form {
+      display: grid;
+      gap: .4rem;
+      margin: 0 0 .7rem;
+      padding: .65rem;
+      border: 1px solid rgba(103,245,231,.15);
+      border-radius: .55rem;
+      background: rgba(3,12,15,.72);
+    }
+    .command-server-form label { gap: .35rem; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    .command-server-form select {
+      min-height: 2.35rem;
+      width: 100%;
+      border-color: rgba(103,245,231,.24);
+      background: #061114;
+      color: #effcff;
+      font-size: .86rem;
+    }
+    .command-login-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .35rem;
+      margin-bottom: .75rem;
+    }
+    .command-login-actions a {
+      display: flex;
+      align-items: center;
+      min-height: 2.15rem;
+      justify-content: center;
+      padding: .45rem .5rem;
+      border: 1px solid rgba(103,245,231,.18);
+      border-radius: .45rem;
+      background: rgba(10,25,31,.72);
+      color: #cbdadd;
+      font-size: .76rem;
+      font-weight: 800;
+      text-align: center;
+    }
+    .command-login-actions a:hover { border-color: rgba(103,245,231,.34); color: #effcff; }
     .command-side-nav { display: grid; gap: .35rem; margin-top: .55rem; }
     .command-side-nav a,
     .command-quick a {
@@ -2042,6 +2081,7 @@ PAGE_TEMPLATE = """
       <a href="/admin">Admin</a>
       {% if auth.kind == "owner" %}<a href="/owner">Owner</a>{% endif %}
       <a href="/api/summary">API</a>
+      <a href="/login">Switch Login</a>
       <a href="/logout">Logout</a>
     </nav>
     <div class="theme-picker" aria-label="Theme picker">
@@ -2105,8 +2145,25 @@ PAGE_TEMPLATE = """
         <small>DayZ | {{ server.platform_label if server else 'Xbox' }} | {{ (server.map|capitalize) if server else 'Chernarus' }}</small>
       </div>
     </div>
+    {% if servers|length > 1 %}
+    <form class="command-server-form" method="get" action="/{{ 'owner' if mode == 'owner' else 'admin' }}">
+      <input class="hidden-field" type="hidden" name="section" value="{{ active_section }}">
+      <label>Active Server
+        <select name="guild_id" onchange="this.form.submit()">
+          {% for item in servers %}
+          <option value="{{ item.guild_id }}" {% if server and item.guild_id == server.guild_id %}selected{% endif %}>{{ item.guild_name }} - {{ item.map|upper }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    {% endif %}
+    <div class="command-login-actions">
+      <a href="/login">Switch Login</a>
+      <a href="/logout">Logout</a>
+    </div>
     <nav class="command-side-nav">
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
+      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve{{ server_qs }}">Live Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">PVE Workshop</a>{% endif %}
@@ -2130,7 +2187,7 @@ PAGE_TEMPLATE = """
       <div>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ view_title }}</h1>
-        <p class="muted">Live readout for {{ auth.label }}. Server dashboards are scoped by private ID/password and cannot access another guild.</p>
+        <p class="muted">Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Login when you manage more than one.</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -2176,6 +2233,7 @@ PAGE_TEMPLATE = """
     <section class="section-nav" aria-label="Dashboard sections">
       <a class="tab-link" href="/admin?section=overview{{ server_qs }}">Overview</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
+      <a class="tab-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       {% if section_allowed('automations') %}<a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>{% endif %}
       {% if section_allowed('factions') %}<a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
@@ -2203,6 +2261,7 @@ PAGE_TEMPLATE = """
         <select onchange="if (this.value) window.location.href = this.value;">
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Overview</option>
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
+          <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Servers & Login</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
           {% if section_allowed('automations') %}<option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Embeds & Welcome</option>{% endif %}
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
@@ -2384,7 +2443,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
-      {% if auth.kind == "owner" and mode == "owner" %}<a class="category-link" href="/owner?section=access{{ server_qs }}"><strong>Access</strong><span>Credentials, linked servers and enabled modules.</span></a>{% endif %}
+      <a class="category-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}"><strong>Servers & Login</strong><span>Switch server, link another server, or change dashboard login.</span></a>
     </section>
     {% endif %}
 
@@ -5010,15 +5069,16 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if auth.kind == "owner" and mode in ["admin", "owner"] and active_section == "access" %}
+    {% if mode in ["admin", "owner"] and active_section == "access" %}
     <section class="section-panel" id="access">
       <div class="section-head">
         <div>
-          <h2>Dashboard Access</h2>
-          <p class="tool-note">Server identity is locked to the logged-in guild. Use Discord `/dashboardcredentials reset:true` to change the private password.</p>
+          <h2>Servers & Login</h2>
+          <p class="tool-note">Link another server with that server's dashboard ID/password. After linking, use the server picker in the left rail to switch between them.</p>
         </div>
       </div>
       <div class="panel-grid">
+        {% if auth.kind == "owner" %}
         <article class="admin-panel">
           <h3>Feature Access</h3>
           <form class="admin-form" method="post" action="/api/admin/guild-access" data-route="/api/admin/guild-access">
@@ -5069,6 +5129,7 @@ PAGE_TEMPLATE = """
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
           </form>
         </article>
+        {% endif %}
         <article class="admin-panel">
           <h3>Link Another Server</h3>
           <form class="admin-form" method="post" action="/api/admin/link-server" data-route="/api/admin/link-server">
@@ -11793,7 +11854,7 @@ COMMAND_SECTION_META = {
     "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
     "server-control": {"kicker": "Console", "title": "Server Control", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
     "help": {"kicker": "Guide", "title": "Help", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
-    "access": {"kicker": "Owner", "title": "Access Control", "body": "Control dashboard access, private login details and server visibility."},
+    "access": {"kicker": "Servers", "title": "Servers & Login", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
 }
 
@@ -12684,9 +12745,9 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner"}
-    if auth.get("kind") != "owner" and active_section in {"access", "owner"}:
+    if auth.get("kind") != "owner" and active_section == "owner":
         active_section = "overview"
-    if auth.get("kind") == "owner" and mode != "owner" and active_section in {"access", "owner"}:
+    if auth.get("kind") == "owner" and mode != "owner" and active_section == "owner":
         active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
