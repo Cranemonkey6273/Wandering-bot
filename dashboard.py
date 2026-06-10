@@ -938,6 +938,447 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(1),
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(2),
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #67f5e7; background: linear-gradient(135deg, rgba(7,32,37,.82), rgba(5,10,12,.96)); }
+    .command-sidebar, .command-overview, .command-loadout-stage, .command-status-bar { display: none; }
+    body[data-theme="command"] {
+      --sidebar-w: 14.25rem;
+      color: #dbe8eb;
+      background: #061014;
+    }
+    body[data-theme="command"] header {
+      left: var(--sidebar-w);
+      min-height: 4.15rem;
+      padding: .65rem 1.2rem;
+      border-bottom-color: rgba(103,245,231,.16);
+      box-shadow: 0 1px 0 rgba(255,255,255,.03), 0 18px 48px rgba(0,0,0,.22);
+    }
+    body[data-theme="command"] header .brand { display: none; }
+    body[data-theme="command"] header > nav { display: none; }
+    body[data-theme="command"] .theme-picker {
+      margin-left: auto;
+      max-width: none;
+      justify-content: flex-end;
+    }
+    body[data-theme="command"] .theme-picker label { text-transform: none; }
+    body[data-theme="command"] .theme-picker select {
+      width: 8.2rem;
+      border-radius: .45rem;
+      background: #081216;
+    }
+    body[data-theme="command"] .theme-picker button {
+      width: 1.55rem;
+      height: 1.55rem;
+      border-color: rgba(255,255,255,.18);
+    }
+    body[data-theme="command"] main {
+      max-width: none;
+      margin-left: var(--sidebar-w);
+      padding: 5.05rem 1rem 2.9rem;
+      gap: .75rem;
+    }
+    body[data-theme="command"] .hero,
+    body[data-theme="command"] .stats,
+    body[data-theme="command"] .category-grid { display: none; }
+    body[data-theme="command"][data-section="overview"] main > .grid,
+    body[data-theme="command"][data-section="overview"] main > .servers { display: none; }
+    body[data-theme="command"] .command-sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      width: var(--sidebar-w);
+      padding: .9rem .85rem;
+      border-right: 1px solid rgba(103,245,231,.15);
+      background: linear-gradient(180deg, #0a1519 0%, #050b0e 100%);
+      box-shadow: 18px 0 55px rgba(0,0,0,.35);
+      overflow-y: auto;
+    }
+    .command-logo {
+      display: grid;
+      gap: .75rem;
+      margin-bottom: 1rem;
+    }
+    .command-logo img {
+      width: 100%;
+      aspect-ratio: 1 / 1.2;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,.58);
+      border-radius: .7rem;
+      box-shadow: 0 20px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(103,245,231,.10);
+    }
+    .command-logo strong { font-size: .98rem; }
+    .command-logo small { color: var(--muted); }
+    .command-status { display: flex; align-items: center; gap: .35rem; color: #8ded63; font-size: .74rem; font-weight: 900; text-transform: uppercase; }
+    .command-dot { width: .48rem; height: .48rem; border-radius: 50%; background: #8ded63; box-shadow: 0 0 12px rgba(141,237,99,.65); }
+    .command-side-nav { display: grid; gap: .35rem; margin-top: .55rem; }
+    .command-side-nav a,
+    .command-quick a {
+      display: flex;
+      align-items: center;
+      gap: .58rem;
+      min-height: 2.45rem;
+      padding: .55rem .7rem;
+      border: 1px solid transparent;
+      border-radius: .45rem;
+      color: #cbdadd;
+      background: transparent;
+      font-size: .85rem;
+      font-weight: 700;
+    }
+    .command-side-nav a.active,
+    .command-side-nav a:hover,
+    .command-quick a:hover {
+      border-color: rgba(103,245,231,.20);
+      background: linear-gradient(90deg, rgba(21,205,198,.28), rgba(18,32,38,.45));
+      color: #effcff;
+    }
+    .command-quick {
+      display: grid;
+      gap: .35rem;
+      margin-top: auto;
+      padding-top: .9rem;
+      border-top: 1px solid rgba(103,245,231,.13);
+    }
+    .command-quick span {
+      color: var(--muted);
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    body[data-theme="command"] .section-nav {
+      position: sticky;
+      top: 4.15rem;
+      z-index: 4;
+      display: flex;
+      gap: 1.05rem;
+      padding: .45rem 1rem .55rem;
+      margin: -5.05rem -1rem .65rem;
+      overflow-x: auto;
+      border-bottom: 1px solid rgba(103,245,231,.14);
+      background: rgba(6,16,20,.92);
+      backdrop-filter: blur(16px);
+    }
+    body[data-theme="command"] .section-nav .tab-link {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #9eadb1;
+      padding: .65rem .15rem;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      white-space: nowrap;
+    }
+    body[data-theme="command"] .section-nav .tab-link:hover,
+    body[data-theme="command"] .section-nav .tab-link:first-child {
+      color: #26efe4;
+      box-shadow: inset 0 -2px 0 #26efe4;
+    }
+    body[data-theme="command"] .section-panel,
+    body[data-theme="command"] .card,
+    body[data-theme="command"] .admin-panel,
+    body[data-theme="command"] .wide {
+      border-color: rgba(103,245,231,.14);
+      background: linear-gradient(180deg, rgba(20,34,41,.84), rgba(7,15,18,.96));
+      box-shadow: 0 14px 40px rgba(0,0,0,.28);
+    }
+    body[data-theme="command"] .command-overview {
+      display: grid;
+      gap: .75rem;
+    }
+    .command-metrics {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: .65rem;
+    }
+    .command-metric {
+      min-height: 5.5rem;
+      padding: .85rem 1rem;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .5rem;
+      background: linear-gradient(180deg, rgba(21,35,42,.88), rgba(8,17,21,.98));
+    }
+    .command-metric span { display: block; color: #94a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+    .command-metric strong { display: block; margin-top: .25rem; color: #f4fbfc; font-size: 1.9rem; line-height: 1; }
+    .command-metric small { display: block; margin-top: .35rem; color: #8ded63; }
+    .command-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(22rem, .75fr);
+      gap: .75rem;
+      align-items: start;
+    }
+    .command-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .58fr) minmax(20rem, .72fr);
+      gap: .75rem;
+      align-items: start;
+    }
+    .command-card {
+      min-width: 0;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background: linear-gradient(180deg, rgba(19,32,38,.88), rgba(7,15,18,.98));
+      overflow: hidden;
+    }
+    .command-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .85rem 1rem;
+      border-bottom: 1px solid rgba(103,245,231,.11);
+    }
+    .command-card-head h2,
+    .command-card-head h3 {
+      margin: 0;
+      font-size: .86rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .command-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .82rem;
+    }
+    .command-table th,
+    .command-table td {
+      padding: .72rem .8rem;
+      border-bottom: 1px solid rgba(103,245,231,.08);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .command-table th { color: #96a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
+    .command-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 4.4rem;
+      padding: .25rem .55rem;
+      border-radius: .28rem;
+      background: rgba(47,67,76,.75);
+      color: #d9e8eb;
+      font-size: .72rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .command-badge.ok { background: rgba(72,160,70,.7); }
+    .command-badge.warn { background: rgba(168,126,35,.72); }
+    .command-badge.info { background: rgba(43,91,136,.72); }
+    .command-badge.bad { background: rgba(145,56,56,.72); }
+    .command-mini-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .command-mini-actions a,
+    .command-mini-actions button,
+    .command-card .button {
+      min-height: 2rem;
+      padding: .38rem .6rem;
+      border-color: rgba(103,245,231,.18);
+      border-radius: .35rem;
+      font-size: .78rem;
+    }
+    .command-loadout {
+      display: grid;
+      grid-template-columns: .55fr minmax(9rem, .7fr) .65fr;
+      gap: .65rem;
+      padding: .85rem;
+    }
+    .command-paperdoll {
+      display: grid;
+      place-items: center;
+      min-height: 17.5rem;
+      border-radius: .45rem;
+      background: radial-gradient(circle at 50% 45%, rgba(38,239,228,.14), rgba(7,15,18,.02) 58%);
+    }
+    .command-paperdoll img {
+      width: min(12rem, 92%);
+      max-height: 16.5rem;
+      object-fit: contain;
+      filter: drop-shadow(0 18px 28px rgba(0,0,0,.45));
+    }
+    .command-gear-column { display: grid; gap: .45rem; }
+    .command-gear-card {
+      min-height: 3.9rem;
+      padding: .45rem;
+      border: 1px solid rgba(103,245,231,.13);
+      border-radius: .38rem;
+      background: rgba(2,9,11,.62);
+    }
+    .command-gear-card span { display: block; color: #94a7ac; font-size: .68rem; }
+    .command-gear-card strong { display: block; margin-top: .18rem; color: #e8f5f7; font-size: .82rem; overflow-wrap: anywhere; }
+    .command-gear-card img { width: 2rem; height: 2rem; object-fit: contain; float: right; }
+    .command-map-card { padding: .65rem; }
+    .command-map {
+      position: relative;
+      min-height: 20.5rem;
+      border-radius: .45rem;
+      overflow: hidden;
+      background: var(--map-image), linear-gradient(135deg, #182a1d, #0b171c);
+      background-size: cover;
+      background-position: center;
+      border: 1px solid rgba(103,245,231,.14);
+    }
+    .command-map::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: rgba(2,12,14,.26);
+      box-shadow: inset 0 0 90px rgba(0,0,0,.36);
+    }
+    .command-zone-dot {
+      position: absolute;
+      left: calc(var(--x) * 1%);
+      top: calc(var(--y) * 1%);
+      z-index: 2;
+      width: 2.4rem;
+      height: 2.4rem;
+      transform: translate(-50%, -50%);
+      border: 2px solid currentColor;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: color-mix(in srgb, currentColor 32%, rgba(2,9,11,.72));
+      box-shadow: 0 0 0 .35rem color-mix(in srgb, currentColor 18%, transparent), 0 0 22px color-mix(in srgb, currentColor 55%, transparent);
+      color: var(--zone-colour, #26efe4);
+      font-weight: 900;
+    }
+    .command-zone-dot span {
+      position: absolute;
+      left: 2rem;
+      min-width: max-content;
+      padding: .18rem .42rem;
+      border-radius: .25rem;
+      background: rgba(2,9,11,.78);
+      color: #effcff;
+      font-size: .68rem;
+    }
+    .command-zone-form {
+      display: grid;
+      gap: .55rem;
+      padding: .85rem;
+    }
+    .command-zone-form label { gap: .25rem; }
+    .command-upload-list { display: grid; gap: .4rem; padding: .85rem; }
+    .command-upload-row {
+      display: flex;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .55rem .65rem;
+      border: 1px solid rgba(103,245,231,.09);
+      border-radius: .35rem;
+      background: rgba(2,9,11,.42);
+      color: #c7d6d9;
+      font-size: .82rem;
+    }
+    .command-map-toolbar {
+      position: absolute;
+      left: .55rem;
+      bottom: .55rem;
+      z-index: 3;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .35rem;
+      padding: .35rem;
+      border-radius: .45rem;
+      background: rgba(2,9,11,.74);
+      backdrop-filter: blur(10px);
+    }
+    .command-check {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      min-height: 1.8rem;
+      padding: .2rem .45rem;
+      border: 1px solid rgba(103,245,231,.16);
+      border-radius: .32rem;
+      color: #d6e8ea;
+      font-size: .72rem;
+      font-weight: 800;
+    }
+    .command-check input { width: auto; min-height: 0; accent-color: #26efe4; }
+    body[data-theme="command"] .command-status-bar {
+      position: fixed;
+      left: var(--sidebar-w);
+      right: 0;
+      bottom: 0;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .8rem;
+      min-height: 2.1rem;
+      padding: .38rem 1rem;
+      border-top: 1px solid rgba(103,245,231,.12);
+      background: rgba(5,11,14,.92);
+      color: #a8bcc1;
+      font-size: .72rem;
+      backdrop-filter: blur(14px);
+    }
+    body[data-theme="command"] .command-status-bar strong { color: #effcff; }
+    body[data-theme="command"] .command-status-bar .ok { color: #8ded63; }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
+      grid-template-columns: minmax(18rem, .7fr) minmax(34rem, 1.5fr) minmax(22rem, .85fr);
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-canvas {
+      position: relative;
+      overflow: hidden;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
+      display: grid;
+      grid-template-columns: .75fr minmax(14rem, 1fr) .75fr;
+      gap: .65rem;
+      align-items: center;
+      margin: .85rem 0;
+      padding: .75rem;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background: radial-gradient(circle at center, rgba(38,239,228,.13), rgba(2,9,11,.38) 64%);
+    }
+    .command-loadout-stage .command-paperdoll { min-height: 22rem; }
+    .command-loadout-stage .command-paperdoll img { max-height: 21rem; }
+    body[data-theme="command"][data-section="visual-loadout"] .loadout-slot-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    @media (max-width: 1180px) {
+      body[data-theme="command"] { --sidebar-w: 0rem; }
+      body[data-theme="command"] header { left: 0; }
+      body[data-theme="command"] main { margin-left: 0; padding-top: 4.8rem; }
+      body[data-theme="command"] .command-sidebar {
+        position: static;
+        width: auto;
+        max-height: none;
+        margin: 4.4rem 1rem .75rem;
+        border: 1px solid rgba(103,245,231,.15);
+        border-radius: .65rem;
+      }
+      body[data-theme="command"] .command-logo {
+        grid-template-columns: 5rem minmax(0, 1fr);
+        align-items: center;
+      }
+      body[data-theme="command"] .command-logo img { aspect-ratio: 1 / 1; }
+      body[data-theme="command"] .command-side-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      body[data-theme="command"] .command-quick { margin-top: .65rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .command-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .command-grid, .command-row { grid-template-columns: 1fr; }
+      .command-status-bar { left: 0; }
+    }
+    @media (max-width: 720px) {
+      body[data-theme="command"] header { padding: .55rem .7rem; }
+      body[data-theme="command"] .theme-picker button { width: 1.35rem; height: 1.35rem; }
+      body[data-theme="command"] .section-nav { display: none; }
+      body[data-theme="command"] .mobile-section-picker { display: block; }
+      body[data-theme="command"] main { padding-inline: .55rem; }
+      body[data-theme="command"] .command-sidebar { margin: 4.1rem .55rem .65rem; padding: .65rem; }
+      body[data-theme="command"] .command-side-nav,
+      body[data-theme="command"] .command-quick,
+      .command-metrics,
+      .command-loadout,
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
+        grid-template-columns: 1fr;
+      }
+      .command-table { min-width: 46rem; }
+      .command-card { overflow-x: auto; }
+      .command-status-bar { position: static; margin-inline: -.55rem; }
+    }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
@@ -1308,7 +1749,7 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body>
+<body data-section="{{ active_section }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   <header>
@@ -1388,6 +1829,36 @@ PAGE_TEMPLATE = """
       })();
     </script>
   </header>
+  <aside class="command-sidebar" aria-label="Command dashboard navigation">
+    <div class="command-logo">
+      <img src="/brand-image" alt="Wandering Bot">
+      <div>
+        <strong>Wandering Bot</strong>
+        <small>{{ server.guild_name if server else view_title }}</small>
+        <span class="command-status"><span class="command-dot"></span>Online</span>
+        <small>DayZ | PC | {{ (server.map|capitalize) if server else 'Chernarus' }}</small>
+      </div>
+    </div>
+    <nav class="command-side-nav">
+      <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
+      {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve{{ server_qs }}">Live Events</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">PVE Workshop</a>{% endif %}
+      {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
+      {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
+      {% if section_allowed('moderation') %}<a class="{{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
+      {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
+      {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Console</a>{% endif %}
+    </nav>
+    <div class="command-quick">
+      <span>Quick actions</span>
+      {% if section_allowed('pve') %}<a href="/admin?section=pve{{ server_qs }}#pve-workshop">Queue Event</a>{% endif %}
+      {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Create Zone</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">Upload XML</a>{% endif %}
+      {% if section_allowed('server-control') %}<a href="/admin?section=server-control{{ server_qs }}">Restart Server</a>{% endif %}
+    </div>
+  </aside>
   <main>
     <section class="hero">
       <div>
@@ -1492,6 +1963,127 @@ PAGE_TEMPLATE = """
     </section>
 
     {% if active_section == "overview" %}
+    <section class="command-overview" aria-label="Command overview">
+      {% set active_event_count = (server.scenario_events|selectattr('enabled')|list|length) if server else 0 %}
+      {% set zone_count = (server.zones|length) if server else 0 %}
+      <div class="command-metrics">
+        <div class="command-metric"><span>Players Online</span><strong>{{ summary.online }} / {{ summary.players }}</strong><small>Live tracker</small></div>
+        <div class="command-metric"><span>Uptime</span><strong>Live</strong><small>{{ generated_at }}</small></div>
+        <div class="command-metric"><span>PVE Events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><small>{{ active_event_count }} active</small></div>
+        <div class="command-metric"><span>Zones</span><strong>{{ zone_count }}</strong><small>{{ zone_count }} mapped</small></div>
+        <div class="command-metric"><span>Shop Items</span><strong>{{ summary.shop_items }}</strong><small>Economy ready</small></div>
+        <div class="command-metric"><span>Last Refresh</span><strong>{{ generated_at[-5:] if generated_at else 'Now' }}</strong><small>Dashboard sync</small></div>
+      </div>
+
+      <div class="command-grid">
+        <article class="command-card">
+          <div class="command-card-head">
+            <h2>Live Event Manager</h2>
+            <a class="button" href="/admin?section=pve{{ server_qs }}#pve-workshop">Open Events</a>
+          </div>
+          <table class="command-table">
+            <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for event in (server.scenario_events if server else [])[:5] %}
+              {% set status_text = event.status or ('Running' if event.enabled else 'Idle') %}
+              <tr>
+                <td>{{ event.id or loop.index }}</td>
+                <td>{{ event.event_type or 'event' }}</td>
+                <td>{{ event.name or event.event_name or 'Scenario' }}</td>
+                <td>{{ event.class_name or '-' }}</td>
+                <td>{{ event.x or '-' }}, {{ event.z or '-' }}</td>
+                <td>{{ event.remaining_restarts or event.runs or 0 }}</td>
+                <td><span class="command-badge {{ 'ok' if event.enabled else ('bad' if 'fail' in (status_text|string|lower) else 'warn') }}">{{ status_text }}</span></td>
+                <td><div class="command-mini-actions"><a href="/admin?section=pve{{ server_qs }}#pve-workshop">Edit</a><a href="/admin?section=pve{{ server_qs }}#live-events">View</a></div></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8">No live events queued yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="command-card">
+          <div class="command-card-head">
+            <h3>Visual Loadout</h3>
+            <a class="button" href="/admin?section=visual-loadout{{ server_qs }}#visual-loadout">Open Builder</a>
+          </div>
+          <div class="command-loadout">
+            <div class="command-gear-column">
+              {% for card in visual_loadout_slot_cards[:4] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+            <div class="command-paperdoll"><img src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-gear-column">
+              {% for card in visual_loadout_slot_cards[4:8] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="command-row">
+        <article class="command-card command-map-card">
+          <div class="command-card-head">
+            <h3>Map / Event Builder</h3>
+            <div class="command-mini-actions"><a href="/admin?section=zones{{ server_qs }}">Add Zone</a><a href="/admin?section=pve{{ server_qs }}">Event Mode</a></div>
+          </div>
+          <div class="command-map" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+            {% for zone in (server.zones if server else [])[:10] %}
+            <a class="command-zone-dot" href="/admin?section=zones{{ server_qs }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" style="--x: {{ zone.x_percent|default(50) }}; --y: {{ zone.y_percent|default(50) }}; --zone-colour: {{ zone.display_colour or zone.colour or '#26efe4' }};">
+              {{ loop.index }}<span>{{ zone.name }}</span>
+            </a>
+            {% endfor %}
+            <div class="command-map-toolbar">
+              <label class="command-check"><input type="checkbox" checked> Zones</label>
+              <label class="command-check"><input type="checkbox" checked> Events</label>
+              <label class="command-check"><input type="checkbox"> Players</label>
+              <label class="command-check"><input type="checkbox"> Grid</label>
+            </div>
+          </div>
+        </article>
+
+        <article class="command-card">
+          <div class="command-card-head"><h3>New Radar Zone</h3></div>
+          <form class="command-zone-form" method="get" action="/admin">
+            <input class="hidden-field" name="section" value="zones">
+            {% if server %}<input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">{% endif %}
+            <label>Zone type <select name="draft_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option></select></label>
+            <label>Shape <select name="draft_shape"><option value="circle">Circle</option><option value="polygon">Boundary</option></select></label>
+            <label>Center X <input name="draft_x" value="{{ request.args.get('draft_x', '4210') }}"></label>
+            <label>Center Z <input name="draft_z" value="{{ request.args.get('draft_z', '11580') }}"></label>
+            <label>Radius (m) <input type="number" name="draft_radius" value="{{ request.args.get('draft_radius', '250') }}"></label>
+            <label>Name <input name="draft_name" value="{{ request.args.get('draft_name', 'New radar zone') }}"></label>
+            <div class="toolbar"><a class="button" href="/admin?section=zones{{ server_qs }}">Cancel</a><button type="submit">Save Zone</button></div>
+          </form>
+        </article>
+
+        <article class="command-card">
+          <div class="command-card-head">
+            <h3>PVE Workshop</h3>
+            <a class="button" href="/admin?section=xml-workshop{{ server_qs }}">View Workshop</a>
+          </div>
+          <div class="command-upload-list">
+            {% for event in (server.scenario_events if server else [])[:4] %}
+            {% set event_status = event.status or ('Imported' if event.enabled else 'Queued') %}
+            <div class="command-upload-row"><span>{{ event.name or event.event_type or 'Scenario event' }}</span><strong class="{{ 'ok' if event.enabled else '' }}">{{ event_status }}</strong></div>
+            {% else %}
+            <div class="command-upload-row"><span>No recent PVE uploads</span><strong>Ready</strong></div>
+            {% endfor %}
+          </div>
+        </article>
+      </div>
+    </section>
     <section class="category-grid" aria-label="Main categories">
       <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
       <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
@@ -3538,6 +4130,27 @@ PAGE_TEMPLATE = """
           <h3>Survivor Canvas</h3>
           <div class="embed-preview"><strong>Drag and drop loadout</strong><span>Drop clothing into body slots, weapons into shoulder/holster slots, and supplies into backpack, jacket, or pants cargo.</span></div>
           <div class="loadout-selected-slot" data-selected-loadout-slot><strong>{{ visual_loadout_slot }}</strong><span>Showing matching items in the browser. Pick another slot below to change the list.</span></div>
+          <div class="command-loadout-stage" aria-label="Command visual loadout preview">
+            <div class="command-gear-column">
+              {% for card in visual_loadout_slot_cards[:5] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+            <div class="command-paperdoll"><img src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-gear-column">
+              {% for card in visual_loadout_slot_cards[5:10] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+          </div>
           <div class="loadout-slot-grid">
             {% for card in visual_loadout_slot_cards %}
             {% set slot = card.slot %}
@@ -4243,6 +4856,13 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
   </main>
+  <div class="command-status-bar" aria-label="Command connection status">
+    <span>Server Time: <strong>{{ generated_at }}</strong></span>
+    <span>Version: <strong>1.26</strong></span>
+    <span>Map: <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
+    <span><span class="ok">Database: Connected</span> | <span class="ok">Nitrado: Connected</span></span>
+    <span>Players: <strong>{{ summary.online }}/{{ summary.players }}</strong></span>
+  </div>
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
