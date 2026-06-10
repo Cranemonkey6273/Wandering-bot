@@ -26889,8 +26889,47 @@ def _scenario_notice_event_summary(event):
         "class": event.get("class_name", ""),
         "x": event.get("x", ""),
         "z": event.get("z", ""),
+        "radius": event.get("radius", ""),
+        "permanent": bool(event.get("permanent")),
+        "status": event.get("status", ""),
         "runs": event.get("remaining_restarts", event.get("runs", "")),
     }
+
+
+def _scenario_notice_type_icon(event_type):
+    event_type = str(event_type or "").strip().lower()
+    icons = {
+        "airdrop": "📦",
+        "loot_crate": "📦",
+        "zombie_horde": "☠️",
+        "animal_pack": "🐾",
+        "vehicle_spawn": "🚙",
+        "gas_zone": "☣️",
+    }
+    return icons.get(event_type, "📍")
+
+
+def _scenario_notice_coord_text(event, guild_id):
+    x = event.get("x")
+    z = event.get("z")
+    if not str(x).strip() or not str(z).strip():
+        return "-"
+    coord = f"({x}, {z})"
+    link = _rpt_world_link(x, z, guild_id)
+    return f"[{coord}]({link})" if link else coord
+
+
+def _scenario_notice_event_line(event, guild_id):
+    event_type = str(event.get("type") or "event")
+    name = str(event.get("name") or event.get("id") or "event")
+    class_name = str(event.get("class") or "-")
+    radius = str(event.get("radius") or "").strip()
+    mode = "permanent" if event.get("permanent") else f"{event.get('runs') or 1} run(s)"
+    radius_text = f" · r{radius}m" if radius else ""
+    return (
+        f"- {_scenario_notice_type_icon(event_type)} **{name}** `{event_type}` / `{class_name}` "
+        f"at {_scenario_notice_coord_text(event, guild_id)}{radius_text} · {mode}"
+    )[:260]
 
 
 def queue_scenario_event_discord_notice(config, success, built=None, messages=None, events=None, source="Dashboard"):
@@ -26925,43 +26964,81 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
     channel = await get_or_create_rpt_admin_channel(guild, config)
     if not channel:
         return False
+    state = rpt_event_tracker.setdefault(str(guild_id), {
+        "events": [], "last_restart_ts": 0, "last_rpt_size": 0,
+        "enabled": True, "embed_message_id": None, "channel_id": None,
+        "restart_marker_count": 0,
+    })
+    state["channel_id"] = channel.id
+    tracker_status = ""
+    try:
+        tracker_status = await refresh_rpt_event_tracker(guild_id, config)
+    except Exception as tracker_error:
+        tracker_status = f"Tracker refresh failed: {tracker_error}"
     success = bool(notice.get("success"))
     embed = discord.Embed(
-        title="Native CE XML uploaded" if success else "Native CE XML upload failed",
+        title="🛰️ LIVE EVENT DEPLOYMENT" if success else "⚠️ LIVE EVENT DEPLOYMENT FAILED",
         description=(
             f"Source: **{notice.get('source') or 'Dashboard'}**\n"
-            f"Guild: **{guild.name}**\n"
-            f"Status: **{'ready after server restart' if success else 'needs attention'}**"
+            f"Server: **{guild.name}**\n"
+            f"Status: **{'CE XML uploaded - restart server for new spawns' if success else 'needs attention before it can spawn'}**\n"
+            f"Tracker: {tracker_status or 'waiting for next .RPT pull'}"
         ),
         color=0x2ECC71 if success else 0xE74C3C,
     )
+    event_lines = []
+    for event in notice.get("events") or []:
+        event_lines.append(_scenario_notice_event_line(event, guild.id))
+    if event_lines:
+        embed.add_field(name="Queued dashboard event(s)", value="\n".join(event_lines)[:1024], inline=False)
+
+    live_events = list((rpt_event_tracker.get(str(guild_id), {}) or {}).get("events") or [])
+    if live_events:
+        now_ts = datetime.now(UTC).timestamp()
+        live_lines = []
+        for ev in live_events[:8]:
+            link = _rpt_world_link(ev.get("x"), ev.get("z"), guild.id)
+            coord = f"({int(ev.get('x', 0))}, {int(ev.get('z', 0))})"
+            if link:
+                coord = f"[{coord}]({link})"
+            age_s = int(now_ts - float(ev.get("first_seen_ts", now_ts)))
+            live_lines.append(f"- **{ev.get('type', 'Unknown')}** at {coord} · age {format_duration_seconds(age_s)}")
+        if len(live_events) > 8:
+            live_lines.append(f"- +{len(live_events) - 8} more live tracked spawn(s)")
+        embed.add_field(name="Currently visible in latest RPT", value="\n".join(live_lines)[:1024], inline=False)
+
     path_lines = []
     for label, key in (
         ("events.xml", "events_path"),
         ("cfgeventspawns.xml", "spawns_path"),
         ("eventgroups.xml", "eventgroups_path"),
-        ("cfgeventspawnabletypes.xml", "spawnabletypes_path"),
+        ("cfgspawnabletypes.xml", "spawnabletypes_path"),
     ):
         value = str(notice.get(key) or "").strip()
         if value:
             path_lines.append(f"- **{label}** `{value}`")
     if path_lines:
-        embed.add_field(name="Uploaded files", value="\n".join(path_lines)[:1024], inline=False)
-    event_lines = []
-    for event in notice.get("events") or []:
-        name = str(event.get("name") or event.get("id") or "event")
-        event_type = str(event.get("type") or "event")
-        class_name = str(event.get("class") or "-")
-        x = event.get("x")
-        z = event.get("z")
-        coord = f"({x}, {z})" if str(x) and str(z) else "-"
-        event_lines.append(f"- `{event_type}` **{name}** / `{class_name}` at {coord}")
-    if event_lines:
-        embed.add_field(name="Dashboard events", value="\n".join(event_lines)[:1024], inline=False)
+        embed.add_field(name="Uploaded CE files", value="\n".join(path_lines)[:1024], inline=False)
+
+    diagnostics = list((rpt_event_tracker.get(str(guild_id), {}) or {}).get("diagnostics") or [])
+    warning_lines = []
+    for item in diagnostics[:6]:
+        kind = str(item.get("kind") or "Warning")
+        name = str(item.get("name") or "RPT")
+        message = str(item.get("message") or "Check the latest RPT.")
+        warning_lines.append(f"- **{kind}** `{name}`: {message}"[:240])
     messages = [str(message) for message in (notice.get("messages") or []) if str(message).strip()]
-    if messages:
-        embed.add_field(name="Details", value="\n".join(f"- {message}" for message in messages)[-1024:], inline=False)
-    embed.set_footer(text=f"Posted {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    for message in messages[-4:]:
+        warning_lines.append(f"- {message}"[:240])
+    if warning_lines:
+        embed.add_field(name="Spawn / upload details", value="\n".join(warning_lines)[-1024:], inline=False)
+
+    embed.add_field(
+        name="What happens next",
+        value="Restart the server. The pinned live spawn tracker will update from the next `.RPT` pull and will show what actually spawned, where, and any warnings the parser can see.",
+        inline=False,
+    )
+    embed.set_footer(text=f"Wandering Bot live events · Posted {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     try:
         await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
         return True

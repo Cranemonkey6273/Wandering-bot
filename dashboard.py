@@ -1238,6 +1238,34 @@ PAGE_TEMPLATE = """
       object-fit: contain;
       filter: drop-shadow(0 18px 28px rgba(0,0,0,.45));
     }
+    .command-character {
+      position: relative;
+      overflow: hidden;
+      min-height: 24rem;
+      isolation: isolate;
+    }
+    .command-character::before {
+      content: "";
+      position: absolute;
+      inset: 1rem 12%;
+      z-index: -1;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(103,245,231,.20), transparent 68%);
+      filter: blur(10px);
+    }
+    .command-character .command-character-portrait {
+      position: absolute;
+      left: 50%;
+      top: -.75rem;
+      width: 33rem;
+      max-width: none;
+      height: 33rem;
+      max-height: none;
+      transform: translateX(-50%);
+      object-fit: cover;
+      object-position: center top;
+      filter: drop-shadow(0 24px 32px rgba(0,0,0,.55));
+    }
     .command-gear-column { display: grid; gap: .45rem; }
     .command-gear-card {
       min-height: 4.45rem;
@@ -1545,11 +1573,22 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll {
       min-height: 30rem;
     }
-    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img {
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) {
       width: min(20rem, 98%);
       max-height: 29rem;
       border-radius: 0;
       object-fit: contain;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character {
+      min-height: 30rem;
+      background:
+        radial-gradient(circle at 50% 38%, rgba(103,245,231,.18), transparent 35%),
+        linear-gradient(180deg, rgba(16,35,42,.58), rgba(2,9,11,.08));
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
+      width: 36rem;
+      height: 36rem;
+      top: -1.3rem;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-gear-card {
       min-height: 5.1rem;
@@ -1613,7 +1652,13 @@ PAGE_TEMPLATE = """
       body[data-theme="command"] .panel-grid { grid-template-columns: 1fr; }
       body[data-theme="command"][data-section="visual-loadout"] .loadout-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll { min-height: 18rem; }
-      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img { max-height: 17rem; }
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) { max-height: 17rem; }
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character { min-height: 18rem; }
+      body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
+        width: 24rem;
+        height: 24rem;
+        top: -.85rem;
+      }
     }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
@@ -2255,7 +2300,7 @@ PAGE_TEMPLATE = """
               </a>
               {% endfor %}
             </div>
-            <div class="command-paperdoll"><img src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-image" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[4:8] %}
               {% set item = card.item %}
@@ -4382,7 +4427,7 @@ PAGE_TEMPLATE = """
               </a>
               {% endfor %}
             </div>
-            <div class="command-paperdoll"><img src="/brand-image" alt="Wandering Bot loadout preview"></div>
+            <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-image" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[5:10] %}
               {% set item = card.item %}
