@@ -980,6 +980,9 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] .category-grid { display: none; }
     body[data-theme="command"][data-section="overview"] main > .grid,
     body[data-theme="command"][data-section="overview"] main > .servers { display: none; }
+    body[data-theme="command"] .theme-picker button:not([data-theme-choice="command"]) {
+      display: none;
+    }
     body[data-theme="command"] .command-sidebar {
       position: fixed;
       inset: 0 auto 0 0;
@@ -1086,6 +1089,42 @@ PAGE_TEMPLATE = """
       display: grid;
       gap: .75rem;
     }
+    body[data-theme="command"][data-section="overview"] main > section.grid,
+    body[data-theme="command"][data-section="overview"] main > section.servers {
+      display: none;
+    }
+    body[data-theme="command"] .section-nav {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 1rem;
+      min-height: 3rem;
+      padding: .45rem .9rem;
+      overflow-x: auto;
+      border-color: rgba(103,245,231,.16);
+      border-radius: .55rem;
+      background: rgba(4,12,15,.68);
+      scrollbar-width: thin;
+    }
+    body[data-theme="command"] .section-nav .tab-link {
+      flex: 0 0 auto;
+      min-height: 2rem;
+      padding: .35rem 0;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      background: transparent;
+      color: #92a8ad;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      box-shadow: none;
+    }
+    body[data-theme="command"] .section-nav .tab-link:hover,
+    body[data-theme="command"] .section-nav .tab-link:focus-visible {
+      color: #effcff;
+      border-bottom-color: rgba(103,245,231,.55);
+    }
     .command-metrics {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1177,34 +1216,37 @@ PAGE_TEMPLATE = """
     }
     .command-loadout {
       display: grid;
-      grid-template-columns: .55fr minmax(9rem, .7fr) .65fr;
-      gap: .65rem;
-      padding: .85rem;
+      grid-template-columns: minmax(7rem, .72fr) minmax(12rem, 1fr) minmax(7rem, .72fr);
+      gap: .75rem;
+      padding: .9rem;
+      align-items: center;
     }
     .command-paperdoll {
       display: grid;
       place-items: center;
-      min-height: 17.5rem;
+      min-height: 20rem;
       border-radius: .45rem;
-      background: radial-gradient(circle at 50% 45%, rgba(38,239,228,.14), rgba(7,15,18,.02) 58%);
+      background:
+        radial-gradient(circle at 50% 38%, rgba(103,245,231,.22), transparent 34%),
+        linear-gradient(180deg, rgba(24,42,49,.62), rgba(4,12,15,.1));
     }
     .command-paperdoll img {
-      width: min(12rem, 92%);
-      max-height: 16.5rem;
+      width: min(15rem, 96%);
+      max-height: 19rem;
       object-fit: contain;
       filter: drop-shadow(0 18px 28px rgba(0,0,0,.45));
     }
     .command-gear-column { display: grid; gap: .45rem; }
     .command-gear-card {
-      min-height: 3.9rem;
-      padding: .45rem;
+      min-height: 4.45rem;
+      padding: .55rem;
       border: 1px solid rgba(103,245,231,.13);
       border-radius: .38rem;
       background: rgba(2,9,11,.62);
     }
     .command-gear-card span { display: block; color: #94a7ac; font-size: .68rem; }
     .command-gear-card strong { display: block; margin-top: .18rem; color: #e8f5f7; font-size: .82rem; overflow-wrap: anywhere; }
-    .command-gear-card img { width: 2rem; height: 2rem; object-fit: contain; float: right; }
+    .command-gear-card img { width: 2.35rem; height: 2.35rem; object-fit: contain; float: right; }
     .command-map-card { padding: .65rem; }
     .command-map {
       position: relative;
@@ -1375,6 +1417,8 @@ PAGE_TEMPLATE = """
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
         grid-template-columns: 1fr;
       }
+      .command-paperdoll { min-height: 14rem; }
+      .command-paperdoll img { max-height: 13rem; }
       .command-table { min-width: 46rem; }
       .command-card { overflow-x: auto; }
       .command-status-bar { position: static; margin-inline: -.55rem; }
@@ -1767,20 +1811,6 @@ PAGE_TEMPLATE = """
     <div class="theme-picker" aria-label="Theme picker">
       <label>Theme
         <select data-theme-select onchange="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice(this.value)">
-          <option value="default">Wandering</option>
-          <option value="forest">Forest</option>
-          <option value="amber">Amber</option>
-          <option value="steel">Steel</option>
-          <option value="highland">Highland</option>
-          <option value="daylight">Daylight</option>
-          <option value="sandstorm">Sandstorm</option>
-          <option value="midnight">Midnight</option>
-          <option value="bloodmoon">Blood Moon</option>
-          <option value="radioactive">Radioactive</option>
-          <option value="arctic">Arctic</option>
-          <option value="toxic">Toxic</option>
-          <option value="violet">Violet</option>
-          <option value="rose">Rose</option>
           <option value="command">Command</option>
         </select>
       </label>
@@ -1805,7 +1835,7 @@ PAGE_TEMPLATE = """
         const serverTheme = "{{ dashboard_theme }}";
         const initialTheme = "command";
         function apply(theme, persist) {
-          const safeTheme = theme || "default";
+          const safeTheme = "command";
           document.documentElement.dataset.theme = safeTheme === "default" ? "" : safeTheme;
           document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
           document.querySelectorAll("[data-theme-select]").forEach((select) => { select.value = safeTheme; });
@@ -1836,7 +1866,7 @@ PAGE_TEMPLATE = """
         <strong>Wandering Bot</strong>
         <small>{{ server.guild_name if server else view_title }}</small>
         <span class="command-status"><span class="command-dot"></span>Online</span>
-        <small>DayZ | PC | {{ (server.map|capitalize) if server else 'Chernarus' }}</small>
+        <small>DayZ | {{ server.platform_label if server else 'Xbox' }} | {{ (server.map|capitalize) if server else 'Chernarus' }}</small>
       </div>
     </div>
     <nav class="command-side-nav">
@@ -1972,7 +2002,7 @@ PAGE_TEMPLATE = """
         <div class="command-metric"><span>PVE Events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><small>{{ active_event_count }} active</small></div>
         <div class="command-metric"><span>Zones</span><strong>{{ zone_count }}</strong><small>{{ zone_count }} mapped</small></div>
         <div class="command-metric"><span>Shop Items</span><strong>{{ summary.shop_items }}</strong><small>Economy ready</small></div>
-        <div class="command-metric"><span>Last Refresh</span><strong>{{ generated_at[-5:] if generated_at else 'Now' }}</strong><small>Dashboard sync</small></div>
+        <div class="command-metric"><span>Last Refresh</span><strong>{{ generated_clock }}</strong><small>Dashboard sync</small></div>
       </div>
 
       <div class="command-grid">
@@ -4857,8 +4887,9 @@ PAGE_TEMPLATE = """
     {% endif %}
   </main>
   <div class="command-status-bar" aria-label="Command connection status">
-    <span>Server Time: <strong>{{ generated_at }}</strong></span>
+    <span>UK Time: <strong>{{ generated_at }}</strong></span>
     <span>Version: <strong>1.26</strong></span>
+    <span>Platform: <strong>{{ server.platform_label if server else 'Xbox' }}</strong></span>
     <span>Map: <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
     <span><span class="ok">Database: Connected</span> | <span class="ok">Nitrado: Connected</span></span>
     <span>Players: <strong>{{ summary.online }}/{{ summary.players }}</strong></span>
@@ -5292,7 +5323,7 @@ PAGE_TEMPLATE = """
       window.location.replace(secureDashboardUrl(window.location.pathname + window.location.search + window.location.hash));
     }
     function applyTheme(theme) {
-      const safeTheme = theme || "default";
+      const safeTheme = "command";
       document.documentElement.dataset.theme = safeTheme === "default" ? "" : safeTheme;
       document.body.dataset.theme = safeTheme === "default" ? "" : safeTheme;
       document.querySelectorAll("[data-theme-choice]").forEach((button) => {
@@ -9533,6 +9564,15 @@ def normalize_dashboard_server_platform(value: Any) -> str:
     return "xbox"
 
 
+def dashboard_server_platform_label(value: Any) -> str:
+    key = normalize_dashboard_server_platform(value)
+    if key == "playstation":
+        return "PlayStation"
+    if key == "pc":
+        return "PC"
+    return "Xbox"
+
+
 def dashboard_server_map_key(config: dict[str, Any] | None) -> str:
     config = config if isinstance(config, dict) else {}
     configured = str(config.get("server_map") or config.get("map") or "").strip().lower()
@@ -10727,7 +10767,11 @@ def parse_zombie_mix(value: Any) -> list[dict[str, Any]]:
 
 
 def local_dashboard_time() -> str:
-    return datetime.now(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S %Z")
+    return datetime.now(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S UK")
+
+
+def local_dashboard_clock() -> str:
+    return datetime.now(DASHBOARD_TIMEZONE).strftime("%H:%M")
 
 
 def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
@@ -11472,9 +11516,7 @@ VALID_DASHBOARD_THEMES = {
 
 
 def dashboard_theme_from_config(config: dict[str, Any]) -> str:
-    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
-    theme = str(dashboard.get("theme") or config.get("dashboard_theme") or "command").strip().lower()
-    return theme if theme in VALID_DASHBOARD_THEMES else "command"
+    return "command"
 
 
 def item_image_url(item_name: Any) -> str:
@@ -12211,6 +12253,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
         access = dashboard_access(config)
         server_map = str(config.get("server_map") or config.get("map") or "chernarus")
+        server_platform = normalize_dashboard_server_platform(config.get("server_platform") or config.get("platform"))
         channels = public_channels(config.get("channels", {}), guild_id)
         server_factions = faction_records_for_guild(factions, guild_id) if needs_factions else {}
         server_factions = enrich_faction_channel_labels(server_factions, channels) if server_factions else {}
@@ -12253,6 +12296,8 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "map_key": map_key_for(server_map),
                 "map_size": map_size_for(server_map),
                 "map_image_available": map_image_available_for(server_map),
+                "platform": server_platform,
+                "platform_label": dashboard_server_platform_label(server_platform),
                 "online": online,
                 "leaders": players,
                 "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
@@ -12318,6 +12363,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         "dashboard_admin": redact(dashboard_admin),
         "owner_notifications": owner_notifications(servers, delivery_queue, dashboard_admin),
         "generated_at": local_dashboard_time(),
+        "generated_clock": local_dashboard_clock(),
     }
 
 
@@ -12438,6 +12484,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
+        generated_clock=state.get("generated_clock") or "",
         admin_routes=ADMIN_ROUTES,
         all_routes=sorted(str(rule) for rule in APP.url_map.iter_rules()),
     )
