@@ -24592,6 +24592,8 @@ SCENARIO_SPAWN_PRESETS = {
     "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop"},
     "survival_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop"},
     "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "gas_temp": {"label": "Temporary gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120},
+    "gas_permanent": {"label": "Permanent gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
 
@@ -24824,6 +24826,8 @@ def scenario_location_presets_for_map(map_key):
 
 def infer_scenario_type_from_class(class_name):
     lower = normalize_discord_name(class_name)
+    if "contaminatedarea" in lower:
+        return "gas_zone"
     if lower.startswith("zmb") or "zmb" in lower:
         return "zombie_horde"
     if lower.startswith("animal") or any(term in lower for term in ["canislupus", "ursus", "cervus", "sus", "gallus", "bos", "capra"]):
@@ -25240,6 +25244,8 @@ def console_ce_event_config(config):
 def ce_event_family_for_record(event_type, class_name=""):
     event_type = str(event_type or "").strip().lower()
     class_name = str(class_name or "").strip()
+    if event_type == "gas_zone" or class_name.startswith("ContaminatedArea"):
+        return "ContaminatedArea"
     if class_name.startswith("Animal_") or event_type == "animal_pack":
         return "Animal"
     if class_name.startswith("Zmb") or event_type == "zombie_horde":
@@ -26116,6 +26122,9 @@ def console_ce_records_for_event(event):
         lifetime = 1800
     elif event_type == "animal_pack":
         lifetime = 3600
+    elif event_type == "gas_zone":
+        count = 1
+        lifetime = max(60, min(3888000, safe_int(event.get("gas_lifetime"), 3888000 if event.get("permanent") else 1800)))
 
     if event_type in {"airdrop", "loot_crate"}:
         class_name = scenario_container_class_for_ce(class_name)
@@ -26162,6 +26171,9 @@ def console_ce_records_for_event(event):
     if event_type == "animal_pack":
         family = "Animal"
         limit_type = "child"
+    if event_type == "gas_zone":
+        family = "ContaminatedArea"
+        limit_type = "child"
 
     record_name = ce_event_name(event, family=family)
     record = {
@@ -26190,6 +26202,26 @@ def console_ce_records_for_event(event):
         "cleanupradius": 1500 if use_eventgroup else 100,
         "remove_damaged": event_type in {"airdrop", "loot_crate"},
     }
+    if event_type == "gas_zone":
+        gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
+        record.update({
+            "count": 1,
+            "nominal": 1,
+            "min_count": 1,
+            "max_count": 1,
+            "lifetime": lifetime,
+            "radius": gas_radius,
+            "saferadius": 0,
+            "distanceradius": max(50, gas_radius),
+            "cleanupradius": max(100, gas_radius + 100),
+            "child_lootmin": 0,
+            "child_lootmax": 0,
+            "remove_damaged": False,
+        })
+        warnings.append(
+            f"`{event.get('id')}` creates a fixed contaminated gas zone at X/Z for {lifetime} seconds. "
+            "Permanent dashboard mode keeps it in CE XML until the event is deleted."
+        )
     if event_type == "animal_pack":
         territory = animal_territory_profile(class_name)
         territory_name = record_name[len("Animal"):] if record_name.startswith("Animal") else record_name
@@ -27089,6 +27121,7 @@ def build_scenario_event_xml(event):
         "guard_class": event.get("guard_class", ""),
         "guard_count": event.get("guard_count", ""),
         "guard_radius": event.get("guard_radius", ""),
+        "gas_lifetime": event.get("gas_lifetime", ""),
         "marker_class": event.get("marker_class", ""),
         "visual_marker": "1" if event.get("visual_marker") else "",
     }
@@ -32426,6 +32459,7 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
         app_commands.Choice(name="Airdrop horde", value="zombie_horde"),
         app_commands.Choice(name="Airdrop animals", value="animal_pack"),
         app_commands.Choice(name="Airdrop loot", value="airdrop"),
+        app_commands.Choice(name="Gas zone", value="gas_zone"),
         app_commands.Choice(name="Custom class spawn", value="custom_spawn"),
     ],
     loot_preset=[
@@ -32489,6 +32523,9 @@ async def event_create(
     radius = max(0, min(2000, int(radius or 0)))
     if chosen_event_type in {"loot_crate", "airdrop"} and count > 20:
         count = 20
+    if chosen_event_type == "gas_zone":
+        count = 1
+        radius = max(30, radius)
 
     loot_key = loot_preset or "none"
     if spawn_preset in {"military_crate"} and loot_key == "none":
@@ -32517,6 +32554,7 @@ async def event_create(
         "radius": radius,
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
+        "gas_lifetime": 3888000 if permanent else 1800,
         **restart_count_fields(0 if permanent else 1),
         "enabled": True,
         "created_by": str(interaction.user.id),

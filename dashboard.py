@@ -66,6 +66,8 @@ SCENARIO_SPAWN_PRESETS = {
     "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "medical"},
     "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "building"},
     "food_crate": {"label": "Food loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "food"},
+    "gas_temp": {"label": "Temporary gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120},
+    "gas_permanent": {"label": "Permanent gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
 DASHBOARD_AIRDROP_LOCATION_PRESETS = {
@@ -3292,7 +3294,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35) %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, gas_lifetime=1800) %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -3313,6 +3315,7 @@ PAGE_TEMPLATE = """
           {% set edit_event.guard_class = event.guard_class or '' %}
           {% set edit_event.guard_count = event.guard_count or 0 %}
           {% set edit_event.guard_radius = event.guard_radius or 35 %}
+          {% set edit_event.gas_lifetime = event.gas_lifetime or 1800 %}
         {% endif %}
       {% endfor %}
     {% endif %}
@@ -3360,6 +3363,7 @@ PAGE_TEMPLATE = """
                 <option value="animal_pack" data-default-preset="bear" {% if edit_event.event_type == 'animal_pack' %}selected{% endif %}>Airdrop animals</option>
                 <option value="zombie_horde" data-default-preset="civilian_zombie" {% if edit_event.event_type == 'zombie_horde' %}selected{% endif %}>Airdrop horde</option>
                 <option value="vehicle_spawn" data-default-preset="m3s" {% if edit_event.event_type == 'vehicle_spawn' %}selected{% endif %}>Vehicle spawn</option>
+                <option value="gas_zone" data-default-preset="gas_temp" {% if edit_event.event_type == 'gas_zone' %}selected{% endif %}>Gas zone</option>
               </select>
             </label>
             <label>Spawn type
@@ -3382,6 +3386,8 @@ PAGE_TEMPLATE = """
                 <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="5" data-loot="vehicle_car">Olga 24</option>
                 <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="5" data-loot="vehicle_truck">M3S covered truck</option>
                 <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="5" data-loot="vehicle_car">Custom vehicle classname</option>
+                <option value="gas_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-permanent="false">Temporary gas zone</option>
+                <option value="gas_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-permanent="true">Permanent gas zone</option>
                 <option value="custom">Custom classname</option>
               </select>
             </label>
@@ -3418,6 +3424,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
+            <label>Gas duration seconds <input name="gas_lifetime" type="number" min="60" max="3888000" value="{{ edit_event.gas_lifetime }}"><small class="field-help">Used by gas zones as the CE lifetime. Permanent keeps the zone in XML until deleted.</small></label>
             <label>Loot preset
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
               <small class="field-help">✨ Pristine loot. Ammo/medical in crates, big gear around scene.</small>
@@ -3481,7 +3488,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Queued ✅' }}{% if event.upload_error %}<br><small class="muted">⚠️ {{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -7670,6 +7677,7 @@ PAGE_TEMPLATE = """
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
+        if (form.elements.gas_lifetime) form.elements.gas_lifetime.value = button.dataset.gasLifetime || 1800;
         form.dispatchEvent(new CustomEvent("scenario-prefill"));
         form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "start"});
@@ -7781,6 +7789,8 @@ PAGE_TEMPLATE = """
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
         if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
         if (option.dataset.loot && form.elements.loot_preset) form.elements.loot_preset.value = option.dataset.loot;
+        if (option.dataset.gasLifetime && form.elements.gas_lifetime) form.elements.gas_lifetime.value = option.dataset.gasLifetime;
+        if (option.dataset.permanent && form.elements.permanent) form.elements.permanent.value = option.dataset.permanent;
       }
       presetSelect.addEventListener("change", syncScenarioPreset);
       if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
@@ -13853,7 +13863,7 @@ def api_scenario_event():
     event_type = str(payload.get("event_type") or "airdrop").strip().lower()
     if event_type == "loot_crate":
         event_type = "airdrop"
-    allowed_types = {"airdrop", "animal_pack", "zombie_horde", "loot_crate", "vehicle_spawn", "vehicle_reset_point", "vehicle_reset_all"}
+    allowed_types = {"airdrop", "animal_pack", "zombie_horde", "loot_crate", "vehicle_spawn", "vehicle_reset_point", "vehicle_reset_all", "gas_zone"}
     if event_type not in allowed_types:
         return jsonify({"ok": False, "error": "unsupported scenario event type"}), 400
 
@@ -13887,11 +13897,14 @@ def api_scenario_event():
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
     map_size = map_size_for(server_map)
     spawn_preset = str(payload.get("spawn_preset") or "").strip()
+    if spawn_preset == "gas_permanent":
+        permanent = True
     default_preset_by_type = {
         "airdrop": "military_crate",
         "animal_pack": "bear",
         "zombie_horde": "civilian_zombie",
         "vehicle_spawn": "m3s",
+        "gas_zone": "gas_temp",
     }
     preset = SCENARIO_SPAWN_PRESETS.get(spawn_preset, {})
     if event_type == "vehicle_spawn" and not preset:
@@ -13921,6 +13934,7 @@ def api_scenario_event():
             "vehicle_spawn": "OffroadHatchback",
             "vehicle_reset_point": "OffroadHatchback",
             "vehicle_reset_all": "ALL_VEHICLES",
+            "gas_zone": "ContaminatedArea_Dynamic",
         }
         class_name = defaults[event_type]
 
@@ -13943,6 +13957,8 @@ def api_scenario_event():
         scene_type = "compact_crater"
     if event_type in {"airdrop", "loot_crate"} and safe_bool(payload.get("visual_marker"), False):
         radius = max(radius, scene_min_radius[scene_type])
+    if event_type == "gas_zone":
+        radius = max(30, radius)
     location_name = str(payload.get("location") or "").strip()
     saved_location_name = str(payload.get("saved_location") or "").strip()
     saved_location = dashboard_airdrop_preset_location(server_map, saved_location_name)
@@ -13966,6 +13982,10 @@ def api_scenario_event():
     event_count = max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
+    if event_type == "gas_zone":
+        event_count = 1
+    gas_lifetime_default = 3888000 if permanent else 1800
+    gas_lifetime = max(60, min(3888000, safe_int(payload.get("gas_lifetime"), gas_lifetime_default)))
 
     base_name = str(payload.get("name") or "").strip()
     label_name = str(preset.get("label") or event_type.replace("_", " ").title()).strip()
@@ -14008,6 +14028,7 @@ def api_scenario_event():
             "guard_class": str(payload.get("guard_class") or "").strip(),
             "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
             "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
+            "gas_lifetime": gas_lifetime,
             "permanent": permanent,
             "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
             "enabled": True,
