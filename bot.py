@@ -10559,6 +10559,91 @@ def parse_rpt_for_events(rpt_text):
     return restart_markers, events
 
 
+def parse_rpt_diagnostics(rpt_text, limit=16):
+    if not rpt_text:
+        return []
+    diagnostics = []
+    seen = set()
+
+    def add(kind, name, message, line_index):
+        if len(diagnostics) >= limit:
+            return
+        key = (kind, name, message)
+        if key in seen:
+            return
+        seen.add(key)
+        diagnostics.append({
+            "kind": str(kind or "Warning")[:60],
+            "name": str(name or "RPT")[:120],
+            "message": str(message or "")[:240],
+            "line_index": int(line_index or 0),
+        })
+
+    for i, raw_line in enumerate(rpt_text.splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        m = re.search(r'DynamicEvent\s+"([^"]+)"\s+setup is invalid, event will be disabled', line, re.I)
+        if m:
+            add("Disabled event", m.group(1), "setup is invalid; DayZ disabled this event", i)
+            continue
+        m = re.search(r'\[DynEvent\]\s+"([^"]+)"\s+will be ignored\s+::\s+(.+)', line, re.I)
+        if m:
+            add("Ignored event", m.group(1), m.group(2), i)
+            continue
+        m = re.search(r'\[DynEvent\]\s+"([^"]+)"\s+failed to initialize spawner\s+-\s+(.+)', line, re.I)
+        if m:
+            add("Spawner failed", m.group(1), m.group(2), i)
+            continue
+        m = re.search(r"Skipping entry for non-existing event '([^']+)'", line, re.I)
+        if m:
+            add("Missing event", m.group(1), "cfgeventspawns.xml references an event not present in events.xml", i)
+            continue
+        m = re.search(r'File\s+"([^"]+)"\s+does not exist', line, re.I)
+        if m:
+            add("Missing file", m.group(1), "required CE/XML file is missing", i)
+            continue
+        m = re.search(r'\[ERROR\]\[XML\]\s+::\s+(.+)', line, re.I)
+        if m:
+            add("XML error", "XML", m.group(1), i)
+            continue
+        m = re.search(r"Type '([^']+)'\s+will be ignored\.\s+\((.+)\)", line, re.I)
+        if m:
+            add("Ignored type", m.group(1), m.group(2), i)
+            continue
+        m = re.search(r'PRESET LOAD ERROR:\s+(.+)', line, re.I)
+        if m:
+            add("Preset error", "spawnabletypes", m.group(1), i)
+            continue
+        m = re.search(r"Preset \([^)]+\) with name '([^']+)'\s+was not found", line, re.I)
+        if m:
+            add("Missing preset", m.group(1), "referenced loot preset was not found", i)
+            continue
+        m = re.search(r"Unknown value:\s+'([^']+)'", line, re.I)
+        if m:
+            add("Unknown value", m.group(1), "DayZ CE does not recognise this value/tag", i)
+            continue
+        m = re.search(r"Type 'ManType' must be inherited from class 'DayZAnimalType'", line, re.I)
+        if m:
+            add("Animal error", "animal storage", "saved animal/entity data is not matching DayZAnimalType", i)
+            continue
+        m = re.search(r'groups failed:\s*([1-9]\d*)', line, re.I)
+        if m:
+            add("Map group failures", "mapgrouppos/mapgroupproto", f"{m.group(1)} group(s) failed to load", i)
+            continue
+        m = re.search(r'No group configured for \'([^\']+)\', failed to spawn loot', line, re.I)
+        if m:
+            add("No loot group", m.group(1), "object spawned but CE has no loot group for it", i)
+            continue
+        m = re.search(r'Object spawner failed to spawn\s+(.+)', line, re.I)
+        if m:
+            add("Object spawn failed", m.group(1), "object path/class failed in object spawner", i)
+            continue
+        if len(diagnostics) >= limit:
+            break
+    return diagnostics
+
+
 async def get_or_create_rpt_admin_channel(guild, config):
     channels = config.setdefault("channels", {})
     existing_id = channels.get("rpt_admin")
@@ -10642,6 +10727,17 @@ def _build_rpt_event_embed(guild_id, state):
                 value=f"`{hidden_events}` extra spawn(s) are tracked but hidden to stay under Discord embed limits. Use `/server liveevents list` for the full list.",
                 inline=False,
             )
+    diagnostics = state.get("diagnostics") or []
+    if diagnostics:
+        lines = []
+        for item in diagnostics[:8]:
+            kind = str(item.get("kind") or "Warning")
+            name = str(item.get("name") or "RPT")
+            message = str(item.get("message") or "Check the latest RPT.")
+            lines.append(f"- **{kind}** `{name}`: {message}"[:240])
+        if len(diagnostics) > 8:
+            lines.append(f"- +{len(diagnostics) - 8} more warning(s) in the latest RPT pull")
+        embed.add_field(name="Spawn / XML warnings", value="\n".join(lines)[:1024], inline=False)
     embed.set_footer(text=f"Wandering Bot Alpha — refresh every 5 min · Updated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     return embed
 
@@ -10672,7 +10768,7 @@ async def _post_or_update_rpt_embed(guild, state):
         return False
 
 
-async def _post_rpt_restart_report(guild, state, new_events):
+async def _post_rpt_restart_report(guild, state, new_events, diagnostics=None):
     channel = guild.get_channel(int(state.get("channel_id", 0)))
     if not channel:
         return
@@ -10693,6 +10789,14 @@ async def _post_rpt_restart_report(guild, state, new_events):
                 ct = f"[{ct}]({link})"
             lines.append(f"• **{ev['type']}** at {ct}")
         embed.add_field(name="First spawns of the cycle", value="\n".join(lines)[:1024], inline=False)
+    if diagnostics:
+        lines = []
+        for item in diagnostics[:8]:
+            kind = str(item.get("kind") or "Warning")
+            name = str(item.get("name") or "RPT")
+            message = str(item.get("message") or "Check the latest RPT.")
+            lines.append(f"- **{kind}** `{name}`: {message}"[:240])
+        embed.add_field(name="Warnings found in startup RPT", value="\n".join(lines)[:1024], inline=False)
     try:
         await channel.send(embed=style_embed(embed))
     except Exception as err:
@@ -10728,7 +10832,10 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     state["last_rpt_size"] = new_size
 
     restart_markers, events = parse_rpt_for_events(text)
+    diagnostics = parse_rpt_diagnostics(text)
     now_ts = datetime.now(UTC).timestamp()
+    state["diagnostics"] = diagnostics
+    state["diagnostics_updated_ts"] = now_ts
 
     saw_new_restart = force_restart_post
     last_known = int(state.get("restart_marker_count") or 0)
@@ -10765,7 +10872,7 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     await _post_or_update_rpt_embed(guild, state)
 
     if saw_new_restart:
-        await _post_rpt_restart_report(guild, state, new_events_this_cycle or kept)
+        await _post_rpt_restart_report(guild, state, new_events_this_cycle or kept, diagnostics)
         save_rpt_event_tracker()
 
     return f"OK — {len(kept)} live event(s), restart={saw_new_restart}, restarts_total={state.get('restart_marker_count', 0)}"
@@ -26740,6 +26847,115 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     return success, built, messages
 
 
+def _scenario_notice_event_summary(event):
+    if not isinstance(event, dict):
+        return {}
+    return {
+        "id": event.get("id", ""),
+        "name": event.get("name", ""),
+        "type": event.get("event_type", ""),
+        "class": event.get("class_name", ""),
+        "x": event.get("x", ""),
+        "z": event.get("z", ""),
+        "runs": event.get("remaining_restarts", event.get("runs", "")),
+    }
+
+
+def queue_scenario_event_discord_notice(config, success, built=None, messages=None, events=None, source="Dashboard"):
+    if not isinstance(config, dict):
+        return False
+    summaries = [_scenario_notice_event_summary(event) for event in (events or [])]
+    summaries = [summary for summary in summaries if summary]
+    notices = config.setdefault("scenario_event_discord_notices", [])
+    if not isinstance(notices, list):
+        notices = []
+    notice = {
+        "id": f"{datetime.now(UTC).timestamp()}-{len(notices)}",
+        "created_at": datetime.now(UTC).isoformat(),
+        "source": str(source or "Dashboard")[:80],
+        "success": bool(success),
+        "events_path": str((built or {}).get("events_path") or ""),
+        "spawns_path": str((built or {}).get("spawns_path") or ""),
+        "eventgroups_path": str((built or {}).get("eventgroups_path") or ""),
+        "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
+        "messages": [str(message)[:260] for message in (messages or [])[-6:]],
+        "events": summaries[:10],
+    }
+    notices.append(notice)
+    config["scenario_event_discord_notices"] = notices[-8:]
+    return True
+
+
+async def post_scenario_event_discord_notice(guild_id, config, notice):
+    guild = bot.get_guild(int(guild_id))
+    if not guild:
+        return False
+    channel = await get_or_create_rpt_admin_channel(guild, config)
+    if not channel:
+        return False
+    success = bool(notice.get("success"))
+    embed = discord.Embed(
+        title="Native CE XML uploaded" if success else "Native CE XML upload failed",
+        description=(
+            f"Source: **{notice.get('source') or 'Dashboard'}**\n"
+            f"Guild: **{guild.name}**\n"
+            f"Status: **{'ready after server restart' if success else 'needs attention'}**"
+        ),
+        color=0x2ECC71 if success else 0xE74C3C,
+    )
+    path_lines = []
+    for label, key in (
+        ("events.xml", "events_path"),
+        ("cfgeventspawns.xml", "spawns_path"),
+        ("eventgroups.xml", "eventgroups_path"),
+        ("cfgeventspawnabletypes.xml", "spawnabletypes_path"),
+    ):
+        value = str(notice.get(key) or "").strip()
+        if value:
+            path_lines.append(f"- **{label}** `{value}`")
+    if path_lines:
+        embed.add_field(name="Uploaded files", value="\n".join(path_lines)[:1024], inline=False)
+    event_lines = []
+    for event in notice.get("events") or []:
+        name = str(event.get("name") or event.get("id") or "event")
+        event_type = str(event.get("type") or "event")
+        class_name = str(event.get("class") or "-")
+        x = event.get("x")
+        z = event.get("z")
+        coord = f"({x}, {z})" if str(x) and str(z) else "-"
+        event_lines.append(f"- `{event_type}` **{name}** / `{class_name}` at {coord}")
+    if event_lines:
+        embed.add_field(name="Dashboard events", value="\n".join(event_lines)[:1024], inline=False)
+    messages = [str(message) for message in (notice.get("messages") or []) if str(message).strip()]
+    if messages:
+        embed.add_field(name="Details", value="\n".join(f"- {message}" for message in messages)[-1024:], inline=False)
+    embed.set_footer(text=f"Posted {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    try:
+        await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+        return True
+    except Exception as err:
+        print(f"[SCENARIO NOTICE] Discord post failed for {guild_id}: {err}")
+        return False
+
+
+async def process_scenario_event_discord_notices(guild_id, config):
+    notices = config.get("scenario_event_discord_notices") or []
+    if not isinstance(notices, list) or not notices:
+        return False
+    remaining = []
+    changed = False
+    for notice in notices:
+        if not isinstance(notice, dict):
+            changed = True
+            continue
+        if await post_scenario_event_discord_notice(guild_id, config, notice):
+            changed = True
+        else:
+            remaining.append(notice)
+    config["scenario_event_discord_notices"] = remaining[-8:]
+    return changed
+
+
 def dashboard_upload_console_ce_event_files(guild_id):
     guild_id = str(guild_id)
     load_guild_configs()
@@ -26766,6 +26982,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
     )
     now_text = datetime.now(UTC).isoformat()
     changed = False
+    affected_events = []
     for event in scenario_events_for_config(config):
         if not isinstance(event, dict):
             continue
@@ -26775,6 +26992,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
             continue
         if is_file_vehicle_reset_event(event):
             continue
+        affected_events.append(event)
         if success:
             event["native_ce_uploaded_at"] = now_text
             event["native_ce_events_path"] = built.get("events_path", "")
@@ -26793,6 +27011,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
             event["updated_at"] = now_text
             changed = True
     if changed:
+        queue_scenario_event_discord_notice(config, success, built, messages, affected_events, "Dashboard upload")
         save_guild_configs()
     return {"ok": success, "built": built, "messages": messages}
 
@@ -28727,7 +28946,7 @@ async def restart_delivery_processor():
                     )
 
                 if normal_scenario_events and console_ce_event_config(config).get("enabled"):
-                    success, _, messages = await asyncio.to_thread(
+                    success, built, messages = await asyncio.to_thread(
                         upload_console_ce_event_files,
                         guild_id,
                         config,
@@ -28736,6 +28955,8 @@ async def restart_delivery_processor():
                         "",
                         True
                     )
+                    queue_scenario_event_discord_notice(config, success, built, messages, normal_scenario_events, "Scheduled restart")
+                    await process_scenario_event_discord_notices(guild_id, config)
                     if not success:
                         print(f"CONSOLE CE EVENT UPLOAD FAILED {guild_id}: {' | '.join(messages[-4:])}")
 
@@ -28793,6 +29014,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
     except Exception as ce_error:
         upload_success = False
         built = {}
+        messages = [str(ce_error)]
         status_text = f"Native CE XML upload failed: {ce_error}"
 
     now_text = datetime.now(UTC).isoformat()
@@ -28817,6 +29039,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
             event["upload_error"] = status_text
             event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
+    queue_scenario_event_discord_notice(config, upload_success, built, messages, pending_events, "Dashboard worker")
     print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
     return True
 
@@ -28827,6 +29050,8 @@ async def dashboard_scenario_upload_loop():
     for guild_id, config in active_guild_config_items():
         try:
             if await process_dashboard_scenario_xml_upload(guild_id, config):
+                changed = True
+            if await process_scenario_event_discord_notices(guild_id, config):
                 changed = True
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")

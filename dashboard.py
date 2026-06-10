@@ -777,7 +777,7 @@ PAGE_TEMPLATE = """
     (function () {
       try {
         var serverTheme = "{{ dashboard_theme }}";
-        var theme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
+        var theme = "command";
         document.documentElement.dataset.theme = theme === "default" ? "" : theme;
       } catch (error) {}
     })();
@@ -1803,7 +1803,7 @@ PAGE_TEMPLATE = """
     <script>
       (function () {
         const serverTheme = "{{ dashboard_theme }}";
-        const initialTheme = localStorage.getItem("wanderingDashboardTheme") || (serverTheme && serverTheme !== "default" ? serverTheme : "default");
+        const initialTheme = "command";
         function apply(theme, persist) {
           const safeTheme = theme || "default";
           document.documentElement.dataset.theme = safeTheme === "default" ? "" : safeTheme;
@@ -5780,7 +5780,7 @@ PAGE_TEMPLATE = """
       }
     }
     document.querySelectorAll("[data-picker-output]").forEach(syncSelectedItems);
-    applyTheme(localStorage.getItem("wanderingDashboardTheme") || (DASHBOARD_THEME && DASHBOARD_THEME !== "default" ? DASHBOARD_THEME : "default"));
+    applyTheme("command");
     document.addEventListener("click", (event) => {
       const themeButton = event.target.closest("[data-theme-choice]");
       if (themeButton) {
@@ -11473,8 +11473,8 @@ VALID_DASHBOARD_THEMES = {
 
 def dashboard_theme_from_config(config: dict[str, Any]) -> str:
     dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
-    theme = str(dashboard.get("theme") or config.get("dashboard_theme") or "default").strip().lower()
-    return theme if theme in VALID_DASHBOARD_THEMES else "default"
+    theme = str(dashboard.get("theme") or config.get("dashboard_theme") or "command").strip().lower()
+    return theme if theme in VALID_DASHBOARD_THEMES else "command"
 
 
 def item_image_url(item_name: Any) -> str:
