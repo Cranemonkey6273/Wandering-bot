@@ -977,6 +977,7 @@ PAGE_TEMPLATE = """
       margin-left: var(--sidebar-w);
       padding: 5.05rem 1rem 2.9rem;
       gap: .75rem;
+      overflow-x: hidden;
     }
     body[data-theme="command"] .hero,
     body[data-theme="command"] .stats,
@@ -1137,16 +1138,15 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"] .section-nav {
       display: flex;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
       gap: 1rem;
       min-height: 3rem;
       padding: .45rem .9rem;
-      overflow-x: auto;
+      overflow-x: visible;
       border-color: rgba(103,245,231,.16);
       border-radius: .55rem;
       background: rgba(4,12,15,.68);
-      scrollbar-width: thin;
     }
     body[data-theme="command"] .section-nav .tab-link {
       flex: 0 0 auto;
@@ -1201,6 +1201,12 @@ PAGE_TEMPLATE = """
       background: linear-gradient(180deg, rgba(19,32,38,.88), rgba(7,15,18,.98));
       overflow: hidden;
     }
+    .command-table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
     .command-card-head {
       display: flex;
       align-items: center;
@@ -1218,6 +1224,7 @@ PAGE_TEMPLATE = """
     }
     .command-table {
       width: 100%;
+      min-width: 58rem;
       border-collapse: collapse;
       font-size: .82rem;
     }
@@ -1233,7 +1240,7 @@ PAGE_TEMPLATE = """
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 4.4rem;
+      min-width: 6rem;
       padding: .25rem .55rem;
       border-radius: .28rem;
       background: rgba(47,67,76,.75);
@@ -1241,6 +1248,8 @@ PAGE_TEMPLATE = """
       font-size: .72rem;
       font-weight: 900;
       text-transform: uppercase;
+      white-space: nowrap;
+      line-height: 1.15;
     }
     .command-badge.ok { background: rgba(72,160,70,.7); }
     .command-badge.warn { background: rgba(168,126,35,.72); }
@@ -1258,7 +1267,7 @@ PAGE_TEMPLATE = """
     }
     .command-loadout {
       display: grid;
-      grid-template-columns: minmax(7rem, .72fr) minmax(12rem, 1fr) minmax(7rem, .72fr);
+      grid-template-columns: minmax(9rem, .75fr) minmax(16rem, 1fr) minmax(9rem, .75fr);
       gap: .75rem;
       padding: .9rem;
       align-items: center;
@@ -1283,6 +1292,7 @@ PAGE_TEMPLATE = """
       overflow: hidden;
       min-height: 24rem;
       isolation: isolate;
+      background: radial-gradient(circle at 50% 42%, rgba(103,245,231,.16), transparent 42%), linear-gradient(180deg, rgba(17,35,42,.72), rgba(3,10,13,.28));
     }
     .command-character::before {
       content: "";
@@ -1295,7 +1305,7 @@ PAGE_TEMPLATE = """
     }
     .command-character .command-character-portrait {
       position: relative;
-      width: min(18rem, 96%);
+      width: min(19rem, 98%);
       max-width: none;
       height: auto;
       max-height: 23rem;
@@ -1633,6 +1643,20 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"][data-section="visual-loadout"] .loadout-item-grid {
       grid-template-columns: 1fr;
+    }
+    @media (max-width: 1500px) {
+      .command-grid {
+        grid-template-columns: 1fr;
+      }
+      .command-loadout {
+        grid-template-columns: minmax(10rem, .75fr) minmax(17rem, 1fr) minmax(10rem, .75fr);
+      }
+      .command-character {
+        min-height: 22rem;
+      }
+      .command-character .command-character-portrait {
+        max-height: 21rem;
+      }
     }
     @media (max-width: 1180px) {
       body[data-theme="command"] { --sidebar-w: 0rem; }
@@ -2321,11 +2345,14 @@ PAGE_TEMPLATE = """
             <h2>Live Event Manager</h2>
             <a class="button" href="/admin?section=pve{{ server_qs }}#pve-workshop">Open Events</a>
           </div>
+          <div class="command-table-scroll">
           <table class="command-table">
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else [])[:5] %}
               {% set status_text = event.status or ('Running' if event.enabled else 'Idle') %}
+              {% set status_lower = status_text|string|lower %}
+              {% set status_label = 'Failed' if 'fail' in status_lower else ('Done' if 'done' in status_lower or 'uploaded' in status_lower else ('Uploading' if 'upload' in status_lower or 'starting' in status_lower else ('Running' if event.enabled else 'Queued'))) %}
               <tr>
                 <td>{{ event.id or loop.index }}</td>
                 <td>{{ event.event_type or 'event' }}</td>
@@ -2333,7 +2360,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.class_name or '-' }}</td>
                 <td>{{ event.x or '-' }}, {{ event.z or '-' }}</td>
                 <td>{{ event.remaining_restarts or event.runs or 0 }}</td>
-                <td><span class="command-badge {{ 'ok' if event.enabled else ('bad' if 'fail' in (status_text|string|lower) else 'warn') }}">{{ status_text }}</span></td>
+                <td><span class="command-badge {{ 'ok' if status_label in ['Done', 'Running'] else ('bad' if status_label == 'Failed' else 'warn') }}" title="{{ status_text }}">{{ status_label }}</span></td>
                 <td><div class="command-mini-actions"><a href="/admin?section=pve{{ server_qs }}#pve-workshop">Edit</a><a href="/admin?section=pve{{ server_qs }}#live-events">View</a></div></td>
               </tr>
               {% else %}
@@ -2341,6 +2368,7 @@ PAGE_TEMPLATE = """
               {% endfor %}
             </tbody>
           </table>
+          </div>
         </article>
 
         <article class="command-card">
