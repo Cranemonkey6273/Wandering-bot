@@ -1143,15 +1143,19 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"] .section-nav {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       align-items: center;
       gap: 1rem;
       min-height: 3rem;
       padding: .45rem .9rem;
-      overflow-x: visible;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
       border-color: rgba(103,245,231,.16);
       border-radius: .55rem;
       background: rgba(4,12,15,.68);
+      -webkit-overflow-scrolling: touch;
     }
     body[data-theme="command"] .section-nav .tab-link {
       flex: 0 0 auto;
