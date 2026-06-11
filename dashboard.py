@@ -100,19 +100,24 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
 SCENARIO_LOOT_PRESETS = {
     "none": [],
     "military_high": [
-        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130",
+        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "FAL", "VSS", "ASVAL", "Saiga",
         "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
-        "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black", "GorkaEJacket_PautRev",
-        "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
-        "AssaultBag_Green", "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "BallisticHelmet_Green", "BallisticHelmet_Black", "Mich2001Helmet", "TacticalHelmet_Green",
+        "M65Jacket_Black", "M65Jacket_Khaki", "GorkaEJacket_PautRev", "GorkaEJacket_Summer",
+        "GorkaPants_PautRev", "GorkaPants_Summer", "BDUJacket", "BDUPants",
+        "TacticalGloves_Black", "TacticalGloves_Green", "MilitaryBoots_Black", "MilitaryBoots_Brown",
+        "MountainBag_Green", "AssaultBag_Green", "AliceBag_Green", "AliceBag_Black", "CoyoteBag_Green",
+        "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "NBCJacketGray", "NBCPantsGray", "NBCBootsGray", "NBCGlovesGray", "GasMask",
         "M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red",
         "M18SmokeGrenade_Green", "M18SmokeGrenade_Yellow", "M18SmokeGrenade_Purple",
         "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_AK74_30Rnd", "Mag_SVD_10Rnd",
+        "Mag_FAL_20Rnd", "Mag_VSS_10Rnd", "Mag_VAL_20Rnd", "Mag_Saiga_8Rnd",
         "AmmoBox_556x45_20Rnd",
-        "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd",
-        "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
+        "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd", "AmmoBox_9x39_20Rnd", "AmmoBox_12gaSlug_10Rnd",
+        "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54", "Ammo_9x39", "Ammo_12gaSlug",
         "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
-        "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan",
+        "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan", "Battery9V",
     ],
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "SalineBagIV", "Morphine"],
@@ -8933,7 +8938,7 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
             event["upload_status"] = "removed" if removed and is_target else "uploaded"
-            event["status"] = "Removed from native CE XML" if removed and is_target else "Done - native CE XML uploaded; restart server to spawn"
+            event["status"] = "Removed from native CE XML" if removed and is_target else "Ready - native CE XML uploaded; restart once to spawn"
             event.pop("upload_error", None)
         else:
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
@@ -10851,15 +10856,22 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
     meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
     is_cargo_slot = str(meta.get("key", "")).startswith("cargo:")
     if category:
-        all_items = groups.get("player_cargo") if is_cargo_slot and isinstance(groups.get("player_cargo"), list) else groups.get("all")
-        all_items = all_items if isinstance(all_items, list) else []
-        if category == "Weapons" and not is_cargo_slot:
-            candidates = groups.get("Left Shoulder", []) + groups.get("Right Shoulder", [])
-        elif category == "Clothing" and not is_cargo_slot:
-            candidates = []
-            for key in ("Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Gloves", "Armband"):
-                candidates.extend(groups.get(key, []))
+        if not is_cargo_slot:
+            picker = str(meta.get("picker") or "Head")
+            slot_items = groups.get(picker) if isinstance(groups.get(picker), list) else []
+            if category == "Weapons":
+                candidates = slot_items if picker in {"Hands", "Left Shoulder", "Right Shoulder"} else []
+            elif category == "Clothing":
+                candidates = slot_items
+            else:
+                candidates = [
+                    item for item in slot_items
+                    if category.lower() in str(item.get("category") or "").lower()
+                    or category.lower().split("/")[0] in str(item.get("name") or "").lower()
+                ]
         else:
+            all_items = groups.get("player_cargo") if isinstance(groups.get("player_cargo"), list) else groups.get("all")
+            all_items = all_items if isinstance(all_items, list) else []
             candidates = [
                 item for item in all_items
                 if category.lower() in str(item.get("category") or "").lower()

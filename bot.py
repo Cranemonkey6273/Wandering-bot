@@ -24668,19 +24668,24 @@ SCENARIO_LOOT_PRESETS = {
     ],
     "military_basic": ["SKS", "AK74", "Mag_AK74_30Rnd", "Ammo_545x39", "BandageDressing"],
     "military_high": [
-        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130",
+        "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "FAL", "VSS", "ASVAL", "Saiga",
         "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
-        "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black", "GorkaEJacket_PautRev",
-        "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
-        "AssaultBag_Green", "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "BallisticHelmet_Green", "BallisticHelmet_Black", "Mich2001Helmet", "TacticalHelmet_Green",
+        "M65Jacket_Black", "M65Jacket_Khaki", "GorkaEJacket_PautRev", "GorkaEJacket_Summer",
+        "GorkaPants_PautRev", "GorkaPants_Summer", "BDUJacket", "BDUPants",
+        "TacticalGloves_Black", "TacticalGloves_Green", "MilitaryBoots_Black", "MilitaryBoots_Brown",
+        "MountainBag_Green", "AssaultBag_Green", "AliceBag_Green", "AliceBag_Black", "CoyoteBag_Green",
+        "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "NBCJacketGray", "NBCPantsGray", "NBCBootsGray", "NBCGlovesGray", "GasMask",
         "M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red",
         "M18SmokeGrenade_Green", "M18SmokeGrenade_Yellow", "M18SmokeGrenade_Purple",
         "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_AK74_30Rnd", "Mag_SVD_10Rnd",
+        "Mag_FAL_20Rnd", "Mag_VSS_10Rnd", "Mag_VAL_20Rnd", "Mag_Saiga_8Rnd",
         "AmmoBox_556x45_20Rnd",
-        "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd",
-        "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
+        "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd", "AmmoBox_9x39_20Rnd", "AmmoBox_12gaSlug_10Rnd",
+        "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54", "Ammo_9x39", "Ammo_12gaSlug",
         "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
-        "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan"
+        "Epinephrine", "BloodBagEmpty", "StartKitIV", "Canteen", "TacticalBaconCan", "Battery9V"
     ],
     "medical": ["BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "SalineBagIV", "Morphine"],
     "survival": ["Canteen", "TacticalBaconCan", "HuntingKnife", "Matchbox", "Rope"],
@@ -24786,17 +24791,55 @@ SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "Mosin9130": {
         "supplies": ["AmmoBox_762x54_20Rnd"],
     },
+    "FAL": {
+        "attachments": ["ACOGOptic", "Mag_FAL_20Rnd"],
+        "supplies": ["AmmoBox_308Win_20Rnd"],
+    },
+    "VSS": {
+        "attachments": ["PSO1Optic", "Mag_VSS_10Rnd"],
+        "supplies": ["AmmoBox_9x39_20Rnd"],
+    },
+    "ASVAL": {
+        "attachments": ["Mag_VAL_20Rnd"],
+        "supplies": ["AmmoBox_9x39_20Rnd"],
+    },
+    "Saiga": {
+        "attachments": ["Mag_Saiga_8Rnd"],
+        "supplies": ["AmmoBox_12gaSlug_10Rnd"],
+    },
 }
 
-SCENARIO_AIRDROP_GROUND_LOOT = {
-    "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130",
+SCENARIO_AIRDROP_WEAPON_LOOT = {
+    "M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "FAL", "VSS", "ASVAL", "Saiga",
+}
+
+SCENARIO_AIRDROP_CLOTHING_LOOT = {
     "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
-    "BallisticHelmet_Green", "Mich2001Helmet", "M65Jacket_Black", "GorkaEJacket_PautRev",
-    "GorkaPants_PautRev", "TacticalGloves_Black", "MilitaryBoots_Black", "MountainBag_Green",
-    "AssaultBag_Green", "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+    "BallisticHelmet_Green", "BallisticHelmet_Black", "Mich2001Helmet", "TacticalHelmet_Green",
+    "M65Jacket_Black", "M65Jacket_Khaki", "GorkaEJacket_PautRev", "GorkaEJacket_Summer",
+    "GorkaPants_PautRev", "GorkaPants_Summer", "BDUJacket", "BDUPants",
+    "TacticalGloves_Black", "TacticalGloves_Green", "MilitaryBoots_Black", "MilitaryBoots_Brown",
+    "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+    "NBCJacketGray", "NBCPantsGray", "NBCBootsGray", "NBCGlovesGray", "GasMask",
+}
+
+SCENARIO_AIRDROP_BAG_LOOT = {
+    "MountainBag_Green", "AssaultBag_Green", "AliceBag_Green", "AliceBag_Black", "CoyoteBag_Green",
+}
+
+SCENARIO_AIRDROP_FIELD_LOOT = {
     "M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red",
     "M18SmokeGrenade_Green", "M18SmokeGrenade_Yellow", "M18SmokeGrenade_Purple",
+    "BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV",
+    "Epinephrine", "Canteen", "TacticalBaconCan", "Battery9V",
 }
+
+SCENARIO_AIRDROP_GROUND_LOOT = (
+    SCENARIO_AIRDROP_WEAPON_LOOT
+    | SCENARIO_AIRDROP_CLOTHING_LOOT
+    | SCENARIO_AIRDROP_BAG_LOOT
+    | SCENARIO_AIRDROP_FIELD_LOOT
+)
 
 SCENARIO_AIRDROP_CONTAINER_MEDICAL_LOOT = {
     "BandageDressing",
@@ -25463,57 +25506,99 @@ def scenario_loot_items(event):
     ]
 
 
-def scenario_airdrop_ground_loot_items(event):
+def scenario_event_random(event, salt=""):
+    raw = "|".join([
+        str((event or {}).get("id") or ""),
+        str((event or {}).get("name") or ""),
+        str((event or {}).get("x") or ""),
+        str((event or {}).get("z") or ""),
+        str((event or {}).get("created_at") or ""),
+        str((event or {}).get("loot_preset") or ""),
+        str(salt or ""),
+    ])
+    seed = int(hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16], 16)
+    return random.Random(seed)
+
+
+def scenario_seeded_sample(event, items, minimum, maximum, salt):
+    clean = []
     seen = set()
+    for item in items or []:
+        name = str(item or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            clean.append(name)
+    if len(clean) <= minimum:
+        return clean
+    rng = scenario_event_random(event, salt)
+    rng.shuffle(clean)
+    count = min(len(clean), rng.randint(minimum, max(minimum, maximum)))
+    return clean[:count]
+
+
+def scenario_airdrop_ground_loot_items(event):
+    loot = scenario_loot_items(event)
+    weapons = [item for item in loot if item in SCENARIO_AIRDROP_WEAPON_LOOT or item in SCENARIO_AIRDROP_WEAPON_RECIPES]
+    clothing = [item for item in loot if item in SCENARIO_AIRDROP_CLOTHING_LOOT]
+    bags = [item for item in loot if item in SCENARIO_AIRDROP_BAG_LOOT]
+    field_items = [item for item in loot if item in SCENARIO_AIRDROP_FIELD_LOOT]
+    selected = []
+    selected.extend(scenario_seeded_sample(event, weapons, 5, 8, "weapons"))
+    selected.extend(scenario_seeded_sample(event, clothing, 8, 12, "clothing"))
+    selected.extend(scenario_seeded_sample(event, bags, 2, 4, "bags"))
+    selected.extend(scenario_seeded_sample(event, field_items, 5, 9, "field"))
+    if not selected:
+        selected = [item for item in loot if item in SCENARIO_AIRDROP_GROUND_LOOT or item in SCENARIO_AIRDROP_WEAPON_RECIPES]
+    seen = set()
+    unique = []
+    for item in selected:
+        key = str(item).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique[:36]
+
+
+def scenario_airdrop_ammo_box_items(event):
     items = []
+    seen = set()
+
+    def add(item_name):
+        name = str(item_name or "").strip()
+        key = name.lower()
+        if name and key.startswith("ammobox_") and key not in seen:
+            seen.add(key)
+            items.append(name)
+
     for item in scenario_loot_items(event):
-        if item not in SCENARIO_AIRDROP_GROUND_LOOT and item not in SCENARIO_AIRDROP_WEAPON_RECIPES:
-            continue
-        key = item.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        items.append(item)
-    return items[:32]
+        add(item)
+    for weapon in scenario_airdrop_ground_loot_items(event):
+        recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon, {})
+        for item in recipe.get("supplies", []):
+            add(item)
+    return items
 
 
 def scenario_airdrop_container_loot_allowed(item_name):
     item_name = str(item_name or "").strip()
-    lower = item_name.lower()
-    return lower.startswith("ammobox_") or item_name in SCENARIO_AIRDROP_CONTAINER_MEDICAL_LOOT
+    return item_name.lower().startswith("ammobox_")
 
 
 def scenario_airdrop_container_loot_items(event):
-    ground = {item.lower() for item in scenario_airdrop_ground_loot_items(event)}
-    compact = []
-    seen = set()
-    for item in scenario_loot_items(event):
-        if item.lower() in ground:
-            continue
-        if not scenario_airdrop_container_loot_allowed(item):
-            continue
-        key = item.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        compact.append(item)
-    for weapon in scenario_airdrop_ground_loot_items(event):
-        recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon, {})
-        for item in recipe.get("supplies", []):
-            if not scenario_airdrop_container_loot_allowed(item):
-                continue
-            key = str(item).lower()
-            if key not in seen:
-                seen.add(key)
-                compact.append(item)
+    compact = scenario_airdrop_ammo_box_items(event)
+    if compact:
+        rng = scenario_event_random(event, "crate-ammo")
+        compact = list(compact)
+        rng.shuffle(compact)
     ammo_boxes = [item for item in compact if str(item).lower().startswith("ammobox_")]
-    compact.extend(ammo_boxes)
+    compact.extend(ammo_boxes[:10])
     return compact[:30]
 
 
 def scenario_spawnabletypes_quantity_attrs(item_name):
     lower = str(item_name or "").strip().lower()
-    if lower.startswith(("mag_", "ammo_", "ammobox_")) or lower in {"canteen", "waterbottle"}:
+    if lower.startswith(("mag_", "ammo_", "ammobox_", "battery")) or lower.endswith("battery") or lower in {"canteen", "waterbottle"}:
         return {"quantmin": "100", "quantmax": "100"}
     return {}
 
@@ -27049,7 +27134,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         description=(
             f"Source: **{notice.get('source') or 'Dashboard'}**\n"
             f"Server: **{guild.name}**\n"
-            f"Status: **{'CE XML uploaded - restart server for new spawns' if success else 'needs attention before it can spawn'}**\n"
+            f"Status: **{'CE XML uploaded - restart once for new spawns' if success else 'needs attention before it can spawn'}**\n"
             f"Tracker: {tracker_status or 'waiting for next .RPT pull'}"
         ),
         color=0x2ECC71 if success else 0xE74C3C,
@@ -27187,16 +27272,16 @@ def dashboard_upload_console_ce_event_files(guild_id):
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
             event["upload_status"] = "uploaded"
-            event["status"] = "Done - native CE XML uploaded; restart server to spawn"
+            event["status"] = "Ready - native CE XML uploaded; restart once to spawn"
             event["updated_at"] = now_text
             event.pop("upload_error", None)
             changed = True
         elif str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed"}:
             attempts = int(event.get("upload_attempts") or 0) + 1
             event["upload_attempts"] = attempts
-            event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
+            event["upload_status"] = "failed"
             event["upload_error"] = status_text
-            event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
+            event["status"] = "Native CE XML upload failed"
             event["updated_at"] = now_text
             changed = True
     if changed:
@@ -29223,12 +29308,12 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
             event["upload_status"] = "uploaded"
-            event["status"] = "Done - native CE XML uploaded; restart server to spawn"
+            event["status"] = "Ready - native CE XML uploaded; restart once to spawn"
             event.pop("upload_error", None)
         else:
-            event["upload_status"] = "failed" if attempts >= 3 else "waiting_for_bot_upload"
+            event["upload_status"] = "failed"
             event["upload_error"] = status_text
-            event["status"] = "Native CE XML upload failed" if attempts >= 3 else "Native CE XML upload retry pending"
+            event["status"] = "Native CE XML upload failed"
     queue_scenario_event_discord_notice(config, upload_success, built, messages, pending_events, "Dashboard worker")
     print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
     return True
