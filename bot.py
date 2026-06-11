@@ -26900,7 +26900,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             continue
         one_ok, one_message = upload_text_file_to_nitrado(config, path, text)
         territory_ok = territory_ok and one_ok
-        messages.append(f"`{os.path.basename(path)}`: {one_message}")
+        messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
 
     cfgenvironment_ok = True
     if built.get("cfgenvironment_text"):
@@ -27008,8 +27008,15 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "events_path": str((built or {}).get("events_path") or ""),
         "spawns_path": str((built or {}).get("spawns_path") or ""),
         "eventgroups_path": str((built or {}).get("eventgroups_path") or ""),
+        "mapgroupproto_path": str((built or {}).get("mapgroupproto_path") or ""),
         "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
-        "messages": [str(message)[:260] for message in (messages or [])[-6:]],
+        "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
+        "territory_paths": [
+            str(item.get("path") or "")
+            for item in ((built or {}).get("animal_territory_files") or [])
+            if isinstance(item, dict) and str(item.get("path") or "").strip()
+        ][:8],
+        "messages": [str(message)[:320] for message in (messages or [])[-10:]],
         "events": summaries[:10],
     }
     notices.append(notice)
@@ -27035,6 +27042,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         tracker_status = await refresh_rpt_event_tracker(guild_id, config)
     except Exception as tracker_error:
         tracker_status = f"Tracker refresh failed: {tracker_error}"
+    tracker_has_new_rpt = "No change in RPT since last pull." not in str(tracker_status or "")
     success = bool(notice.get("success"))
     embed = discord.Embed(
         title="🛰️ LIVE EVENT DEPLOYMENT" if success else "⚠️ LIVE EVENT DEPLOYMENT FAILED",
@@ -27065,31 +27073,43 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
             live_lines.append(f"- **{ev.get('type', 'Unknown')}** at {coord} · age {format_duration_seconds(age_s)}")
         if len(live_events) > 8:
             live_lines.append(f"- +{len(live_events) - 8} more live tracked spawn(s)")
-        embed.add_field(name="Currently visible in latest RPT", value="\n".join(live_lines)[:1024], inline=False)
+        live_title = "Currently visible in latest RPT" if tracker_has_new_rpt else "Cached tracker snapshot"
+        if not tracker_has_new_rpt:
+            live_lines.insert(0, "- No new `.RPT` pull yet after this upload; this list is from the previous tracker cache.")
+        embed.add_field(name=live_title, value="\n".join(live_lines)[:1024], inline=False)
 
     path_lines = []
     for label, key in (
         ("events.xml", "events_path"),
         ("cfgeventspawns.xml", "spawns_path"),
         ("eventgroups.xml", "eventgroups_path"),
+        ("mapgroupproto.xml", "mapgroupproto_path"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
+        ("cfgenvironment.xml", "cfgenvironment_path"),
     ):
         value = str(notice.get(key) or "").strip()
         if value:
             path_lines.append(f"- **{label}** `{value}`")
+    for value in notice.get("territory_paths") or []:
+        value = str(value or "").strip()
+        if value:
+            path_lines.append(f"- **animal territory** `{value}`")
     if path_lines:
         embed.add_field(name="Uploaded CE files", value="\n".join(path_lines)[:1024], inline=False)
 
     diagnostics = list((rpt_event_tracker.get(str(guild_id), {}) or {}).get("diagnostics") or [])
     warning_lines = []
-    for item in diagnostics[:6]:
-        kind = str(item.get("kind") or "Warning")
-        name = str(item.get("name") or "RPT")
-        message = str(item.get("message") or "Check the latest RPT.")
-        warning_lines.append(f"- **{kind}** `{name}`: {message}"[:240])
+    if tracker_has_new_rpt:
+        for item in diagnostics[:6]:
+            kind = str(item.get("kind") or "Warning")
+            name = str(item.get("name") or "RPT")
+            message = str(item.get("message") or "Check the latest RPT.")
+            warning_lines.append(f"- **{kind}** `{name}`: {message}"[:240])
+    elif diagnostics:
+        warning_lines.append("- RPT warnings are waiting for the next server restart / fresh `.RPT` pull before they can be trusted for this upload.")
     messages = [str(message) for message in (notice.get("messages") or []) if str(message).strip()]
-    for message in messages[-4:]:
-        warning_lines.append(f"- {message}"[:240])
+    for message in messages[-6:]:
+        warning_lines.append(f"- {message}"[:260])
     if warning_lines:
         embed.add_field(name="Spawn / upload details", value="\n".join(warning_lines)[-1024:], inline=False)
 
