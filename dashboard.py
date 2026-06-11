@@ -1305,9 +1305,9 @@ PAGE_TEMPLATE = """
     }
     .command-character .command-character-portrait {
       position: relative;
-      width: min(19rem, 98%);
-      max-width: none;
-      height: auto;
+      width: auto;
+      max-width: 98%;
+      height: min(23rem, 96%);
       max-height: 23rem;
       transform: none;
       object-fit: contain;
@@ -1634,8 +1634,9 @@ PAGE_TEMPLATE = """
         linear-gradient(180deg, rgba(16,35,42,.58), rgba(2,9,11,.08));
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
-      width: min(21rem, 98%);
-      height: auto;
+      width: auto;
+      max-width: 98%;
+      height: min(29rem, 96%);
       max-height: 29rem;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-gear-card {
@@ -1655,6 +1656,7 @@ PAGE_TEMPLATE = """
         min-height: 22rem;
       }
       .command-character .command-character-portrait {
+        height: min(21rem, 96%);
         max-height: 21rem;
       }
     }
@@ -1717,8 +1719,9 @@ PAGE_TEMPLATE = """
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) { max-height: 17rem; }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character { min-height: 18rem; }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
-        width: min(15rem, 96%);
-        height: auto;
+        width: auto;
+        max-width: 96%;
+        height: min(17rem, 96%);
         max-height: 17rem;
       }
     }
