@@ -1035,6 +1035,11 @@ PAGE_TEMPLATE = """
       color: #effcff;
       font-size: .86rem;
     }
+    .command-server-form button {
+      min-height: 2rem;
+      padding: .35rem .5rem;
+      font-size: .76rem;
+    }
     .command-login-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -1402,6 +1407,58 @@ PAGE_TEMPLATE = """
       background: rgba(2,9,11,.74);
       backdrop-filter: blur(10px);
     }
+    .command-subnav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .45rem;
+      margin: .75rem 0;
+    }
+    .command-subnav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.25rem;
+      padding: .45rem .75rem;
+      border: 1px solid rgba(103,245,231,.18);
+      border-radius: .45rem;
+      background: rgba(6,17,20,.82);
+      color: #cbdadd;
+      font-weight: 800;
+    }
+    .command-subnav a.active,
+    .command-subnav a:hover {
+      border-color: rgba(103,245,231,.48);
+      background: linear-gradient(90deg, rgba(21,205,198,.30), rgba(18,32,38,.62));
+      color: #effcff;
+    }
+    body[data-section="pve"] .section-head .command-subnav + .tool-note { display: none; }
+    body[data-theme="command"] .scenario-actions {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(5.2rem, max-content));
+      gap: .35rem;
+      align-items: center;
+    }
+    body[data-theme="command"] .scenario-actions .inline-action,
+    body[data-theme="command"] .scenario-actions .button {
+      margin: 0;
+      width: auto;
+    }
+    body[data-theme="command"] .scenario-actions button,
+    body[data-theme="command"] .scenario-actions .button {
+      min-height: 2rem;
+      padding: .35rem .55rem;
+      font-size: .76rem;
+    }
+    body[data-section="pve"] [data-pve-panel] { display: none; }
+    body[data-section="pve"][data-pve-tool="events"] [data-pve-panel="events"],
+    body[data-section="pve"][data-pve-tool="builder"] [data-pve-panel="builder"],
+    body[data-section="pve"][data-pve-tool="quests"] [data-pve-panel="quests"] { display: block; }
+    body[data-section="pve"][data-pve-tool="events"] [data-pve-panel="events"].full,
+    body[data-section="pve"][data-pve-tool="builder"] [data-pve-panel="builder"].full,
+    body[data-section="pve"][data-pve-tool="quests"] [data-pve-panel="quests"].full { grid-column: 1 / -1; }
+    body[data-section="pve"] [data-pve-panel="events"] { overflow-x: auto; }
+    body[data-section="pve"] [data-pve-panel="events"] .item-table { min-width: 62rem; table-layout: auto; }
+    body[data-section="pve"] [data-pve-panel="events"] .item-table td,
+    body[data-section="pve"] [data-pve-panel="events"] .item-table th { white-space: normal; vertical-align: top; }
     .command-check {
       display: inline-flex;
       align-items: center;
@@ -2095,7 +2152,7 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body data-section="{{ active_section }}">
+<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   <header>
@@ -2175,6 +2232,7 @@ PAGE_TEMPLATE = """
     {% if servers|length > 1 %}
     <form class="command-server-form" method="get" action="/{{ 'owner' if mode == 'owner' else 'admin' }}">
       <input class="hidden-field" type="hidden" name="section" value="{{ active_section }}">
+      {% if active_section == "pve" %}<input class="hidden-field" type="hidden" name="pve_tool" value="{{ pve_tool }}">{% endif %}
       <label>Active Server
         <select name="guild_id" onchange="this.form.submit()">
           {% for item in servers %}
@@ -2182,6 +2240,7 @@ PAGE_TEMPLATE = """
           {% endfor %}
         </select>
       </label>
+      <button type="submit">Switch Server</button>
     </form>
     {% endif %}
     <div class="command-login-actions">
@@ -2191,7 +2250,7 @@ PAGE_TEMPLATE = """
     <nav class="command-side-nav">
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
-      {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve{{ server_qs }}">Live Events</a>{% endif %}
+      {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">PVE Workshop</a>{% endif %}
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
@@ -2203,7 +2262,7 @@ PAGE_TEMPLATE = """
     </nav>
     <div class="command-quick">
       <span>Quick actions</span>
-      {% if section_allowed('pve') %}<a href="/admin?section=pve{{ server_qs }}#pve-workshop">Queue Event</a>{% endif %}
+      {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Queue Event</a>{% endif %}
       {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Create Zone</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">Upload XML</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=server-control{{ server_qs }}">Restart Server</a>{% endif %}
@@ -2251,7 +2310,7 @@ PAGE_TEMPLATE = """
       </div>
       <div class="server-tabs">
         {% for item in servers %}
-        <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/admin?guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
+        <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section={{ active_section }}{% if active_section == 'pve' %}&pve_tool={{ pve_tool }}{% endif %}&guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
         {% endfor %}
       </div>
     </section>
@@ -2267,7 +2326,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('zones') %}<a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
       {% if section_allowed('heatmaps') %}<a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>{% endif %}
-      {% if section_allowed('pve') %}<a class="tab-link" href="/admin?section=pve{{ server_qs }}">PVE & Workshop</a>{% endif %}
+      {% if section_allowed('pve') %}<a class="tab-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
       {% if section_allowed('economy') %}<a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
@@ -2295,7 +2354,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
           {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Heatmaps</option>{% endif %}
-          {% if section_allowed('pve') %}<option value="/admin?section=pve{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>PVE & Workshop</option>{% endif %}
+          {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Live Events</option>{% endif %}
           {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>{% endif %}
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
@@ -2346,7 +2405,7 @@ PAGE_TEMPLATE = """
         <article class="command-card">
           <div class="command-card-head">
             <h2>Live Event Manager</h2>
-            <a class="button" href="/admin?section=pve{{ server_qs }}#pve-workshop">Open Events</a>
+            <a class="button" href="/admin?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">Open Events</a>
           </div>
           <div class="command-table-scroll">
           <table class="command-table">
@@ -2364,7 +2423,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.x or '-' }}, {{ event.z or '-' }}</td>
                 <td>{{ event.remaining_restarts or event.runs or 0 }}</td>
                 <td><span class="command-badge {{ 'ok' if status_label in ['Done', 'Running'] else ('bad' if status_label == 'Failed' else 'warn') }}" title="{{ status_text }}">{{ status_label }}</span></td>
-                <td><div class="command-mini-actions"><a href="/admin?section=pve{{ server_qs }}#pve-workshop">Edit</a><a href="/admin?section=pve{{ server_qs }}#live-events">View</a></div></td>
+                <td><div class="command-mini-actions"><a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Edit</a><a href="/admin?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">View</a></div></td>
               </tr>
               {% else %}
               <tr><td colspan="8">No live events queued yet.</td></tr>
@@ -2407,7 +2466,7 @@ PAGE_TEMPLATE = """
         <article class="command-card command-map-card">
           <div class="command-card-head">
             <h3>Map / Event Builder</h3>
-            <div class="command-mini-actions"><a href="/admin?section=zones{{ server_qs }}">Add Zone</a><a href="/admin?section=pve{{ server_qs }}">Event Mode</a></div>
+            <div class="command-mini-actions"><a href="/admin?section=zones{{ server_qs }}">Add Zone</a><a href="/admin?section=pve&pve_tool=builder{{ server_qs }}">Event Mode</a></div>
           </div>
           <div class="command-map" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
             {% for zone in (server.zones if server else [])[:10] %}
@@ -2471,7 +2530,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
-      <a class="category-link" href="/admin?section=pve{{ server_qs }}"><strong>PVE & Workshop</strong><span>Quest board, campaigns and workshop status.</span></a>
+      <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}"><strong>Live Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
       <a class="category-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}"><strong>Servers & Login</strong><span>Switch server, link another server, or change dashboard login.</span></a>
@@ -3456,12 +3515,18 @@ PAGE_TEMPLATE = """
     <section class="section-panel" id="pve-workshop">
       <div class="section-head">
         <div>
-          <h2>PVE Quests & Workshop</h2>
+          <h2>PVE Live Ops</h2>
+          <p class="tool-note">Events, drops, hordes, gas zones, vehicles and quest status for the selected server.</p>
+          <nav class="command-subnav" aria-label="PVE tools">
+            <a class="{{ 'active' if pve_tool == 'events' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">Live Events</a>
+            <a class="{{ 'active' if pve_tool == 'builder' else '' }}" href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Event Builder</a>
+            <a class="{{ 'active' if pve_tool == 'quests' else '' }}" href="/admin?section=pve&pve_tool=quests{{ server_qs }}#pve-workshop">Quest Board</a>
+          </nav>
           <p class="tool-note">⚔️ Quests, drops, hordes, animals, vehicles and rewards.</p>
         </div>
       </div>
       <div class="panel-grid">
-        <article class="admin-panel">
+        <article class="admin-panel" data-pve-panel="quests">
           <h3>Active Quest Board</h3>
           <table class="item-table">
             <thead><tr><th>Quest</th><th>Difficulty</th><th>Reward</th></tr></thead>
@@ -3474,7 +3539,7 @@ PAGE_TEMPLATE = """
             </tbody>
           </table>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel" data-pve-panel="quests">
           <h3>Quest Workshop</h3>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Campaigns</span><strong>{{ server.pve.campaigns if server else 0 }}</strong></div>
@@ -3484,12 +3549,12 @@ PAGE_TEMPLATE = """
           </div>
           <p class="tool-note" style="margin-top:.75rem">🤖 AI quests live in Discord. This panel shows status and module controls.</p>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel full" data-pve-panel="builder">
           <h3>Airdrop / Event Builder</h3>
           <form class="admin-form {% if edit_event_key %}dashboard-edit-modal{% endif %}" action="/api/admin/scenario-event" method="post" data-route="/api/admin/scenario-event" id="scenario-event-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="event_id" value="{{ edit_event.id }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
+            <input class="hidden-field" name="return_to" value="/admin?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Event type
               <select name="event_type" data-scenario-type>
@@ -3559,6 +3624,7 @@ PAGE_TEMPLATE = """
             </label>
             <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
             <label>Gas duration seconds <input name="gas_lifetime" type="number" min="60" max="3888000" value="{{ edit_event.gas_lifetime }}"><small class="field-help">Used by gas zones as the CE lifetime. Permanent keeps the zone in XML until deleted.</small></label>
+            <div class="full embed-preview"><strong>Gas colour</strong><span>Console CE XML uses DayZ's built-in contaminated-area particle. The dashboard/tracker can label gas zones red, but the in-game cloud colour is game-controlled unless a script/mod route is available.</span></div>
             <label>Loot preset
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
               <small class="field-help">✨ Pristine loot. Ammo/medical in crates, big gear around scene.</small>
@@ -3584,16 +3650,16 @@ PAGE_TEMPLATE = """
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
             <div class="full embed-preview"><strong>✅ Status</strong><span>Save queues native CE XML upload. Max 250 spawns per event.</span></div>
-            <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
+            <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">💾 Events save to bot config. Console CE XML applies after restart.</p>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel" data-pve-panel="builder">
           <h3>Server Control Moved</h3>
           <p class="tool-note">🛠️ Restarts, raid damage and vehicle resets moved to Server Control.</p>
           <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
         </article>
-        <article class="admin-panel full">
+        <article class="admin-panel full" data-pve-panel="events">
           <h3>Live Event Manager</h3>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Total</span><strong>{{ server.scenario_events|length if server else 0 }}</strong></div>
@@ -3622,14 +3688,14 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Queued ✅' }}{% if event.upload_error %}<br><small class="muted">⚠️ {{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="event_id" value="{{ event.id }}">
                       <input class="hidden-field" name="action" value="{{ action }}">
-                      <input class="hidden-field" name="return_to" value="/admin?section=pve{{ server_qs }}#pve-workshop">
+                      <input class="hidden-field" name="return_to" value="/admin?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">
                       <button type="submit">{{ label }}</button><span class="result muted"></span>
                     </form>
                     {% endif %}
@@ -12804,6 +12870,11 @@ def page(mode: str, auth: dict[str, Any]):
     if not section_allowed(active_section):
         active_section = "overview"
     command_section = COMMAND_SECTION_META.get(active_section, COMMAND_SECTION_META["overview"])
+    pve_tool = str(request.args.get("pve_tool") or "events").strip().lower()
+    if pve_tool not in {"events", "builder", "quests"}:
+        pve_tool = "events"
+    if active_section == "pve" and request.args.get("edit_event"):
+        pve_tool = "builder"
     xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
@@ -12833,6 +12904,7 @@ def page(mode: str, auth: dict[str, Any]):
         mode=mode,
         active_section=active_section,
         command_section=command_section,
+        pve_tool=pve_tool,
         xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
         section_allowed=section_allowed,
