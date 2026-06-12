@@ -1104,6 +1104,39 @@ PAGE_TEMPLATE = """
       text-transform: uppercase;
       letter-spacing: .08em;
     }
+    .command-server-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+      gap: .7rem;
+    }
+    .command-server-card {
+      display: grid;
+      gap: .55rem;
+      min-height: 8.25rem;
+      padding: .85rem;
+      border: 1px solid rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background: linear-gradient(180deg, rgba(10,25,31,.78), rgba(2,9,11,.9));
+      color: #dbe8eb;
+      text-decoration: none;
+    }
+    .command-server-card:hover,
+    .command-server-card.active {
+      border-color: rgba(38,239,228,.48);
+      background: linear-gradient(180deg, rgba(17,49,57,.9), rgba(2,12,15,.96));
+    }
+    .command-server-card strong {
+      color: #effcff;
+      font-size: .95rem;
+      overflow-wrap: anywhere;
+    }
+    .command-server-card small {
+      color: #9fb4ba;
+      line-height: 1.35;
+    }
+    .command-server-card .pills {
+      justify-content: flex-start;
+    }
     body[data-theme="command"] .section-nav {
       position: sticky;
       top: 3.8rem;
@@ -2325,8 +2358,10 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">PVE Workshop</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
+      {% if section_allowed('visual-loadout') %}<a class="{{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
+      {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="{{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
@@ -5340,6 +5375,25 @@ PAGE_TEMPLATE = """
             <div class="full"><button type="submit">Link Server</button> <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">This verifies the other server's private dashboard login before it appears in this dashboard group.</p>
+        </article>
+        <article class="admin-panel full" id="linked-servers">
+          <h3>Linked Dashboard Servers</h3>
+          <p class="tool-note">Switch between every server available to this dashboard login. The active card controls which server every page edits.</p>
+          <div class="command-server-grid">
+            {% for item in servers %}
+            <a class="command-server-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&guild_id={{ item.guild_id }}#linked-servers">
+              <strong>{{ item.guild_name }}</strong>
+              <small>{{ item.platform_label }} server on {{ item.map|capitalize }}.</small>
+              <div class="pills">
+                <span class="pill {{ 'ok' if item.active else 'bad' }}">{{ 'online config' if item.active else 'inactive' }}</span>
+                <span class="pill">{{ item.dashboard_access.plan_status or item.dashboard_access.tier or 'dashboard' }}</span>
+                <span class="pill">{{ item.channels|length }} channels</span>
+              </div>
+            </a>
+            {% else %}
+            <div class="notification"><strong>No linked servers yet</strong><span>Link another dashboard ID/password above to make it appear here.</span></div>
+            {% endfor %}
+          </div>
         </article>
       </div>
     </section>
