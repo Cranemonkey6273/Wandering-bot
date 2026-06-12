@@ -10485,11 +10485,29 @@ def nitrado_rpt_search_paths(config):
     nitrado_user = config.get("nitrado_user") or ""
     if not nitrado_user:
         return []
-    return [
-        f"/games/{nitrado_user}/noftp/dayzxb/profiles/",
-        f"/games/{nitrado_user}/noftp/dayzxb/config/",
-        f"/games/{nitrado_user}/noftp/dayzxb/",
-    ]
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    if platform_key == "playstation":
+        roots = ("dayzps", "dayzps_missions", "dayzxb", "dayzxb_missions")
+    elif platform_key == "pc":
+        roots = ("dayz", "mpmissions", "dayzxb", "dayzxb_missions")
+    else:
+        roots = ("dayzxb", "dayzxb_missions", "dayzps", "dayzps_missions")
+    candidates = []
+    for root in roots:
+        candidates.extend([
+            f"/games/{nitrado_user}/noftp/{root}/profiles/",
+            f"/games/{nitrado_user}/noftp/{root}/config/",
+            f"/games/{nitrado_user}/noftp/{root}/logs/",
+            f"/games/{nitrado_user}/noftp/{root}/",
+        ])
+    seen = set()
+    deduped = []
+    for path in candidates:
+        key = path.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(path)
+    return deduped
 
 
 def list_rpt_logs(config):
@@ -10884,7 +10902,7 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
 
     path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
     if not text:
-        return "Could not pull the latest .RPT log over FTP / Nitrado API."
+        return "XML uploaded, but the tracker could not pull the latest .RPT yet. If this server recently changed map/platform, confirm `/server setplatform` is correct and restart once so Nitrado creates a fresh log."
 
     new_size = len(text)
     if not force_restart_post and new_size == int(state.get("last_rpt_size") or 0):

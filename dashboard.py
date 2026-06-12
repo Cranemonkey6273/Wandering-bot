@@ -1198,7 +1198,7 @@ PAGE_TEMPLATE = """
     .command-metric small { display: block; margin-top: .35rem; color: #8ded63; }
     .command-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.35fr) minmax(22rem, .75fr);
+      grid-template-columns: minmax(0, 1.28fr) minmax(31rem, .82fr);
       gap: .75rem;
       align-items: start;
     }
@@ -1238,7 +1238,7 @@ PAGE_TEMPLATE = """
     }
     .command-table {
       width: 100%;
-      min-width: 58rem;
+      min-width: 52rem;
       border-collapse: collapse;
       font-size: .82rem;
     }
@@ -1248,6 +1248,7 @@ PAGE_TEMPLATE = """
       border-bottom: 1px solid rgba(103,245,231,.08);
       text-align: left;
       vertical-align: middle;
+      overflow-wrap: anywhere;
     }
     .command-table th { color: #96a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
     .command-badge {
@@ -1255,6 +1256,7 @@ PAGE_TEMPLATE = """
       align-items: center;
       justify-content: center;
       min-width: 6rem;
+      max-width: 8.5rem;
       padding: .25rem .55rem;
       border-radius: .28rem;
       background: rgba(47,67,76,.75);
@@ -1281,7 +1283,7 @@ PAGE_TEMPLATE = """
     }
     .command-loadout {
       display: grid;
-      grid-template-columns: minmax(9rem, .75fr) minmax(16rem, 1fr) minmax(9rem, .75fr);
+      grid-template-columns: minmax(9.5rem, .72fr) minmax(16rem, 1fr) minmax(9.5rem, .72fr);
       gap: .75rem;
       padding: .9rem;
       align-items: center;
@@ -1335,10 +1337,21 @@ PAGE_TEMPLATE = """
       border: 1px solid rgba(103,245,231,.13);
       border-radius: .38rem;
       background: rgba(2,9,11,.62);
+      overflow: hidden;
+      text-decoration: none;
     }
     .command-gear-card span { display: block; color: #94a7ac; font-size: .68rem; }
     .command-gear-card strong { display: block; margin-top: .18rem; color: #e8f5f7; font-size: .82rem; overflow-wrap: anywhere; }
     .command-gear-card img { width: 2.35rem; height: 2.35rem; object-fit: contain; float: right; }
+    .command-loadout-extra {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: .45rem;
+    }
+    .command-loadout-extra .command-gear-card {
+      min-height: 3.8rem;
+    }
     .command-map-card { padding: .65rem; }
     .command-map {
       position: relative;
@@ -1665,6 +1678,7 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
       align-items: start;
       gap: .85rem;
+      grid-template-columns: minmax(17rem, .72fr) minmax(34rem, 1.28fr);
     }
     body[data-theme="command"][data-section="visual-loadout"] .visual-browser,
     body[data-theme="command"][data-section="visual-loadout"] .visual-export-panel {
@@ -1672,6 +1686,11 @@ PAGE_TEMPLATE = """
       top: 8.25rem;
       max-height: calc(100vh - 10.5rem);
       overflow: auto;
+    }
+    body[data-theme="command"][data-section="visual-loadout"] .visual-export-panel {
+      grid-column: 1 / -1;
+      position: static;
+      max-height: none;
     }
     body[data-theme="command"][data-section="visual-loadout"] .visual-canvas {
       min-height: 44rem;
@@ -1711,7 +1730,7 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .loadout-item-grid {
       grid-template-columns: 1fr;
     }
-    @media (max-width: 1500px) {
+    @media (max-width: 1700px) {
       .command-grid {
         grid-template-columns: 1fr;
       }
@@ -1771,6 +1790,7 @@ PAGE_TEMPLATE = """
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
         grid-template-columns: 1fr;
       }
+      .command-loadout-extra { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .command-paperdoll { min-height: 14rem; }
       .command-paperdoll img { max-height: 13rem; }
       .command-table { min-width: 46rem; }
@@ -2423,7 +2443,7 @@ PAGE_TEMPLATE = """
               {% for event in (server.scenario_events if server else [])[:5] %}
               {% set status_text = event.status or ('Running' if event.enabled else 'Idle') %}
               {% set status_lower = status_text|string|lower %}
-              {% set status_label = 'Failed' if 'fail' in status_lower else ('Done' if 'done' in status_lower or 'uploaded' in status_lower else ('Uploading' if 'upload' in status_lower or 'starting' in status_lower else ('Running' if event.enabled else 'Queued'))) %}
+              {% set status_label = 'Failed' if 'fail' in status_lower else ('Ready' if 'ready' in status_lower else ('Done' if 'done' in status_lower or 'uploaded' in status_lower else ('Uploading' if 'upload' in status_lower or 'starting' in status_lower else ('Running' if event.enabled else 'Queued')))) %}
               <tr>
                 <td>{{ event.id or loop.index }}</td>
                 <td>{{ event.event_type or 'event' }}</td>
@@ -2460,6 +2480,15 @@ PAGE_TEMPLATE = """
             <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-character" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[4:8] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+            <div class="command-loadout-extra">
+              {% for card in visual_loadout_slot_cards[8:13] %}
               {% set item = card.item %}
               <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
@@ -4594,6 +4623,15 @@ PAGE_TEMPLATE = """
             <div class="command-paperdoll command-character"><img class="command-character-portrait" src="/brand-character" alt="Wandering Bot loadout preview"></div>
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[5:10] %}
+              {% set item = card.item %}
+              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+                {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
+                <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
+              </a>
+              {% endfor %}
+            </div>
+            <div class="command-loadout-extra">
+              {% for card in visual_loadout_slot_cards[10:13] %}
               {% set item = card.item %}
               <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
