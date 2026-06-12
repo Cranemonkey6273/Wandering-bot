@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import hashlib
+import subprocess
 import zipfile
 import urllib.error
 import urllib.parse
@@ -952,7 +953,7 @@ PAGE_TEMPLATE = """
     .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
     .ai-agent-grid .admin-panel { min-height: 0; }
     .ai-agent-prompt textarea { min-height: 12rem; }
-    .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-bottom: .85rem; }
+    .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
     .ai-agent-stat strong { display: block; color: var(--accent); font-size: 1.25rem; overflow-wrap: anywhere; }
@@ -964,6 +965,7 @@ PAGE_TEMPLATE = """
     .ai-agent-feed article { border: 1px solid rgba(103,245,231,.13); border-radius: .5rem; padding: .65rem; background: rgba(2, 8, 11, .74); }
     .ai-agent-feed strong { display: block; }
     .ai-agent-feed time { color: var(--dim); font-size: .78rem; }
+    .ai-agent-log { max-height: 10rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.12); border-radius: .45rem; padding: .55rem; background: rgba(0,0,0,.28); color: var(--muted); font-size: .78rem; }
     .ai-agent-access-list { display: grid; gap: .5rem; margin-top: .75rem; }
     .ai-agent-access-card { border: 1px solid rgba(103,245,231,.14); border-radius: .5rem; padding: .65rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-access-card strong { display: block; }
@@ -2834,8 +2836,10 @@ PAGE_TEMPLATE = """
       <div class="ai-agent-stat-grid">
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
-        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ ai_agent_state.sandbox.status|replace('_', ' ')|title }}</strong></div>
+        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Docker Locked' }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
+        <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
+        <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
       </div>
       <div class="ai-agent-grid">
         <section class="admin-panel ai-agent-prompt">
@@ -2863,6 +2867,19 @@ PAGE_TEMPLATE = """
               <label><input type="checkbox" name="allow_deploy" value="1"> Request deployment</label>
             </div>
             <div class="full modal-actions"><button type="submit">Create Agent Plan</button><span class="result muted"></span></div>
+          </form>
+        </section>
+        <section class="admin-panel">
+          <h3>Sandbox Command Request</h3>
+          <p class="tool-note">Commands are queued into the AI sandbox job list. They only run inside Docker when the sandbox is configured, and owner approval is required while God Mode is off.</p>
+          <form class="admin-form" method="post" action="/api/ai-agent/sandbox-command" data-route="/api/ai-agent/sandbox-command">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+            <input class="hidden-field" name="guild_id" value="global">
+            <label>Related task ID<input name="task_id" placeholder="optional ai-..."></label>
+            <label>Sandbox path<input name="project_path" placeholder="blank = sandbox root"></label>
+            <label class="full">Command<textarea name="command" placeholder="pytest&#10;npm test&#10;npm run build" required></textarea></label>
+            <label class="full">Reason<input name="reason" placeholder="Why this command is needed"></label>
+            <div class="full modal-actions"><button type="submit">Queue Sandbox Job</button><span class="result muted"></span></div>
           </form>
         </section>
         <section class="admin-panel">
@@ -2923,6 +2940,96 @@ PAGE_TEMPLATE = """
           </div>
         </section>
       </div>
+      <section class="admin-panel full" id="ai-agent-approvals">
+        <h3>Approval Queue</h3>
+        <div class="table-scroll">
+          <table class="item-table">
+            <thead><tr><th>ID</th><th>Type</th><th>Request</th><th>Status</th><th>Requested By</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for approval in ai_agent_approvals[:12] %}
+              <tr class="{{ 'status-warn' if approval.status == 'pending' else 'status-ok' if approval.status == 'approved' else 'status-bad' if approval.status == 'rejected' else '' }}">
+                <td>{{ approval.id }}</td>
+                <td>{{ approval.type }}</td>
+                <td><strong>{{ approval.title }}</strong><br><span class="muted">{{ approval.summary }}</span></td>
+                <td>{{ approval.status }}</td>
+                <td>{{ approval.requested_by }}</td>
+                <td>
+                  {% if auth.kind == "owner" and approval.status == "pending" %}
+                  <div class="scenario-actions">
+                    <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-approval" data-route="/api/owner/ai-agent-approval">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-approvals">
+                      <input class="hidden-field" name="guild_id" value="global">
+                      <input class="hidden-field" name="approval_id" value="{{ approval.id }}">
+                      <input class="hidden-field" name="action" value="approve">
+                      <button type="submit">Approve</button>
+                    </form>
+                    <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-approval" data-route="/api/owner/ai-agent-approval">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-approvals">
+                      <input class="hidden-field" name="guild_id" value="global">
+                      <input class="hidden-field" name="approval_id" value="{{ approval.id }}">
+                      <input class="hidden-field" name="action" value="reject">
+                      <button type="submit">Reject</button>
+                    </form>
+                  </div>
+                  {% else %}
+                  <span class="muted">{{ approval.decision_note or 'No action' }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No approvals are waiting.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="admin-panel full" id="ai-agent-jobs">
+        <h3>Sandbox Jobs</h3>
+        <div class="table-scroll">
+          <table class="item-table">
+            <thead><tr><th>ID</th><th>Command</th><th>Status</th><th>Exit</th><th>Output</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for job in ai_agent_sandbox_jobs[:12] %}
+              <tr class="{{ 'status-ok' if job.status == 'done' else 'status-bad' if job.status in ['failed', 'blocked'] else 'status-warn' if job.status in ['queued', 'awaiting_owner_approval'] else '' }}">
+                <td>{{ job.id }}</td>
+                <td><code>{{ job.command }}</code><br><span class="muted">{{ job.reason }}</span></td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.exit_code if job.exit_code is not none else '-' }}</td>
+                <td>
+                  {% if job.stdout %}<pre class="ai-agent-log">{{ job.stdout }}</pre>{% endif %}
+                  {% if job.stderr %}<pre class="ai-agent-log">{{ job.stderr }}</pre>{% endif %}
+                  {% if not job.stdout and not job.stderr %}<span class="muted">No output yet.</span>{% endif %}
+                </td>
+                <td>
+                  {% if auth.kind == "owner" and job.status in ["queued", "blocked", "failed"] %}
+                  <div class="scenario-actions">
+                    <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-job-action" data-route="/api/owner/ai-agent-job-action">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+                      <input class="hidden-field" name="guild_id" value="global">
+                      <input class="hidden-field" name="job_id" value="{{ job.id }}">
+                      <input class="hidden-field" name="action" value="run">
+                      <button type="submit">Run</button>
+                    </form>
+                    <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-job-action" data-route="/api/owner/ai-agent-job-action">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+                      <input class="hidden-field" name="guild_id" value="global">
+                      <input class="hidden-field" name="job_id" value="{{ job.id }}">
+                      <input class="hidden-field" name="action" value="cancel">
+                      <button type="submit">Cancel</button>
+                    </form>
+                  </div>
+                  {% else %}
+                  <span class="muted">No action</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No sandbox jobs yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
       <section class="admin-panel full">
         <h3>Recent Agent Tasks</h3>
         <div class="table-scroll">
@@ -9497,6 +9604,27 @@ AI_AGENT_RISK_KEYWORDS = {
     "force push": "Force-push approval required",
     "push": "GitHub approval required",
 }
+AI_AGENT_DOCKER_ENABLED = os.getenv("WANDERING_AI_AGENT_DOCKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
+AI_AGENT_WORKSPACE_ROOT = os.getenv("WANDERING_AI_AGENT_WORKSPACE_ROOT", "").strip()
+try:
+    AI_AGENT_COMMAND_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS", "900")))
+except (TypeError, ValueError):
+    AI_AGENT_COMMAND_TIMEOUT_SECONDS = 900
+AI_AGENT_COMMAND_TIMEOUT_SECONDS = max(10, min(3600, AI_AGENT_COMMAND_TIMEOUT_SECONDS))
+AI_AGENT_MAX_LOG_CHARS = 12000
+AI_AGENT_BLOCKED_COMMAND_TERMS = (
+    "docker.sock",
+    "--privileged",
+    " --pid=host",
+    " --net=host",
+    "mkfs",
+    "format ",
+    "shutdown",
+    "reboot",
+    "init 0",
+    "init 6",
+)
 
 
 def ai_agent_default_state() -> dict[str, Any]:
@@ -9507,6 +9635,8 @@ def ai_agent_default_state() -> dict[str, Any]:
         "approval_rules": dict(AI_AGENT_DEFAULT_APPROVAL_RULES),
         "members": {},
         "tasks": [],
+        "approvals": [],
+        "sandbox_jobs": [],
         "activity": [],
         "memory": {
             "project_summary": "Wandering Bot dashboard and Discord/DayZ automation platform.",
@@ -9523,6 +9653,8 @@ def ai_agent_default_state() -> dict[str, Any]:
             "cpu_limit": "2 cores",
             "memory_limit": "2 GB",
             "timeout_seconds": 900,
+            "docker_enabled": AI_AGENT_DOCKER_ENABLED,
+            "docker_image": AI_AGENT_DOCKER_IMAGE,
         },
     }
 
@@ -9544,6 +9676,10 @@ def load_ai_agent_state() -> dict[str, Any]:
         merged["members"] = {}
     if not isinstance(merged.get("tasks"), list):
         merged["tasks"] = []
+    if not isinstance(merged.get("approvals"), list):
+        merged["approvals"] = []
+    if not isinstance(merged.get("sandbox_jobs"), list):
+        merged["sandbox_jobs"] = []
     if not isinstance(merged.get("activity"), list):
         merged["activity"] = []
     if not isinstance(merged.get("approval_rules"), dict):
@@ -9551,6 +9687,11 @@ def load_ai_agent_state() -> dict[str, Any]:
     for key, enabled in AI_AGENT_DEFAULT_APPROVAL_RULES.items():
         merged["approval_rules"].setdefault(key, enabled)
     merged["god_mode_enabled"] = bool(merged.get("god_mode_enabled", False))
+    sandbox = merged.get("sandbox") if isinstance(merged.get("sandbox"), dict) else {}
+    sandbox["docker_enabled"] = AI_AGENT_DOCKER_ENABLED
+    sandbox["docker_image"] = AI_AGENT_DOCKER_IMAGE
+    sandbox["timeout_seconds"] = AI_AGENT_COMMAND_TIMEOUT_SECONDS
+    merged["sandbox"] = sandbox
     return merged
 
 
@@ -9610,6 +9751,199 @@ def ai_agent_activity(state: dict[str, Any], title: str, summary: str, actor: st
     activity.insert(0, event)
     del activity[80:]
     return event
+
+
+def ai_agent_new_id(prefix: str) -> str:
+    return f"{prefix}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}"
+
+
+def ai_agent_redact_log(text: Any) -> str:
+    output = str(text or "")
+    for key in SECRET_KEYS:
+        pattern = re.compile(rf"({re.escape(key)}\s*[=:]\s*)([^\s,;]+)", re.IGNORECASE)
+        output = pattern.sub(r"\1***", output)
+    for env_key, env_value in os.environ.items():
+        if not env_value or len(env_value) < 8:
+            continue
+        if any(secret_key in env_key.lower() for secret_key in SECRET_KEYS):
+            output = output.replace(env_value, "***")
+    if len(output) > AI_AGENT_MAX_LOG_CHARS:
+        output = output[:AI_AGENT_MAX_LOG_CHARS].rstrip() + "\n... log truncated"
+    return output
+
+
+def ai_agent_command_is_allowed(command: str) -> tuple[bool, str]:
+    text = str(command or "").strip()
+    lower = text.lower()
+    if not text:
+        return False, "command is required"
+    if len(text) > 4000:
+        return False, "command is too long"
+    for term in AI_AGENT_BLOCKED_COMMAND_TERMS:
+        if term in lower:
+            return False, f"blocked unsafe command term: {term.strip()}"
+    return True, ""
+
+
+def ai_agent_workspace_path(project_path: Any = "") -> tuple[str, str]:
+    configured_root = AI_AGENT_WORKSPACE_ROOT
+    if not configured_root:
+        return "", "WANDERING_AI_AGENT_WORKSPACE_ROOT is not configured"
+    root = os.path.abspath(configured_root)
+    requested = str(project_path or "").strip()
+    workspace = os.path.abspath(os.path.join(root, requested)) if requested else root
+    try:
+        common = os.path.commonpath([root, workspace])
+    except ValueError:
+        return "", "workspace path is outside the configured sandbox root"
+    if common != root:
+        return "", "workspace path is outside the configured sandbox root"
+    if not os.path.isdir(workspace):
+        return "", "workspace path does not exist"
+    return workspace, ""
+
+
+def ai_agent_pending_approval_count(state: dict[str, Any]) -> int:
+    return sum(1 for item in state.get("approvals", []) if isinstance(item, dict) and str(item.get("status") or "") == "pending")
+
+
+def ai_agent_job_counts(state: dict[str, Any]) -> dict[str, int]:
+    jobs = [item for item in state.get("sandbox_jobs", []) if isinstance(item, dict)]
+    return {
+        "total": len(jobs),
+        "queued": sum(1 for item in jobs if str(item.get("status") or "") in {"queued", "awaiting_owner_approval"}),
+        "failed": sum(1 for item in jobs if str(item.get("status") or "") in {"failed", "blocked"}),
+        "done": sum(1 for item in jobs if str(item.get("status") or "") == "done"),
+    }
+
+
+def ai_agent_create_approval(
+    state: dict[str, Any],
+    *,
+    approval_type: str,
+    title: str,
+    summary: str,
+    requested_by: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    approval = {
+        "id": ai_agent_new_id("approval"),
+        "type": str(approval_type),
+        "title": str(title),
+        "summary": str(summary),
+        "status": "pending",
+        "requested_by": str(requested_by),
+        "payload": compact_audit_value(payload or {}),
+        "created_at": datetime.now(UTC).isoformat(),
+        "decided_at": "",
+        "decided_by": "",
+        "decision_note": "",
+    }
+    approvals = state.setdefault("approvals", [])
+    if not isinstance(approvals, list):
+        approvals = []
+        state["approvals"] = approvals
+    approvals.insert(0, approval)
+    del approvals[100:]
+    ai_agent_activity(state, "Owner approval requested", f"{approval['title']} ({approval['id']})", requested_by, approval)
+    return approval
+
+
+def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, text: str = "") -> tuple[bool, list[str]]:
+    if state.get("god_mode_enabled"):
+        return False, []
+    rules = state.get("approval_rules") if isinstance(state.get("approval_rules"), dict) else {}
+    reasons = []
+    normalized_action = str(action_type or "").lower()
+    if normalized_action == "command":
+        reasons.append("Sandbox command execution requires owner approval while God Mode is disabled")
+    if normalized_action == "deploy" and rules.get("production_deployments", True):
+        reasons.append("Production deployment approval required")
+    lower = str(text or "").lower()
+    for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
+        if keyword in lower and reason not in reasons:
+            reasons.append(reason)
+    return bool(reasons), reasons
+
+
+def ai_agent_run_docker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
+    job["started_at"] = datetime.now(UTC).isoformat()
+    job["runner"] = "docker"
+    if not AI_AGENT_DOCKER_ENABLED:
+        job.update(
+            {
+                "status": "blocked",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "Docker sandbox is disabled. Set WANDERING_AI_AGENT_DOCKER_ENABLED=true and configure WANDERING_AI_AGENT_WORKSPACE_ROOT.",
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: Docker sandbox disabled", actor, job)
+        return job
+    workspace, workspace_error = ai_agent_workspace_path(job.get("project_path"))
+    if workspace_error:
+        job.update({"status": "blocked", "exit_code": None, "stdout": "", "stderr": workspace_error, "finished_at": datetime.now(UTC).isoformat()})
+        ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {workspace_error}", actor, job)
+        return job
+    command = str(job.get("command") or "")
+    allowed, reason = ai_agent_command_is_allowed(command)
+    if not allowed:
+        job.update({"status": "blocked", "exit_code": None, "stdout": "", "stderr": reason, "finished_at": datetime.now(UTC).isoformat()})
+        ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {reason}", actor, job)
+        return job
+    docker_command = [
+        "docker",
+        "run",
+        "--rm",
+        "--network",
+        "none",
+        "--cpus",
+        "2",
+        "--memory",
+        "2g",
+        "-v",
+        f"{workspace}:/workspace:rw",
+        "-w",
+        "/workspace",
+        AI_AGENT_DOCKER_IMAGE,
+        "sh",
+        "-lc",
+        command,
+    ]
+    try:
+        result = subprocess.run(docker_command, capture_output=True, text=True, timeout=AI_AGENT_COMMAND_TIMEOUT_SECONDS)
+        job.update(
+            {
+                "status": "done" if result.returncode == 0 else "failed",
+                "exit_code": result.returncode,
+                "stdout": ai_agent_redact_log(result.stdout),
+                "stderr": ai_agent_redact_log(result.stderr),
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+        )
+    except subprocess.TimeoutExpired as error:
+        job.update(
+            {
+                "status": "failed",
+                "exit_code": None,
+                "stdout": ai_agent_redact_log(getattr(error, "stdout", "") or ""),
+                "stderr": f"Command timed out after {AI_AGENT_COMMAND_TIMEOUT_SECONDS}s.",
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+        )
+    except Exception as error:
+        job.update({"status": "failed", "exit_code": None, "stdout": "", "stderr": ai_agent_redact_log(str(error)), "finished_at": datetime.now(UTC).isoformat()})
+    ai_agent_activity(state, "Sandbox job finished", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "exit_code": job.get("exit_code")})
+    return job
+
+
+def ai_agent_find_by_id(items: list[Any], item_id: Any) -> dict[str, Any] | None:
+    wanted = str(item_id or "")
+    for item in items:
+        if isinstance(item, dict) and str(item.get("id") or "") == wanted:
+            return item
+    return None
 
 
 def ai_agent_plan_from_objective(objective: str, project_type: str, requested: dict[str, bool], state: dict[str, Any]) -> dict[str, Any]:
@@ -9994,6 +10328,9 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "wallet-adjustment": "Wallet adjusted",
         "ai-agent-task": "AI agent task planned",
         "ai-agent-access": "AI agent access updated",
+        "ai-agent-approval": "AI agent approval decided",
+        "ai-agent-job-action": "AI agent sandbox job updated",
+        "sandbox-command": "AI agent sandbox command queued",
         "welcome-automation": "Welcome automation saved",
         "xml-workshop": "XML workshop updated",
         "zone": "Zone saved",
@@ -13572,6 +13909,10 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
         ai_agent_tasks=ai_agent_state.get("tasks", []),
+        ai_agent_approvals=ai_agent_state.get("approvals", []),
+        ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_state),
+        ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
+        ai_agent_job_counts=ai_agent_job_counts(ai_agent_state),
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
@@ -15951,6 +16292,10 @@ def api_ai_agent_state():
             "approval_rules": state.get("approval_rules", {}),
             "sandbox": state.get("sandbox", {}),
             "tasks": state.get("tasks", [])[:30],
+            "approvals": state.get("approvals", [])[:30],
+            "sandbox_jobs": state.get("sandbox_jobs", [])[:30],
+            "pending_approvals": ai_agent_pending_approval_count(state),
+            "job_counts": ai_agent_job_counts(state),
             "activity": state.get("activity", [])[:30],
         }
     )
@@ -15958,7 +16303,7 @@ def api_ai_agent_state():
 
 @APP.post("/api/ai-agent/task")
 def api_ai_agent_task():
-    auth, access, state, error = require_ai_agent_permission("execute")
+    auth, access, state, error = require_ai_agent_permission("edit")
     if error:
         return error
     raw_payload = request_payload() or {}
@@ -15972,6 +16317,8 @@ def api_ai_agent_task():
         "execute": safe_bool(payload.get("allow_execute"), False),
         "deploy": safe_bool(payload.get("allow_deploy"), False),
     }
+    if requested.get("execute") and not access.get("permissions", {}).get("execute"):
+        return jsonify({"ok": False, "error": "execute permission is required to request command work"}), 403
     if requested.get("deploy") and not access.get("permissions", {}).get("deploy"):
         return jsonify({"ok": False, "error": "deploy permission is required to request deployment work"}), 403
     plan = ai_agent_plan_from_objective(objective, str(payload.get("project_type") or "auto"), requested, state)
@@ -15995,16 +16342,167 @@ def api_ai_agent_task():
         "approvals": plan.get("approvals", []),
         "complexity": plan.get("complexity", "medium"),
         "status": status,
+        "approval_id": "",
         "created_by": access.get("label") or dashboard_audit_actor(auth),
         "created_at": datetime.now(UTC).isoformat(),
     }
     tasks.insert(0, task)
     del tasks[60:]
+    if plan.get("approvals"):
+        approval = ai_agent_create_approval(
+            state,
+            approval_type="task_execution",
+            title=f"Approve agent task {task_id}",
+            summary="; ".join(plan.get("approvals", [])),
+            requested_by=task["created_by"],
+            payload={"task_id": task_id, "objective": objective[:240], "requested_permissions": requested},
+        )
+        task["approval_id"] = approval["id"]
     ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task_id)
     body = {"ok": True, "task": task, "note": "Agent plan created. High-risk actions remain approval-gated."}
     return dashboard_api_response(raw_payload, body, "ai-agent", "#ai-agent")
+
+
+@APP.post("/api/ai-agent/sandbox-command")
+def api_ai_agent_sandbox_command():
+    auth, access, state, error = require_ai_agent_permission("execute")
+    if error:
+        return error
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    command = str(payload.get("command") or "").strip()
+    allowed, reason = ai_agent_command_is_allowed(command)
+    if not allowed:
+        return jsonify({"ok": False, "error": reason}), 400
+    if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
+        return jsonify({"ok": False, "error": "deploy permission is required for deployment commands"}), 403
+    actor = access.get("label") or dashboard_audit_actor(auth)
+    jobs = state.setdefault("sandbox_jobs", [])
+    if not isinstance(jobs, list):
+        jobs = []
+        state["sandbox_jobs"] = jobs
+    needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command)
+    job = {
+        "id": ai_agent_new_id("job"),
+        "task_id": str(payload.get("task_id") or "").strip(),
+        "command": command,
+        "reason": str(payload.get("reason") or "sandbox command request").strip(),
+        "project_path": str(payload.get("project_path") or "").strip(),
+        "status": "awaiting_owner_approval" if needs_approval else "queued",
+        "approval_id": "",
+        "approval_reasons": reasons,
+        "requested_by": actor,
+        "created_at": datetime.now(UTC).isoformat(),
+        "started_at": "",
+        "finished_at": "",
+        "exit_code": None,
+        "stdout": "",
+        "stderr": "",
+    }
+    jobs.insert(0, job)
+    del jobs[80:]
+    if needs_approval:
+        approval = ai_agent_create_approval(
+            state,
+            approval_type="sandbox_command",
+            title=f"Run sandbox command {job['id']}",
+            summary="; ".join(reasons) or command[:180],
+            requested_by=actor,
+            payload={"job_id": job["id"], "command": command, "project_path": job["project_path"]},
+        )
+        job["approval_id"] = approval["id"]
+    else:
+        ai_agent_run_docker_job(state, job, actor)
+    ai_agent_activity(state, "Sandbox job queued", f"{job['id']}: {job['status']}", actor, {"job_id": job["id"], "command": command})
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sandbox_command", job_id=job["id"])
+    return dashboard_api_response(raw_payload, {"ok": True, "job": job, "note": "Sandbox job queued."}, "ai-agent", "#ai-agent-jobs")
+
+
+@APP.post("/api/owner/ai-agent-approval")
+def api_owner_ai_agent_approval():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    state = load_ai_agent_state()
+    approval = ai_agent_find_by_id(state.get("approvals", []), payload.get("approval_id"))
+    if not approval:
+        return jsonify({"ok": False, "error": "approval not found"}), 404
+    action = str(payload.get("action") or "approve").strip().lower()
+    if action not in {"approve", "reject"}:
+        return jsonify({"ok": False, "error": "unsupported approval action"}), 400
+    if str(approval.get("status") or "") != "pending":
+        return jsonify({"ok": False, "error": "approval is not pending"}), 400
+    actor = dashboard_audit_actor(current_auth())
+    approval["status"] = "approved" if action == "approve" else "rejected"
+    approval["decided_at"] = datetime.now(UTC).isoformat()
+    approval["decided_by"] = actor
+    approval["decision_note"] = str(payload.get("decision_note") or action).strip()
+    job = None
+    approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
+    job_id = str(approval_payload.get("job_id") or payload.get("job_id") or "")
+    task_id = str(approval_payload.get("task_id") or payload.get("task_id") or "")
+    if job_id:
+        job = ai_agent_find_by_id(state.get("sandbox_jobs", []), job_id)
+    if task_id:
+        task = ai_agent_find_by_id(state.get("tasks", []), task_id)
+        if task:
+            task["status"] = "approved" if action == "approve" else "cancelled"
+            task["approved_at"] = datetime.now(UTC).isoformat() if action == "approve" else ""
+            task["approval_status"] = approval["status"]
+    if job:
+        if action == "reject":
+            job["status"] = "cancelled"
+            job["finished_at"] = datetime.now(UTC).isoformat()
+            job["stderr"] = "Owner rejected the sandbox command request."
+        elif str(job.get("status") or "") == "awaiting_owner_approval":
+            job["status"] = "queued"
+            ai_agent_run_docker_job(state, job, actor)
+    ai_agent_activity(state, f"Approval {approval['status']}", f"{approval.get('id')}: {approval.get('title')}", actor, {"approval_id": approval.get("id"), "job_id": job_id, "task_id": task_id})
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, approval_id=approval.get("id"))
+    return dashboard_api_response(raw_payload, {"ok": True, "approval": approval, "job": job, "note": f"Approval {approval['status']}."}, "ai-agent", "#ai-agent-approvals")
+
+
+@APP.post("/api/owner/ai-agent-job-action")
+def api_owner_ai_agent_job_action():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    state = load_ai_agent_state()
+    job = ai_agent_find_by_id(state.get("sandbox_jobs", []), payload.get("job_id"))
+    if not job:
+        return jsonify({"ok": False, "error": "sandbox job not found"}), 404
+    action = str(payload.get("action") or "run").strip().lower()
+    actor = dashboard_audit_actor(current_auth())
+    if action == "cancel":
+        if str(job.get("status") or "") in {"done"}:
+            return jsonify({"ok": False, "error": "completed jobs cannot be cancelled"}), 400
+        job["status"] = "cancelled"
+        job["finished_at"] = datetime.now(UTC).isoformat()
+        job["stderr"] = "Cancelled by owner."
+        ai_agent_activity(state, "Sandbox job cancelled", str(job.get("id")), actor, job)
+    elif action == "run":
+        if str(job.get("status") or "") == "awaiting_owner_approval":
+            return jsonify({"ok": False, "error": "job is waiting for owner approval first"}), 400
+        if str(job.get("status") or "") in {"running"}:
+            return jsonify({"ok": False, "error": "job is already running"}), 400
+        job["status"] = "queued"
+        job["stdout"] = ""
+        job["stderr"] = ""
+        job["exit_code"] = None
+        ai_agent_run_docker_job(state, job, actor)
+    else:
+        return jsonify({"ok": False, "error": "unsupported job action"}), 400
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, job_id=job.get("id"))
+    return dashboard_api_response(raw_payload, {"ok": True, "job": job, "note": f"Sandbox job {job.get('status')}."}, "ai-agent", "#ai-agent-jobs")
 
 
 @APP.post("/api/owner/ai-agent-access")
