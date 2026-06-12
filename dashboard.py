@@ -287,6 +287,7 @@ FILES = {
     "swear_jar": "swear_jar.json",
     "longshot_records": "longshot_records.json",
     "removed_guilds": "removed_guilds.json",
+    "ai_agent": "ai_agent.json",
 }
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
@@ -948,6 +949,26 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(1),
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(2),
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #67f5e7; background: linear-gradient(135deg, rgba(7,32,37,.82), rgba(5,10,12,.96)); }
+    .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
+    .ai-agent-grid .admin-panel { min-height: 0; }
+    .ai-agent-prompt textarea { min-height: 12rem; }
+    .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-bottom: .85rem; }
+    .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
+    .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+    .ai-agent-stat strong { display: block; color: var(--accent); font-size: 1.25rem; overflow-wrap: anywhere; }
+    .ai-agent-plan { display: grid; gap: .55rem; }
+    .ai-agent-step { border: 1px solid rgba(103,245,231,.14); border-radius: .5rem; padding: .65rem; background: rgba(4, 14, 17, .72); }
+    .ai-agent-step strong { display: block; color: #effcff; }
+    .ai-agent-step span { display: block; color: var(--muted); font-size: .86rem; }
+    .ai-agent-feed { display: grid; gap: .5rem; max-height: 26rem; overflow: auto; padding-right: .25rem; }
+    .ai-agent-feed article { border: 1px solid rgba(103,245,231,.13); border-radius: .5rem; padding: .65rem; background: rgba(2, 8, 11, .74); }
+    .ai-agent-feed strong { display: block; }
+    .ai-agent-feed time { color: var(--dim); font-size: .78rem; }
+    .ai-agent-access-list { display: grid; gap: .5rem; margin-top: .75rem; }
+    .ai-agent-access-card { border: 1px solid rgba(103,245,231,.14); border-radius: .5rem; padding: .65rem; background: rgba(2, 9, 12, .78); }
+    .ai-agent-access-card strong { display: block; }
+    .ai-agent-access-card span { color: var(--muted); font-size: .86rem; }
+    .ai-agent-shell .check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .command-sidebar, .command-overview, .command-loadout-stage, .command-status-bar { display: none; }
     body[data-theme="command"] {
       --sidebar-w: 13.25rem;
@@ -2206,7 +2227,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid { grid-template-columns: 1fr; }
       .xml-output-panel { position: static; }
       .visual-browser, .visual-export-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
@@ -2387,6 +2408,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Console</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
     </nav>
     <div class="command-quick">
       <span>Quick actions</span>
@@ -2465,6 +2487,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
@@ -2493,6 +2516,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
+          {% if section_allowed('ai-agent') %}<option value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
@@ -2797,6 +2821,146 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+
+    {% if mode in ["admin", "owner"] and active_section == "ai-agent" %}
+    <section class="section-panel ai-agent-shell" id="ai-agent">
+      <div class="section-head">
+        <div>
+          <h2>AI Development Agent</h2>
+          <p class="tool-note">Private owner-controlled engineering workspace. The page stays hidden unless access is explicitly granted, and high-risk actions require approval unless Owner God Mode is switched on.</p>
+        </div>
+        <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
+      </div>
+      <div class="ai-agent-stat-grid">
+        <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
+        <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
+        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ ai_agent_state.sandbox.status|replace('_', ' ')|title }}</strong></div>
+        <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
+      </div>
+      <div class="ai-agent-grid">
+        <section class="admin-panel ai-agent-prompt">
+          <h3>Natural Language Task</h3>
+          <p class="tool-note">Describe what you want built or fixed. The agent creates a task tree, assigns specialist agents, detects risky actions, and records everything before any execution.</p>
+          <form class="admin-form" method="post" action="/api/ai-agent/task" data-route="/api/ai-agent/task">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent">
+            <input class="hidden-field" name="guild_id" value="global">
+            <label class="full">Objective<textarea name="objective" placeholder="Build a ticket system, fix dashboard bugs, add Railway deploy checks..." required></textarea></label>
+            <label>Project type
+              <select name="project_type">
+                <option value="auto">Auto detect</option>
+                <option value="discord_bot">Discord bot</option>
+                <option value="dashboard">Dashboard</option>
+                <option value="python">Python</option>
+                <option value="node">Node / TypeScript</option>
+                <option value="docker">Docker deployment</option>
+              </select>
+            </label>
+            <label>Target repository<input name="repository" placeholder="owner/repo or local path"></label>
+            <div class="check-grid full">
+              <label><input type="checkbox" name="allow_read" value="1" checked> Read project</label>
+              <label><input type="checkbox" name="allow_edit" value="1" checked> Draft edits</label>
+              <label><input type="checkbox" name="allow_execute" value="1"> Run sandbox commands</label>
+              <label><input type="checkbox" name="allow_deploy" value="1"> Request deployment</label>
+            </div>
+            <div class="full modal-actions"><button type="submit">Create Agent Plan</button><span class="result muted"></span></div>
+          </form>
+        </section>
+        <section class="admin-panel">
+          <h3>Owner God Mode</h3>
+          <p class="tool-note">Disabled by default. When off, deploys, GitHub pushes, migrations, secrets, deletions and force-pushes remain approval-gated.</p>
+          {% if auth.kind == "owner" %}
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-access" data-route="/api/owner/ai-agent-access" data-confirm="Changing AI Agent God Mode affects high-risk approval gates. Continue?">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
+            <input class="hidden-field" name="guild_id" value="global">
+            <input class="hidden-field" name="action" value="god_mode">
+            <label class="full"><input type="checkbox" name="god_mode_enabled" value="1" {% if ai_agent_state.god_mode_enabled %}checked{% endif %}> Enable Owner God Mode</label>
+            <div class="check-grid full">
+              {% for key, enabled in ai_agent_state.approval_rules.items() %}
+              <label><input type="checkbox" name="approval_{{ key }}" value="1" {% if enabled %}checked{% endif %}> {{ key|replace('_', ' ')|title }}</label>
+              {% endfor %}
+            </div>
+            <div class="full modal-actions"><button type="submit">Save Safety Rules</button><span class="result muted"></span></div>
+          </form>
+          {% else %}
+          <p class="muted">Only the Primary Owner can change God Mode.</p>
+          {% endif %}
+        </section>
+        <section class="admin-panel">
+          <h3>Access Management</h3>
+          <p class="tool-note">Granting access here records the permission, but the Primary Owner account is always retained and cannot be suspended or removed.</p>
+          {% if auth.kind == "owner" %}
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-access" data-route="/api/owner/ai-agent-access">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
+            <input class="hidden-field" name="guild_id" value="global">
+            <input class="hidden-field" name="action" value="grant">
+            <label>Subject key<input name="subject_key" placeholder="guild:1234567890" required></label>
+            <label>Display name<input name="label" placeholder="Admin dashboard name" required></label>
+            <label>Role<select name="role"><option value="admin">Admin</option><option value="moderator">Moderator</option><option value="user">User</option></select></label>
+            <label>Status<select name="status"><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
+            <div class="check-grid full">
+              {% for key in ai_agent_permission_keys %}
+              <label><input type="checkbox" name="perm_{{ key }}" value="1" {% if key == 'read' %}checked{% endif %}> {{ key|title }}</label>
+              {% endfor %}
+            </div>
+            <div class="full modal-actions"><button type="submit">Save Access</button><span class="result muted"></span></div>
+          </form>
+          {% endif %}
+          <div class="ai-agent-access-list">
+            <div class="ai-agent-access-card"><strong>Primary Owner</strong><span>Full access - cannot be removed - subject owner:{{ owner_dashboard_id }}</span></div>
+            {% for key, member in ai_agent_members.items() %}
+            <div class="ai-agent-access-card"><strong>{{ member.label or key }}</strong><span>{{ key }} - {{ member.role|default('admin') }} - {{ member.status|default('active') }}</span></div>
+            {% endfor %}
+          </div>
+        </section>
+        <section class="admin-panel">
+          <h3>Sandbox & Approval Model</h3>
+          <div class="ai-agent-plan">
+            <div class="ai-agent-step"><strong>Planner Agent</strong><span>Breaks natural-language requests into task trees.</span></div>
+            <div class="ai-agent-step"><strong>Research Agent</strong><span>Reads project files and architecture notes before edits.</span></div>
+            <div class="ai-agent-step"><strong>Builder Agent</strong><span>Writes changes inside isolated workspaces.</span></div>
+            <div class="ai-agent-step"><strong>Tester and Debug Agents</strong><span>Run checks, diagnose failures, and retry fixes.</span></div>
+            <div class="ai-agent-step"><strong>Deployment Agent</strong><span>Requires approval before production deploys while God Mode is off.</span></div>
+          </div>
+        </section>
+      </div>
+      <section class="admin-panel full">
+        <h3>Recent Agent Tasks</h3>
+        <div class="table-scroll">
+          <table class="item-table">
+            <thead><tr><th>ID</th><th>Objective</th><th>Project</th><th>Complexity</th><th>Status</th><th>Approvals</th></tr></thead>
+            <tbody>
+              {% for task in ai_agent_tasks[:12] %}
+              <tr>
+                <td>{{ task.id }}</td>
+                <td>{{ task.objective }}</td>
+                <td>{{ task.project_type }}</td>
+                <td>{{ task.complexity }}</td>
+                <td>{{ task.status }}</td>
+                <td>{{ task.approvals|join(', ') if task.approvals else 'None' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No AI agent tasks yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="admin-panel full">
+        <h3>Activity Feed</h3>
+        <div class="ai-agent-feed">
+          {% for event in ai_agent_activity_feed[:18] %}
+          <article>
+            <strong>{{ event.title }}</strong>
+            <span>{{ event.summary }}</span><br>
+            <time>{{ event.created_at }}</time>
+          </article>
+          {% else %}
+          <article><strong>Ready</strong><span>No AI agent activity has been recorded yet.</span></article>
+          {% endfor %}
+        </div>
+      </section>
+    </section>
+    {% endif %}
     {% if mode in ["admin", "owner"] and active_section == "automations" %}
     <section class="section-panel" id="automations">
       <div class="section-head">
@@ -9311,6 +9475,187 @@ def save_store(name: str, data: Any) -> None:
     sync_runtime_store(name, data)
 
 
+
+AI_AGENT_PERMISSION_KEYS = ("read", "edit", "execute", "deploy")
+AI_AGENT_DEFAULT_APPROVAL_RULES = {
+    "production_deployments": True,
+    "database_migrations": True,
+    "secret_changes": True,
+    "file_deletions": True,
+    "repository_deletions": True,
+    "force_pushes": True,
+    "permission_changes": True,
+}
+AI_AGENT_RISK_KEYWORDS = {
+    "deploy": "Deployment approval required",
+    "production": "Production approval required",
+    "migration": "Database migration approval required",
+    "database": "Database approval required",
+    "secret": "Secret change approval required",
+    "delete": "Deletion approval required",
+    "remove": "Removal approval required",
+    "force push": "Force-push approval required",
+    "push": "GitHub approval required",
+}
+
+
+def ai_agent_default_state() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "god_mode_enabled": False,
+        "owner_subject": f"owner:{OWNER_DASHBOARD_ID or 'owner'}",
+        "approval_rules": dict(AI_AGENT_DEFAULT_APPROVAL_RULES),
+        "members": {},
+        "tasks": [],
+        "activity": [],
+        "memory": {
+            "project_summary": "Wandering Bot dashboard and Discord/DayZ automation platform.",
+            "coding_standards": [
+                "Keep owner-only tools hidden unless explicitly granted.",
+                "Require approval for production, database, secret, deletion, and force-push actions.",
+                "Run changes through sandboxed execution before deployment.",
+            ],
+        },
+        "sandbox": {
+            "status": "not_connected",
+            "mode": "approval-gated",
+            "runner": "docker worker pending",
+            "cpu_limit": "2 cores",
+            "memory_limit": "2 GB",
+            "timeout_seconds": 900,
+        },
+    }
+
+
+def load_ai_agent_state() -> dict[str, Any]:
+    state = load_store("ai_agent", {})
+    default_state = ai_agent_default_state()
+    if not isinstance(state, dict):
+        state = {}
+    merged = dict(default_state)
+    for key, value in state.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    if not isinstance(merged.get("members"), dict):
+        merged["members"] = {}
+    if not isinstance(merged.get("tasks"), list):
+        merged["tasks"] = []
+    if not isinstance(merged.get("activity"), list):
+        merged["activity"] = []
+    if not isinstance(merged.get("approval_rules"), dict):
+        merged["approval_rules"] = dict(AI_AGENT_DEFAULT_APPROVAL_RULES)
+    for key, enabled in AI_AGENT_DEFAULT_APPROVAL_RULES.items():
+        merged["approval_rules"].setdefault(key, enabled)
+    merged["god_mode_enabled"] = bool(merged.get("god_mode_enabled", False))
+    return merged
+
+
+def save_ai_agent_state(state: dict[str, Any]) -> None:
+    save_store("ai_agent", state)
+
+
+def ai_agent_subject_for_auth(auth: dict[str, Any] | None) -> str:
+    if not isinstance(auth, dict):
+        return "anonymous"
+    if auth.get("kind") == "owner":
+        return f"owner:{OWNER_DASHBOARD_ID or 'owner'}"
+    return f"guild:{auth.get('guild_id') or 'unknown'}"
+
+
+def ai_agent_access_for_auth(auth: dict[str, Any] | None, state: dict[str, Any] | None = None) -> dict[str, Any]:
+    state = state if isinstance(state, dict) else load_ai_agent_state()
+    if isinstance(auth, dict) and auth.get("kind") == "owner":
+        return {
+            "allowed": True,
+            "role": "owner",
+            "status": "active",
+            "permissions": {key: True for key in AI_AGENT_PERMISSION_KEYS},
+            "subject_key": ai_agent_subject_for_auth(auth),
+            "label": "Primary Owner",
+        }
+    subject_key = ai_agent_subject_for_auth(auth)
+    record = state.get("members", {}).get(subject_key)
+    if not isinstance(record, dict):
+        return {"allowed": False, "role": "none", "status": "hidden", "permissions": {}, "subject_key": subject_key, "label": "No access"}
+    permissions = record.get("permissions") if isinstance(record.get("permissions"), dict) else {}
+    normalized_permissions = {key: bool(permissions.get(key, False)) for key in AI_AGENT_PERMISSION_KEYS}
+    allowed = str(record.get("status") or "active").lower() == "active" and bool(normalized_permissions.get("read"))
+    return {
+        "allowed": allowed,
+        "role": str(record.get("role") or "admin"),
+        "status": str(record.get("status") or "active"),
+        "permissions": normalized_permissions,
+        "subject_key": subject_key,
+        "label": str(record.get("label") or subject_key),
+    }
+
+
+def ai_agent_activity(state: dict[str, Any], title: str, summary: str, actor: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    event = {
+        "id": f"agent-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+        "title": str(title),
+        "summary": str(summary),
+        "actor": str(actor),
+        "payload": compact_audit_value(payload or {}),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    activity = state.setdefault("activity", [])
+    if not isinstance(activity, list):
+        activity = []
+        state["activity"] = activity
+    activity.insert(0, event)
+    del activity[80:]
+    return event
+
+
+def ai_agent_plan_from_objective(objective: str, project_type: str, requested: dict[str, bool], state: dict[str, Any]) -> dict[str, Any]:
+    text = str(objective or "").strip()
+    lower = text.lower()
+    steps = [
+        {"agent": "Planner", "title": "Clarify objective", "detail": "Convert the natural-language request into a scoped implementation plan."},
+        {"agent": "Research", "title": "Inspect project", "detail": "Read the relevant files, routes, configuration, tests, and deployment notes."},
+        {"agent": "Builder", "title": "Implement changes", "detail": "Apply focused edits inside an isolated project workspace."},
+        {"agent": "Tester", "title": "Run checks", "detail": "Run linting, type checks, tests, and builds supported by the project."},
+        {"agent": "Debug", "title": "Repair failures", "detail": "Analyze failing output, apply fixes, and repeat checks until stable."},
+        {"agent": "Review", "title": "Prepare review", "detail": "Summarize files changed, risks, tests, and required approvals."},
+    ]
+    if any(word in lower for word in ("discord", "bot", "slash command", "moderation", "ticket")):
+        steps.insert(3, {"agent": "Builder", "title": "Update Discord integration", "detail": "Wire commands, permissions, embeds, and persistent stores."})
+    if any(word in lower for word in ("dashboard", "page", "frontend", "react", "ui", "style")):
+        steps.insert(3, {"agent": "Builder", "title": "Update dashboard UI", "detail": "Build responsive views, forms, tables, and state feedback."})
+    if any(word in lower for word in ("database", "schema", "migration", "postgres", "mongodb", "sqlite")):
+        steps.insert(-2, {"agent": "Tester", "title": "Validate data changes", "detail": "Create or review migrations, seed data, rollback notes, and query safety."})
+    if any(word in lower for word in ("deploy", "railway", "render", "vercel", "netlify", "docker", "vps")):
+        steps.append({"agent": "Deployment", "title": "Stage deployment", "detail": "Build, verify health checks, and wait for owner approval before production deploy."})
+    approvals = []
+    for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
+        if keyword in lower and reason not in approvals:
+            approvals.append(reason)
+    if requested.get("deploy") and "Deployment approval required" not in approvals:
+        approvals.append("Deployment approval required")
+    if not state.get("god_mode_enabled") and (requested.get("execute") or requested.get("deploy")):
+        approvals.append("God Mode is disabled, so execution/deploy actions require owner approval")
+    complexity = "medium"
+    if len(text) > 220 or len(steps) >= 8 or approvals:
+        complexity = "high"
+    elif len(text) < 80 and len(steps) <= 6:
+        complexity = "low"
+    return {"steps": steps, "approvals": approvals, "complexity": complexity}
+
+
+def require_ai_agent_permission(permission: str = "read") -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, Any | None]:
+    auth = current_auth()
+    if not auth:
+        return None, None, None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
+    state = load_ai_agent_state()
+    access = ai_agent_access_for_auth(auth, state)
+    if not access.get("allowed") or not access.get("permissions", {}).get(permission, False):
+        return None, None, None, (jsonify({"ok": False, "error": "AI Development Agent access denied"}), 403)
+    return auth, access, state, None
 def dashboard_password_hash(password: str, salt: str) -> str:
     return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
 
@@ -9582,7 +9927,7 @@ def request_payload() -> dict[str, Any]:
     return dict(data or {})
 
 
-AUDITED_DASHBOARD_PREFIXES = ("/api/admin/", "/api/owner/")
+AUDITED_DASHBOARD_PREFIXES = ("/api/admin/", "/api/owner/", "/api/ai-agent/")
 DASHBOARD_AUDIT_MAX_QUEUE = 1000
 DASHBOARD_AUDIT_IGNORED_KEYS = {
     "_scope_denied",
@@ -9647,6 +9992,8 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "wage": "Wage saved",
         "wage-action": "Wage updated",
         "wallet-adjustment": "Wallet adjusted",
+        "ai-agent-task": "AI agent task planned",
+        "ai-agent-access": "AI agent access updated",
         "welcome-automation": "Welcome automation saved",
         "xml-workshop": "XML workshop updated",
         "zone": "Zone saved",
@@ -12239,6 +12586,7 @@ COMMAND_SECTION_META = {
     "help": {"kicker": "Guide", "title": "Help", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
     "access": {"kicker": "Servers", "title": "Servers & Login", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
+    "ai-agent": {"kicker": "Private AI", "title": "AI Development Agent", "body": "Owner-controlled software engineering workspace with planning, approval gates, sandbox intent, audit logs and God Mode locked off by default."},
 }
 
 
@@ -13127,7 +13475,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
     if auth.get("kind") != "owner" and active_section == "owner":
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section == "owner":
@@ -13146,8 +13494,12 @@ def page(mode: str, auth: dict[str, Any]):
     selected_server = state["servers"][0] if state.get("servers") else {}
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
+    ai_agent_state = load_ai_agent_state()
+    ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
 
     def section_allowed(section: str) -> bool:
+        if section == "ai-agent":
+            return bool(ai_agent_access.get("allowed") and ai_agent_access.get("permissions", {}).get("read"))
         if auth.get("kind") == "owner":
             return True
         feature = SECTION_FEATURES.get(section)
@@ -13217,6 +13569,13 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text=visual_loadout_json_text,
         visual_loadout_selected_rows=visual_loadout_equipped_rows,
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
+        ai_agent_state=ai_agent_state,
+        ai_agent_access=ai_agent_access,
+        ai_agent_tasks=ai_agent_state.get("tasks", []),
+        ai_agent_activity_feed=ai_agent_state.get("activity", []),
+        ai_agent_members=ai_agent_state.get("members", {}),
+        ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
+        owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
         generated_clock=state.get("generated_clock") or "",
@@ -15577,6 +15936,133 @@ def api_member_action():
         "#members-list",
     )
 
+
+
+@APP.get("/api/ai-agent/state")
+def api_ai_agent_state():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    return jsonify(
+        {
+            "ok": True,
+            "access": access,
+            "god_mode_enabled": bool(state.get("god_mode_enabled")),
+            "approval_rules": state.get("approval_rules", {}),
+            "sandbox": state.get("sandbox", {}),
+            "tasks": state.get("tasks", [])[:30],
+            "activity": state.get("activity", [])[:30],
+        }
+    )
+
+
+@APP.post("/api/ai-agent/task")
+def api_ai_agent_task():
+    auth, access, state, error = require_ai_agent_permission("execute")
+    if error:
+        return error
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    objective = str(payload.get("objective") or "").strip()
+    if len(objective) < 8:
+        return jsonify({"ok": False, "error": "objective is required"}), 400
+    requested = {
+        "read": safe_bool(payload.get("allow_read"), True),
+        "edit": safe_bool(payload.get("allow_edit"), True),
+        "execute": safe_bool(payload.get("allow_execute"), False),
+        "deploy": safe_bool(payload.get("allow_deploy"), False),
+    }
+    if requested.get("deploy") and not access.get("permissions", {}).get("deploy"):
+        return jsonify({"ok": False, "error": "deploy permission is required to request deployment work"}), 403
+    plan = ai_agent_plan_from_objective(objective, str(payload.get("project_type") or "auto"), requested, state)
+    tasks = state.setdefault("tasks", [])
+    if not isinstance(tasks, list):
+        tasks = []
+        state["tasks"] = tasks
+    task_id = f"ai-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2)}"
+    status = "planned"
+    if plan.get("approvals"):
+        status = "awaiting_owner_approval"
+    elif requested.get("execute"):
+        status = "ready_for_sandbox"
+    task = {
+        "id": task_id,
+        "objective": objective[:500],
+        "project_type": str(payload.get("project_type") or "auto"),
+        "repository": str(payload.get("repository") or "").strip(),
+        "requested_permissions": requested,
+        "steps": plan.get("steps", []),
+        "approvals": plan.get("approvals", []),
+        "complexity": plan.get("complexity", "medium"),
+        "status": status,
+        "created_by": access.get("label") or dashboard_audit_actor(auth),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    tasks.insert(0, task)
+    del tasks[60:]
+    ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task_id)
+    body = {"ok": True, "task": task, "note": "Agent plan created. High-risk actions remain approval-gated."}
+    return dashboard_api_response(raw_payload, body, "ai-agent", "#ai-agent")
+
+
+@APP.post("/api/owner/ai-agent-access")
+def api_owner_ai_agent_access():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    state = load_ai_agent_state()
+    action = str(payload.get("action") or "grant").strip().lower()
+    actor = dashboard_audit_actor(current_auth())
+    if action == "god_mode":
+        state["god_mode_enabled"] = safe_bool(payload.get("god_mode_enabled"), False)
+        rules = {}
+        for key, default_enabled in AI_AGENT_DEFAULT_APPROVAL_RULES.items():
+            rules[key] = safe_bool(payload.get(f"approval_{key}"), default_enabled)
+        state["approval_rules"] = rules
+        ai_agent_activity(state, "AI agent safety rules updated", f"God Mode {'enabled' if state['god_mode_enabled'] else 'disabled'}", actor, {"approval_rules": rules})
+        save_ai_agent_state(state)
+        g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="god_mode")
+        return dashboard_api_response(raw_payload, {"ok": True, "god_mode_enabled": state["god_mode_enabled"], "note": "Saved AI agent safety rules."}, "ai-agent", "#ai-agent")
+    subject_key = str(payload.get("subject_key") or "").strip()
+    if not subject_key:
+        return jsonify({"ok": False, "error": "subject_key is required"}), 400
+    owner_subject = f"owner:{OWNER_DASHBOARD_ID or 'owner'}"
+    if subject_key == owner_subject and action in {"remove", "delete", "suspend"}:
+        return jsonify({"ok": False, "error": "Primary Owner access cannot be removed or suspended"}), 400
+    members = state.setdefault("members", {})
+    if not isinstance(members, dict):
+        members = {}
+        state["members"] = members
+    if action in {"remove", "delete"}:
+        removed = members.pop(subject_key, None)
+        ai_agent_activity(state, "AI agent access removed", subject_key, actor, {"removed": bool(removed)})
+        save_ai_agent_state(state)
+        g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="remove")
+        return dashboard_api_response(raw_payload, {"ok": True, "removed": bool(removed), "note": "Removed AI agent access."}, "ai-agent", "#ai-agent")
+    permissions = {key: safe_bool(payload.get(f"perm_{key}"), key == "read") for key in AI_AGENT_PERMISSION_KEYS}
+    if not permissions.get("read"):
+        permissions["read"] = True
+    status = str(payload.get("status") or ("suspended" if action == "suspend" else "active")).strip().lower()
+    if status not in {"active", "suspended"}:
+        status = "active"
+    record = {
+        "subject_key": subject_key,
+        "label": str(payload.get("label") or subject_key).strip()[:120],
+        "role": str(payload.get("role") or "admin").strip().lower(),
+        "status": status,
+        "permissions": permissions,
+        "updated_at": datetime.now(UTC).isoformat(),
+        "updated_by": actor,
+    }
+    members[subject_key] = record
+    ai_agent_activity(state, "AI agent access saved", f"{record['label']} ({record['role']})", actor, record)
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="grant", subject_key=subject_key)
+    return dashboard_api_response(raw_payload, {"ok": True, "access": record, "note": "Saved AI agent access."}, "ai-agent", "#ai-agent")
 
 @APP.post("/api/owner/guild-action")
 def api_owner_guild_action():
