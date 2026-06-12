@@ -5299,6 +5299,33 @@ PAGE_TEMPLATE = """
             <li>The theme only changes dashboard colours, not bot behaviour or server files.</li>
           </ol>
         </article>
+        <article class="help-card">
+          <h3>Servers & Login</h3>
+          <ol>
+            <li>Each server uses its own private dashboard ID and password.</li>
+            <li>Use Link Another Server to add a second dashboard into the same login group.</li>
+            <li>After linking, use the left rail picker or Linked Dashboard Servers cards to switch server.</li>
+            <li>The selected server controls every form, upload, event, zone and shop edit on the page.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Red Gas Zones</h3>
+          <ol>
+            <li>Choose a red gas preset in PVE Event Builder, or set Gas particle to Red / debug gas.</li>
+            <li>The bot updates cfgareaeffects.xml to use the contaminated_area_gas_bigass_debug particle.</li>
+            <li>This can affect all gas zones that use that effect file, not only one location.</li>
+            <li>Use Restore normal green if you want to switch the server back.</li>
+          </ol>
+        </article>
+        <article class="help-card">
+          <h3>Discord Spawn Tracker</h3>
+          <ol>
+            <li>Native CE XML uploads tell Discord what files changed and where they were uploaded.</li>
+            <li>The live spawn tracker updates after the next RPT pull sees the server restart or new spawns.</li>
+            <li>If RPT cannot be pulled, the upload can still be complete, but Discord cannot confirm visible spawns yet.</li>
+            <li>RPT warnings are shown in the deployment message so admins can see missing files or bad classnames.</li>
+          </ol>
+        </article>
       </div>
     </section>
     {% endif %}
