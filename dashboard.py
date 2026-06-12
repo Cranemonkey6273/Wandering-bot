@@ -2836,7 +2836,7 @@ PAGE_TEMPLATE = """
       <div class="ai-agent-stat-grid">
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
-        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Docker Locked' }}</strong></div>
+        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
@@ -2871,7 +2871,7 @@ PAGE_TEMPLATE = """
         </section>
         <section class="admin-panel">
           <h3>Sandbox Command Request</h3>
-          <p class="tool-note">Commands are queued into the AI sandbox job list. They only run inside Docker when the sandbox is configured, and owner approval is required while God Mode is off.</p>
+          <p class="tool-note">Commands are queued into the AI sandbox job list. If an external worker is configured, Railway dispatches jobs there; otherwise local Docker stays locked unless explicitly enabled.</p>
           <form class="admin-form" method="post" action="/api/ai-agent/sandbox-command" data-route="/api/ai-agent/sandbox-command">
             <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
             <input class="hidden-field" name="guild_id" value="global">
@@ -2881,6 +2881,23 @@ PAGE_TEMPLATE = """
             <label class="full">Reason<input name="reason" placeholder="Why this command is needed"></label>
             <div class="full modal-actions"><button type="submit">Queue Sandbox Job</button><span class="result muted"></span></div>
           </form>
+        </section>
+        <section class="admin-panel">
+          <h3>External Sandbox Worker</h3>
+          <p class="tool-note">Use Railway as the control panel and a separate Docker machine as the execution worker. The worker token is read from environment variables only and is never shown here.</p>
+          <div class="ai-agent-plan">
+            <div class="ai-agent-step"><strong>Runner</strong><span>{{ ai_agent_state.sandbox.runner|default('local docker') }}</span></div>
+            <div class="ai-agent-step"><strong>Worker URL</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_url_configured else 'Not configured' }}</span></div>
+            <div class="ai-agent-step"><strong>Worker Token</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_token_configured else 'Not configured' }}</span></div>
+            <div class="ai-agent-step"><strong>Timeout</strong><span>{{ ai_agent_state.sandbox.timeout_seconds }}s command limit</span></div>
+          </div>
+          {% if auth.kind == "owner" %}
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-job-sync" data-route="/api/owner/ai-agent-job-sync">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+            <input class="hidden-field" name="guild_id" value="global">
+            <div class="full modal-actions"><button type="submit">Sync Worker Jobs</button><span class="result muted"></span></div>
+          </form>
+          {% endif %}
         </section>
         <section class="admin-panel">
           <h3>Owner God Mode</h3>
@@ -2990,10 +3007,10 @@ PAGE_TEMPLATE = """
             <thead><tr><th>ID</th><th>Command</th><th>Status</th><th>Exit</th><th>Output</th><th>Actions</th></tr></thead>
             <tbody>
               {% for job in ai_agent_sandbox_jobs[:12] %}
-              <tr class="{{ 'status-ok' if job.status == 'done' else 'status-bad' if job.status in ['failed', 'blocked'] else 'status-warn' if job.status in ['queued', 'awaiting_owner_approval'] else '' }}">
+              <tr class="{{ 'status-ok' if job.status == 'done' else 'status-bad' if job.status in ['failed', 'blocked', 'cancelled'] else 'status-warn' if job.status in ['queued', 'awaiting_owner_approval', 'dispatching', 'dispatched', 'running'] else '' }}">
                 <td>{{ job.id }}</td>
                 <td><code>{{ job.command }}</code><br><span class="muted">{{ job.reason }}</span></td>
-                <td>{{ job.status }}</td>
+                <td>{{ job.status }}<br><span class="muted">{{ job.runner|default('local') }}{% if job.remote_job_id %} - {{ job.remote_job_id }}{% endif %}</span></td>
                 <td>{{ job.exit_code if job.exit_code is not none else '-' }}</td>
                 <td>
                   {% if job.stdout %}<pre class="ai-agent-log">{{ job.stdout }}</pre>{% endif %}
@@ -3001,8 +3018,18 @@ PAGE_TEMPLATE = """
                   {% if not job.stdout and not job.stderr %}<span class="muted">No output yet.</span>{% endif %}
                 </td>
                 <td>
-                  {% if auth.kind == "owner" and job.status in ["queued", "blocked", "failed"] %}
+                  {% if auth.kind == "owner" and job.status in ["queued", "blocked", "failed", "dispatching", "dispatched", "running"] %}
                   <div class="scenario-actions">
+                    {% if job.runner == "worker" %}
+                    <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-job-action" data-route="/api/owner/ai-agent-job-action">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+                      <input class="hidden-field" name="guild_id" value="global">
+                      <input class="hidden-field" name="job_id" value="{{ job.id }}">
+                      <input class="hidden-field" name="action" value="sync">
+                      <button type="submit">Sync</button>
+                    </form>
+                    {% endif %}
+                    {% if job.status in ["queued", "blocked", "failed"] %}
                     <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-job-action" data-route="/api/owner/ai-agent-job-action">
                       <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
                       <input class="hidden-field" name="guild_id" value="global">
@@ -3010,6 +3037,7 @@ PAGE_TEMPLATE = """
                       <input class="hidden-field" name="action" value="run">
                       <button type="submit">Run</button>
                     </form>
+                    {% endif %}
                     <form class="admin-form inline-action" method="post" action="/api/owner/ai-agent-job-action" data-route="/api/owner/ai-agent-job-action">
                       <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
                       <input class="hidden-field" name="guild_id" value="global">
@@ -9607,11 +9635,18 @@ AI_AGENT_RISK_KEYWORDS = {
 AI_AGENT_DOCKER_ENABLED = os.getenv("WANDERING_AI_AGENT_DOCKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
 AI_AGENT_WORKSPACE_ROOT = os.getenv("WANDERING_AI_AGENT_WORKSPACE_ROOT", "").strip()
+AI_AGENT_WORKER_URL = os.getenv("WANDERING_AI_AGENT_WORKER_URL", "").strip().rstrip("/")
+AI_AGENT_WORKER_TOKEN = os.getenv("WANDERING_AI_AGENT_WORKER_TOKEN", "").strip()
 try:
     AI_AGENT_COMMAND_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS", "900")))
 except (TypeError, ValueError):
     AI_AGENT_COMMAND_TIMEOUT_SECONDS = 900
 AI_AGENT_COMMAND_TIMEOUT_SECONDS = max(10, min(3600, AI_AGENT_COMMAND_TIMEOUT_SECONDS))
+try:
+    AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS", "20")))
+except (TypeError, ValueError):
+    AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = 20
+AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = max(3, min(120, AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS))
 AI_AGENT_MAX_LOG_CHARS = 12000
 AI_AGENT_BLOCKED_COMMAND_TERMS = (
     "docker.sock",
@@ -9649,12 +9684,16 @@ def ai_agent_default_state() -> dict[str, Any]:
         "sandbox": {
             "status": "not_connected",
             "mode": "approval-gated",
-            "runner": "docker worker pending",
+            "runner": "external worker" if AI_AGENT_WORKER_URL else "local docker",
             "cpu_limit": "2 cores",
             "memory_limit": "2 GB",
             "timeout_seconds": 900,
             "docker_enabled": AI_AGENT_DOCKER_ENABLED,
             "docker_image": AI_AGENT_DOCKER_IMAGE,
+            "worker_enabled": bool(AI_AGENT_WORKER_URL),
+            "worker_url_configured": bool(AI_AGENT_WORKER_URL),
+            "worker_token_configured": bool(AI_AGENT_WORKER_TOKEN),
+            "worker_http_timeout_seconds": AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS,
         },
     }
 
@@ -9691,6 +9730,13 @@ def load_ai_agent_state() -> dict[str, Any]:
     sandbox["docker_enabled"] = AI_AGENT_DOCKER_ENABLED
     sandbox["docker_image"] = AI_AGENT_DOCKER_IMAGE
     sandbox["timeout_seconds"] = AI_AGENT_COMMAND_TIMEOUT_SECONDS
+    sandbox["worker_enabled"] = bool(AI_AGENT_WORKER_URL)
+    sandbox["worker_url_configured"] = bool(AI_AGENT_WORKER_URL)
+    sandbox["worker_token_configured"] = bool(AI_AGENT_WORKER_TOKEN)
+    sandbox["worker_http_timeout_seconds"] = AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS
+    sandbox["runner"] = "external worker" if AI_AGENT_WORKER_URL else "local docker"
+    if AI_AGENT_WORKER_URL:
+        sandbox["status"] = "worker_configured"
     merged["sandbox"] = sandbox
     return merged
 
@@ -9811,7 +9857,7 @@ def ai_agent_job_counts(state: dict[str, Any]) -> dict[str, int]:
     jobs = [item for item in state.get("sandbox_jobs", []) if isinstance(item, dict)]
     return {
         "total": len(jobs),
-        "queued": sum(1 for item in jobs if str(item.get("status") or "") in {"queued", "awaiting_owner_approval"}),
+        "queued": sum(1 for item in jobs if str(item.get("status") or "") in {"queued", "awaiting_owner_approval", "dispatching", "dispatched", "running"}),
         "failed": sum(1 for item in jobs if str(item.get("status") or "") in {"failed", "blocked"}),
         "done": sum(1 for item in jobs if str(item.get("status") or "") == "done"),
     }
@@ -9864,6 +9910,175 @@ def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, te
         if keyword in lower and reason not in reasons:
             reasons.append(reason)
     return bool(reasons), reasons
+
+
+def ai_agent_worker_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": "WanderingBot-AI-Agent/1.0"}
+    if AI_AGENT_WORKER_TOKEN:
+        headers["Authorization"] = f"Bearer {AI_AGENT_WORKER_TOKEN}"
+    return headers
+
+
+def ai_agent_worker_request(method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any], str]:
+    if not AI_AGENT_WORKER_URL:
+        return False, {}, "External sandbox worker is not configured. Set WANDERING_AI_AGENT_WORKER_URL."
+    url = f"{AI_AGENT_WORKER_URL}{path}"
+    try:
+        response = requests.request(
+            method.upper(),
+            url,
+            headers=ai_agent_worker_headers(),
+            json=payload if payload is not None else None,
+            timeout=AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as error:
+        return False, {}, f"Worker request failed: {ai_agent_redact_log(str(error))}"
+    try:
+        data = response.json() if response.text else {}
+    except ValueError:
+        data = {"ok": response.ok, "text": ai_agent_redact_log(response.text[:2000])}
+    if response.status_code >= 400:
+        message = data.get("error") or data.get("message") or data.get("text") or response.reason
+        return False, data, f"Worker returned HTTP {response.status_code}: {ai_agent_redact_log(message)}"
+    if data.get("ok") is False:
+        message = data.get("error") or data.get("message") or "worker rejected the request"
+        return False, data, ai_agent_redact_log(message)
+    return True, data, ""
+
+
+def ai_agent_normalize_worker_status(status: Any) -> str:
+    text = str(status or "").strip().lower()
+    mapping = {
+        "complete": "done",
+        "completed": "done",
+        "success": "done",
+        "succeeded": "done",
+        "error": "failed",
+        "errored": "failed",
+        "rejected": "blocked",
+        "pending": "dispatched",
+        "accepted": "dispatched",
+    }
+    return mapping.get(text, text if text in {"queued", "dispatched", "running", "done", "failed", "blocked", "cancelled"} else "dispatched")
+
+
+def ai_agent_update_job_from_worker_payload(job: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    source = data.get("job") if isinstance(data.get("job"), dict) else data
+    remote_job_id = source.get("remote_job_id") or source.get("job_id") or source.get("id") or job.get("remote_job_id")
+    if remote_job_id:
+        job["remote_job_id"] = str(remote_job_id)
+    status = ai_agent_normalize_worker_status(source.get("status") or data.get("status") or job.get("status"))
+    job["status"] = status
+    job["runner"] = "worker"
+    if source.get("started_at") or data.get("started_at"):
+        job["started_at"] = str(source.get("started_at") or data.get("started_at"))
+    elif not job.get("started_at"):
+        job["started_at"] = datetime.now(UTC).isoformat()
+    if "exit_code" in source or "exit_code" in data:
+        job["exit_code"] = source.get("exit_code", data.get("exit_code"))
+    if source.get("stdout") is not None or data.get("stdout") is not None:
+        job["stdout"] = ai_agent_redact_log(source.get("stdout", data.get("stdout", "")))
+    if source.get("stderr") is not None or data.get("stderr") is not None:
+        job["stderr"] = ai_agent_redact_log(source.get("stderr", data.get("stderr", "")))
+    if status in {"done", "failed", "blocked", "cancelled"}:
+        job["finished_at"] = str(source.get("finished_at") or data.get("finished_at") or datetime.now(UTC).isoformat())
+    job["last_worker_sync_at"] = datetime.now(UTC).isoformat()
+    return job
+
+
+def ai_agent_dispatch_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
+    command = str(job.get("command") or "")
+    allowed, reason = ai_agent_command_is_allowed(command)
+    if not allowed:
+        job.update({"status": "blocked", "runner": "worker", "exit_code": None, "stdout": "", "stderr": reason, "finished_at": datetime.now(UTC).isoformat()})
+        ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {reason}", actor, job)
+        return job
+    job["status"] = "dispatching"
+    job["runner"] = "worker"
+    job["started_at"] = datetime.now(UTC).isoformat()
+    payload = {
+        "job_id": job.get("id"),
+        "task_id": job.get("task_id"),
+        "command": command,
+        "project_path": job.get("project_path") or "",
+        "reason": job.get("reason") or "",
+        "requested_by": job.get("requested_by") or actor,
+        "timeout_seconds": AI_AGENT_COMMAND_TIMEOUT_SECONDS,
+        "docker_image": AI_AGENT_DOCKER_IMAGE,
+    }
+    ok, data, error = ai_agent_worker_request("POST", "/api/agent/jobs", payload)
+    if not ok:
+        job.update(
+            {
+                "status": "failed",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": error,
+                "finished_at": datetime.now(UTC).isoformat(),
+                "last_worker_sync_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        ai_agent_activity(state, "Worker dispatch failed", f"{job.get('id')}: {error}", actor, {"job_id": job.get("id")})
+        return job
+    ai_agent_update_job_from_worker_payload(job, data)
+    ai_agent_activity(state, "Sandbox job dispatched", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": job.get("remote_job_id")})
+    return job
+
+
+def ai_agent_sync_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
+    remote_job_id = str(job.get("remote_job_id") or job.get("id") or "").strip()
+    if not remote_job_id:
+        job["stderr"] = "No remote worker job id is attached to this job."
+        return job
+    ok, data, error = ai_agent_worker_request("GET", f"/api/agent/jobs/{urllib.parse.quote(remote_job_id, safe='')}")
+    if not ok:
+        job["last_worker_sync_at"] = datetime.now(UTC).isoformat()
+        job["stderr"] = error
+        ai_agent_activity(state, "Worker sync failed", f"{job.get('id')}: {error}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
+        return job
+    previous_status = str(job.get("status") or "")
+    ai_agent_update_job_from_worker_payload(job, data)
+    if str(job.get("status") or "") != previous_status:
+        ai_agent_activity(state, "Sandbox job synced", f"{job.get('id')}: {previous_status} -> {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
+    return job
+
+
+def ai_agent_sync_worker_jobs(state: dict[str, Any], actor: str, limit: int = 20) -> int:
+    synced = 0
+    for job in state.get("sandbox_jobs", []):
+        if not isinstance(job, dict):
+            continue
+        if str(job.get("runner") or "") != "worker":
+            continue
+        if str(job.get("status") or "") not in {"queued", "dispatched", "dispatching", "running"}:
+            continue
+        ai_agent_sync_worker_job(state, job, actor)
+        synced += 1
+        if synced >= limit:
+            break
+    if synced:
+        ai_agent_activity(state, "Worker jobs synced", f"{synced} remote job(s) checked", actor, {"synced": synced})
+    return synced
+
+
+def ai_agent_cancel_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
+    remote_job_id = str(job.get("remote_job_id") or job.get("id") or "").strip()
+    if not remote_job_id or not AI_AGENT_WORKER_URL:
+        return job
+    ok, data, error = ai_agent_worker_request("POST", f"/api/agent/jobs/{urllib.parse.quote(remote_job_id, safe='')}/cancel")
+    if ok:
+        ai_agent_update_job_from_worker_payload(job, data)
+        ai_agent_activity(state, "Worker job cancelled", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
+    else:
+        job["stderr"] = error
+        ai_agent_activity(state, "Worker cancel failed", f"{job.get('id')}: {error}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
+    return job
+
+
+def ai_agent_run_sandbox_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
+    if AI_AGENT_WORKER_URL:
+        return ai_agent_dispatch_worker_job(state, job, actor)
+    return ai_agent_run_docker_job(state, job, actor)
 
 
 def ai_agent_run_docker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
@@ -16414,7 +16629,7 @@ def api_ai_agent_sandbox_command():
         )
         job["approval_id"] = approval["id"]
     else:
-        ai_agent_run_docker_job(state, job, actor)
+        ai_agent_run_sandbox_job(state, job, actor)
     ai_agent_activity(state, "Sandbox job queued", f"{job['id']}: {job['status']}", actor, {"job_id": job["id"], "command": command})
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sandbox_command", job_id=job["id"])
@@ -16461,7 +16676,7 @@ def api_owner_ai_agent_approval():
             job["stderr"] = "Owner rejected the sandbox command request."
         elif str(job.get("status") or "") == "awaiting_owner_approval":
             job["status"] = "queued"
-            ai_agent_run_docker_job(state, job, actor)
+            ai_agent_run_sandbox_job(state, job, actor)
     ai_agent_activity(state, f"Approval {approval['status']}", f"{approval.get('id')}: {approval.get('title')}", actor, {"approval_id": approval.get("id"), "job_id": job_id, "task_id": task_id})
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, approval_id=approval.get("id"))
@@ -16484,10 +16699,13 @@ def api_owner_ai_agent_job_action():
     if action == "cancel":
         if str(job.get("status") or "") in {"done"}:
             return jsonify({"ok": False, "error": "completed jobs cannot be cancelled"}), 400
-        job["status"] = "cancelled"
-        job["finished_at"] = datetime.now(UTC).isoformat()
-        job["stderr"] = "Cancelled by owner."
-        ai_agent_activity(state, "Sandbox job cancelled", str(job.get("id")), actor, job)
+        if str(job.get("runner") or "") == "worker" and job.get("remote_job_id"):
+            ai_agent_cancel_worker_job(state, job, actor)
+        else:
+            job["status"] = "cancelled"
+            job["finished_at"] = datetime.now(UTC).isoformat()
+            job["stderr"] = "Cancelled by owner."
+            ai_agent_activity(state, "Sandbox job cancelled", str(job.get("id")), actor, job)
     elif action == "run":
         if str(job.get("status") or "") == "awaiting_owner_approval":
             return jsonify({"ok": False, "error": "job is waiting for owner approval first"}), 400
@@ -16497,12 +16715,30 @@ def api_owner_ai_agent_job_action():
         job["stdout"] = ""
         job["stderr"] = ""
         job["exit_code"] = None
-        ai_agent_run_docker_job(state, job, actor)
+        ai_agent_run_sandbox_job(state, job, actor)
+    elif action == "sync":
+        if str(job.get("runner") or "") != "worker":
+            return jsonify({"ok": False, "error": "only external worker jobs can be synced"}), 400
+        ai_agent_sync_worker_job(state, job, actor)
     else:
         return jsonify({"ok": False, "error": "unsupported job action"}), 400
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, job_id=job.get("id"))
     return dashboard_api_response(raw_payload, {"ok": True, "job": job, "note": f"Sandbox job {job.get('status')}."}, "ai-agent", "#ai-agent-jobs")
+
+
+@APP.post("/api/owner/ai-agent-job-sync")
+def api_owner_ai_agent_job_sync():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    state = load_ai_agent_state()
+    actor = dashboard_audit_actor(current_auth())
+    synced = ai_agent_sync_worker_jobs(state, actor)
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sync_worker_jobs", synced=synced)
+    return dashboard_api_response(raw_payload, {"ok": True, "synced": synced, "note": f"Synced {synced} worker job(s)."}, "ai-agent", "#ai-agent-jobs")
 
 
 @APP.post("/api/owner/ai-agent-access")
