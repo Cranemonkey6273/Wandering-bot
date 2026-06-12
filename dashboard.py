@@ -907,6 +907,9 @@ PAGE_TEMPLATE = """
     .pills { display: flex; flex-wrap: wrap; gap: .4rem; }
     .pill-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; justify-content: flex-end; }
     .pill { border: 1px solid var(--line); border-radius: 999px; padding: .28rem .55rem; color: var(--muted); background: #0a0f0b; font-size: .8rem; }
+    .pill.ok { border-color: rgba(125, 232, 92, .38); color: #a8ff8f; background: rgba(28, 96, 35, .24); }
+    .pill.warn { border-color: rgba(243, 184, 78, .42); color: #ffd98a; background: rgba(116, 78, 12, .24); }
+    .pill.bad { border-color: rgba(255, 108, 137, .42); color: #ff9ab0; background: rgba(114, 24, 46, .24); }
     .ok { color: #eef7c6; background: rgba(141, 150, 62, .22); }
     .bad { color: #ffd8df; background: rgba(237, 56, 83, .16); }
     .columns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin-top: .85rem; }
@@ -953,6 +956,36 @@ PAGE_TEMPLATE = """
     .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
     .ai-agent-grid .admin-panel { min-height: 0; }
     .ai-agent-prompt textarea { min-height: 12rem; }
+    .ai-codex-workbench { display: grid; grid-template-columns: minmax(28rem, 1.35fr) minmax(20rem, .65fr); gap: .85rem; align-items: stretch; margin-bottom: .85rem; }
+    .ai-codex-chat { min-height: 42rem; display: grid; grid-template-rows: auto minmax(18rem, 1fr) auto; gap: .75rem; background:
+      radial-gradient(circle at top left, rgba(103,245,231,.12), transparent 34%),
+      linear-gradient(180deg, rgba(6, 20, 25, .92), rgba(2, 8, 11, .88)); }
+    .ai-codex-title { display: flex; justify-content: space-between; gap: .8rem; align-items: flex-start; flex-wrap: wrap; padding-bottom: .65rem; border-bottom: 1px solid rgba(103,245,231,.13); }
+    .ai-codex-title h3 { margin: 0; color: var(--text); letter-spacing: .02em; }
+    .ai-codex-thread { display: grid; align-content: start; gap: .85rem; overflow: auto; padding-right: .25rem; }
+    .ai-codex-message { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; max-width: 92%; }
+    .ai-codex-message.user { margin-left: auto; grid-template-columns: minmax(0, 1fr) 2.25rem; }
+    .ai-codex-avatar { width: 2.25rem; height: 2.25rem; border-radius: .5rem; display: grid; place-items: center; border: 1px solid rgba(103,245,231,.18); background: rgba(3, 11, 14, .9); color: var(--accent); font-weight: 900; }
+    .ai-codex-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: .45rem; }
+    .ai-codex-bubble { border: 1px solid rgba(103,245,231,.15); border-radius: .75rem; padding: .75rem .85rem; background: rgba(1, 7, 10, .84); box-shadow: 0 10px 26px rgba(0,0,0,.16); }
+    .ai-codex-message.user .ai-codex-bubble { order: -1; background: rgba(19, 52, 57, .82); border-color: rgba(103,245,231,.32); }
+    .ai-codex-bubble strong { display: block; color: var(--text); margin-bottom: .25rem; }
+    .ai-codex-bubble p { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .ai-codex-bubble time { display: block; margin-top: .45rem; color: var(--dim); font-size: .75rem; }
+    .ai-codex-plan-mini { margin-top: .55rem; display: grid; gap: .35rem; }
+    .ai-codex-plan-mini span { display: block; border-left: 2px solid var(--accent); padding-left: .5rem; color: var(--muted); font-size: .83rem; }
+    .ai-codex-composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding-top: .65rem; border-top: 1px solid rgba(103,245,231,.13); }
+    .ai-codex-composer textarea { min-height: 8rem; resize: vertical; border-radius: .75rem; font-size: .96rem; line-height: 1.45; }
+    .ai-codex-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; align-items: end; }
+    .ai-codex-options label { min-width: 0; }
+    .ai-codex-toggle-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+    .ai-codex-toggle-row label { display: inline-flex; flex-direction: row; align-items: center; gap: .35rem; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .45rem .55rem; background: rgba(2, 9, 12, .72); color: var(--muted); font-size: .84rem; }
+    .ai-codex-toggle-row input { width: auto; min-height: 0; }
+    .ai-codex-submit { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; justify-content: space-between; }
+    .ai-codex-submit button { min-width: 10rem; }
+    .ai-codex-side { display: grid; gap: .85rem; align-content: start; }
+    .ai-codex-side .ai-agent-step { background: rgba(1, 8, 11, .78); }
+    .ai-codex-empty { border: 1px dashed rgba(103,245,231,.22); border-radius: .75rem; padding: 1rem; color: var(--muted); background: rgba(2, 9, 12, .62); }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -2229,7 +2262,11 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options { grid-template-columns: 1fr; }
+      .ai-codex-chat { min-height: 34rem; }
+      .ai-codex-message { max-width: 100%; grid-template-columns: 1.9rem minmax(0, 1fr); gap: .5rem; }
+      .ai-codex-message.user { grid-template-columns: minmax(0, 1fr) 1.9rem; }
+      .ai-codex-avatar { width: 1.9rem; height: 1.9rem; }
       .xml-output-panel { position: static; }
       .visual-browser, .visual-export-panel { position: static; }
       .owner-server-actions { justify-content: flex-start; }
@@ -2841,34 +2878,112 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
       </div>
-      <div class="ai-agent-grid">
-        <section class="admin-panel ai-agent-prompt">
-          <h3>Natural Language Task</h3>
-          <p class="tool-note">Describe what you want built or fixed. The agent creates a task tree, assigns specialist agents, detects risky actions, and records everything before any execution.</p>
-          <form class="admin-form" method="post" action="/api/ai-agent/task" data-route="/api/ai-agent/task">
-            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent">
-            <input class="hidden-field" name="guild_id" value="global">
-            <label class="full">Objective<textarea name="objective" placeholder="Build a ticket system, fix dashboard bugs, add Railway deploy checks..." required></textarea></label>
-            <label>Project type
-              <select name="project_type">
-                <option value="auto">Auto detect</option>
-                <option value="discord_bot">Discord bot</option>
-                <option value="dashboard">Dashboard</option>
-                <option value="python">Python</option>
-                <option value="node">Node / TypeScript</option>
-                <option value="docker">Docker deployment</option>
-              </select>
-            </label>
-            <label>Target repository<input name="repository" placeholder="owner/repo or local path"></label>
-            <div class="check-grid full">
-              <label><input type="checkbox" name="allow_read" value="1" checked> Read project</label>
-              <label><input type="checkbox" name="allow_edit" value="1" checked> Draft edits</label>
-              <label><input type="checkbox" name="allow_execute" value="1"> Run sandbox commands</label>
-              <label><input type="checkbox" name="allow_deploy" value="1"> Request deployment</label>
+      <div class="ai-codex-workbench">
+        <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
+          <div class="ai-codex-title">
+            <div>
+              <h3>Agent Conversation</h3>
+              <p class="tool-note">Type the job like you would in Codex. The agent replies with a plan, logs it, and queues any risky work behind owner approval.</p>
             </div>
-            <div class="full modal-actions"><button type="submit">Create Agent Plan</button><span class="result muted"></span></div>
+            <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
+          </div>
+          <div class="ai-codex-thread" aria-live="polite">
+            {% for message in ai_agent_chat_messages|reverse %}
+            <article class="ai-codex-message {{ message.role|default('assistant') }}">
+              {% if message.role == 'user' %}
+              <div class="ai-codex-bubble">
+                <strong>{{ message.author|default('You') }}</strong>
+                <p>{{ message.content }}</p>
+                <time>{{ message.created_at }}</time>
+              </div>
+              <div class="ai-codex-avatar">You</div>
+              {% else %}
+              <div class="ai-codex-avatar"><img src="/brand-character" alt="Wandering Bot"></div>
+              <div class="ai-codex-bubble">
+                <strong>{{ message.author|default('Wandering Agent') }}</strong>
+                <p>{{ message.content }}</p>
+                {% if message.plan_steps %}
+                <div class="ai-codex-plan-mini">
+                  {% for step in message.plan_steps[:6] %}
+                  <span>{{ step.agent }} - {{ step.title }}</span>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <time>{{ message.created_at }}</time>
+              </div>
+              {% endif %}
+            </article>
+            {% else %}
+            <div class="ai-codex-empty">
+              <strong>Ready when you are.</strong>
+              <p>Ask for a dashboard change, bug fix, test run, GitHub task, or deployment plan. Nothing executes until the permission and approval checks allow it.</p>
+            </div>
+            {% endfor %}
+          </div>
+          <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
+            <input class="hidden-field" name="guild_id" value="global">
+            <label class="full">Message<textarea name="prompt" placeholder="Ask the agent what to build, fix, test, deploy, or investigate..." required></textarea></label>
+            <div class="ai-codex-options">
+              <label>Project
+                <select name="project_type">
+                  <option value="auto">Auto detect</option>
+                  <option value="discord_bot">Discord bot</option>
+                  <option value="dashboard">Dashboard</option>
+                  <option value="python">Python</option>
+                  <option value="node">Node / TypeScript</option>
+                  <option value="docker">Docker deployment</option>
+                </select>
+              </label>
+              <label>Repository<input name="repository" placeholder="owner/repo or local path"></label>
+              <label>Workspace path<input name="project_path" placeholder="optional worker folder"></label>
+              <label>Mode
+                <select name="mode">
+                  <option value="plan">Plan first</option>
+                  <option value="execute">Plan + request execution</option>
+                  <option value="deploy">Plan + request deploy</option>
+                </select>
+              </label>
+            </div>
+            <div class="ai-codex-toggle-row">
+              <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
+              <label><input type="checkbox" name="allow_edit" value="1" checked> Edit</label>
+              <label><input type="checkbox" name="allow_execute" value="1"> Sandbox</label>
+              <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
+            </div>
+            <div class="ai-codex-submit">
+              <span class="tool-note">Owner approvals stay on for high-risk work while God Mode is disabled.</span>
+              <span><button type="submit">Ask Agent</button><span class="result muted"></span></span>
+            </div>
           </form>
         </section>
+        <aside class="ai-codex-side">
+          <section class="admin-panel">
+            <h3>Current Run</h3>
+            <div class="ai-agent-plan">
+              <div class="ai-agent-step"><strong>Access</strong><span>{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span></div>
+              <div class="ai-agent-step"><strong>Approvals</strong><span>{{ ai_agent_pending_approvals }} waiting</span></div>
+              <div class="ai-agent-step"><strong>Sandbox Jobs</strong><span>{{ ai_agent_job_counts.queued }} active, {{ ai_agent_job_counts.done }} done, {{ ai_agent_job_counts.failed }} failed</span></div>
+              <div class="ai-agent-step"><strong>Safety</strong><span>God Mode {{ 'enabled' if ai_agent_state.god_mode_enabled else 'disabled' }}</span></div>
+            </div>
+          </section>
+          <section class="admin-panel">
+            <h3>Latest Plan</h3>
+            {% if ai_agent_tasks %}
+            {% set latest_task = ai_agent_tasks[0] %}
+            <div class="ai-agent-plan">
+              <div class="ai-agent-step"><strong>{{ latest_task.id }}</strong><span>{{ latest_task.objective }}</span></div>
+              {% for step in latest_task.steps[:5] %}
+              <div class="ai-agent-step"><strong>{{ step.agent }} - {{ step.title }}</strong><span>{{ step.detail }}</span></div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="tool-note">No task has been planned yet.</p>
+            {% endif %}
+          </section>
+        </aside>
+      </div>
+      <div class="ai-agent-grid">
         <section class="admin-panel">
           <h3>Sandbox Command Request</h3>
           <p class="tool-note">Commands are queued into the AI sandbox job list. If an external worker is configured, Railway dispatches jobs there; otherwise local Docker stays locked unless explicitly enabled.</p>
@@ -9672,6 +9787,7 @@ def ai_agent_default_state() -> dict[str, Any]:
         "tasks": [],
         "approvals": [],
         "sandbox_jobs": [],
+        "chat_messages": [],
         "activity": [],
         "memory": {
             "project_summary": "Wandering Bot dashboard and Discord/DayZ automation platform.",
@@ -9719,6 +9835,8 @@ def load_ai_agent_state() -> dict[str, Any]:
         merged["approvals"] = []
     if not isinstance(merged.get("sandbox_jobs"), list):
         merged["sandbox_jobs"] = []
+    if not isinstance(merged.get("chat_messages"), list):
+        merged["chat_messages"] = []
     if not isinstance(merged.get("activity"), list):
         merged["activity"] = []
     if not isinstance(merged.get("approval_rules"), dict):
@@ -9797,6 +9915,33 @@ def ai_agent_activity(state: dict[str, Any], title: str, summary: str, actor: st
     activity.insert(0, event)
     del activity[80:]
     return event
+
+
+def ai_agent_chat_message(
+    state: dict[str, Any],
+    *,
+    role: str,
+    author: str,
+    content: str,
+    payload: dict[str, Any] | None = None,
+    plan_steps: list[Any] | None = None,
+) -> dict[str, Any]:
+    message = {
+        "id": ai_agent_new_id("msg"),
+        "role": "user" if role == "user" else "assistant",
+        "author": str(author or ("You" if role == "user" else "Wandering Agent")),
+        "content": str(content or "").strip()[:4000],
+        "payload": compact_audit_value(payload or {}),
+        "plan_steps": plan_steps or [],
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    messages = state.setdefault("chat_messages", [])
+    if not isinstance(messages, list):
+        messages = []
+        state["chat_messages"] = messages
+    messages.insert(0, message)
+    del messages[120:]
+    return message
 
 
 def ai_agent_new_id(prefix: str) -> str:
@@ -10196,6 +10341,87 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
     return {"steps": steps, "approvals": approvals, "complexity": complexity}
 
 
+def ai_agent_create_task_record(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    payload: dict[str, Any],
+    objective: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str, int]:
+    mode = str(payload.get("mode") or "plan").strip().lower()
+    requested = {
+        "read": safe_bool(payload.get("allow_read"), True),
+        "edit": safe_bool(payload.get("allow_edit"), True),
+        "execute": safe_bool(payload.get("allow_execute"), mode in {"execute", "deploy"}),
+        "deploy": safe_bool(payload.get("allow_deploy"), mode == "deploy"),
+    }
+    if requested.get("execute") and not access.get("permissions", {}).get("execute"):
+        return None, None, "execute permission is required to request command work", 403
+    if requested.get("deploy") and not access.get("permissions", {}).get("deploy"):
+        return None, None, "deploy permission is required to request deployment work", 403
+    project_type = str(payload.get("project_type") or "auto")
+    plan = ai_agent_plan_from_objective(objective, project_type, requested, state)
+    tasks = state.setdefault("tasks", [])
+    if not isinstance(tasks, list):
+        tasks = []
+        state["tasks"] = tasks
+    task_id = f"ai-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2)}"
+    status = "planned"
+    if plan.get("approvals"):
+        status = "awaiting_owner_approval"
+    elif requested.get("execute"):
+        status = "ready_for_sandbox"
+    task = {
+        "id": task_id,
+        "objective": objective[:500],
+        "project_type": project_type,
+        "repository": str(payload.get("repository") or "").strip(),
+        "project_path": str(payload.get("project_path") or "").strip(),
+        "requested_permissions": requested,
+        "steps": plan.get("steps", []),
+        "approvals": plan.get("approvals", []),
+        "complexity": plan.get("complexity", "medium"),
+        "status": status,
+        "approval_id": "",
+        "created_by": access.get("label") or dashboard_audit_actor(auth),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    tasks.insert(0, task)
+    del tasks[60:]
+    approval = None
+    if plan.get("approvals"):
+        approval = ai_agent_create_approval(
+            state,
+            approval_type="task_execution",
+            title=f"Approve agent task {task_id}",
+            summary="; ".join(plan.get("approvals", [])),
+            requested_by=task["created_by"],
+            payload={"task_id": task_id, "objective": objective[:240], "requested_permissions": requested},
+        )
+        task["approval_id"] = approval["id"]
+    ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
+    return task, approval, "", 200
+
+
+def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, Any] | None = None) -> str:
+    steps = task.get("steps") if isinstance(task.get("steps"), list) else []
+    approvals = task.get("approvals") if isinstance(task.get("approvals"), list) else []
+    lines = [
+        f"I created plan {task.get('id')} and split it into {len(steps)} step(s).",
+        f"Status: {task.get('status')}. Complexity: {task.get('complexity')}.",
+    ]
+    if approvals:
+        lines.append("Approval needed: " + "; ".join(str(item) for item in approvals[:4]))
+    elif task.get("requested_permissions", {}).get("execute"):
+        lines.append("The plan is ready for sandbox work once a command/job is queued.")
+    else:
+        lines.append("No high-risk approval was detected for this planning step.")
+    if approval:
+        lines.append(f"Approval queue item: {approval.get('id')}.")
+    lines.append("Next: review the plan, then queue a sandbox command or approve the requested high-risk action.")
+    return "\n".join(lines)
+
+
 def require_ai_agent_permission(permission: str = "read") -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, Any | None]:
     auth = current_auth()
     if not auth:
@@ -10542,6 +10768,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "wage-action": "Wage updated",
         "wallet-adjustment": "Wallet adjusted",
         "ai-agent-task": "AI agent task planned",
+        "ai-agent-chat": "AI agent prompt submitted",
         "ai-agent-access": "AI agent access updated",
         "ai-agent-approval": "AI agent approval decided",
         "ai-agent-job-action": "AI agent sandbox job updated",
@@ -14127,6 +14354,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_approvals=ai_agent_state.get("approvals", []),
         ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_state),
         ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
+        ai_agent_chat_messages=ai_agent_state.get("chat_messages", []),
         ai_agent_job_counts=ai_agent_job_counts(ai_agent_state),
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
@@ -16509,6 +16737,7 @@ def api_ai_agent_state():
             "tasks": state.get("tasks", [])[:30],
             "approvals": state.get("approvals", [])[:30],
             "sandbox_jobs": state.get("sandbox_jobs", [])[:30],
+            "chat_messages": state.get("chat_messages", [])[:50],
             "pending_approvals": ai_agent_pending_approval_count(state),
             "job_counts": ai_agent_job_counts(state),
             "activity": state.get("activity", [])[:30],
@@ -16526,58 +16755,44 @@ def api_ai_agent_task():
     objective = str(payload.get("objective") or "").strip()
     if len(objective) < 8:
         return jsonify({"ok": False, "error": "objective is required"}), 400
-    requested = {
-        "read": safe_bool(payload.get("allow_read"), True),
-        "edit": safe_bool(payload.get("allow_edit"), True),
-        "execute": safe_bool(payload.get("allow_execute"), False),
-        "deploy": safe_bool(payload.get("allow_deploy"), False),
-    }
-    if requested.get("execute") and not access.get("permissions", {}).get("execute"):
-        return jsonify({"ok": False, "error": "execute permission is required to request command work"}), 403
-    if requested.get("deploy") and not access.get("permissions", {}).get("deploy"):
-        return jsonify({"ok": False, "error": "deploy permission is required to request deployment work"}), 403
-    plan = ai_agent_plan_from_objective(objective, str(payload.get("project_type") or "auto"), requested, state)
-    tasks = state.setdefault("tasks", [])
-    if not isinstance(tasks, list):
-        tasks = []
-        state["tasks"] = tasks
-    task_id = f"ai-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2)}"
-    status = "planned"
-    if plan.get("approvals"):
-        status = "awaiting_owner_approval"
-    elif requested.get("execute"):
-        status = "ready_for_sandbox"
-    task = {
-        "id": task_id,
-        "objective": objective[:500],
-        "project_type": str(payload.get("project_type") or "auto"),
-        "repository": str(payload.get("repository") or "").strip(),
-        "requested_permissions": requested,
-        "steps": plan.get("steps", []),
-        "approvals": plan.get("approvals", []),
-        "complexity": plan.get("complexity", "medium"),
-        "status": status,
-        "approval_id": "",
-        "created_by": access.get("label") or dashboard_audit_actor(auth),
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    tasks.insert(0, task)
-    del tasks[60:]
-    if plan.get("approvals"):
-        approval = ai_agent_create_approval(
-            state,
-            approval_type="task_execution",
-            title=f"Approve agent task {task_id}",
-            summary="; ".join(plan.get("approvals", [])),
-            requested_by=task["created_by"],
-            payload={"task_id": task_id, "objective": objective[:240], "requested_permissions": requested},
-        )
-        task["approval_id"] = approval["id"]
-    ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
+    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, objective)
+    if error_message:
+        return jsonify({"ok": False, "error": error_message}), status_code
     save_ai_agent_state(state)
-    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task_id)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task.get("id") if task else "")
     body = {"ok": True, "task": task, "note": "Agent plan created. High-risk actions remain approval-gated."}
     return dashboard_api_response(raw_payload, body, "ai-agent", "#ai-agent")
+
+
+@APP.post("/api/ai-agent/chat")
+def api_ai_agent_chat():
+    auth, access, state, error = require_ai_agent_permission("edit")
+    if error:
+        return error
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    prompt = str(payload.get("prompt") or payload.get("message") or "").strip()
+    if len(prompt) < 8:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+    actor = access.get("label") or dashboard_audit_actor(auth)
+    ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode")})
+    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, prompt)
+    if error_message:
+        ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}")
+        save_ai_agent_state(state)
+        return jsonify({"ok": False, "error": error_message}), status_code
+    reply = ai_agent_assistant_reply_for_task(task or {}, approval)
+    ai_agent_chat_message(
+        state,
+        role="assistant",
+        author="Wandering Agent",
+        content=reply,
+        payload={"task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", "")},
+        plan_steps=(task or {}).get("steps", []),
+    )
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""))
+    return dashboard_api_response(raw_payload, {"ok": True, "task": task, "approval": approval, "note": "Agent replied with a plan."}, "ai-agent", "#ai-agent-chat")
 
 
 @APP.post("/api/ai-agent/sandbox-command")
