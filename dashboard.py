@@ -950,14 +950,14 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .admin-panel:nth-of-type(3) { --accent: #67f5e7; background: linear-gradient(135deg, rgba(7,32,37,.82), rgba(5,10,12,.96)); }
     .command-sidebar, .command-overview, .command-loadout-stage, .command-status-bar { display: none; }
     body[data-theme="command"] {
-      --sidebar-w: 14.25rem;
+      --sidebar-w: 13.25rem;
       color: #dbe8eb;
       background: #061014;
     }
     body[data-theme="command"] header {
       left: var(--sidebar-w);
-      min-height: 4.15rem;
-      padding: .65rem 1.2rem;
+      min-height: 3.8rem;
+      padding: .55rem 1rem;
       border-bottom-color: rgba(103,245,231,.16);
       box-shadow: 0 1px 0 rgba(255,255,255,.03), 0 18px 48px rgba(0,0,0,.22);
     }
@@ -982,7 +982,7 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] main {
       max-width: none;
       margin-left: var(--sidebar-w);
-      padding: 4.85rem 1rem 2.9rem;
+      padding: 4.35rem .9rem 2.9rem;
       gap: .9rem;
       overflow-x: hidden;
     }
@@ -1010,14 +1010,15 @@ PAGE_TEMPLATE = """
     .command-logo {
       display: grid;
       gap: .75rem;
-      margin-bottom: 1rem;
+      margin-bottom: .8rem;
     }
     .command-logo img {
       width: 100%;
-      aspect-ratio: 1 / 1.2;
-      object-fit: cover;
+      aspect-ratio: 1 / 1;
+      object-fit: contain;
       border: 1px solid rgba(255,255,255,.58);
       border-radius: .7rem;
+      background: radial-gradient(circle at center, rgba(103,245,231,.08), rgba(3,10,13,.58));
       box-shadow: 0 20px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(103,245,231,.10);
     }
     .command-logo strong { font-size: .98rem; }
@@ -1105,7 +1106,7 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"] .section-nav {
       position: sticky;
-      top: 4.15rem;
+      top: 3.8rem;
       z-index: 4;
       display: flex;
       gap: 1.05rem;
@@ -1258,6 +1259,18 @@ PAGE_TEMPLATE = """
       vertical-align: middle;
       overflow-wrap: anywhere;
     }
+    .command-table th:first-child,
+    .command-table td:first-child,
+    .command-table th:nth-child(5),
+    .command-table td:nth-child(5),
+    .command-table th:nth-child(6),
+    .command-table td:nth-child(6),
+    .command-table th:nth-child(7),
+    .command-table td:nth-child(7),
+    .command-table th:nth-child(8),
+    .command-table td:nth-child(8) {
+      white-space: nowrap;
+    }
     .command-table th { color: #96a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
     .command-badge {
       display: inline-flex;
@@ -1291,7 +1304,7 @@ PAGE_TEMPLATE = """
     }
     .command-loadout {
       display: grid;
-      grid-template-columns: minmax(9.5rem, .72fr) minmax(16rem, 1fr) minmax(9.5rem, .72fr);
+      grid-template-columns: minmax(8.5rem, .65fr) minmax(13.5rem, .92fr) minmax(8.5rem, .65fr);
       gap: .75rem;
       padding: .9rem;
       align-items: center;
@@ -1313,8 +1326,8 @@ PAGE_TEMPLATE = """
     }
     .command-character {
       position: relative;
-      overflow: hidden;
-      min-height: 24rem;
+      overflow: visible;
+      min-height: 21rem;
       isolation: isolate;
       background: radial-gradient(circle at 50% 42%, rgba(103,245,231,.16), transparent 42%), linear-gradient(180deg, rgba(17,35,42,.72), rgba(3,10,13,.28));
     }
@@ -1331,8 +1344,8 @@ PAGE_TEMPLATE = """
       position: relative;
       width: auto;
       max-width: 98%;
-      height: min(23rem, 96%);
-      max-height: 23rem;
+      height: min(21rem, 96%);
+      max-height: 21rem;
       transform: none;
       object-fit: contain;
       object-position: center bottom;
@@ -1688,7 +1701,8 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
       align-items: start;
       gap: .85rem;
-      grid-template-columns: minmax(17rem, .72fr) minmax(34rem, 1.28fr);
+      grid-template-columns: minmax(16rem, .58fr) minmax(0, 1fr);
+      min-width: 0;
     }
     body[data-theme="command"][data-section="visual-loadout"] .visual-browser,
     body[data-theme="command"][data-section="visual-loadout"] .visual-export-panel {
@@ -1704,9 +1718,10 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"][data-section="visual-loadout"] .visual-canvas {
       min-height: 44rem;
+      min-width: 0;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage {
-      grid-template-columns: minmax(9rem, .64fr) minmax(17rem, 1.05fr) minmax(9rem, .64fr);
+      grid-template-columns: minmax(8.5rem, .58fr) minmax(15rem, .9fr) minmax(8.5rem, .58fr);
       gap: .85rem;
       padding: 1rem;
       background:
@@ -1714,7 +1729,7 @@ PAGE_TEMPLATE = """
         linear-gradient(180deg, rgba(9,24,29,.78), rgba(2,9,11,.38));
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll {
-      min-height: 30rem;
+      min-height: 26rem;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) {
       width: min(20rem, 98%);
@@ -1723,7 +1738,7 @@ PAGE_TEMPLATE = """
       object-fit: contain;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character {
-      min-height: 30rem;
+      min-height: 26rem;
       background:
         radial-gradient(circle at 50% 38%, rgba(103,245,231,.18), transparent 35%),
         linear-gradient(180deg, rgba(16,35,42,.58), rgba(2,9,11,.08));
@@ -1731,8 +1746,8 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-character .command-character-portrait {
       width: auto;
       max-width: 98%;
-      height: min(29rem, 96%);
-      max-height: 29rem;
+      height: min(25rem, 96%);
+      max-height: 25rem;
     }
     body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-gear-card {
       min-height: 5.1rem;
@@ -5838,6 +5853,21 @@ PAGE_TEMPLATE = """
       "Gloves": {include: ["glove", "gloves"], exclude: ["armband", "mask", "pants", "boots", "bag", "vest"]},
       "Armband": {include: ["armband"], exclude: ["mask", "glove", "pants", "boots", "bag", "vest"]},
     };
+    const LOADOUT_SLOT_PICKERS = {
+      Headgear: "Head",
+      Mask: "Mask",
+      Glasses: "Eyes",
+      Torso: "Body",
+      Vest: "Vest",
+      Gloves: "Gloves",
+      Legs: "Legs",
+      Feet: "Feet",
+      Backpack: "Back",
+      Shoulder1: "Left Shoulder",
+      Shoulder2: "Right Shoulder",
+      Belt: "Hips",
+      Holster: "Hands"
+    };
     function itemSearchText(item) {
       return `${item?.name || ""} ${item?.category || ""}`.toLowerCase();
     }
@@ -5857,6 +5887,27 @@ PAGE_TEMPLATE = """
       const strictAllItems = allItems.filter((item) => strictSlotMatches(item, slot));
       if (strictAllItems.length) return strictAllItems;
       return [];
+    }
+    function selectedPickerSlot(slot) {
+      if (!slot) return "Head";
+      if (String(slot).startsWith("cargo:")) return "";
+      return LOADOUT_SLOT_PICKERS[slot] || slot;
+    }
+    function normaliseLoadoutCandidate(item) {
+      const classname = String(item?.classname || item?.name || "").trim();
+      return {
+        ...item,
+        classname,
+        readable: String(item?.readable || item?.label || item?.name || classname).trim(),
+        category: String(item?.category || "Misc").trim() || "Misc"
+      };
+    }
+    function selectedLoadoutItems(slot) {
+      if (String(slot || "").startsWith("cargo:")) {
+        const cargoItems = LOADOUT_DB.filter((item) => !PLAYER_CARGO_NAMES.size || PLAYER_CARGO_NAMES.has(item.classname));
+        return cargoItems.map(normaliseLoadoutCandidate);
+      }
+      return slotFilteredItems(selectedPickerSlot(slot)).map(normaliseLoadoutCandidate);
     }
     function pickerGroupItems(groupName, picker) {
       if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
@@ -6626,10 +6677,13 @@ PAGE_TEMPLATE = """
       if (!target) return false;
       const item = loadoutItem(classname);
       if (target.startsWith("cargo:")) {
+        if (PLAYER_CARGO_NAMES.size && !PLAYER_CARGO_NAMES.has(item.classname)) return false;
         const container = target.slice(6);
         loadoutState.cargo[container] = loadoutState.cargo[container] || [];
         loadoutState.cargo[container].push(item.classname);
       } else {
+        const allowed = selectedLoadoutItems(target);
+        if (allowed.length && !allowed.some((row) => String(row.classname || row.name || "").toLowerCase() === item.classname.toLowerCase())) return false;
         const button = document.querySelector(`[data-loadout-slot="${CSS.escape(target)}"]`);
         const group = button ? button.dataset.slotGroup || "cloth" : "cloth";
         loadoutState[group][target] = item.classname;
@@ -6643,10 +6697,8 @@ PAGE_TEMPLATE = """
       if (!grid) return;
       const query = String(page.querySelector("[data-loadout-search]")?.value || "").trim().toLowerCase();
       const category = loadoutState.category || "all";
-      const cargoMode = String(loadoutState.selected || "").startsWith("cargo:");
-      const items = LOADOUT_DB.filter((item) => {
+      const items = selectedLoadoutItems(loadoutState.selected).filter((item) => {
         const haystack = `${item.classname} ${item.readable} ${item.category}`.toLowerCase();
-        if (cargoMode && PLAYER_CARGO_NAMES.size && !PLAYER_CARGO_NAMES.has(item.classname)) return false;
         return (!query || haystack.includes(query)) && loadoutCategoryMatches(item, category);
       });
       grid.innerHTML = items.map((item) => `
