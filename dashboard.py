@@ -1585,6 +1585,10 @@ PAGE_TEMPLATE = """
       font-size: .72rem;
       backdrop-filter: blur(14px);
     }
+    body[data-theme="command"] .command-status-bar span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
     body[data-theme="command"] .command-status-bar strong { color: #effcff; }
     body[data-theme="command"] .command-status-bar .ok { color: #8ded63; }
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
@@ -1745,6 +1749,18 @@ PAGE_TEMPLATE = """
       color: #d5e4e8;
       border-bottom-color: rgba(103,245,231,.09);
     }
+    body[data-theme="command"] tr.status-ok td {
+      background: rgba(97,184,94,.06);
+    }
+    body[data-theme="command"] tr.status-warn td {
+      background: rgba(204,159,59,.07);
+    }
+    body[data-theme="command"] tr.status-bad td {
+      background: rgba(194,72,72,.08);
+    }
+    body[data-theme="command"] tr.status-info td {
+      background: rgba(80,140,190,.06);
+    }
     body[data-theme="command"] .tool-note,
     body[data-theme="command"] .field-help,
     body[data-theme="command"] .muted {
@@ -1826,6 +1842,10 @@ PAGE_TEMPLATE = """
       body[data-theme="command"] { --sidebar-w: 0rem; }
       body[data-theme="command"] header { left: 0; }
       body[data-theme="command"] main { margin-left: 0; padding-top: 4.8rem; }
+      body[data-theme="command"] .command-status-bar {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
       body[data-theme="command"] .command-sidebar {
         position: static;
         width: auto;
@@ -7761,9 +7781,20 @@ PAGE_TEMPLATE = """
       const combined = `${text || ""} ${uploadStatus || ""}`.toLowerCase();
       return combined.includes("upload starting")
         || combined.includes("upload queued")
+        || combined.includes("upload requested")
         || combined.includes("retry pending")
+        || combined.includes("waiting")
         || combined.includes("waiting_for_bot_upload")
-        || combined.includes("queued in the bot");
+        || combined.includes("queued in the bot")
+        || combined.includes("queued for the bot worker");
+    }
+    function scenarioStatusClass(text, uploadStatus) {
+      const combined = `${text || ""} ${uploadStatus || ""}`.toLowerCase();
+      if (combined.includes("fail") || combined.includes("blocked")) return "bad";
+      if (combined.includes("done") || combined.includes("uploaded") || combined.includes("complete")) return "ok";
+      if (scenarioStatusIsPending(text, uploadStatus)) return "warn";
+      if (combined.includes("pause") || combined.includes("cancel")) return "info";
+      return "";
     }
     function setScenarioRowStatus(row, eventData) {
       if (!row || !eventData) return;
@@ -7772,8 +7803,18 @@ PAGE_TEMPLATE = """
       const uploadStatus = eventData.upload_status || "";
       const uploadError = eventData.upload_error || "";
       row.dataset.eventUpload = uploadStatus;
+      row.dataset.eventSearch = `${row.dataset.eventSearch || ""} ${status} ${uploadStatus} ${uploadError}`.toLowerCase();
+      row.classList.remove("status-ok", "status-warn", "status-bad", "status-info");
+      const stateClass = scenarioStatusClass(status, uploadStatus);
+      if (stateClass) row.classList.add(`status-${stateClass}`);
       if (statusCell) {
         statusCell.textContent = status || "Saved";
+        if (scenarioStatusIsPending(status, uploadStatus)) {
+          const checking = document.createElement("small");
+          checking.className = "muted";
+          checking.textContent = "Checking upload status automatically...";
+          statusCell.append(document.createElement("br"), checking);
+        }
         if (uploadError) {
           const detail = document.createElement("small");
           detail.className = "muted";
@@ -7813,13 +7854,26 @@ PAGE_TEMPLATE = """
             }
           }
         } catch (error) {}
-        if (attempts < 60 && row.isConnected) {
+        if (attempts < 120 && row.isConnected) {
           window.setTimeout(poll, attempts < 6 ? 2500 : 5000);
         } else {
-          row.dataset.statusPoll = "done";
+          row.dataset.statusPoll = "paused";
+          if (statusCell && scenarioStatusIsPending(statusCell.textContent, row.dataset.eventUpload)) {
+            const paused = document.createElement("small");
+            paused.className = "muted";
+            paused.textContent = "Still waiting for the bot worker. This row will update after refresh if the worker completes later.";
+            statusCell.append(document.createElement("br"), paused);
+          }
         }
       };
       window.setTimeout(poll, 1500);
+    }
+    function pveEventsUrl() {
+      const params = new URLSearchParams(window.location.search);
+      params.set("section", "pve");
+      params.set("pve_tool", "events");
+      if (!params.get("guild_id") && "{{ server.guild_id if server else '' }}") params.set("guild_id", "{{ server.guild_id if server else '' }}");
+      return `${window.location.pathname}?${params.toString()}#pve-workshop`;
     }
     document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
     document.querySelectorAll(".admin-form").forEach((form) => {
@@ -7926,6 +7980,9 @@ PAGE_TEMPLATE = """
             if (row && body.event) {
               setScenarioRowStatus(row, body.event);
               pollScenarioStatusRow(row);
+            } else if (body.event || savedCount) {
+              if (result) result.textContent = `${body.note || "Saved event."} Opening Live Events...`;
+              window.setTimeout(() => { window.location.href = pveEventsUrl(); }, 900);
             }
             return;
           }
