@@ -982,8 +982,8 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] main {
       max-width: none;
       margin-left: var(--sidebar-w);
-      padding: 5.05rem 1rem 2.9rem;
-      gap: .75rem;
+      padding: 4.85rem 1rem 2.9rem;
+      gap: .9rem;
       overflow-x: hidden;
     }
     body[data-theme="command"] .hero,
@@ -1110,7 +1110,7 @@ PAGE_TEMPLATE = """
       display: flex;
       gap: 1.05rem;
       padding: .45rem 1rem .55rem;
-      margin: -5.05rem -1rem .65rem;
+      margin: 0 0 .85rem;
       overflow-x: auto;
       border-bottom: 1px solid rgba(103,245,231,.14);
       background: rgba(6,16,20,.92);
@@ -1128,7 +1128,7 @@ PAGE_TEMPLATE = """
       white-space: nowrap;
     }
     body[data-theme="command"] .section-nav .tab-link:hover,
-    body[data-theme="command"] .section-nav .tab-link:first-child {
+    body[data-theme="command"] .section-nav .tab-link.active {
       color: #26efe4;
       box-shadow: inset 0 -2px 0 #26efe4;
     }
@@ -1163,6 +1163,8 @@ PAGE_TEMPLATE = """
       border-radius: .55rem;
       background: rgba(4,12,15,.68);
       -webkit-overflow-scrolling: touch;
+      margin: 0 0 .85rem;
+      flex-shrink: 0;
     }
     body[data-theme="command"] .section-nav .tab-link {
       flex: 0 0 auto;
@@ -1182,6 +1184,10 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] .section-nav .tab-link:focus-visible {
       color: #effcff;
       border-bottom-color: rgba(103,245,231,.55);
+    }
+    body[data-theme="command"] .section-nav .tab-link.active {
+      color: #26efe4;
+      border-bottom-color: #26efe4;
     }
     .command-metrics {
       display: grid;
@@ -1544,6 +1550,8 @@ PAGE_TEMPLATE = """
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 1rem;
       align-items: end;
+      position: relative;
+      z-index: 1;
       padding: 1rem 1.05rem;
       border: 1px solid rgba(103,245,231,.14);
       border-radius: .55rem;
@@ -2348,29 +2356,29 @@ PAGE_TEMPLATE = """
     {% endif %}
 
     <section class="section-nav" aria-label="Dashboard sections">
-      <a class="tab-link" href="/admin?section=overview{{ server_qs }}">Overview</a>
+      <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
-      <a class="tab-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
-      {% if section_allowed('leaderboards') %}<a class="tab-link" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      {% if section_allowed('automations') %}<a class="tab-link" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>{% endif %}
-      {% if section_allowed('factions') %}<a class="tab-link" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
-      {% if section_allowed('zones') %}<a class="tab-link" href="/admin?section=zones{{ server_qs }}">Zones</a>{% endif %}
-      {% if section_allowed('members') %}<a class="tab-link" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
-      {% if section_allowed('heatmaps') %}<a class="tab-link" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>{% endif %}
-      {% if section_allowed('pve') %}<a class="tab-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
-      {% if section_allowed('economy') %}<a class="tab-link" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
-      {% if section_allowed('shop') %}<a class="tab-link" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="tab-link" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
-      {% if section_allowed('dayz-converter') %}<a class="tab-link" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
-      {% if section_allowed('loot-engine') %}<a class="tab-link" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
-      {% if section_allowed('visual-loadout') %}<a class="tab-link" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
-      {% if section_allowed('bulk-economy') %}<a class="tab-link" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
-      {% if section_allowed('server-rules') %}<a class="tab-link" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
-      {% if section_allowed('moderation') %}<a class="tab-link" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
-      {% if section_allowed('server-control') %}<a class="tab-link" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
-      <a class="tab-link" href="/admin?section=help{{ server_qs }}">Help</a>
-      {% if auth.kind == "owner" %}<a class="tab-link" href="/owner?section=owner">Owner Control</a>{% endif %}
-      {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
+      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
+      {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      {% if section_allowed('automations') %}<a class="tab-link {{ 'active' if active_section == 'automations' else '' }}" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>{% endif %}
+      {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones</a>{% endif %}
+      {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
+      {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>{% endif %}
+      {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
+      {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
+      {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
+      {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
+      {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
+      {% if section_allowed('visual-loadout') %}<a class="tab-link {{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
+      {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
+      {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
+      {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
+      {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
+      <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
+      {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
+      {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
     </section>
     <section class="mobile-section-picker" aria-label="Dashboard section picker">
       <label>
