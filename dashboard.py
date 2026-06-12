@@ -1499,9 +1499,28 @@ PAGE_TEMPLATE = """
     body[data-section="pve"][data-pve-tool="builder"] [data-pve-panel="builder"].full,
     body[data-section="pve"][data-pve-tool="quests"] [data-pve-panel="quests"].full { grid-column: 1 / -1; }
     body[data-section="pve"] [data-pve-panel="events"] { overflow-x: auto; }
-    body[data-section="pve"] [data-pve-panel="events"] .item-table { min-width: 62rem; table-layout: auto; }
+    body[data-section="pve"] [data-pve-panel="events"] .item-table { min-width: 56rem; table-layout: auto; }
     body[data-section="pve"] [data-pve-panel="events"] .item-table td,
     body[data-section="pve"] [data-pve-panel="events"] .item-table th { white-space: normal; vertical-align: top; }
+    body[data-theme="command"][data-section="pve"] .panel-grid {
+      grid-template-columns: 1fr;
+    }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:first-child,
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:first-child,
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(5),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(5),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(6),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(6) {
+      white-space: nowrap;
+    }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(7),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(7) {
+      min-width: 15rem;
+    }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(8),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(8) {
+      min-width: 13rem;
+    }
     .command-check {
       display: inline-flex;
       align-items: center;
@@ -3586,7 +3605,7 @@ PAGE_TEMPLATE = """
             <a class="{{ 'active' if pve_tool == 'builder' else '' }}" href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Event Builder</a>
             <a class="{{ 'active' if pve_tool == 'quests' else '' }}" href="/admin?section=pve&pve_tool=quests{{ server_qs }}#pve-workshop">Quest Board</a>
           </nav>
-          <p class="tool-note">⚔️ Quests, drops, hordes, animals, vehicles and rewards.</p>
+          <p class="tool-note">Use the tabs to manage live events, build new deployments, or review quest status.</p>
         </div>
       </div>
       <div class="panel-grid">
@@ -3611,7 +3630,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Rewards</span><strong>{{ server.pve.reward_types|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Quest channels</span><strong>{{ server.pve.quest_channels if server else 0 }}</strong></div>
           </div>
-          <p class="tool-note" style="margin-top:.75rem">🤖 AI quests live in Discord. This panel shows status and module controls.</p>
+          <p class="tool-note" style="margin-top:.75rem">AI quests live in Discord. This panel shows status and module controls.</p>
         </article>
         <article class="admin-panel full" data-pve-panel="builder">
           <h3>Airdrop / Event Builder</h3>
@@ -3723,14 +3742,14 @@ PAGE_TEMPLATE = """
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
-            <div class="full embed-preview"><strong>✅ Status</strong><span>Save queues native CE XML upload. Max 250 spawns per event.</span></div>
+            <div class="full embed-preview"><strong>Status</strong><span>Save queues native CE XML upload. Max 250 spawns per event.</span></div>
             <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
-          <p class="tool-note" style="margin-top:.75rem">💾 Events save to bot config. Console CE XML applies after restart.</p>
+          <p class="tool-note" style="margin-top:.75rem">Events save to bot config. Console CE XML applies after restart.</p>
         </article>
         <article class="admin-panel" data-pve-panel="builder">
           <h3>Server Control Moved</h3>
-          <p class="tool-note">🛠️ Restarts, raid damage and vehicle resets moved to Server Control.</p>
+          <p class="tool-note">Restarts, raid damage and vehicle resets moved to Server Control.</p>
           <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
         </article>
         <article class="admin-panel full" data-pve-panel="events">
