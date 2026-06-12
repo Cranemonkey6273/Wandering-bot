@@ -24672,8 +24672,13 @@ SCENARIO_SPAWN_PRESETS = {
     "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop"},
     "gas_temp": {"label": "Temporary gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120},
     "gas_permanent": {"label": "Permanent gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150},
+    "gas_red_temp": {"label": "Temporary red gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120, "gas_particle": "debug"},
+    "gas_red_permanent": {"label": "Permanent red gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150, "gas_particle": "debug"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom_spawn"},
 }
+
+GAS_PARTICLE_NORMAL = "graphics/particles/contaminated_area_gas_bigass"
+GAS_PARTICLE_DEBUG = "graphics/particles/contaminated_area_gas_bigass_debug"
 
 SCENARIO_LOOT_PRESETS = {
     "none": [],
@@ -25301,6 +25306,7 @@ def console_ce_default_paths(guild_id):
         "mapgroupproto_path": f"{root}/{mission_folder}/mapgroupproto.xml",
         "spawnabletypes_path": f"{root}/{mission_folder}/cfgspawnabletypes.xml",
         "cfgenvironment_path": f"{root}/{mission_folder}/cfgenvironment.xml",
+        "cfgareaeffects_path": f"{root}/{mission_folder}/cfgareaeffects.xml",
     }
 
 
@@ -25315,6 +25321,8 @@ def console_ce_path_suffix(key):
         return "mapgroupproto.xml"
     if key == "cfgenvironment_path":
         return "cfgenvironment.xml"
+    if key == "cfgareaeffects_path":
+        return "cfgareaeffects.xml"
     return "cfgeventspawns.xml"
 
 
@@ -25359,6 +25367,7 @@ def console_ce_event_config(config):
     settings.setdefault("mapgroupproto_path", "")
     settings.setdefault("spawnabletypes_path", "")
     settings.setdefault("cfgenvironment_path", "")
+    settings.setdefault("cfgareaeffects_path", "")
     return settings
 
 
@@ -25465,6 +25474,78 @@ def console_ce_needs_spawnabletypes(config):
         if event.get("event_type") in {"airdrop", "vehicle_spawn"} and event.get("loot"):
             return True
     return False
+
+
+def normalize_gas_particle_mode(value):
+    text = str(value or "").strip().lower()
+    if text in {"debug", "red", "red_debug", "debug_red"}:
+        return "debug"
+    if text in {"normal", "green", "restore", "restore_normal"}:
+        return "normal"
+    return ""
+
+
+def console_ce_cfgareaeffects_mode(config):
+    modes = []
+    for event in bridge_scenario_events(config):
+        if str(event.get("event_type") or "").strip().lower() != "gas_zone":
+            continue
+        mode = normalize_gas_particle_mode(event.get("gas_particle"))
+        if mode:
+            modes.append(mode)
+    if "debug" in modes:
+        return "debug"
+    if "normal" in modes:
+        return "normal"
+    return ""
+
+
+def _xml_local_name(tag):
+    return str(tag or "").rsplit("}", 1)[-1].strip().lower()
+
+
+def _gas_particle_target(mode):
+    return GAS_PARTICLE_DEBUG if normalize_gas_particle_mode(mode) == "debug" else GAS_PARTICLE_NORMAL
+
+
+def _replace_gas_particle_value(value, target):
+    text = str(value or "")
+    if "contaminated_area_gas_bigass" not in text:
+        return None
+    return re.sub(
+        r"graphics/particles/contaminated_area_gas_bigass(?:_debug)?",
+        target,
+        text,
+    )
+
+
+def patch_cfgareaeffects_gas_particle(root, mode):
+    target = _gas_particle_target(mode)
+    changed = 0
+    matched = 0
+    for node in root.iter():
+        local_name = _xml_local_name(node.tag)
+        node_name = str(node.get("name") or node.get("Name") or "").strip().lower()
+        if local_name == "particlename" and node.text is not None:
+            matched += 1
+            replacement = target if "contaminated_area_gas_bigass" in str(node.text) else None
+            if replacement and node.text != replacement:
+                node.text = replacement
+                changed += 1
+        elif node_name == "particlename" and "value" in node.attrib:
+            matched += 1
+            if node.get("value") != target:
+                node.set("value", target)
+                changed += 1
+
+        for attr, attr_value in list(node.attrib.items()):
+            replacement = _replace_gas_particle_value(attr_value, target)
+            if replacement is not None:
+                matched += 1
+                if attr_value != replacement:
+                    node.set(attr, replacement)
+                    changed += 1
+    return changed, matched, target
 
 
 def cfgspawnabletypes_loot_signature(cargo_node):
@@ -26463,6 +26544,9 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     elif key == "cfgenvironment_path":
         reference_parts = ("cfgenvironment.xml",)
         fallback_root = "env"
+    elif key == "cfgareaeffects_path":
+        reference_parts = ("cfgareaeffects.xml",)
+        fallback_root = "areaeffects"
     else:
         reference_parts = ("cfgeventspawns.xml",)
         fallback_root = "eventposdef"
@@ -26575,6 +26659,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "spawnabletypes_text": "",
         "cfgenvironment_path": "",
         "cfgenvironment_text": "",
+        "cfgareaeffects_path": "",
+        "cfgareaeffects_text": "",
         "animal_territory_files": [],
         "record_count": len(records),
         "messages": messages,
@@ -26628,6 +26714,49 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         if env_parse_warning:
             output["messages"].append(env_parse_warning)
+
+    cfgareaeffects_mode = console_ce_cfgareaeffects_mode(config)
+    if cfgareaeffects_mode:
+        mission_base = remote_mission_base_from_ce_paths(output)
+        cfgareaeffects_path = (
+            canonical_remote_path(f"{mission_base}/cfgareaeffects.xml")
+            if mission_base
+            else console_ce_default_paths(guild_id)["cfgareaeffects_path"]
+        )
+        cfgareaeffects_text, resolved_cfgareaeffects_path, cfgareaeffects_source = download_console_ce_source(
+            config,
+            guild_id,
+            "cfgareaeffects_path",
+            cfgareaeffects_path,
+        )
+        source_text = str(cfgareaeffects_source or "")
+        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
+            output.setdefault("source_fallbacks", []).append(f"cfgareaeffects.xml: {source_text}")
+        cfgareaeffects_root, cfgareaeffects_parse_warning, cfgareaeffects_parse_blocker = parse_console_ce_xml_source(
+            config,
+            "cfgareaeffects.xml",
+            cfgareaeffects_text,
+            "areaeffects",
+            resolved_cfgareaeffects_path,
+        )
+        if cfgareaeffects_parse_blocker:
+            output.setdefault("source_fallbacks", []).append(cfgareaeffects_parse_blocker)
+        else:
+            changed, matched, target_particle = patch_cfgareaeffects_gas_particle(cfgareaeffects_root, cfgareaeffects_mode)
+            if matched <= 0:
+                output.setdefault("source_fallbacks", []).append(
+                    "cfgareaeffects.xml: gas particle mode was requested but no contaminated_area_gas_bigass ParticleName entry was found."
+                )
+            else:
+                output["cfgareaeffects_path"] = resolved_cfgareaeffects_path
+                output["cfgareaeffects_text"] = xml_text_from_root(cfgareaeffects_root)
+                output["messages"].append(cfgareaeffects_source)
+                output["messages"].append(
+                    f"Updated `cfgareaeffects.xml` gas `ParticleName` to `{target_particle}` "
+                    f"({changed} changed, {matched} matched). This can affect all contaminated-area gas using that particle."
+                )
+                if cfgareaeffects_parse_warning:
+                    output["messages"].append(cfgareaeffects_parse_warning)
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
@@ -26747,6 +26876,7 @@ def validate_console_ce_xml_bundle(built):
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
         mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<map></map>").encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
+        cfgareaeffects_root = ET.fromstring(str(built.get("cfgareaeffects_text") or "<areaeffects></areaeffects>").encode("utf-8"))
     except Exception as error:
         return False, [f"XML validation failed before upload: {error}"]
 
@@ -26920,6 +27050,7 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
         ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
+        ("cfgareaeffects.xml", built.get("cfgareaeffects_path") if built.get("cfgareaeffects_text") else ""),
     ]
     for label, path in targets:
         if not path:
@@ -27021,7 +27152,16 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 "This prevents the server from referencing missing `env/wanderingbot_*_territories.xml` files."
             )
 
-    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and territory_ok
+    cfgareaeffects_ok = True
+    if built.get("cfgareaeffects_text"):
+        cfgareaeffects_ok, cfgareaeffects_message = upload_text_file_to_nitrado(
+            config,
+            built["cfgareaeffects_path"],
+            built["cfgareaeffects_text"]
+        )
+        messages.append(f"`cfgareaeffects.xml`: {cfgareaeffects_message}")
+
+    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and cfgareaeffects_ok and territory_ok
     if success:
         settings = console_ce_event_config(config)
         settings["enabled"] = True
@@ -27035,6 +27175,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             settings["spawnabletypes_path"] = built["spawnabletypes_path"]
         if built.get("cfgenvironment_path"):
             settings["cfgenvironment_path"] = built["cfgenvironment_path"]
+        if built.get("cfgareaeffects_path"):
+            settings["cfgareaeffects_path"] = built["cfgareaeffects_path"]
         if consume_restart:
             mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
@@ -27114,6 +27256,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "mapgroupproto_path": str((built or {}).get("mapgroupproto_path") or ""),
         "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
         "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
+        "cfgareaeffects_path": str((built or {}).get("cfgareaeffects_path") or ""),
         "territory_paths": [
             str(item.get("path") or "")
             for item in ((built or {}).get("animal_territory_files") or [])
@@ -27189,6 +27332,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         ("mapgroupproto.xml", "mapgroupproto_path"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
+        ("cfgareaeffects.xml", "cfgareaeffects_path"),
     ):
         value = str(notice.get(key) or "").strip()
         if value:
