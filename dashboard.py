@@ -3174,7 +3174,9 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/owner/agent-account" data-route="/api/owner/agent-account">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
             <input class="hidden-field" name="guild_id" value="global">
+            <label>Name<input name="name" placeholder="optional display name"></label>
             <label>Email<input name="email" type="email" placeholder="customer@email.com" required></label>
+            <label>Temp password<input name="temporary_password" type="password" placeholder="required only for new accounts"></label>
             <label>Status<select name="status"><option value="">Keep current</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
             <label>Subscription tier<input name="subscription_tier" placeholder="free, pro, bot-plus-agent"></label>
             <label>Subscription status<input name="subscription_status" placeholder="none, active, trial, lifetime"></label>
@@ -17788,7 +17790,33 @@ def api_owner_agent_account():
     account_id = agent_account_id_for_email(email)
     account = accounts.get(account_id)
     if not isinstance(account, dict):
-        return jsonify({"ok": False, "error": "agent account not found. Ask the user to register first."}), 404
+        temporary_password = str(payload.get("temporary_password") or "").strip()
+        if len(temporary_password) < 8:
+            return jsonify({"ok": False, "error": "new agent accounts need a temporary password of at least 8 characters"}), 400
+        account = {
+            "id": account_id,
+            "name": str(payload.get("name") or "").strip()[:80],
+            "email": email,
+            "status": "active",
+            "role": "user",
+            "subscription_tier": "manual",
+            "subscription_status": "none",
+            "credits": 0,
+            "permissions": default_agent_account_permissions(),
+            "created_at": datetime.now(UTC).isoformat(),
+            "updated_at": datetime.now(UTC).isoformat(),
+            **agent_account_credentials(temporary_password),
+        }
+        accounts[account_id] = account
+    else:
+        temporary_password = str(payload.get("temporary_password") or "").strip()
+        if temporary_password:
+            if len(temporary_password) < 8:
+                return jsonify({"ok": False, "error": "temporary password must be at least 8 characters"}), 400
+            account.update(agent_account_credentials(temporary_password))
+    display_name = str(payload.get("name") or "").strip()
+    if display_name:
+        account["name"] = display_name[:80]
     status = str(payload.get("status") or "").strip().lower()
     if status in {"active", "suspended"}:
         account["status"] = status
