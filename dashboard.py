@@ -2974,10 +2974,10 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
         <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
-        <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
-        <div class="ai-agent-stat"><span>Runs</span><strong>{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
-        <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
-        <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
+        <div class="ai-agent-stat"><span>Tasks</span><strong data-ai-stat="tasks">{{ ai_agent_tasks|length }}</strong></div>
+        <div class="ai-agent-stat"><span>Runs</span><strong data-ai-stat="runs">{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
+        <div class="ai-agent-stat"><span>Approvals</span><strong data-ai-stat="approvals">{{ ai_agent_pending_approvals }}</strong></div>
+        <div class="ai-agent-stat"><span>Jobs</span><strong data-ai-stat="jobs">{{ ai_agent_job_counts.total }}</strong></div>
         {% if auth.kind == 'agent_account' %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ auth.credits|default(0) }}</strong></div>{% endif %}
       </div>
       <div class="ai-codex-workbench">
@@ -2991,7 +2991,7 @@ PAGE_TEMPLATE = """
           </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
             {% for message in ai_agent_chat_messages|reverse %}
-            <article class="ai-codex-message {{ message.role|default('assistant') }}">
+            <article class="ai-codex-message {{ message.role|default('assistant') }}" data-message-id="{{ message.id }}">
               {% if message.role == 'user' %}
               <div class="ai-codex-bubble">
                 <strong>{{ message.author|default('You') }}</strong>
@@ -3070,7 +3070,7 @@ PAGE_TEMPLATE = """
         <aside class="ai-codex-side">
           <section class="admin-panel">
             <h3>Current Run</h3>
-            <div class="ai-agent-plan">
+            <div class="ai-agent-plan" data-ai-current-run>
               {% if ai_agent_active_run %}
               <div class="ai-agent-step"><strong>{{ ai_agent_active_run.title or ai_agent_active_run.id }}</strong><span>{{ ai_agent_active_run.objective }}</span></div>
               <div class="ai-agent-step"><strong>Status</strong><span>{{ ai_agent_active_run.status }} - {{ ai_agent_active_run.next_action or 'Waiting for input' }}</span></div>
@@ -3085,7 +3085,7 @@ PAGE_TEMPLATE = """
             <h3>Latest Plan</h3>
             {% if ai_agent_tasks %}
             {% set latest_task = ai_agent_tasks[0] %}
-            <div class="ai-agent-plan">
+            <div class="ai-agent-plan" data-ai-latest-plan>
               <div class="ai-agent-step"><strong>{{ latest_task.id }}</strong><span>{{ latest_task.objective }}</span></div>
               {% for step in latest_task.steps[:5] %}
               <div class="ai-agent-step"><strong>{{ step.agent }} - {{ step.title }}</strong><span>{{ step.detail }}</span></div>
@@ -3239,7 +3239,7 @@ PAGE_TEMPLATE = """
         <div class="table-scroll">
           <table class="item-table">
             <thead><tr><th>ID</th><th>Type</th><th>Request</th><th>Status</th><th>Requested By</th><th>Actions</th></tr></thead>
-            <tbody>
+            <tbody data-ai-approvals-table>
               {% for approval in ai_agent_approvals[:12] %}
               <tr class="{{ 'status-warn' if approval.status == 'pending' else 'status-ok' if approval.status == 'approved' else 'status-bad' if approval.status == 'rejected' else '' }}">
                 <td>{{ approval.id }}</td>
@@ -3282,7 +3282,7 @@ PAGE_TEMPLATE = """
         <div class="table-scroll">
           <table class="item-table">
             <thead><tr><th>ID</th><th>Command</th><th>Status</th><th>Exit</th><th>Output</th><th>Actions</th></tr></thead>
-            <tbody>
+            <tbody data-ai-jobs-table>
               {% for job in ai_agent_sandbox_jobs[:12] %}
               <tr class="{{ 'status-ok' if job.status == 'done' else 'status-bad' if job.status in ['failed', 'blocked', 'cancelled'] else 'status-warn' if job.status in ['queued', 'awaiting_owner_approval', 'dispatching', 'dispatched', 'running'] else '' }}">
                 <td>{{ job.id }}</td>
@@ -3340,7 +3340,7 @@ PAGE_TEMPLATE = """
         <div class="table-scroll">
           <table class="item-table">
             <thead><tr><th>ID</th><th>Run</th><th>Status</th><th>Next</th><th>Linked Work</th><th>Updated</th></tr></thead>
-            <tbody>
+            <tbody data-ai-runs-table>
               {% for run in ai_agent_runs[:12] %}
               <tr class="{{ 'status-bad' if run.status == 'needs_attention' else 'status-ok' if run.status == 'done' else 'status-warn' }}">
                 <td>{{ run.id }}</td>
@@ -3362,7 +3362,7 @@ PAGE_TEMPLATE = """
         <div class="table-scroll">
           <table class="item-table">
             <thead><tr><th>ID</th><th>Objective</th><th>Project</th><th>Complexity</th><th>Status</th><th>Approvals</th></tr></thead>
-            <tbody>
+            <tbody data-ai-tasks-table>
               {% for task in ai_agent_tasks[:12] %}
               <tr>
                 <td>{{ task.id }}</td>
@@ -3381,7 +3381,7 @@ PAGE_TEMPLATE = """
       </section>
       <section class="admin-panel full">
         <h3>Activity Feed</h3>
-        <div class="ai-agent-feed">
+        <div class="ai-agent-feed" data-ai-activity-feed>
           {% for event in ai_agent_activity_feed[:18] %}
           <article>
             <strong>{{ event.title }}</strong>
@@ -8558,6 +8558,176 @@ PAGE_TEMPLATE = """
       }
       tick();
     }
+    function aiAgentStepNode(title, detail) {
+      const node = document.createElement("div");
+      node.className = "ai-agent-step";
+      const strong = document.createElement("strong");
+      strong.textContent = String(title || "Agent step");
+      const span = document.createElement("span");
+      span.textContent = String(detail || "");
+      node.append(strong, span);
+      return node;
+    }
+    function aiAgentWireContinue(button, form) {
+      if (!button || !form || button.dataset.aiContinueReady === "true") return;
+      button.dataset.aiContinueReady = "true";
+      button.addEventListener("click", () => {
+        const runId = button.dataset.aiContinueRun || "";
+        const promptBox = form.elements.prompt;
+        const runSelect = form.querySelector("[data-ai-run-select]");
+        if (runSelect && runId) runSelect.value = runId;
+        if (promptBox) {
+          promptBox.value = "Carry on this work. Continue the active run and move to the next unfinished step.";
+          promptBox.focus();
+        }
+        form.requestSubmit();
+      });
+    }
+    function aiAgentUpdateStats(state) {
+      const runCounts = state?.run_counts || {};
+      const jobCounts = state?.job_counts || {};
+      const values = {
+        tasks: Array.isArray(state?.tasks) ? state.tasks.length : "",
+        runs: `${runCounts.active ?? 0} / ${runCounts.total ?? 0}`,
+        approvals: state?.pending_approvals ?? 0,
+        jobs: jobCounts.total ?? 0,
+      };
+      Object.entries(values).forEach(([key, value]) => {
+        document.querySelectorAll(`[data-ai-stat="${key}"]`).forEach((node) => {
+          node.textContent = String(value);
+        });
+      });
+      if (state?.credits_remaining !== undefined && state.credits_remaining !== null) {
+        document.querySelectorAll("[data-ai-agent-credits]").forEach((node) => {
+          node.textContent = String(state.credits_remaining);
+        });
+      }
+    }
+    function aiAgentUpdateRunSelect(state, form) {
+      const runSelect = form?.querySelector("[data-ai-run-select]");
+      if (!runSelect || !Array.isArray(state?.runs)) return;
+      const selected = state?.active_run?.id || runSelect.value || "";
+      state.runs.slice(0, 30).forEach((run) => {
+        if (!run?.id || Array.from(runSelect.options).some((option) => option.value === String(run.id))) return;
+        const option = document.createElement("option");
+        option.value = String(run.id);
+        option.textContent = String(run.title || run.id);
+        runSelect.append(option);
+      });
+      if (selected && Array.from(runSelect.options).some((option) => option.value === String(selected))) {
+        runSelect.value = String(selected);
+      }
+    }
+    function aiAgentUpdateCurrentRun(state, form) {
+      const target = document.querySelector("[data-ai-current-run]");
+      if (!target) return;
+      const run = state?.active_run;
+      target.replaceChildren();
+      if (!run) {
+        target.append(aiAgentStepNode("No active run", "Send a message to start a durable run."));
+        return;
+      }
+      target.append(
+        aiAgentStepNode(run.title || run.id, run.objective || ""),
+        aiAgentStepNode("Status", `${run.status || "unknown"} - ${run.next_action || "Waiting for input"}`),
+        aiAgentStepNode("History", `${(run.task_ids || []).length} task(s), ${(run.job_ids || []).length} job(s), ${run.continue_count || 0} continue request(s)`),
+      );
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.aiContinueRun = String(run.id || "");
+      button.textContent = "Continue Run";
+      target.append(button);
+      aiAgentWireContinue(button, form);
+    }
+    function aiAgentUpdateLatestPlan(state) {
+      const target = document.querySelector("[data-ai-latest-plan]");
+      if (!target) return;
+      const task = Array.isArray(state?.tasks) ? state.tasks[0] : null;
+      target.replaceChildren();
+      if (!task) {
+        const note = document.createElement("p");
+        note.className = "tool-note";
+        note.textContent = "No task has been planned yet.";
+        target.append(note);
+        return;
+      }
+      target.append(aiAgentStepNode(task.id, task.objective || ""));
+      (Array.isArray(task.steps) ? task.steps : []).slice(0, 5).forEach((step) => {
+        target.append(aiAgentStepNode(`${step.agent || "Agent"} - ${step.title || "Step"}`, step.detail || ""));
+      });
+    }
+    function aiAgentAppendMessages(state, thread) {
+      if (!thread || !Array.isArray(state?.chat_messages)) return;
+      const known = new Set(Array.from(thread.querySelectorAll("[data-message-id]")).map((node) => String(node.dataset.messageId || "")));
+      const messages = state.chat_messages.slice().reverse();
+      let added = false;
+      messages.forEach((message) => {
+        const id = String(message?.id || "");
+        if (!id || known.has(id)) return;
+        thread.querySelector(".ai-codex-empty")?.remove();
+        thread.append(aiChatMessageNode(message));
+        known.add(id);
+        added = true;
+      });
+      if (added) aiChatScroll(thread);
+    }
+    function aiAgentSyncState(state, form, thread) {
+      if (!state || state.ok === false) return;
+      aiAgentUpdateStats(state);
+      aiAgentUpdateRunSelect(state, form);
+      aiAgentUpdateCurrentRun(state, form);
+      aiAgentUpdateLatestPlan(state);
+      aiAgentAppendMessages(state, thread);
+      const result = form?.querySelector("[data-ai-chat-result], .result");
+      if (result && !result.classList.contains("error")) {
+        const active = state.active_run ? `${state.active_run.status || "live"} - ${state.active_run.next_action || "watching"}` : "Live sync ready.";
+        result.classList.remove("success");
+        result.textContent = active;
+      }
+    }
+    let aiAgentPollTimer = null;
+    let aiAgentPollBusy = false;
+    async function aiAgentFetchState(form, thread, options = {}) {
+      if (aiAgentPollBusy) return;
+      aiAgentPollBusy = true;
+      const token = new URLSearchParams(window.location.search).get("token");
+      const route = token ? `/api/ai-agent/state?token=${encodeURIComponent(token)}` : "/api/ai-agent/state";
+      try {
+        const response = await fetch(secureDashboardUrl(route), {
+          method: "GET",
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (response.ok) aiAgentSyncState(body, form, thread);
+        else if (!options.silent) {
+          const result = form?.querySelector("[data-ai-chat-result], .result");
+          if (result) {
+            result.classList.add("error");
+            result.textContent = body.error || "Live sync failed.";
+          }
+        }
+      } catch (error) {
+        if (!options.silent) {
+          const result = form?.querySelector("[data-ai-chat-result], .result");
+          if (result) {
+            result.classList.add("error");
+            result.textContent = `Live sync failed: ${error && error.message ? error.message : error}`;
+          }
+        }
+      } finally {
+        aiAgentPollBusy = false;
+      }
+    }
+    function aiAgentStartLivePolling(form, thread) {
+      if (aiAgentPollTimer || !form || !thread) return;
+      aiAgentFetchState(form, thread, {silent: true});
+      aiAgentPollTimer = window.setInterval(() => {
+        if (document.hidden) return;
+        aiAgentFetchState(form, thread, {silent: true});
+      }, 4000);
+    }
     function setupAiAgentChat() {
       const form = document.querySelector("[data-ai-chat-form]");
       const thread = document.querySelector("[data-ai-chat-thread]");
@@ -8565,20 +8735,9 @@ PAGE_TEMPLATE = """
       form.dataset.aiChatReady = "true";
       aiChatScroll(thread);
       document.querySelectorAll("[data-ai-continue-run]").forEach((button) => {
-        if (button.dataset.aiContinueReady === "true") return;
-        button.dataset.aiContinueReady = "true";
-        button.addEventListener("click", () => {
-          const runId = button.dataset.aiContinueRun || "";
-          const promptBox = form.elements.prompt;
-          const runSelect = form.querySelector("[data-ai-run-select]");
-          if (runSelect && runId) runSelect.value = runId;
-          if (promptBox) {
-            promptBox.value = "Carry on this work. Continue the active run and move to the next unfinished step.";
-            promptBox.focus();
-          }
-          form.requestSubmit();
-        });
+        aiAgentWireContinue(button, form);
       });
+      aiAgentStartLivePolling(form, thread);
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const promptBox = form.elements.prompt;
@@ -8644,6 +8803,9 @@ PAGE_TEMPLATE = """
             return;
           }
           const assistant = body.assistant_message || {content: body.note || "Done.", plan_steps: []};
+          if (body.user_message && body.user_message.id) {
+            userMessage.dataset.messageId = String(body.user_message.id);
+          }
           if (body.run && body.run.id) {
             const runSelect = form.querySelector("[data-ai-run-select]");
             if (runSelect && !Array.from(runSelect.options).some((option) => option.value === String(body.run.id))) {
@@ -8660,6 +8822,7 @@ PAGE_TEMPLATE = """
             });
           }
           if (assistant.id) typingMessage.dataset.messageId = String(assistant.id);
+          aiAgentFetchState(form, thread, {silent: true});
           if (time) time.textContent = assistant.created_at || new Date().toISOString();
           if (bubble) aiChatPlanSteps(bubble, assistant.plan_steps || []);
           if (content) {
@@ -10636,6 +10799,62 @@ def ai_agent_job_counts(state: dict[str, Any]) -> dict[str, int]:
         "failed": sum(1 for item in jobs if str(item.get("status") or "") in {"failed", "blocked"}),
         "done": sum(1 for item in jobs if str(item.get("status") or "") == "done"),
     }
+
+
+def ai_agent_visible_state(state: dict[str, Any], auth: dict[str, Any], access: dict[str, Any]) -> dict[str, Any]:
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    owner_view = auth.get("kind") == "owner"
+    runs = [item for item in state.get("runs", []) if isinstance(item, dict)]
+    if not owner_view:
+        runs = [item for item in runs if str(item.get("subject_key") or "") == subject_key]
+    run_ids = {str(item.get("id") or "") for item in runs if item.get("id")}
+    task_ids: set[str] = set()
+    job_ids: set[str] = set()
+    approval_ids: set[str] = set()
+    for run in runs:
+        task_ids.update(str(item) for item in run.get("task_ids", []) if item)
+        job_ids.update(str(item) for item in run.get("job_ids", []) if item)
+        approval_ids.update(str(item) for item in run.get("approval_ids", []) if item)
+
+    tasks = [item for item in state.get("tasks", []) if isinstance(item, dict)]
+    jobs = [item for item in state.get("sandbox_jobs", []) if isinstance(item, dict)]
+    approvals = [item for item in state.get("approvals", []) if isinstance(item, dict)]
+    messages = [item for item in state.get("chat_messages", []) if isinstance(item, dict)]
+    actor = str(access.get("label") or dashboard_audit_actor(auth))
+
+    if not owner_view:
+        tasks = [
+            item for item in tasks
+            if str(item.get("run_id") or "") in run_ids
+            or str(item.get("id") or "") in task_ids
+            or str(item.get("created_by") or "") == actor
+        ]
+        task_ids.update(str(item.get("id") or "") for item in tasks if item.get("id"))
+        jobs = [
+            item for item in jobs
+            if str(item.get("run_id") or "") in run_ids
+            or str(item.get("task_id") or "") in task_ids
+            or str(item.get("id") or "") in job_ids
+            or str(item.get("requested_by") or "") == actor
+        ]
+        job_ids.update(str(item.get("id") or "") for item in jobs if item.get("id"))
+        approvals = [
+            item for item in approvals
+            if str(item.get("id") or "") in approval_ids
+            or str((item.get("payload") or {}).get("run_id") or "") in run_ids
+            or str((item.get("payload") or {}).get("task_id") or "") in task_ids
+            or str((item.get("payload") or {}).get("job_id") or "") in job_ids
+            or str(item.get("requested_by") or "") == actor
+        ]
+        messages = [item for item in messages if str(item.get("run_id") or "") in run_ids]
+
+    visible_state = dict(state)
+    visible_state["runs"] = runs
+    visible_state["tasks"] = tasks
+    visible_state["sandbox_jobs"] = jobs
+    visible_state["approvals"] = approvals
+    visible_state["chat_messages"] = messages
+    return visible_state
 
 
 def ai_agent_create_approval(
@@ -17778,7 +17997,8 @@ def api_ai_agent_state():
     if error:
         return error
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
-    visible_runs = state.get("runs", []) if auth.get("kind") == "owner" else ai_agent_runs_for_subject(state, subject_key)
+    visible_state = ai_agent_visible_state(state, auth, access)
+    visible_runs = visible_state.get("runs", [])
     return jsonify(
         {
             "ok": True,
@@ -17786,18 +18006,19 @@ def api_ai_agent_state():
             "god_mode_enabled": bool(state.get("god_mode_enabled")),
             "approval_rules": state.get("approval_rules", {}),
             "sandbox": state.get("sandbox", {}),
-            "tasks": state.get("tasks", [])[:30],
+            "tasks": visible_state.get("tasks", [])[:30],
             "runs": visible_runs[:30],
-            "active_run": ai_agent_latest_run_for_subject(state, subject_key),
-            "run_counts": ai_agent_run_counts(state),
-            "approvals": state.get("approvals", [])[:30],
-            "sandbox_jobs": state.get("sandbox_jobs", [])[:30],
-            "chat_messages": state.get("chat_messages", [])[:50],
-            "pending_approvals": ai_agent_pending_approval_count(state),
-            "job_counts": ai_agent_job_counts(state),
-            "activity": state.get("activity", [])[:30],
+            "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
+            "run_counts": ai_agent_run_counts(visible_state),
+            "approvals": visible_state.get("approvals", [])[:30],
+            "sandbox_jobs": visible_state.get("sandbox_jobs", [])[:30],
+            "chat_messages": visible_state.get("chat_messages", [])[:50],
+            "pending_approvals": ai_agent_pending_approval_count(visible_state),
+            "job_counts": ai_agent_job_counts(visible_state),
+            "activity": visible_state.get("activity", [])[:30] if auth.get("kind") == "owner" else [],
             "credits_remaining": safe_int(auth.get("credits"), 0) if isinstance(auth, dict) and auth.get("kind") == "agent_account" else None,
             "chat_credit_cost": AGENT_CHAT_CREDIT_COST,
+            "server_time": datetime.now(UTC).isoformat(),
         }
     )
 
