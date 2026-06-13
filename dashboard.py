@@ -2974,6 +2974,7 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
         <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
+        <div class="ai-agent-stat"><span>Model</span><strong>{{ ai_agent_state.sandbox.llm_provider|default('local_planner') }} / {{ ai_agent_state.sandbox.llm_model|default('planner') }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong data-ai-stat="tasks">{{ ai_agent_tasks|length }}</strong></div>
         <div class="ai-agent-stat"><span>Runs</span><strong data-ai-stat="runs">{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong data-ai-stat="approvals">{{ ai_agent_pending_approvals }}</strong></div>
@@ -2987,6 +2988,7 @@ PAGE_TEMPLATE = """
               <h3>Agent Conversation</h3>
               <p class="tool-note">Type the job like you would in Codex. The agent replies with a plan, logs it, and queues any risky work behind owner approval.</p>
             </div>
+            <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">Model {{ ai_agent_state.sandbox.llm_provider|default('local_planner') }}</span>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
           </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
@@ -10315,6 +10317,19 @@ AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.1
 AI_AGENT_WORKSPACE_ROOT = os.getenv("WANDERING_AI_AGENT_WORKSPACE_ROOT", "").strip()
 AI_AGENT_WORKER_URL = os.getenv("WANDERING_AI_AGENT_WORKER_URL", "").strip().rstrip("/")
 AI_AGENT_WORKER_TOKEN = os.getenv("WANDERING_AI_AGENT_WORKER_TOKEN", "").strip()
+AI_AGENT_LLM_PROVIDER = os.getenv("WANDERING_AI_AGENT_PROVIDER", "").strip().lower()
+AI_AGENT_LLM_BASE_URL = os.getenv("WANDERING_AI_AGENT_BASE_URL", "").strip().rstrip("/")
+AI_AGENT_LLM_API_KEY = os.getenv("WANDERING_AI_AGENT_API_KEY", os.getenv("WANDERING_AI_AGENT_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))).strip()
+if not AI_AGENT_LLM_PROVIDER:
+    if AI_AGENT_LLM_BASE_URL:
+        AI_AGENT_LLM_PROVIDER = "custom"
+    elif AI_AGENT_LLM_API_KEY:
+        AI_AGENT_LLM_PROVIDER = "openai"
+    else:
+        AI_AGENT_LLM_PROVIDER = "local_planner"
+AI_AGENT_MODEL = os.getenv("WANDERING_AI_AGENT_MODEL", "").strip()
+if not AI_AGENT_MODEL:
+    AI_AGENT_MODEL = "gpt-4.1-mini" if AI_AGENT_LLM_PROVIDER == "openai" else "qwen2.5-coder:14b"
 try:
     AI_AGENT_COMMAND_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS", "900")))
 except (TypeError, ValueError):
@@ -10325,6 +10340,11 @@ try:
 except (TypeError, ValueError):
     AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = 20
 AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = max(3, min(120, AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS))
+try:
+    AI_AGENT_LLM_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS", "45")))
+except (TypeError, ValueError):
+    AI_AGENT_LLM_TIMEOUT_SECONDS = 45
+AI_AGENT_LLM_TIMEOUT_SECONDS = max(5, min(120, AI_AGENT_LLM_TIMEOUT_SECONDS))
 AI_AGENT_MAX_LOG_CHARS = 12000
 AI_AGENT_BLOCKED_COMMAND_TERMS = (
     "docker.sock",
@@ -10366,6 +10386,11 @@ def ai_agent_default_state() -> dict[str, Any]:
             "status": "not_connected",
             "mode": "approval-gated",
             "runner": "external worker" if AI_AGENT_WORKER_URL else "local docker",
+            "llm_provider": AI_AGENT_LLM_PROVIDER,
+            "llm_base_url_configured": bool(AI_AGENT_LLM_BASE_URL),
+            "llm_api_key_configured": bool(AI_AGENT_LLM_API_KEY),
+            "llm_configured": (AI_AGENT_LLM_PROVIDER == "openai" and bool(AI_AGENT_LLM_API_KEY)) or (AI_AGENT_LLM_PROVIDER not in {"local_planner", "openai"} and bool(AI_AGENT_LLM_BASE_URL)),
+            "llm_model": AI_AGENT_MODEL,
             "cpu_limit": "2 cores",
             "memory_limit": "2 GB",
             "timeout_seconds": 900,
@@ -10423,6 +10448,11 @@ def load_ai_agent_state() -> dict[str, Any]:
     sandbox["worker_url_configured"] = bool(AI_AGENT_WORKER_URL)
     sandbox["worker_token_configured"] = bool(AI_AGENT_WORKER_TOKEN)
     sandbox["worker_http_timeout_seconds"] = AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS
+    sandbox["llm_provider"] = AI_AGENT_LLM_PROVIDER
+    sandbox["llm_base_url_configured"] = bool(AI_AGENT_LLM_BASE_URL)
+    sandbox["llm_api_key_configured"] = bool(AI_AGENT_LLM_API_KEY)
+    sandbox["llm_configured"] = ai_agent_llm_is_configured()
+    sandbox["llm_model"] = AI_AGENT_MODEL
     sandbox.setdefault("last_worker_catalog_sync_at", "")
     sandbox.setdefault("last_worker_catalog_error", "")
     sandbox["runner"] = "external worker" if AI_AGENT_WORKER_URL else "local docker"
@@ -11262,6 +11292,494 @@ def ai_agent_find_by_id(items: list[Any], item_id: Any) -> dict[str, Any] | None
     return None
 
 
+def ai_agent_compact_text(value: Any, limit: int = 500) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if limit > 0 and len(text) > limit:
+        return text[:limit].rstrip() + "..."
+    return text
+
+
+def ai_agent_run_context_summary(state: dict[str, Any], run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {}
+
+    def lookup(items: Any) -> dict[str, dict[str, Any]]:
+        return {
+            str(item.get("id") or ""): item
+            for item in (items if isinstance(items, list) else [])
+            if isinstance(item, dict) and item.get("id")
+        }
+
+    task_lookup = lookup(state.get("tasks"))
+    job_lookup = lookup(state.get("sandbox_jobs"))
+    approval_lookup = lookup(state.get("approvals"))
+    message_lookup = lookup(state.get("chat_messages"))
+
+    task_ids = [str(item) for item in run.get("task_ids", []) if item]
+    job_ids = [str(item) for item in run.get("job_ids", []) if item]
+    approval_ids = [str(item) for item in run.get("approval_ids", []) if item]
+    message_ids = [str(item) for item in run.get("message_ids", []) if item]
+
+    latest_tasks = []
+    for task_id in task_ids[:5]:
+        task = task_lookup.get(task_id)
+        if not task:
+            continue
+        latest_tasks.append(
+            {
+                "id": task_id,
+                "status": str(task.get("status") or ""),
+                "objective": ai_agent_compact_text(task.get("objective"), 260),
+                "complexity": str(task.get("complexity") or ""),
+                "next_action": ai_agent_compact_text(task.get("next_action"), 180),
+                "approvals": [ai_agent_compact_text(item, 160) for item in (task.get("approvals") if isinstance(task.get("approvals"), list) else [])[:4]],
+            }
+        )
+
+    latest_jobs = []
+    for job_id in job_ids[:5]:
+        job = job_lookup.get(job_id)
+        if not job:
+            continue
+        latest_jobs.append(
+            {
+                "id": job_id,
+                "status": str(job.get("status") or ""),
+                "command": ai_agent_compact_text(job.get("command"), 220),
+                "exit_code": job.get("exit_code"),
+                "stderr": ai_agent_compact_text(job.get("stderr"), 220),
+            }
+        )
+
+    latest_approvals = []
+    for approval_id in approval_ids[:5]:
+        approval = approval_lookup.get(approval_id)
+        if not approval:
+            continue
+        latest_approvals.append(
+            {
+                "id": approval_id,
+                "status": str(approval.get("status") or ""),
+                "title": ai_agent_compact_text(approval.get("title"), 180),
+                "summary": ai_agent_compact_text(approval.get("summary"), 220),
+            }
+        )
+
+    recent_messages = []
+    for message_id in message_ids[:6]:
+        message = message_lookup.get(message_id)
+        if not message:
+            continue
+        recent_messages.append(
+            {
+                "role": str(message.get("role") or ""),
+                "author": str(message.get("author") or ""),
+                "content": ai_agent_compact_text(message.get("content"), 300),
+                "created_at": str(message.get("created_at") or ""),
+            }
+        )
+
+    return {
+        "id": str(run.get("id") or ""),
+        "title": ai_agent_compact_text(run.get("title"), 140),
+        "objective": ai_agent_compact_text(run.get("objective"), 500),
+        "status": str(run.get("status") or ""),
+        "project_type": str(run.get("project_type") or "auto"),
+        "repository": ai_agent_compact_text(run.get("repository"), 260),
+        "project_path": ai_agent_compact_text(run.get("project_path"), 260),
+        "summary": ai_agent_compact_text(run.get("summary"), 420),
+        "next_action": ai_agent_compact_text(run.get("next_action"), 260),
+        "continue_count": safe_int(run.get("continue_count"), 0),
+        "current_step_index": safe_int(run.get("current_step_index"), 0),
+        "latest_tasks": latest_tasks,
+        "latest_jobs": latest_jobs,
+        "latest_approvals": latest_approvals,
+        "recent_messages": recent_messages,
+    }
+
+
+def ai_agent_command_risk(command: str) -> str:
+    lower = str(command or "").lower()
+    if any(term in lower for term in ("deploy", "push", "migration", "migrate", "secret", "delete", "remove", "drop ", "force")):
+        return "high"
+    if any(term in lower for term in ("install", "build", "docker", "npm", "pip", "pytest", "test", "lint")):
+        return "medium"
+    return "low"
+
+
+def ai_agent_add_command_suggestion(
+    suggestions: list[dict[str, Any]],
+    *,
+    label: str,
+    command: str,
+    reason: str,
+    project_path: str = "",
+    risk: str = "",
+) -> None:
+    command = str(command or "").strip()
+    allowed, _ = ai_agent_command_is_allowed(command)
+    if not allowed:
+        return
+    suggestions.append(
+        {
+            "label": ai_agent_compact_text(label or command, 80),
+            "command": command,
+            "reason": ai_agent_compact_text(reason, 220),
+            "project_path": str(project_path or "").strip(),
+            "risk": risk or ai_agent_command_risk(command),
+        }
+    )
+
+
+def ai_agent_suggested_commands_for_task(task: dict[str, Any], run: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    suggestions: list[dict[str, Any]] = []
+    if not isinstance(task, dict):
+        return suggestions
+    run = run if isinstance(run, dict) else {}
+    objective = str(task.get("objective") or run.get("objective") or "")
+    project_type = str(task.get("project_type") or run.get("project_type") or "auto")
+    project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
+    lower = " ".join([objective, project_type, str(task.get("repository") or run.get("repository") or ""), project_path]).lower()
+
+    ai_agent_add_command_suggestion(
+        suggestions,
+        label="Check workspace changes",
+        command="git status --short",
+        reason="Shows what files changed before the agent edits, commits, or continues.",
+        project_path=project_path,
+        risk="low",
+    )
+    if any(term in lower for term in ("python", "flask", "fastapi", "discord", "bot", "dashboard", "wandering", "railway", "auto")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Compile Python files",
+            command="python -m py_compile dashboard.py bot.py ai_sandbox_worker.py",
+            reason="Catches syntax errors in the core dashboard, bot, and worker files.",
+            project_path=project_path,
+            risk="medium",
+        )
+    if any(term in lower for term in ("test", "pytest", "unit test", "python")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Run Python tests",
+            command="pytest",
+            reason="Runs the project test suite when tests are available.",
+            project_path=project_path,
+            risk="medium",
+        )
+    if any(term in lower for term in ("node", "typescript", "react", "next", "express", "fastify", "tailwind", "npm")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Run frontend tests",
+            command="npm test",
+            reason="Runs the JavaScript test command if the project defines one.",
+            project_path=project_path,
+            risk="medium",
+        )
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Build frontend",
+            command="npm run build",
+            reason="Verifies the frontend or Node project builds cleanly.",
+            project_path=project_path,
+            risk="medium",
+        )
+    if any(term in lower for term in ("lint", "typescript", "react", "next")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Run lint",
+            command="npm run lint",
+            reason="Checks formatting and code-quality rules when configured.",
+            project_path=project_path,
+            risk="medium",
+        )
+    if any(term in lower for term in ("docker", "container", "image")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Build Docker image",
+            command="docker build .",
+            reason="Validates the container build before any deployment step.",
+            project_path=project_path,
+            risk="high",
+        )
+    if any(term in lower for term in ("railway", "deploy", "deployment")):
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Check Railway status",
+            command="railway status",
+            reason="Confirms the Railway project/link state before deployment troubleshooting.",
+            project_path=project_path,
+            risk="low",
+        )
+    return suggestions[:8]
+
+
+def ai_agent_merge_suggested_commands(task: dict[str, Any], suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(task, dict):
+        return []
+    current = task.get("suggested_commands") if isinstance(task.get("suggested_commands"), list) else []
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in [*current, *(suggestions if isinstance(suggestions, list) else [])]:
+        if isinstance(item, str):
+            item = {"label": item, "command": item, "reason": "Suggested by the agent."}
+        if not isinstance(item, dict):
+            continue
+        command = str(item.get("command") or "").strip()
+        allowed, _ = ai_agent_command_is_allowed(command)
+        if not allowed:
+            continue
+        key = f"{str(item.get('project_path') or '').strip()}::{command.lower()}"
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(
+            {
+                "label": ai_agent_compact_text(item.get("label") or command, 80),
+                "command": command,
+                "reason": ai_agent_compact_text(item.get("reason") or "Suggested by the agent.", 220),
+                "project_path": str(item.get("project_path") or "").strip(),
+                "risk": str(item.get("risk") or ai_agent_command_risk(command)),
+            }
+        )
+        if len(merged) >= 12:
+            break
+    task["suggested_commands"] = merged
+    return merged
+
+
+def ai_agent_extract_json_object(content: str) -> dict[str, Any]:
+    text = str(content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(text[start : end + 1])
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+
+def ai_agent_llm_endpoint() -> str:
+    if AI_AGENT_LLM_PROVIDER == "local_planner":
+        return ""
+    if AI_AGENT_LLM_PROVIDER == "openai":
+        return "https://api.openai.com/v1/chat/completions"
+    if not AI_AGENT_LLM_BASE_URL:
+        return ""
+    if AI_AGENT_LLM_BASE_URL.endswith("/chat/completions"):
+        return AI_AGENT_LLM_BASE_URL
+    if AI_AGENT_LLM_BASE_URL.endswith("/v1"):
+        return f"{AI_AGENT_LLM_BASE_URL}/chat/completions"
+    return f"{AI_AGENT_LLM_BASE_URL}/v1/chat/completions"
+
+
+def ai_agent_llm_is_configured() -> bool:
+    if AI_AGENT_LLM_PROVIDER == "local_planner":
+        return False
+    if AI_AGENT_LLM_PROVIDER == "openai" and not AI_AGENT_LLM_API_KEY:
+        return False
+    return bool(ai_agent_llm_endpoint())
+
+
+def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tuple[bool, dict[str, Any], str]:
+    endpoint = ai_agent_llm_endpoint()
+    if not ai_agent_llm_is_configured():
+        if AI_AGENT_LLM_PROVIDER == "local_planner":
+            return False, {}, "No external model backend is configured; using the built-in planner"
+        if AI_AGENT_LLM_PROVIDER == "openai":
+            return False, {}, "OpenAI-compatible provider selected but no API key is configured"
+        return False, {}, "Model backend base URL is not configured"
+    request_body = {
+        "model": AI_AGENT_MODEL,
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, default=str)},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 1800,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Content-Type": "application/json"}
+    if AI_AGENT_LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {AI_AGENT_LLM_API_KEY}"
+    for attempt in range(2):
+        try:
+            response = requests.post(endpoint, headers=headers, json=request_body, timeout=AI_AGENT_LLM_TIMEOUT_SECONDS)
+        except Exception as error:
+            return False, {}, f"Model backend request failed: {error}"
+        if response.status_code >= 400:
+            error_text = ai_agent_redact_log(response.text)[:500]
+            if attempt == 0 and "response_format" in error_text:
+                request_body.pop("response_format", None)
+                continue
+            return False, {}, f"Model backend returned HTTP {response.status_code}: {error_text}"
+        try:
+            payload = response.json()
+            content = str(payload.get("choices", [{}])[0].get("message", {}).get("content") or "")
+            parsed = ai_agent_extract_json_object(content)
+            if parsed:
+                return True, parsed, ""
+            return False, {}, "Model backend response did not contain valid JSON"
+        except Exception as error:
+            return False, {}, f"Model backend response parse failed: {error}"
+    return False, {}, "Model backend request failed"
+
+
+def ai_agent_normalize_llm_steps(value: Any, fallback_steps: list[Any]) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return [item for item in fallback_steps if isinstance(item, dict)]
+    steps: list[dict[str, Any]] = []
+    for item in value[:10]:
+        if not isinstance(item, dict):
+            continue
+        agent = ai_agent_compact_text(item.get("agent") or "Agent", 32)
+        title = ai_agent_compact_text(item.get("title") or item.get("name") or "Next step", 90)
+        detail = ai_agent_compact_text(item.get("detail") or item.get("description") or "", 260)
+        if title:
+            steps.append({"agent": agent or "Agent", "title": title, "detail": detail})
+    return steps or [item for item in fallback_steps if isinstance(item, dict)]
+
+
+def ai_agent_normalize_llm_suggestions(value: Any, project_path: str = "") -> list[dict[str, Any]]:
+    suggestions: list[dict[str, Any]] = []
+    if not isinstance(value, list):
+        return suggestions
+    for item in value[:8]:
+        if isinstance(item, str):
+            command = item
+            label = item
+            reason = "Suggested by the AI agent."
+        elif isinstance(item, dict):
+            command = str(item.get("command") or "").strip()
+            label = str(item.get("label") or command).strip()
+            reason = str(item.get("reason") or "Suggested by the AI agent.").strip()
+        else:
+            continue
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label=label,
+            command=command,
+            reason=reason,
+            project_path=str(item.get("project_path") or project_path).strip() if isinstance(item, dict) else project_path,
+            risk=str(item.get("risk") or "") if isinstance(item, dict) else "",
+        )
+    return suggestions
+
+
+def ai_agent_append_command_summary(reply: str, suggestions: list[dict[str, Any]]) -> str:
+    text = str(reply or "").strip()
+    if not suggestions or "suggested sandbox command" in text.lower():
+        return text
+    lines = ["", "Suggested sandbox commands:"]
+    for index, item in enumerate(suggestions[:4], start=1):
+        reason = ai_agent_compact_text(item.get("reason"), 120)
+        lines.append(f"{index}. {item.get('label')}: `{item.get('command')}`" + (f" - {reason}" if reason else ""))
+    return text + "\n" + "\n".join(lines)
+
+
+def ai_agent_llm_reply_for_task(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    run: dict[str, Any],
+    task: dict[str, Any],
+    approval: dict[str, Any] | None,
+    prompt: str,
+    continued: bool,
+) -> str:
+    if not isinstance(task, dict):
+        return "I could not create a task for that request yet."
+    run_context = ai_agent_run_context_summary(state, run)
+    project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
+    base_suggestions = ai_agent_suggested_commands_for_task(task, run)
+    task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
+    if not ai_agent_llm_is_configured():
+        task["llm_status"] = "not_configured"
+        task["llm_provider"] = AI_AGENT_LLM_PROVIDER
+        task["next_action"] = task.get("next_action") or "Review suggested sandbox commands"
+        return ai_agent_append_command_summary(ai_agent_assistant_reply_for_task(task, approval), task["suggested_commands"])
+
+    system_message = (
+        "You are Wandering Agent, a private owner-controlled AI software engineering agent inside a dashboard. "
+        "Return only a JSON object. Do not claim you edited files, ran commands, deployed, pushed to GitHub, "
+        "or inspected private code unless the supplied context proves it. Be concise, practical, and Codex-like. "
+        "Respect approval gates: production deploys, database migrations, secrets, file deletion, repository deletion, "
+        "force pushes, and permission changes need owner approval unless context explicitly says they are approved. "
+        "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
+        "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
+        "\"next_action\": string, \"summary\": string, \"risk_notes\": [string]}."
+    )
+    user_payload = {
+        "prompt": prompt,
+        "continued": continued,
+        "access": {"role": access.get("role"), "permissions": access.get("permissions"), "label": access.get("label")},
+        "god_mode_enabled": bool(state.get("god_mode_enabled")),
+        "approval": {"id": approval.get("id"), "status": approval.get("status"), "summary": approval.get("summary")} if isinstance(approval, dict) else None,
+        "task": {
+            "id": task.get("id"),
+            "objective": task.get("objective"),
+            "status": task.get("status"),
+            "complexity": task.get("complexity"),
+            "project_type": task.get("project_type"),
+            "repository": task.get("repository"),
+            "project_path": task.get("project_path"),
+            "requested_permissions": task.get("requested_permissions"),
+            "approvals": task.get("approvals"),
+            "steps": task.get("steps"),
+        },
+        "run": run_context,
+        "memory": compact_audit_value(state.get("memory", {})),
+        "sandbox": compact_audit_value(state.get("sandbox", {})),
+        "deterministic_suggestions": task.get("suggested_commands", []),
+    }
+    ok, data, error = ai_agent_llm_json(system_message, user_payload)
+    if not ok:
+        task["llm_status"] = "failed"
+        task["llm_provider"] = AI_AGENT_LLM_PROVIDER
+        task["llm_error"] = ai_agent_compact_text(error, 420)
+        ai_agent_activity(state, "AI model fallback", task["llm_error"], access.get("label") or dashboard_audit_actor(auth), {"task_id": task.get("id"), "run_id": run.get("id")})
+        fallback = ai_agent_assistant_reply_for_task(task, approval)
+        return ai_agent_append_command_summary(fallback + f"\n\nModel note: {task['llm_error']}", task.get("suggested_commands", []))
+
+    task["llm_status"] = "ok"
+    task["llm_provider"] = AI_AGENT_LLM_PROVIDER
+    task["llm_model"] = AI_AGENT_MODEL
+    task["updated_at"] = datetime.now(UTC).isoformat()
+    task["steps"] = ai_agent_normalize_llm_steps(data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else [])
+    llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
+    merged_suggestions = ai_agent_merge_suggested_commands(task, [*base_suggestions, *llm_suggestions])
+    next_action = ai_agent_compact_text(data.get("next_action"), 220)
+    summary = ai_agent_compact_text(data.get("summary"), 420)
+    if next_action:
+        task["next_action"] = next_action
+    if summary:
+        task["summary"] = summary
+    run_id = str(run.get("id") or task.get("run_id") or "")
+    if run_id:
+        ai_agent_update_run_from_task(state, run_id, task)
+        live_run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if live_run:
+            if next_action:
+                live_run["next_action"] = next_action
+            if summary:
+                live_run["summary"] = summary
+            live_run["updated_at"] = datetime.now(UTC).isoformat()
+    risk_notes = data.get("risk_notes") if isinstance(data.get("risk_notes"), list) else []
+    reply = ai_agent_compact_text(data.get("reply"), 2200) or ai_agent_assistant_reply_for_task(task, approval)
+    if risk_notes:
+        reply += "\nRisk notes: " + "; ".join(ai_agent_compact_text(item, 160) for item in risk_notes[:4])
+    return ai_agent_append_command_summary(reply, merged_suggestions)
+
+
 def ai_agent_plan_from_objective(objective: str, project_type: str, requested: dict[str, bool], state: dict[str, Any]) -> dict[str, Any]:
     text = str(objective or "").strip()
     lower = text.lower()
@@ -11369,6 +11887,7 @@ def ai_agent_create_task_record(
 def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, Any] | None = None) -> str:
     steps = task.get("steps") if isinstance(task.get("steps"), list) else []
     approvals = task.get("approvals") if isinstance(task.get("approvals"), list) else []
+    suggestions = task.get("suggested_commands") if isinstance(task.get("suggested_commands"), list) else []
     run_id = str(task.get("run_id") or "")
     lines = [
         f"I created plan {task.get('id')} and split it into {len(steps)} step(s).",
@@ -11384,6 +11903,8 @@ def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, 
     if approval:
         lines.append(f"Approval queue item: {approval.get('id')}.")
     lines.append("Next: review the plan, then queue a sandbox command or approve the requested high-risk action.")
+    for index, item in enumerate(suggestions[:4], start=1):
+        lines.append(f"Suggested command {index}: {item.get('label')} - `{item.get('command')}`")
     return "\n".join(lines)
 
 
@@ -18034,10 +18555,14 @@ def api_ai_agent_task():
     if len(objective) < 8:
         return jsonify({"ok": False, "error": "objective is required"}), 400
     run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, objective)
-    task_objective = f"Continue existing run: {run.get('objective', '')}\nLatest instruction: {objective}" if continued else objective
+    run_context = ai_agent_run_context_summary(state, run)
+    task_objective = f"Continue existing run: {json.dumps(run_context, ensure_ascii=False, default=str)}\nLatest instruction: {objective}" if continued else objective
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run.get("id", ""))
     if error_message:
         return jsonify({"ok": False, "error": error_message}), status_code
+    if task:
+        ai_agent_merge_suggested_commands(task, ai_agent_suggested_commands_for_task(task, run))
+        ai_agent_update_run_from_task(state, run.get("id", ""), task)
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task.get("id") if task else "", run_id=run.get("id"))
     body = {"ok": True, "task": task, "run": run, "continued": continued, "note": "Agent plan created. High-risk actions remain approval-gated."}
@@ -18062,13 +18587,14 @@ def api_ai_agent_chat():
     run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, prompt)
     run_id = str(run.get("id") or "")
     user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode"), "continued": continued}, run_id=run_id)
-    task_objective = f"Continue existing run: {run.get('objective', '')}\nLatest instruction: {prompt}" if continued else prompt
+    run_context = ai_agent_run_context_summary(state, run)
+    task_objective = f"Continue existing run: {json.dumps(run_context, ensure_ascii=False, default=str)}\nLatest instruction: {prompt}" if continued else prompt
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run_id)
     if error_message:
         assistant_message = ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}", run_id=run_id)
         save_ai_agent_state(state)
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
-    reply = ai_agent_assistant_reply_for_task(task or {}, approval)
+    reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
     if continued:
         reply = f"Continuing run {run_id}.\n" + reply
     assistant_message = ai_agent_chat_message(

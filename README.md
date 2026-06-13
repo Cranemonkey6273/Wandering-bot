@@ -17,6 +17,30 @@ WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS=900
 
 Leave `WANDERING_AI_AGENT_WORKER_URL` blank if you only want planning, approvals, and audit logs.
 
+### AI model backend
+
+Wandering Agent does not require every customer to have an OpenAI/ChatGPT/Codex subscription. The dashboard is the control plane, credits, permissions, memory, audit trail, and worker system. The model backend is swappable.
+
+For your own hosted model, run an OpenAI-compatible server with Ollama, vLLM, LM Studio, or another private model gateway, then set Railway like this:
+
+```env
+WANDERING_AI_AGENT_PROVIDER=custom
+WANDERING_AI_AGENT_BASE_URL=https://your-model-server.example.com/v1
+WANDERING_AI_AGENT_MODEL=qwen2.5-coder:14b
+WANDERING_AI_AGENT_API_KEY=optional-private-gateway-key
+WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=45
+```
+
+If no model backend is configured, the page still uses the built-in local planner and approval-gated sandbox workflow, but replies will be less intelligent.
+
+If you explicitly want to use an OpenAI-compatible hosted provider instead:
+
+```env
+WANDERING_AI_AGENT_PROVIDER=openai
+WANDERING_AI_AGENT_MODEL=gpt-4.1-mini
+WANDERING_AI_AGENT_API_KEY=your-provider-key
+```
+
 ### Worker machine variables
 
 Run `ai_sandbox_worker.py` on the separate Docker machine with the same token:
