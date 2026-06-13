@@ -1030,14 +1030,14 @@ PAGE_TEMPLATE = """
     .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
     .ai-agent-grid .admin-panel { min-height: 0; }
     .ai-agent-prompt textarea { min-height: 12rem; }
-    .ai-codex-workbench { display: grid; grid-template-columns: minmax(28rem, 1.35fr) minmax(20rem, .65fr); gap: .85rem; align-items: stretch; margin-bottom: .85rem; }
-    .ai-codex-chat { min-height: 42rem; display: grid; grid-template-rows: auto minmax(18rem, 1fr) auto; gap: .75rem; background:
+    .ai-codex-workbench { display: grid; grid-template-columns: minmax(34rem, 1.65fr) minmax(17rem, .55fr); gap: .85rem; align-items: start; margin-bottom: .85rem; }
+    .ai-codex-chat { min-height: min(74vh, 52rem); display: grid; grid-template-rows: auto minmax(24rem, 1fr) auto; gap: .75rem; background:
       radial-gradient(circle at top left, rgba(103,245,231,.12), transparent 34%),
       linear-gradient(180deg, rgba(6, 20, 25, .92), rgba(2, 8, 11, .88)); }
     .ai-codex-title { display: flex; justify-content: space-between; gap: .8rem; align-items: flex-start; flex-wrap: wrap; padding-bottom: .65rem; border-bottom: 1px solid rgba(103,245,231,.13); }
     .ai-codex-title h3 { margin: 0; color: var(--text); letter-spacing: .02em; }
-    .ai-codex-thread { display: grid; align-content: start; gap: .85rem; overflow: auto; padding-right: .25rem; }
-    .ai-codex-message { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; max-width: 92%; }
+    .ai-codex-thread { display: grid; align-content: start; gap: .85rem; overflow: auto; padding: .25rem .35rem .25rem 0; scroll-behavior: smooth; }
+    .ai-codex-message { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; max-width: min(58rem, 96%); }
     .ai-codex-message.user { margin-left: auto; grid-template-columns: minmax(0, 1fr) 2.25rem; }
     .ai-codex-avatar { width: 2.25rem; height: 2.25rem; border-radius: .5rem; display: grid; place-items: center; border: 1px solid rgba(103,245,231,.18); background: rgba(3, 11, 14, .9); color: var(--accent); font-weight: 900; }
     .ai-codex-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: .45rem; }
@@ -1050,22 +1050,37 @@ PAGE_TEMPLATE = """
     @keyframes aiTypingPulse { 0%, 100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
     .ai-codex-plan-mini { margin-top: .55rem; display: grid; gap: .35rem; }
     .ai-codex-plan-mini span { display: block; border-left: 2px solid var(--accent); padding-left: .5rem; color: var(--muted); font-size: .83rem; }
-    .ai-codex-composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding-top: .65rem; border-top: 1px solid rgba(103,245,231,.13); }
-    .ai-codex-composer textarea { min-height: 8rem; resize: vertical; border-radius: .75rem; font-size: .96rem; line-height: 1.45; }
-    .ai-codex-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .45rem; align-items: end; }
+    .ai-codex-composer { position: sticky; bottom: .75rem; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding: .75rem; border: 1px solid rgba(103,245,231,.18); border-radius: .95rem; background: linear-gradient(180deg, rgba(5, 18, 22, .97), rgba(1, 8, 10, .97)); box-shadow: 0 18px 45px rgba(0,0,0,.34); }
+    .ai-codex-composer textarea { min-height: 6.5rem; resize: vertical; border-radius: .75rem; font-size: .98rem; line-height: 1.45; }
+    .ai-codex-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .45rem; align-items: end; }
     .ai-codex-options label { min-width: 0; }
     .ai-codex-toggle-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
     .ai-codex-toggle-row label { display: inline-flex; flex-direction: row; align-items: center; gap: .35rem; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .45rem .55rem; background: rgba(2, 9, 12, .72); color: var(--muted); font-size: .84rem; }
     .ai-codex-toggle-row input { width: auto; min-height: 0; }
     .ai-codex-submit { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; justify-content: space-between; }
     .ai-codex-submit button { min-width: 10rem; }
-    .ai-codex-side { display: grid; gap: .85rem; align-content: start; }
+    .ai-codex-side { display: grid; gap: .85rem; align-content: start; position: sticky; top: 4.8rem; max-height: calc(100vh - 6rem); overflow: auto; padding-right: .15rem; }
     .ai-codex-side .ai-agent-step { background: rgba(1, 8, 11, .78); }
     .ai-codex-empty { border: 1px dashed rgba(103,245,231,.22); border-radius: .75rem; padding: 1rem; color: var(--muted); background: rgba(2, 9, 12, .62); }
     .ai-agent-command-suggestions { display: grid; gap: .45rem; margin-top: .6rem; padding: .65rem; border: 1px solid rgba(103,245,231,.16); border-radius: .5rem; background: rgba(2, 9, 12, .62); }
     .ai-agent-command-suggestions strong { color: #effcff; font-size: .86rem; }
     .ai-agent-command-suggestions button { width: 100%; min-height: 2rem; padding: .38rem .55rem; text-align: left; font-size: .78rem; }
     .ai-agent-command-suggestions .result { font-size: .78rem; }
+    .ai-agent-live-work { border-color: rgba(103,245,231,.25); background:
+      radial-gradient(circle at top right, rgba(103,245,231,.13), transparent 42%),
+      linear-gradient(180deg, rgba(4, 20, 25, .9), rgba(1, 8, 10, .86)); }
+    .ai-agent-live-work h3 { display: flex; align-items: center; justify-content: space-between; gap: .55rem; }
+    .ai-agent-live-work h3::after { content: "live"; color: var(--accent); font-size: .68rem; text-transform: uppercase; letter-spacing: .12em; border: 1px solid rgba(103,245,231,.25); border-radius: 999px; padding: .18rem .45rem; background: rgba(103,245,231,.08); }
+    .ai-agent-work-stream { display: grid; gap: .45rem; max-height: 18rem; overflow: auto; padding-right: .15rem; }
+    .ai-agent-work-item { border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .55rem .65rem; background: rgba(2, 9, 12, .72); }
+    .ai-agent-work-item strong { display: block; color: #effcff; font-size: .84rem; overflow-wrap: anywhere; }
+    .ai-agent-work-item span { display: block; color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+    .ai-agent-work-item[data-status*="complete"],
+    .ai-agent-work-item[data-status*="done"] { border-color: rgba(117,216,154,.25); }
+    .ai-agent-work-item[data-status*="approval"],
+    .ai-agent-work-item[data-status*="pending"] { border-color: rgba(242,193,78,.3); }
+    .ai-agent-work-item[data-status*="fail"],
+    .ai-agent-work-item[data-status*="error"] { border-color: rgba(255,112,112,.34); }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -2344,6 +2359,8 @@ PAGE_TEMPLATE = """
     @media (max-width: 980px) {
       .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
+      .ai-codex-composer { position: static; }
+      .ai-codex-side { position: static; max-height: none; overflow: visible; }
       .ai-codex-message { max-width: 100%; grid-template-columns: 1.9rem minmax(0, 1fr); gap: .5rem; }
       .ai-codex-message.user { grid-template-columns: minmax(0, 1fr) 1.9rem; }
       .ai-codex-avatar { width: 1.9rem; height: 1.9rem; }
@@ -2970,7 +2987,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>AI Development Agent</h2>
-          <p class="tool-note">Private owner-controlled engineering workspace. The page stays hidden unless access is explicitly granted, and high-risk actions require approval unless Owner God Mode is switched on.</p>
+          <p class="tool-note">Private owner-controlled coding workspace.</p>
         </div>
         <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
       </div>
@@ -2989,8 +3006,8 @@ PAGE_TEMPLATE = """
         <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
           <div class="ai-codex-title">
             <div>
-              <h3>Agent Conversation</h3>
-              <p class="tool-note">Type the job like you would in Codex. The agent replies with a plan, logs it, and queues any risky work behind owner approval.</p>
+              <h3>Wandering Agent</h3>
+              <p class="tool-note">Ask it to inspect, build, test, fix, continue, or prepare a deploy.</p>
             </div>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</span>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
@@ -3068,12 +3085,35 @@ PAGE_TEMPLATE = """
               <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
             </div>
             <div class="ai-codex-submit">
-              <span class="tool-note">{% if auth.kind == 'agent_account' %}This prompt costs {{ agent_chat_credit_cost }} credit(s).{% else %}Owner approvals stay on for high-risk work while God Mode is disabled.{% endif %}</span>
-              <span><button type="submit">Ask Agent</button><span class="result muted" data-ai-chat-result></span></span>
+              <span class="tool-note">{% if auth.kind == 'agent_account' %}{{ agent_chat_credit_cost }} credit(s).{% else %}High-risk work asks first unless God Mode is enabled.{% endif %}</span>
+              <span><button type="submit">Send</button><span class="result muted" data-ai-chat-result></span></span>
             </div>
           </form>
         </section>
         <aside class="ai-codex-side">
+          <section class="admin-panel ai-agent-live-work">
+            <h3>Live Work</h3>
+            <div class="ai-agent-work-stream" data-ai-work-stream>
+              {% for job in ai_agent_sandbox_jobs[:4] %}
+              <div class="ai-agent-work-item" data-status="{{ job.status|default('queued') }}">
+                <strong>{{ job.status|default('queued')|replace('_', ' ')|title }}</strong>
+                <span>{{ job.command|default(job.reason|default('Sandbox job')) }}</span>
+              </div>
+              {% endfor %}
+              {% for approval in ai_agent_approvals[:3] %}
+              <div class="ai-agent-work-item" data-status="{{ approval.status|default('approval') }}">
+                <strong>Approval - {{ approval.action|default('high risk action')|replace('_', ' ')|title }}</strong>
+                <span>{{ approval.reason|default('Waiting for owner approval.') }}</span>
+              </div>
+              {% endfor %}
+              {% if not ai_agent_sandbox_jobs and not ai_agent_approvals %}
+              <div class="ai-agent-work-item" data-status="idle">
+                <strong>Idle</strong>
+                <span>Ask the agent to inspect, build, test, or continue a run.</span>
+              </div>
+              {% endif %}
+            </div>
+          </section>
           <section class="admin-panel">
             <h3>Current Run</h3>
             <div class="ai-agent-plan" data-ai-current-run>
@@ -8786,6 +8826,41 @@ PAGE_TEMPLATE = """
       const suggestions = aiAgentCommandSuggestionList(task, form, thread);
       if (suggestions) target.append(suggestions);
     }
+    function aiAgentWorkItem(title, detail, status) {
+      const node = document.createElement("div");
+      node.className = "ai-agent-work-item";
+      node.dataset.status = String(status || "");
+      const strong = document.createElement("strong");
+      strong.textContent = String(title || "Agent work");
+      const span = document.createElement("span");
+      span.textContent = String(detail || "");
+      node.append(strong, span);
+      return node;
+    }
+    function aiAgentUpdateWorkStream(state) {
+      const target = document.querySelector("[data-ai-work-stream]");
+      if (!target) return;
+      const jobs = Array.isArray(state?.sandbox_jobs) ? state.sandbox_jobs : [];
+      const approvals = Array.isArray(state?.approvals) ? state.approvals : [];
+      const items = [];
+      jobs.slice(0, 5).forEach((job) => {
+        const status = String(job?.status || "queued");
+        const label = status.replace(/_/g, " ").replace(/\\b\\w/g, (letter) => letter.toUpperCase());
+        const command = String(job?.command || job?.reason || "Sandbox job");
+        items.push(aiAgentWorkItem(label, command, status));
+      });
+      approvals.slice(0, 3).forEach((approval) => {
+        const status = String(approval?.status || "approval");
+        const action = String(approval?.action || "high risk action").replace(/_/g, " ");
+        items.push(aiAgentWorkItem(`Approval - ${action}`, approval?.reason || "Waiting for owner approval.", status));
+      });
+      target.replaceChildren();
+      if (items.length) {
+        items.forEach((item) => target.append(item));
+      } else {
+        target.append(aiAgentWorkItem("Idle", "Ask the agent to inspect, build, test, or continue a run.", "idle"));
+      }
+    }
     function aiAgentAppendMessages(state, thread) {
       if (!thread || !Array.isArray(state?.chat_messages)) return;
       const known = new Set(Array.from(thread.querySelectorAll("[data-message-id]")).map((node) => String(node.dataset.messageId || "")));
@@ -8807,6 +8882,7 @@ PAGE_TEMPLATE = """
       aiAgentUpdateRunSelect(state, form);
       aiAgentUpdateCurrentRun(state, form);
       aiAgentUpdateLatestPlan(state, form, thread);
+      aiAgentUpdateWorkStream(state);
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
