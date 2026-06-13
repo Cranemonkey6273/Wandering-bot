@@ -167,6 +167,75 @@ VISUAL_LOADOUT_CATEGORY_FILTERS = [
     {"key": "Food/Drink", "label": "Food"},
     {"key": "Misc", "label": "Misc"},
 ]
+VISUAL_LOADOUT_SLOT_FALLBACKS = {
+    "Head": [
+        "BallisticHelmet", "BallisticHelmet_Black", "BallisticHelmet_Green", "CombatHelmet_Black", "CombatHelmet_Green",
+        "Mich2001Helmet", "TacticalHelmet_Black", "TacticalHelmet_Green", "ZSh3PilotHelmet", "ZSh3PilotHelmet_Black",
+        "BaseballCap_Black", "BaseballCap_Blue", "BaseballCap_Camo", "BaseballCap_Olive", "BoonieHat_Black",
+        "BoonieHat_Blue", "BoonieHat_DPM", "BoonieHat_Green", "BoonieHat_Orange", "BoonieHat_Red", "BoonieHat_Tan",
+        "BeanieHat_Black", "BeanieHat_Green", "Ushanka_Black", "Ushanka_Green", "CowboyHat_Brown", "RadarCap_Black",
+        "RadarCap_Green", "MilitaryBeret_Red", "MilitaryBeret_CDF", "OfficerHat",
+    ],
+    "Eyes": [
+        "SportGlasses_Black", "SportGlasses_Blue", "SportGlasses_Green", "SportGlasses_Orange",
+        "AviatorGlasses", "DesignerGlasses", "ThickFramesGlasses", "NVGoggles",
+    ],
+    "Mask": [
+        "BalaclavaMask_Black", "BalaclavaMask_Beige", "BalaclavaMask_Green", "BalaclavaMask_Pink",
+        "SkiMask_Black", "SkiMask_White", "SurgicalMask", "BandanaMask_BlackPattern", "BandanaMask_CamoPattern",
+        "Shemag_Black", "Shemag_Green", "GasMask", "GP5GasMask", "AirborneMask",
+    ],
+    "Body": [
+        "HikingJacket_Black", "HikingJacket_Blue", "HikingJacket_Green", "HikingJacket_Red",
+        "Hoodie_Black", "Hoodie_Blue", "Hoodie_Green", "TShirt_Black", "TShirt_Blue", "TShirt_Green", "TShirt_Red",
+        "M65Jacket_Black", "M65Jacket_Khaki", "M65Jacket_Tan", "GorkaEJacket_Autumn", "GorkaEJacket_Flat",
+        "GorkaEJacket_PautRev", "GorkaEJacket_Summer", "BDUJacket", "CUCJacket", "PoliceJacket", "ParamedicJacket_Blue",
+        "FirefighterJacket_Beige", "NBCJacketGray", "NBCJacketYellow", "QuiltedJacket_Black", "Raincoat_Green",
+    ],
+    "Vest": [
+        "PlateCarrierVest", "PlateCarrierVest_Black", "PlateCarrierVest_Green", "PlateCarrierPouches",
+        "HighCapacityVest_Black", "HighCapacityVest_Olive", "UKAssVest_Black", "UKAssVest_Camo", "SmershVest",
+        "PoliceVest", "PressVest_Blue", "ChestHolster",
+    ],
+    "Back": [
+        "AliceBag_Black", "AliceBag_Camo", "AliceBag_Green", "AssaultBag_Black", "AssaultBag_Green", "AssaultBag_Ttsko",
+        "MountainBag_Blue", "MountainBag_Green", "MountainBag_Orange", "MountainBag_Red", "DryBag_Black", "DryBag_Blue",
+        "DryBag_Green", "DryBag_Orange", "TaloonBag_Blue", "TaloonBag_Green", "TaloonBag_Orange", "HuntingBag",
+        "TortillaBag", "CourierBag", "ImprovisedBag", "CoyoteBag_Brown", "CoyoteBag_Green",
+    ],
+    "Hips": ["MilitaryBelt", "CivilianBelt", "HipPack_Black", "HipPack_Green", "KnifeSheath", "PistolHolster"],
+    "Legs": [
+        "CargoPants_Black", "CargoPants_Blue", "CargoPants_Green", "CargoPants_Grey", "Jeans_Black", "Jeans_Blue",
+        "BDUPants", "CUCPants", "GorkaPants_Autumn", "GorkaPants_Flat", "GorkaPants_PautRev", "GorkaPants_Summer",
+        "PolicePants", "ParamedicPants_Blue", "FirefightersPants_Beige", "NBCPantsGray", "NBCPantsYellow",
+    ],
+    "Feet": [
+        "MilitaryBoots_Black", "MilitaryBoots_Brown", "CombatBoots_Black", "CombatBoots_Brown", "CombatBoots_Green",
+        "JungleBoots_Black", "JungleBoots_Brown", "AthleticShoes_Black", "HikingBootsLow_Black", "WorkingBoots_Brown",
+        "NBCBootsGray", "NBCBootsYellow", "Wellies_Black",
+    ],
+    "Hands": [
+        "M4A1", "AKM", "AK74", "AK101", "SKS", "Mosin9130", "SVD", "FAL", "AUG", "VSS", "ASVAL", "Saiga",
+        "Glock19", "FNX45", "CR75", "MakarovIJ70", "Deagle", "Hatchet", "FirefighterAxe", "CombatKnife",
+        "HuntingKnife", "Machete", "SledgeHammer", "Shovel", "Pickaxe", "Hammer", "Handsaw",
+    ],
+    "Left Shoulder": ["M4A1", "AKM", "AK74", "AK101", "SKS", "Mosin9130", "SVD", "FAL", "AUG", "VSS", "ASVAL", "Saiga", "Repeater", "Winchester70", "Crossbow"],
+    "Right Shoulder": ["M4A1", "AKM", "AK74", "AK101", "SKS", "Mosin9130", "SVD", "FAL", "AUG", "VSS", "ASVAL", "Saiga", "Repeater", "Winchester70", "Crossbow"],
+    "Gloves": [
+        "TacticalGloves_Black", "TacticalGloves_Green", "WorkingGloves_Black", "WorkingGloves_Brown",
+        "NBCGlovesGray", "NBCGlovesYellow", "SurgicalGloves_Blue", "SurgicalGloves_Green", "LeatherGloves_Black",
+    ],
+    "Armband": ["Armband_Black", "Armband_Blue", "Armband_Green", "Armband_Orange", "Armband_Pink", "Armband_Red", "Armband_White", "Armband_Yellow"],
+}
+VISUAL_LOADOUT_GENERAL_FALLBACKS = [
+    "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_AK74_30Rnd", "Mag_SVD_10Rnd", "Mag_FAL_20Rnd", "Mag_Saiga_8Rnd",
+    "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54", "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd",
+    "AmmoBox_545x39_20Rnd", "AmmoBox_762x54_20Rnd", "M67Grenade", "RGD5Grenade", "FlashGrenade",
+    "NVGoggles", "NVGHeadstrap", "UniversalLight",
+    "BandageDressing", "TetracyclineAntibiotics", "Morphine", "Epinephrine", "SalineBagIV", "BloodBagEmpty",
+    "Canteen", "WaterBottle", "TacticalBaconCan", "BakedBeansCan", "PeachesCan", "SodaCan_Cola",
+    "Battery9V", "Rangefinder", "Binoculars", "Compass", "Matchbox", "Rope", "NailBox", "MetalWire",
+]
 VISUAL_LOADOUT_CAPACITY_HINTS = {
     "alicebag": 90,
     "mountainbag": 80,
@@ -1094,6 +1163,10 @@ PAGE_TEMPLATE = """
     .ai-agent-file-list button { width: 100%; min-height: 2rem; padding: .42rem .55rem; text-align: left; font-size: .78rem; overflow-wrap: anywhere; }
     .ai-agent-file-list button.active { border-color: rgba(103,245,231,.45); background: rgba(103,245,231,.12); color: #effcff; }
     .ai-agent-file-preview { max-height: 20rem; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .65rem; background: rgba(0,0,0,.34); color: #d5f7ff; font-size: .76rem; line-height: 1.45; }
+    .ai-agent-change-list { display: grid; gap: .35rem; max-height: 12rem; overflow: auto; padding-right: .15rem; }
+    .ai-agent-change-list button { width: 100%; min-height: 2rem; padding: .42rem .55rem; text-align: left; font-size: .78rem; overflow-wrap: anywhere; }
+    .ai-agent-change-list button.active { border-color: rgba(242,193,78,.44); background: rgba(242,193,78,.12); color: #fff9df; }
+    .ai-agent-diff-preview { max-height: 24rem; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(242,193,78,.18); border-radius: .55rem; padding: .65rem; background: rgba(0,0,0,.36); color: #e6f7fa; font-size: .75rem; line-height: 1.42; }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -3176,6 +3249,16 @@ PAGE_TEMPLATE = """
             </div>
           </section>
           <section class="admin-panel">
+            <h3>Changes</h3>
+            <div class="ai-agent-files" data-ai-changes-panel>
+              <div class="ai-agent-context-row"><span>Git</span><strong data-ai-changes-root>Loading changes...</strong></div>
+              <div class="ai-agent-change-list" data-ai-change-list>
+                <span class="tool-note">Loading changed files...</span>
+              </div>
+              <pre class="ai-agent-diff-preview" data-ai-diff-preview>Select a changed file to review the diff.</pre>
+            </div>
+          </section>
+          <section class="admin-panel">
             <h3>Current Run</h3>
             <div class="ai-agent-plan" data-ai-current-run>
               {% if ai_agent_active_run %}
@@ -4347,7 +4430,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, gas_lifetime=1800, gas_particle='server_default') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=3600, saferadius=0, distanceradius=1000, cleanupradius=1500, gas_lifetime=1800, gas_particle='server_default') %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -4368,6 +4451,11 @@ PAGE_TEMPLATE = """
           {% set edit_event.guard_class = event.guard_class or '' %}
           {% set edit_event.guard_count = event.guard_count or 0 %}
           {% set edit_event.guard_radius = event.guard_radius or 35 %}
+          {% set edit_event.lifetime = event.lifetime or event.gas_lifetime or 7200 %}
+          {% set edit_event.restock = event.restock if event.restock is not none else 3600 %}
+          {% set edit_event.saferadius = event.saferadius if event.saferadius is not none else 0 %}
+          {% set edit_event.distanceradius = event.distanceradius if event.distanceradius is not none else 1000 %}
+          {% set edit_event.cleanupradius = event.cleanupradius if event.cleanupradius is not none else 1500 %}
           {% set edit_event.gas_lifetime = event.gas_lifetime or 1800 %}
           {% set edit_event.gas_particle = event.gas_particle or 'server_default' %}
         {% endif %}
@@ -4486,16 +4574,21 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
-            <label>Gas duration seconds <input name="gas_lifetime" type="number" min="60" max="3888000" value="{{ edit_event.gas_lifetime }}"><small class="field-help">Used by gas zones as the CE lifetime. Permanent keeps the zone in XML until deleted.</small></label>
+            <label>Lifetime seconds <input name="lifetime" type="number" min="60" max="3888000" value="{{ edit_event.lifetime }}"><small class="field-help">How long DayZ keeps this event alive after it spawns. Longer means it stays available for longer after restart.</small></label>
+            <label>Restock seconds <input name="restock" type="number" min="0" max="3888000" value="{{ edit_event.restock }}"><small class="field-help">How long CE waits before trying to restock/respawn the event. Use 0 for no timed restock.</small></label>
+            <label>Safe radius <input name="saferadius" type="number" min="0" max="5000" value="{{ edit_event.saferadius }}"><small class="field-help">Stops the event spawning too close to players. Use 0 when you want the exact fixed point.</small></label>
+            <label>Distance radius <input name="distanceradius" type="number" min="0" max="30000" value="{{ edit_event.distanceradius }}"><small class="field-help">How close players need to get before DayZ can wake/spawn the event.</small></label>
+            <label>Cleanup radius <input name="cleanupradius" type="number" min="0" max="30000" value="{{ edit_event.cleanupradius }}"><small class="field-help">Area DayZ uses to clean up old event pieces around this spawn.</small></label>
+            <label>Gas duration seconds <input name="gas_lifetime" type="number" min="60" max="3888000" value="{{ edit_event.gas_lifetime }}"><small class="field-help">Gas-only shortcut for lifetime. The bot also copies this into Lifetime seconds for gas zones.</small></label>
             <label>Gas particle
               <select name="gas_particle">
                 <option value="server_default" {% if edit_event.gas_particle in ['', 'server_default'] %}selected{% endif %}>Leave server default</option>
                 <option value="debug" {% if edit_event.gas_particle in ['debug', 'red'] %}selected{% endif %}>Red / debug gas</option>
                 <option value="normal" {% if edit_event.gas_particle in ['normal', 'green', 'restore'] %}selected{% endif %}>Restore normal green</option>
               </select>
-              <small class="field-help">Red/debug updates cfgareaeffects.xml ParticleName to the _debug particle. It can affect all contaminated gas using that particle.</small>
+                <small class="field-help">Red/debug updates cfgEffectArea.json Data.ParticleName to the _debug particle. It can affect all contaminated gas using that particle.</small>
             </label>
-            <div class="full embed-preview"><strong>Gas colour</strong><span>Red gas writes cfgareaeffects.xml using graphics/particles/contaminated_area_gas_bigass_debug. Use Restore normal green to switch it back.</span></div>
+            <div class="full embed-preview"><strong>Gas colour</strong><span>Red gas writes cfgEffectArea.json using graphics/particles/contaminated_area_gas_bigass_debug. Use Restore normal green to switch it back.</span></div>
             <label>Loot preset
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
               <small class="field-help">✨ Pristine loot. Ammo/medical in crates, big gear around scene.</small>
@@ -4559,7 +4652,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Queued ✅' }}{% if event.upload_error %}<br><small class="muted">⚠️ {{ event.upload_error }}</small>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status == 'failed' %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -6055,7 +6148,7 @@ PAGE_TEMPLATE = """
           <h3>Red Gas Zones</h3>
           <ol>
             <li>Choose a red gas preset in PVE Event Builder, or set Gas particle to Red / debug gas.</li>
-            <li>The bot updates cfgareaeffects.xml to use the contaminated_area_gas_bigass_debug particle.</li>
+              <li>The bot updates cfgEffectArea.json to use the contaminated_area_gas_bigass_debug particle.</li>
             <li>This can affect all gas zones that use that effect file, not only one location.</li>
             <li>Use Restore normal green if you want to switch the server back.</li>
           </ol>
@@ -7448,6 +7541,9 @@ PAGE_TEMPLATE = """
       {classname: "M4_RISHndgrd", readable: "M4 RIS Handguard", category: "Misc", attachment: true},
       {classname: "M4_MPBttstck", readable: "M4 MP Buttstock", category: "Misc", attachment: true},
       {classname: "ACOGOptic", readable: "ACOG Optic", category: "Misc", attachment: true},
+      {classname: "NVGoggles", readable: "NV Goggles", category: "Misc", attachment: true},
+      {classname: "NVGHeadstrap", readable: "NVG Headstrap", category: "Clothing", attachment: true},
+      {classname: "UniversalLight", readable: "Universal Light", category: "Misc", attachment: true},
       {classname: "Battery9V", readable: "9V Battery", category: "Misc"}
     ];
     const SERVER_LOADOUT_DB = (Array.isArray(ITEM_LOOKUP) ? ITEM_LOOKUP : []).map((item) => ({
@@ -7455,8 +7551,27 @@ PAGE_TEMPLATE = """
       readable: String(item.label || item.name || item.classname || "").trim(),
       category: String(item.category || "Misc").trim() || "Misc"
     })).filter((item) => item.classname);
-    const LOADOUT_DB = SERVER_LOADOUT_DB.length ? SERVER_LOADOUT_DB : FALLBACK_LOADOUT_DB;
+    const LOADOUT_DB = (() => {
+      const rows = [];
+      const seen = new Set();
+      [...SERVER_LOADOUT_DB, ...FALLBACK_LOADOUT_DB].forEach((item) => {
+        const key = String(item.classname || "").trim().toLowerCase();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        rows.push(item);
+      });
+      return rows;
+    })();
     const LOADOUT_ATTACHMENTS = {
+      BallisticHelmet: ["NVGoggles", "UniversalLight"],
+      BallisticHelmet_Black: ["NVGoggles", "UniversalLight"],
+      BallisticHelmet_Green: ["NVGoggles", "UniversalLight"],
+      Mich2001Helmet: ["NVGoggles", "UniversalLight"],
+      TacticalHelmet_Black: ["NVGoggles", "UniversalLight"],
+      TacticalHelmet_Green: ["NVGoggles", "UniversalLight"],
+      NVGoggles: ["Battery9V"],
+      NVGHeadstrap: ["NVGoggles", "UniversalLight"],
+      UniversalLight: ["Battery9V"],
       M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
       AKM: ["Mag_AKM_30Rnd"],
       SVD: ["Battery9V"],
@@ -9051,7 +9166,8 @@ PAGE_TEMPLATE = """
       const panel = document.querySelector("[data-ai-files-panel]");
       if (!panel || aiAgentFilesBusy) return;
       const context = aiAgentFileContext(form, state);
-      const key = `${context.runId}|${context.projectPath}`;
+      const latestJob = Array.isArray(state?.sandbox_jobs) ? state.sandbox_jobs[0] : null;
+      const key = `${context.runId}|${context.projectPath}|${latestJob?.id || ""}|${latestJob?.status || ""}|${latestJob?.finished_at || ""}`;
       if (!options.force && key === aiAgentFilesKey) return;
       aiAgentFilesKey = key;
       aiAgentFilesBusy = true;
@@ -9070,6 +9186,100 @@ PAGE_TEMPLATE = """
         aiAgentRenderFileList({ok: false, error: error && error.message ? error.message : String(error), files: []}, context);
       } finally {
         aiAgentFilesBusy = false;
+      }
+    }
+    async function aiAgentFetchDiffPreview(path, panel) {
+      const preview = panel?.querySelector("[data-ai-diff-preview]");
+      if (!preview || !path) return;
+      preview.textContent = "Loading diff...";
+      const params = new URLSearchParams();
+      params.set("path", path);
+      if (panel.dataset.projectPath) params.set("project_path", panel.dataset.projectPath);
+      if (panel.dataset.runId) params.set("run_id", panel.dataset.runId);
+      try {
+        const response = await fetch(aiAgentFileRoute("/api/ai-agent/diff", params), {
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok || !body.ok) throw new Error(body.error || "Could not load diff.");
+        preview.textContent = body.diff?.diff || "";
+      } catch (error) {
+        preview.textContent = error && error.message ? error.message : String(error);
+      }
+    }
+    function aiAgentRenderChangeList(body, context) {
+      const panel = document.querySelector("[data-ai-changes-panel]");
+      const list = document.querySelector("[data-ai-change-list]");
+      const root = document.querySelector("[data-ai-changes-root]");
+      if (!panel || !list) return;
+      panel.dataset.projectPath = context.projectPath || "";
+      panel.dataset.runId = context.runId || "";
+      if (root) root.textContent = body?.error || body?.project_path || "Sandbox root";
+      list.replaceChildren();
+      const changes = Array.isArray(body?.changes) ? body.changes : [];
+      if (!body?.ok && body?.error) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = body.error;
+        list.append(note);
+        return;
+      }
+      if (!changes.length) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = "No git changes detected.";
+        list.append(note);
+        const preview = panel.querySelector("[data-ai-diff-preview]");
+        if (preview) preview.textContent = "No changed files to review.";
+        return;
+      }
+      changes.slice(0, 80).forEach((change) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        const status = String(change.status || change.label || "changed").trim();
+        button.textContent = `${status || "changed"} - ${change.path || "file"}${change.size ? ` - ${aiAgentFormatBytes(change.size)}` : ""}`;
+        button.addEventListener("click", () => {
+          list.querySelectorAll("button").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          aiAgentFetchDiffPreview(change.path || "", panel);
+        });
+        list.append(button);
+      });
+      if (body?.truncated) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = "Change list truncated. Narrow the workspace path for more detail.";
+        list.append(note);
+      }
+    }
+    let aiAgentChangesKey = "";
+    let aiAgentChangesBusy = false;
+    async function aiAgentFetchChanges(form, state, options = {}) {
+      const panel = document.querySelector("[data-ai-changes-panel]");
+      if (!panel || aiAgentChangesBusy) return;
+      const context = aiAgentFileContext(form, state);
+      const latestJob = Array.isArray(state?.sandbox_jobs) ? state.sandbox_jobs[0] : null;
+      const key = `${context.runId}|${context.projectPath}|${latestJob?.id || ""}|${latestJob?.status || ""}|${latestJob?.finished_at || ""}`;
+      if (!options.force && key === aiAgentChangesKey) return;
+      aiAgentChangesKey = key;
+      aiAgentChangesBusy = true;
+      const params = new URLSearchParams();
+      if (context.projectPath) params.set("project_path", context.projectPath);
+      if (context.runId) params.set("run_id", context.runId);
+      try {
+        const response = await fetch(aiAgentFileRoute("/api/ai-agent/changes", params), {
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        aiAgentRenderChangeList(body, context);
+      } catch (error) {
+        aiAgentRenderChangeList({ok: false, error: error && error.message ? error.message : String(error), changes: []}, context);
+      } finally {
+        aiAgentChangesBusy = false;
       }
     }
     function aiAgentAppendMessages(state, thread) {
@@ -9097,6 +9307,7 @@ PAGE_TEMPLATE = """
       aiAgentUpdateContextPanel(state);
       aiAgentUpdateConsolePanel(state);
       aiAgentFetchFiles(form, state, {silent: true});
+      aiAgentFetchChanges(form, state, {silent: true});
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
@@ -9174,11 +9385,14 @@ PAGE_TEMPLATE = """
         projectInput.dataset.aiFilesReady = "true";
         projectInput.addEventListener("change", () => {
           aiAgentFilesKey = "";
+          aiAgentChangesKey = "";
           aiAgentFetchFiles(form, null, {force: true});
+          aiAgentFetchChanges(form, null, {force: true});
         });
       }
       aiAgentStartLivePolling(form, thread);
       aiAgentFetchFiles(form, null, {force: true});
+      aiAgentFetchChanges(form, null, {force: true});
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const promptBox = form.elements.prompt;
@@ -9574,6 +9788,11 @@ PAGE_TEMPLATE = """
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
+        if (form.elements.lifetime) form.elements.lifetime.value = button.dataset.lifetime || 7200;
+        if (form.elements.restock) form.elements.restock.value = button.dataset.restock || 0;
+        if (form.elements.saferadius) form.elements.saferadius.value = button.dataset.saferadius || 0;
+        if (form.elements.distanceradius) form.elements.distanceradius.value = button.dataset.distanceradius || 0;
+        if (form.elements.cleanupradius) form.elements.cleanupradius.value = button.dataset.cleanupradius || 100;
         if (form.elements.gas_lifetime) form.elements.gas_lifetime.value = button.dataset.gasLifetime || 1800;
         if (form.elements.gas_particle) form.elements.gas_particle.value = button.dataset.gasParticle || "server_default";
         form.dispatchEvent(new CustomEvent("scenario-prefill"));
@@ -9690,6 +9909,23 @@ PAGE_TEMPLATE = """
         if (option.dataset.gasLifetime && form.elements.gas_lifetime) form.elements.gas_lifetime.value = option.dataset.gasLifetime;
         if (option.dataset.gasParticle && form.elements.gas_particle) form.elements.gas_particle.value = option.dataset.gasParticle;
         if (option.dataset.permanent && form.elements.permanent) form.elements.permanent.value = option.dataset.permanent;
+        const typeDefaults = {
+          airdrop: {lifetime: 7200, restock: 3600, saferadius: 0, distanceradius: 1000, cleanupradius: 1500},
+          animal_pack: {lifetime: 3600, restock: 0, saferadius: 2, distanceradius: 100, cleanupradius: 100},
+          zombie_horde: {lifetime: 1800, restock: 0, saferadius: 0, distanceradius: 50, cleanupradius: 100},
+          vehicle_spawn: {lifetime: 3888000, restock: 0, saferadius: 0, distanceradius: 5, cleanupradius: 100},
+          gas_zone: {lifetime: Number(form.elements.gas_lifetime ? form.elements.gas_lifetime.value : 1800) || 1800, restock: 0, saferadius: 0, distanceradius: Math.max(50, Number(form.elements.radius ? form.elements.radius.value : 120) || 120), cleanupradius: Math.max(100, (Number(form.elements.radius ? form.elements.radius.value : 120) || 120) + 100)}
+        };
+        const defaults = typeDefaults[normalScenarioType(typeSelect ? typeSelect.value : option.dataset.type || "airdrop")] || typeDefaults.airdrop;
+        ["lifetime", "restock", "saferadius", "distanceradius", "cleanupradius"].forEach((name) => {
+          const field = form.elements[name];
+          if (field && (!field.value || event?.target === typeSelect || event?.target === presetSelect)) {
+            field.value = defaults[name];
+          }
+        });
+        if (normalScenarioType(typeSelect ? typeSelect.value : "") === "gas_zone" && form.elements.gas_lifetime && form.elements.lifetime) {
+          form.elements.lifetime.value = form.elements.gas_lifetime.value || defaults.lifetime;
+        }
       }
       presetSelect.addEventListener("change", syncScenarioPreset);
       if (typeSelect) typeSelect.addEventListener("change", syncScenarioPreset);
@@ -10826,6 +11062,8 @@ AI_AGENT_SECRET_FILE_NAMES = {
 }
 AI_AGENT_FILE_PREVIEW_MAX_BYTES = 240_000
 AI_AGENT_FILE_LIST_MAX_ITEMS = 180
+AI_AGENT_CHANGE_LIST_MAX_ITEMS = 140
+AI_AGENT_DIFF_MAX_CHARS = 80_000
 
 
 def ai_agent_default_state() -> dict[str, Any]:
@@ -11373,6 +11611,148 @@ def ai_agent_workspace_file_content(project_path: Any, rel_path: Any) -> tuple[d
         return None, "binary files cannot be previewed", 415
     text = raw.decode("utf-8", errors="replace")
     return {"path": rel, "size": size, "content": text}, "", 200
+
+
+def ai_agent_run_git(workspace: str, args: list[str], timeout: int = 12) -> tuple[bool, str, str, int]:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False, "", "git is not installed in this environment", 127
+    except subprocess.TimeoutExpired as error:
+        stdout = error.stdout if isinstance(error.stdout, str) else ""
+        stderr = error.stderr if isinstance(error.stderr, str) else "git command timed out"
+        return False, stdout, stderr, 124
+    return result.returncode == 0, result.stdout or "", result.stderr or "", result.returncode
+
+
+def ai_agent_git_workspace(project_path: Any = "") -> tuple[str, str]:
+    workspace, error = ai_agent_workspace_path(project_path)
+    if error:
+        return "", error
+    ok, _, stderr, _ = ai_agent_run_git(workspace, ["rev-parse", "--is-inside-work-tree"], timeout=8)
+    if not ok:
+        return "", ai_agent_compact_text(stderr or "workspace is not a git checkout", 220)
+    return workspace, ""
+
+
+def ai_agent_parse_git_status_line(line: str, workspace: str) -> dict[str, Any] | None:
+    if len(line) < 4:
+        return None
+    status = line[:2]
+    rel_path = line[3:].strip().strip('"')
+    if " -> " in rel_path:
+        rel_path = rel_path.split(" -> ", 1)[1].strip().strip('"')
+    rel_path = ai_agent_safe_rel_path(rel_path)
+    if not rel_path or ai_agent_file_is_secret(rel_path):
+        return None
+    full_path = os.path.join(workspace, rel_path)
+    size = 0
+    modified_at = ""
+    if os.path.exists(full_path):
+        try:
+            stat = os.stat(full_path)
+            size = int(stat.st_size)
+            modified_at = datetime.fromtimestamp(stat.st_mtime, UTC).isoformat()
+        except OSError:
+            pass
+    return {
+        "path": rel_path,
+        "status": status,
+        "label": status.strip() or "modified",
+        "size": size,
+        "modified_at": modified_at,
+    }
+
+
+def ai_agent_workspace_changes(project_path: Any = "") -> tuple[dict[str, Any], str]:
+    workspace, error = ai_agent_git_workspace(project_path)
+    if error:
+        return {"project_path": str(project_path or ""), "root": "", "changes": [], "truncated": False}, error
+    ok, stdout, stderr, _ = ai_agent_run_git(workspace, ["status", "--short", "--untracked-files=all"], timeout=12)
+    if not ok:
+        return {"project_path": str(project_path or ""), "root": workspace, "changes": [], "truncated": False}, ai_agent_compact_text(stderr or "could not read git status", 260)
+    changes: list[dict[str, Any]] = []
+    truncated = False
+    for line in stdout.splitlines():
+        item = ai_agent_parse_git_status_line(line, workspace)
+        if not item:
+            continue
+        changes.append(item)
+        if len(changes) >= AI_AGENT_CHANGE_LIST_MAX_ITEMS:
+            truncated = True
+            break
+    return {
+        "project_path": str(project_path or ""),
+        "root": workspace,
+        "changes": changes,
+        "truncated": truncated,
+    }, ""
+
+
+def ai_agent_pseudo_new_file_diff(project_path: Any, rel_path: str) -> tuple[str, str, int]:
+    info, message, status = ai_agent_workspace_file_content(project_path, rel_path)
+    if not info:
+        return "", message, status
+    content = str(info.get("content") or "")
+    lines = [
+        f"diff --git a/{rel_path} b/{rel_path}",
+        "new file preview",
+        "--- /dev/null",
+        f"+++ b/{rel_path}",
+    ]
+    for line in content.splitlines()[:900]:
+        lines.append("+" + line)
+        if sum(len(item) + 1 for item in lines) >= AI_AGENT_DIFF_MAX_CHARS:
+            lines.append("+... diff preview truncated")
+            break
+    return "\n".join(lines), "", 200
+
+
+def ai_agent_workspace_diff(project_path: Any, rel_path: Any) -> tuple[dict[str, Any] | None, str, int]:
+    workspace, error = ai_agent_git_workspace(project_path)
+    if error:
+        return None, error, 400
+    rel = ai_agent_safe_rel_path(rel_path)
+    if not rel:
+        return None, "file path is required", 400
+    if ai_agent_file_is_secret(rel):
+        return None, "secret-like files cannot be diffed", 403
+    ok_status, status_out, status_err, _ = ai_agent_run_git(workspace, ["status", "--short", "--untracked-files=all", "--", rel], timeout=8)
+    if not ok_status:
+        return None, ai_agent_compact_text(status_err or "could not read file status", 260), 400
+    status_line = next((line for line in status_out.splitlines() if line.strip()), "")
+    status_code = status_line[:2] if status_line else ""
+    if status_code == "??":
+        diff_text, message, status = ai_agent_pseudo_new_file_diff(project_path, rel)
+        if message:
+            return None, message, status
+        return {"path": rel, "status": status_code, "diff": diff_text[:AI_AGENT_DIFF_MAX_CHARS]}, "", 200
+    parts: list[str] = []
+    ok_cached, cached_out, cached_err, _ = ai_agent_run_git(workspace, ["diff", "--cached", "--no-color", "--", rel], timeout=12)
+    ok_worktree, worktree_out, worktree_err, _ = ai_agent_run_git(workspace, ["diff", "--no-color", "--", rel], timeout=12)
+    if ok_cached and cached_out:
+        parts.append(cached_out)
+    if ok_worktree and worktree_out:
+        parts.append(worktree_out)
+    if not ok_cached and cached_err:
+        parts.append(f"git diff --cached failed:\n{cached_err}")
+    if not ok_worktree and worktree_err:
+        parts.append(f"git diff failed:\n{worktree_err}")
+    diff_text = "\n".join(parts).strip()
+    if not diff_text and status_line:
+        diff_text = f"No textual diff available for {rel} ({status_code.strip() or 'changed'})."
+    if not diff_text:
+        diff_text = f"No git changes found for {rel}."
+    if len(diff_text) > AI_AGENT_DIFF_MAX_CHARS:
+        diff_text = diff_text[:AI_AGENT_DIFF_MAX_CHARS].rstrip() + "\n... diff truncated"
+    return {"path": rel, "status": status_code, "diff": diff_text}, "", 200
 
 
 def ai_agent_pending_approval_count(state: dict[str, Any]) -> int:
@@ -13684,6 +14064,7 @@ def dashboard_default_ce_paths(config: dict[str, Any] | None) -> dict[str, str]:
         "eventspawns_path": f"{root}/{mission_folder}/cfgeventspawns.xml",
         "eventgroups_path": f"{root}/{mission_folder}/cfgeventgroups.xml",
         "types_path": f"{root}/{mission_folder}/db/types.xml",
+        "cfgeffectarea_path": f"{root}/{mission_folder}/cfgEffectArea.json",
         "cfggameplay_path": f"{root}/{mission_folder}/cfggameplay.json",
         "custom_loadout_path": f"{root}/{mission_folder}/custom/custom_loadout.json",
     }
@@ -14621,7 +15002,7 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
     if any(term in text for term in ("helmet", "ballistichelmet", "tacticalhelmet", "combathelmet", "mich")):
         add("nvg", "NVG / head attachment", ["NVGoggles", "NVGHeadstrap", "UniversalLight"], "Attachments")
         add("battery", "Battery", ["Battery9V"], "Attachments")
-    if "nvg" in text:
+    if any(term in text for term in ("nvg", "universallight", "universal_light", "flashlight", "headtorch")):
         add("battery", "Battery", ["Battery9V"], "Attachments")
     if "platecarrier" in text:
         add("pouches", "Pouches", ["PlateCarrierPouches"], "Attachments")
@@ -15756,7 +16137,7 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "mirror",
     )
     container_terms = ("bag", "backpack", "barrel", "crate", "sea chest", "seachest", "case", "container", "drybag", "protectorcase")
-    head_terms = ("helmet", "cap", "beanie", "balaclava", "head", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap")
+    head_terms = ("helmet", "cap", "beanie", "head", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap", "radarcap", "officerhat")
     eye_terms = ("glasses", "eyewear", "nvg", "goggles")
     mask_terms = ("mask", "respirator", "bandana", "balaclava")
     body_terms = ("jacket", "shirt", "hoodie", "coat", "torso", "body", "sweater")
@@ -15877,6 +16258,34 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             unique.append(item)
         return sorted(unique, key=lambda item: str(item.get("name", "")).lower())
 
+    def fallback_category_for_name(name: str, slot: str = "") -> str:
+        lower = str(name or "").lower()
+        slot = str(slot or "")
+        if slot in {"Hands", "Left Shoulder", "Right Shoulder"}:
+            return "Weapons"
+        if slot == "Back":
+            return "Containers"
+        if slot:
+            return "Clothes"
+        if lower.startswith(("ammo_", "ammobox_", "mag_")):
+            return "Ammunition"
+        if "grenade" in lower:
+            return "Explosives"
+        if any(term in lower for term in ("bandage", "morphine", "epinephrine", "saline", "bloodbag", "tetracycline")):
+            return "Medical"
+        if any(term in lower for term in ("canteen", "waterbottle", "can", "soda")):
+            return "Food/Drink"
+        return "Misc"
+
+    known_loadout_items: list[dict[str, Any]] = []
+    for slot_name, fallback_names in VISUAL_LOADOUT_SLOT_FALLBACKS.items():
+        for fallback_name in fallback_names:
+            known_loadout_items.append(fallback_item(fallback_name, fallback_category_for_name(fallback_name, slot_name)))
+    for fallback_name in VISUAL_LOADOUT_GENERAL_FALLBACKS:
+        known_loadout_items.append(fallback_item(fallback_name, fallback_category_for_name(fallback_name)))
+    known_loadout_items = unique_named(known_loadout_items)
+    catalog_items = unique_named(items + known_loadout_items)
+
     def is_whole_vehicle(item: dict[str, Any]) -> bool:
         name = str(item.get("name", "")).strip().lower()
         category = str(item.get("category", "")).lower()
@@ -15894,9 +16303,7 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         return whole_vehicle_aliases.get(name, "").lower() in whole_vehicle_names
 
     def group_or_fallback(group_items: list[dict[str, Any]], fallback_names: list[str], category: str) -> list[dict[str, Any]]:
-        if group_items:
-            return group_items
-        return [fallback_item(name, category) for name in fallback_names]
+        return unique_named(group_items + [fallback_item(name, category) for name in fallback_names])
 
     def is_player_cargo_item(item: dict[str, Any]) -> bool:
         name = str(item.get("name", "")).strip()
@@ -15915,25 +16322,25 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         return item_not_matching_terms(item, excluded_loot_terms)
 
     groups = {
-        "all": items,
-        "cargo": [item for item in items if item_not_matching_terms(item, excluded_loot_terms)],
-        "player_cargo": [item for item in items if is_player_cargo_item(item)],
-        "containers": [item for item in items if item_matches_terms(item, container_terms)],
+        "all": catalog_items,
+        "cargo": [item for item in catalog_items if item_not_matching_terms(item, excluded_loot_terms)],
+        "player_cargo": [item for item in catalog_items if is_player_cargo_item(item)],
+        "containers": [item for item in catalog_items if item_matches_terms(item, container_terms)],
         "vehicles": [item for item in items if is_whole_vehicle(item)],
-        "Head": group_or_fallback([item for item in items if item_name_matches_terms(item, head_terms)], ["BallisticHelmet", "BaseballCap_Black", "BoonieHat_Green"], "Clothes"),
-        "Eyes": group_or_fallback([item for item in items if item_name_matches_terms(item, eye_terms)], ["SportGlasses_Black", "NVGoggles"], "Clothes"),
-        "Mask": group_or_fallback([item for item in items if item_name_matches_terms(item, mask_terms)], ["BalaclavaMask_Black", "SurgicalMask"], "Clothes"),
-        "Body": group_or_fallback([item for item in items if item_name_matches_terms(item, body_terms)], ["HikingJacket_Black", "TShirt_Black", "Hoodie_Black"], "Clothes"),
-        "Vest": group_or_fallback([item for item in items if item_name_matches_terms(item, vest_terms)], ["PlateCarrierVest", "HighCapacityVest_Black"], "Clothes"),
-        "Back": group_or_fallback([item for item in items if item_name_matches_terms(item, ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "improvisedbag"))], ["AliceBag_Black", "DryBag_Black", "MountainBag_Blue"], "Containers"),
-        "Hips": group_or_fallback([item for item in items if item_name_matches_terms(item, hips_terms)], ["MilitaryBelt", "CivilianBelt"], "Clothes"),
-        "Legs": group_or_fallback([item for item in items if item_name_matches_terms(item, legs_terms)], ["CargoPants_Black", "Jeans_Black"], "Clothes"),
-        "Feet": group_or_fallback([item for item in items if item_name_matches_terms(item, feet_terms)], ["MilitaryBoots_Black", "AthleticShoes_Black"], "Clothes"),
-        "Hands": group_or_fallback([item for item in items if item_name_matches_terms(item, hands_terms)], ["M4A1", "AKM", "Hatchet", "CombatKnife"], "Weapons"),
-        "Left Shoulder": group_or_fallback([item for item in items if item_name_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
-        "Right Shoulder": group_or_fallback([item for item in items if item_name_matches_terms(item, firearm_terms)], ["M4A1", "AKM", "Mosin9130", "SKS"], "Weapons"),
-        "Gloves": group_or_fallback([item for item in items if item_name_matches_terms(item, gloves_terms)], ["TacticalGloves_Black", "WorkingGloves_Black"], "Clothes"),
-        "Armband": group_or_fallback([item for item in items if item_name_matches_terms(item, armband_terms)], ["Armband_Black", "Armband_Red", "Armband_Green"], "Clothes"),
+        "Head": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, head_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Head"], "Clothes"),
+        "Eyes": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, eye_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Eyes"], "Clothes"),
+        "Mask": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, mask_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Mask"], "Clothes"),
+        "Body": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, body_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Body"], "Clothes"),
+        "Vest": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, vest_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Vest"], "Clothes"),
+        "Back": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "improvisedbag", "coyotebag", "assaultbag", "huntingbag"))], VISUAL_LOADOUT_SLOT_FALLBACKS["Back"], "Containers"),
+        "Hips": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, hips_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Hips"], "Clothes"),
+        "Legs": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, legs_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Legs"], "Clothes"),
+        "Feet": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, feet_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Feet"], "Clothes"),
+        "Hands": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, hands_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Hands"], "Weapons"),
+        "Left Shoulder": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, firearm_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Left Shoulder"], "Weapons"),
+        "Right Shoulder": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, firearm_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Right Shoulder"], "Weapons"),
+        "Gloves": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, gloves_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Gloves"], "Clothes"),
+        "Armband": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, armband_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Armband"], "Clothes"),
     }
     groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
     groups["containers"] = unique_named(groups["containers"] + known_containers)
@@ -18004,6 +18411,35 @@ def api_scenario_event():
         event_count = 1
     gas_lifetime_default = 3888000 if permanent else 1800
     gas_lifetime = max(60, min(3888000, safe_int(payload.get("gas_lifetime"), gas_lifetime_default)))
+    event_lifetime_default = {
+        "airdrop": 7200,
+        "loot_crate": 7200,
+        "animal_pack": 3600,
+        "zombie_horde": 1800,
+        "vehicle_spawn": 3888000,
+        "gas_zone": gas_lifetime,
+    }.get(event_type, 3600)
+    event_lifetime = max(60, min(3888000, safe_int(payload.get("lifetime"), event_lifetime_default)))
+    restock_default = 3600 if event_type in {"airdrop", "loot_crate"} else 0
+    restock = max(0, min(3888000, safe_int(payload.get("restock"), restock_default)))
+    saferadius_default = 2 if event_type == "animal_pack" else 0
+    saferadius = max(0, min(5000, safe_int(payload.get("saferadius"), saferadius_default)))
+    if event_type in {"airdrop", "loot_crate"}:
+        distanceradius_default = 1000
+        cleanupradius_default = 1500
+    elif event_type == "gas_zone":
+        distanceradius_default = max(50, radius)
+        cleanupradius_default = max(100, radius + 100)
+    elif event_type == "vehicle_spawn":
+        distanceradius_default = 5
+        cleanupradius_default = 100
+    else:
+        distanceradius_default = max(0, radius)
+        cleanupradius_default = 100
+    distanceradius = max(0, min(30000, safe_int(payload.get("distanceradius"), distanceradius_default)))
+    cleanupradius = max(0, min(30000, safe_int(payload.get("cleanupradius"), cleanupradius_default)))
+    if event_type == "gas_zone":
+        gas_lifetime = event_lifetime
     gas_particle = str(payload.get("gas_particle") or preset.get("gas_particle") or "server_default").strip().lower()
     if gas_particle in {"red", "red_debug", "debug_red"}:
         gas_particle = "debug"
@@ -18053,6 +18489,11 @@ def api_scenario_event():
             "guard_class": str(payload.get("guard_class") or "").strip(),
             "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
             "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
+            "lifetime": event_lifetime,
+            "restock": restock,
+            "saferadius": saferadius,
+            "distanceradius": distanceradius,
+            "cleanupradius": cleanupradius,
             "gas_lifetime": gas_lifetime,
             "gas_particle": gas_particle if event_type == "gas_zone" else "server_default",
             "permanent": permanent,
@@ -18075,12 +18516,25 @@ def api_scenario_event():
     sync_runtime_store("guild_configs", guild_configs)
 
     upload_started = False
-    if event_type != "vehicle_reset_all" and CUSTOM_STATE_PROVIDER:
+    upload_result = None
+    if event_type != "vehicle_reset_all":
         for event in created_events:
             event["status"] = "Native CE XML upload requested"
-            upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(event.get("id"), 0)) or upload_started
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
+        upload_result = apply_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0)) if CUSTOM_STATE_PROVIDER else None
+        upload_started = upload_result is not None
+        if upload_result is None and CUSTOM_STATE_PROVIDER:
+            upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
+        if upload_result is not None:
+            latest_configs = load_store("guild_configs", {})
+            latest_config = latest_configs.get(guild_id, {}) if isinstance(latest_configs, dict) else {}
+            latest_events = latest_config.get("scenario_events", []) if isinstance(latest_config, dict) else []
+            if isinstance(latest_events, list):
+                wanted_ids = {safe_int(item.get("id"), 0) for item in created_events if isinstance(item, dict)}
+                refreshed_events = [item for item in latest_events if isinstance(item, dict) and safe_int(item.get("id"), 0) in wanted_ids]
+                if refreshed_events:
+                    created_events = refreshed_events
 
     event = created_events[0] if created_events else {}
     g.dashboard_audit_payload = {
@@ -18102,7 +18556,7 @@ def api_scenario_event():
     if not wants_json_response():
         return redirect(return_to)
     count_text = f"{len(created_events)} events" if len(created_events) != 1 else "1 event"
-    upload_note = "native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker"
+    upload_note = "native CE XML uploaded/checked now" if upload_result is not None else ("native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker")
     return jsonify({
         "ok": True,
         "event": event,
@@ -18212,17 +18666,23 @@ def api_scenario_event_action():
         sync_runtime_store("guild_configs", guild_configs)
 
         if action in {"approve", "upload", "pause"}:
-            upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
+            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else None
+            upload_started = upload_result is not None
+            if upload_result is None and CUSTOM_STATE_PROVIDER:
+                upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
+                if upload_started:
+                    event["status"] = "Native CE XML removal starting" if action == "pause" else "Native CE XML upload starting"
+                    save_store("guild_configs", guild_configs)
+                    sync_runtime_store("guild_configs", guild_configs)
             if upload_started:
-                if action == "pause":
-                    event["status"] = "Native CE XML removal starting"
-                else:
-                    event["status"] = "Native CE XML upload starting"
-                save_store("guild_configs", guild_configs)
-                sync_runtime_store("guild_configs", guild_configs)
+                latest_configs = load_store("guild_configs", {})
+                latest_config = latest_configs.get(guild_id, {}) if isinstance(latest_configs, dict) else {}
+                latest_events = latest_config.get("scenario_events", []) if isinstance(latest_config, dict) else []
+                if isinstance(latest_events, list):
+                    event = next((item for item in latest_events if isinstance(item, dict) and safe_int(item.get("id"), 0) == event_id), event)
                 if not wants_json_response():
                     return redirect(return_to)
-                return jsonify({"ok": True, "event": event, "upload_started": True})
+                return jsonify({"ok": True, "event": event, "upload_started": True, "upload": upload_result})
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({"ok": True, "event": event})
@@ -19247,6 +19707,48 @@ def api_ai_agent_file():
     if not info:
         return jsonify({"ok": False, "error": message}), status
     return jsonify({"ok": True, "file": info})
+
+
+@APP.get("/api/ai-agent/changes")
+def api_ai_agent_changes():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    run_id = str(request.args.get("run_id") or "").strip()
+    project_path = str(request.args.get("project_path") or "").strip()
+    if not project_path and run_id:
+        run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if run and (auth.get("kind") == "owner" or str(run.get("subject_key") or "") == subject_key):
+            project_path = str(run.get("project_path") or "").strip()
+    if not project_path:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        if active_run:
+            project_path = str(active_run.get("project_path") or "").strip()
+    changes, changes_error = ai_agent_workspace_changes(project_path)
+    return jsonify({"ok": not bool(changes_error), "error": changes_error, **changes})
+
+
+@APP.get("/api/ai-agent/diff")
+def api_ai_agent_diff():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    run_id = str(request.args.get("run_id") or "").strip()
+    project_path = str(request.args.get("project_path") or "").strip()
+    if not project_path and run_id:
+        run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if run and (auth.get("kind") == "owner" or str(run.get("subject_key") or "") == subject_key):
+            project_path = str(run.get("project_path") or "").strip()
+    if not project_path:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        if active_run:
+            project_path = str(active_run.get("project_path") or "").strip()
+    diff, message, status = ai_agent_workspace_diff(project_path, request.args.get("path"))
+    if not diff:
+        return jsonify({"ok": False, "error": message}), status
+    return jsonify({"ok": True, "diff": diff})
 
 
 @APP.post("/api/ai-agent/task")
