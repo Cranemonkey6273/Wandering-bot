@@ -972,6 +972,8 @@ PAGE_TEMPLATE = """
     .ai-codex-bubble strong { display: block; color: var(--text); margin-bottom: .25rem; }
     .ai-codex-bubble p { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
     .ai-codex-bubble time { display: block; margin-top: .45rem; color: var(--dim); font-size: .75rem; }
+    .ai-codex-message.typing .ai-codex-bubble p::after { content: ""; display: inline-block; width: .55rem; height: .55rem; margin-left: .28rem; border-radius: 999px; background: var(--accent); box-shadow: .85rem 0 0 rgba(103,245,231,.45), 1.7rem 0 0 rgba(103,245,231,.22); animation: aiTypingPulse 1s infinite ease-in-out; vertical-align: baseline; }
+    @keyframes aiTypingPulse { 0%, 100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
     .ai-codex-plan-mini { margin-top: .55rem; display: grid; gap: .35rem; }
     .ai-codex-plan-mini span { display: block; border-left: 2px solid var(--accent); padding-left: .5rem; color: var(--muted); font-size: .83rem; }
     .ai-codex-composer { display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding-top: .65rem; border-top: 1px solid rgba(103,245,231,.13); }
@@ -2887,7 +2889,7 @@ PAGE_TEMPLATE = """
             </div>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
           </div>
-          <div class="ai-codex-thread" aria-live="polite">
+          <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
             {% for message in ai_agent_chat_messages|reverse %}
             <article class="ai-codex-message {{ message.role|default('assistant') }}">
               {% if message.role == 'user' %}
@@ -2920,7 +2922,7 @@ PAGE_TEMPLATE = """
             </div>
             {% endfor %}
           </div>
-          <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat">
+          <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
             <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
             <label class="full">Message<textarea name="prompt" placeholder="Ask the agent what to build, fix, test, deploy, or investigate..." required></textarea></label>
@@ -2953,7 +2955,7 @@ PAGE_TEMPLATE = """
             </div>
             <div class="ai-codex-submit">
               <span class="tool-note">Owner approvals stay on for high-risk work while God Mode is disabled.</span>
-              <span><button type="submit">Ask Agent</button><span class="result muted"></span></span>
+              <span><button type="submit">Ask Agent</button><span class="result muted" data-ai-chat-result></span></span>
             </div>
           </form>
         </section>
@@ -8294,8 +8296,194 @@ PAGE_TEMPLATE = """
       if (!params.get("guild_id") && "{{ server.guild_id if server else '' }}") params.set("guild_id", "{{ server.guild_id if server else '' }}");
       return `${window.location.pathname}?${params.toString()}#pve-workshop`;
     }
+    function aiChatPayload(form) {
+      const payload = {};
+      new FormData(form).forEach((value, key) => {
+        if (value === "") return;
+        const parsed = formValue(value);
+        if (payload[key] !== undefined) {
+          payload[key] = Array.isArray(payload[key]) ? payload[key].concat([parsed]) : [payload[key], parsed];
+        } else {
+          payload[key] = parsed;
+        }
+      });
+      payload.dashboard_mode = "{{ mode }}";
+      return payload;
+    }
+    function aiChatPlanSteps(bubble, steps) {
+      bubble.querySelector(".ai-codex-plan-mini")?.remove();
+      if (!Array.isArray(steps) || !steps.length) return;
+      const plan = document.createElement("div");
+      plan.className = "ai-codex-plan-mini";
+      steps.slice(0, 6).forEach((step) => {
+        const line = document.createElement("span");
+        if (step && typeof step === "object") {
+          const agent = String(step.agent || "Agent");
+          const title = String(step.title || step.detail || "Step");
+          line.textContent = `${agent} - ${title}`;
+        } else {
+          line.textContent = String(step || "");
+        }
+        plan.append(line);
+      });
+      const time = bubble.querySelector("time");
+      if (time) bubble.insertBefore(plan, time);
+      else bubble.append(plan);
+    }
+    function aiChatMessageNode(message, options = {}) {
+      const role = String(message?.role || "assistant").toLowerCase() === "user" ? "user" : "assistant";
+      const article = document.createElement("article");
+      article.className = `ai-codex-message ${role}${options.typing ? " typing" : ""}`;
+      if (message?.id) article.dataset.messageId = String(message.id);
+      const bubble = document.createElement("div");
+      bubble.className = "ai-codex-bubble";
+      const author = document.createElement("strong");
+      author.textContent = String(message?.author || (role === "user" ? "You" : "Wandering Agent"));
+      const content = document.createElement("p");
+      content.textContent = String(message?.content || "");
+      const time = document.createElement("time");
+      time.textContent = String(message?.created_at || new Date().toISOString());
+      bubble.append(author, content);
+      aiChatPlanSteps(bubble, message?.plan_steps || []);
+      bubble.append(time);
+      const avatar = document.createElement("div");
+      avatar.className = "ai-codex-avatar";
+      if (role === "user") {
+        avatar.textContent = "You";
+        article.append(bubble, avatar);
+      } else {
+        const src = document.querySelector("[data-ai-chat-thread]")?.dataset.agentAvatarSrc || "/brand-character";
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "Wandering Bot";
+        avatar.append(img);
+        article.append(avatar, bubble);
+      }
+      return article;
+    }
+    function aiChatScroll(thread) {
+      if (thread) thread.scrollTop = thread.scrollHeight;
+    }
+    function aiChatTypeText(target, text, done) {
+      const fullText = String(text || "");
+      target.textContent = "";
+      let index = 0;
+      const chunk = Math.max(1, Math.ceil(fullText.length / 220));
+      function tick() {
+        index = Math.min(fullText.length, index + chunk);
+        target.textContent = fullText.slice(0, index);
+        aiChatScroll(target.closest("[data-ai-chat-thread]"));
+        if (index < fullText.length) {
+          window.setTimeout(tick, 12);
+        } else if (typeof done === "function") {
+          done();
+        }
+      }
+      tick();
+    }
+    function setupAiAgentChat() {
+      const form = document.querySelector("[data-ai-chat-form]");
+      const thread = document.querySelector("[data-ai-chat-thread]");
+      if (!form || !thread || form.dataset.aiChatReady === "true") return;
+      form.dataset.aiChatReady = "true";
+      aiChatScroll(thread);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const promptBox = form.elements.prompt;
+        const prompt = String(promptBox?.value || "").trim();
+        const result = form.querySelector("[data-ai-chat-result], .result");
+        const button = event.submitter || form.querySelector('button[type="submit"]');
+        if (prompt.length < 8) {
+          if (result) {
+            result.classList.add("error");
+            result.textContent = "Message needs a little more detail.";
+          }
+          return;
+        }
+        thread.querySelector(".ai-codex-empty")?.remove();
+        const userMessage = aiChatMessageNode({
+          role: "user",
+          author: "You",
+          content: prompt,
+          created_at: new Date().toISOString(),
+        });
+        thread.append(userMessage);
+        const typingMessage = aiChatMessageNode({
+          role: "assistant",
+          author: "Wandering Agent",
+          content: "Thinking",
+          created_at: new Date().toISOString(),
+        }, {typing: true});
+        thread.append(typingMessage);
+        aiChatScroll(thread);
+        const originalButtonText = button ? button.textContent : "";
+        if (result) {
+          result.classList.remove("error", "success");
+          result.textContent = "Agent is thinking...";
+        }
+        if (button) {
+          button.disabled = true;
+          button.textContent = "Thinking...";
+        }
+        const payload = aiChatPayload(form);
+        if (promptBox) promptBox.value = "";
+        const token = new URLSearchParams(window.location.search).get("token");
+        const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+        try {
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify(payload),
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          typingMessage.classList.remove("typing");
+          const bubble = typingMessage.querySelector(".ai-codex-bubble");
+          const content = bubble?.querySelector("p");
+          const time = bubble?.querySelector("time");
+          if (!response.ok) {
+            const message = body.error || "The agent could not answer that yet.";
+            if (content) content.textContent = message;
+            if (result) {
+              result.classList.add("error");
+              result.textContent = message;
+            }
+            return;
+          }
+          const assistant = body.assistant_message || {content: body.note || "Done.", plan_steps: []};
+          if (assistant.id) typingMessage.dataset.messageId = String(assistant.id);
+          if (time) time.textContent = assistant.created_at || new Date().toISOString();
+          if (bubble) aiChatPlanSteps(bubble, assistant.plan_steps || []);
+          if (content) {
+            aiChatTypeText(content, assistant.content || body.note || "Done.", () => {
+              if (result) {
+                result.classList.add("success");
+                result.textContent = "Agent replied.";
+              }
+            });
+          }
+        } catch (error) {
+          typingMessage.classList.remove("typing");
+          const content = typingMessage.querySelector("p");
+          const message = `Request failed: ${error && error.message ? error.message : error}`;
+          if (content) content.textContent = message;
+          if (result) {
+            result.classList.add("error");
+            result.textContent = message;
+          }
+        } finally {
+          if (button && button.isConnected) {
+            button.disabled = false;
+            button.textContent = originalButtonText;
+          }
+        }
+      });
+    }
     document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
+    setupAiAgentChat();
     document.querySelectorAll(".admin-form").forEach((form) => {
+      if (form.dataset.aiChatForm === "true") return;
       if (form.dataset.route) {
         if (!form.getAttribute("method")) form.setAttribute("method", "post");
         if (!form.getAttribute("action")) form.setAttribute("action", secureDashboardUrl(form.dataset.route));
@@ -16878,14 +17066,14 @@ def api_ai_agent_chat():
     if len(prompt) < 8:
         return jsonify({"ok": False, "error": "message is required"}), 400
     actor = access.get("label") or dashboard_audit_actor(auth)
-    ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode")})
+    user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode")})
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, prompt)
     if error_message:
-        ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}")
+        assistant_message = ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}")
         save_ai_agent_state(state)
-        return jsonify({"ok": False, "error": error_message}), status_code
+        return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_assistant_reply_for_task(task or {}, approval)
-    ai_agent_chat_message(
+    assistant_message = ai_agent_chat_message(
         state,
         role="assistant",
         author="Wandering Agent",
@@ -16895,7 +17083,12 @@ def api_ai_agent_chat():
     )
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""))
-    return dashboard_api_response(raw_payload, {"ok": True, "task": task, "approval": approval, "note": "Agent replied with a plan."}, "ai-agent", "#ai-agent-chat")
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "task": task, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "note": "Agent replied with a plan."},
+        "ai-agent",
+        "#ai-agent-chat",
+    )
 
 
 @APP.post("/api/ai-agent/sandbox-command")
