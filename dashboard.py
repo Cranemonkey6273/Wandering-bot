@@ -11056,14 +11056,14 @@ def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, te
     rules = state.get("approval_rules") if isinstance(state.get("approval_rules"), dict) else {}
     reasons = []
     normalized_action = str(action_type or "").lower()
-    if normalized_action == "command":
-        reasons.append("Sandbox command execution requires owner approval while God Mode is disabled")
     if normalized_action == "deploy" and rules.get("production_deployments", True):
         reasons.append("Production deployment approval required")
     lower = str(text or "").lower()
     for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
         if keyword in lower and reason not in reasons:
             reasons.append(reason)
+    if normalized_action == "command" and ai_agent_command_risk(text) == "high" and not reasons:
+        reasons.append("High-risk sandbox command approval required")
     return bool(reasons), reasons
 
 
@@ -11571,6 +11571,7 @@ def ai_agent_suggested_commands_for_task(task: dict[str, Any], run: dict[str, An
     project_type = str(task.get("project_type") or run.get("project_type") or "auto")
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     lower = " ".join([objective, project_type, str(task.get("repository") or run.get("repository") or ""), project_path]).lower()
+    wants_inspection = any(term in lower for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
 
     ai_agent_add_command_suggestion(
         suggestions,
@@ -11580,6 +11581,15 @@ def ai_agent_suggested_commands_for_task(task: dict[str, Any], run: dict[str, An
         project_path=project_path,
         risk="low",
     )
+    if wants_inspection:
+        ai_agent_add_command_suggestion(
+            suggestions,
+            label="Inspect project structure",
+            command="python - <<'PY'\nimport os\nskip={'.git','__pycache__','.venv','venv','node_modules'}\nfor root, dirs, files in os.walk('.'):\n    dirs[:] = [d for d in dirs if d not in skip]\n    depth = root.count(os.sep)\n    if depth > 2:\n        dirs[:] = []\n        continue\n    shown = [f for f in files[:18]]\n    if shown:\n        print(root)\n        for name in shown:\n            print('  ' + name)\nPY",
+            reason="Lists the top project folders/files so the next agent reply can use real workspace context.",
+            project_path=project_path,
+            risk="medium",
+        )
     if any(term in lower for term in ("python", "flask", "fastapi", "discord", "bot", "dashboard", "wandering", "railway", "auto")):
         ai_agent_add_command_suggestion(
             suggestions,
@@ -11813,7 +11823,8 @@ def ai_agent_append_command_summary(reply: str, suggestions: list[dict[str, Any]
     lines = ["", "Suggested sandbox commands:"]
     for index, item in enumerate(suggestions[:4], start=1):
         reason = ai_agent_compact_text(item.get("reason"), 120)
-        lines.append(f"{index}. {item.get('label')}: `{item.get('command')}`" + (f" - {reason}" if reason else ""))
+        command = ai_agent_compact_text(str(item.get("command") or "").replace("\n", " "), 90)
+        lines.append(f"{index}. {item.get('label')}: `{command}`" + (f" - {reason}" if reason else ""))
     return text + "\n" + "\n".join(lines)
 
 
@@ -11833,6 +11844,8 @@ def ai_agent_llm_reply_for_task(
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     base_suggestions = ai_agent_suggested_commands_for_task(task, run)
     task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
+    wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
+    has_job_context = bool(run_context.get("latest_jobs"))
     if not ai_agent_llm_is_configured():
         task["llm_status"] = "not_configured"
         task["llm_provider"] = AI_AGENT_LLM_PROVIDER
@@ -11843,6 +11856,8 @@ def ai_agent_llm_reply_for_task(
         "You are Wandering Agent, a private owner-controlled AI software engineering agent inside a dashboard. "
         "Return only a JSON object. Do not claim you edited files, ran commands, deployed, pushed to GitHub, "
         "or inspected private code unless the supplied context proves it. Be concise, practical, and Codex-like. "
+        "If the user asks you to inspect a project but no sandbox/job output is present, say that the next step is "
+        "to queue the Inspect Project sandbox command, then continue after the job output is available. "
         "Respect approval gates: production deploys, database migrations, secrets, file deletion, repository deletion, "
         "force pushes, and permission changes need owner approval unless context explicitly says they are approved. "
         "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
@@ -11871,6 +11886,8 @@ def ai_agent_llm_reply_for_task(
         "memory": compact_audit_value(state.get("memory", {})),
         "sandbox": compact_audit_value(state.get("sandbox", {})),
         "deterministic_suggestions": task.get("suggested_commands", []),
+        "inspection_requested": wants_inspection,
+        "has_sandbox_job_context": has_job_context,
     }
     ok, data, error = ai_agent_llm_json(system_message, user_payload)
     if not ok:
@@ -11906,6 +11923,12 @@ def ai_agent_llm_reply_for_task(
             live_run["updated_at"] = datetime.now(UTC).isoformat()
     risk_notes = data.get("risk_notes") if isinstance(data.get("risk_notes"), list) else []
     reply = ai_agent_compact_text(data.get("reply"), 2200) or ai_agent_assistant_reply_for_task(task, approval)
+    if wants_inspection and not has_job_context and "inspect project" not in reply.lower():
+        reply = (
+            "I can inspect it, but I need a sandbox read first so I am working from real project files rather than guessing. "
+            "Use the suggested Inspect Project command, then press Continue Run once the job result is back.\n\n"
+            + reply
+        )
     if risk_notes:
         reply += "\nRisk notes: " + "; ".join(ai_agent_compact_text(item, 160) for item in risk_notes[:4])
     return ai_agent_append_command_summary(reply, merged_suggestions)
@@ -12035,7 +12058,8 @@ def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, 
         lines.append(f"Approval queue item: {approval.get('id')}.")
     lines.append("Next: review the plan, then queue a sandbox command or approve the requested high-risk action.")
     for index, item in enumerate(suggestions[:4], start=1):
-        lines.append(f"Suggested command {index}: {item.get('label')} - `{item.get('command')}`")
+        command = ai_agent_compact_text(str(item.get("command") or "").replace("\n", " "), 90)
+        lines.append(f"Suggested command {index}: {item.get('label')} - `{command}`")
     return "\n".join(lines)
 
 
@@ -18642,6 +18666,80 @@ def api_member_action():
     )
 
 
+def ai_agent_queue_sandbox_job(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    payload: dict[str, Any],
+    actor: str,
+) -> tuple[dict[str, Any] | None, str, int]:
+    command = str(payload.get("command") or "").strip()
+    allowed, reason = ai_agent_command_is_allowed(command)
+    if not allowed:
+        return None, reason, 400
+    if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
+        return None, "deploy permission is required for deployment commands", 403
+    run_id = str(payload.get("run_id") or "").strip()
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    if run_id:
+        requested_run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if not requested_run or (auth.get("kind") != "owner" and str(requested_run.get("subject_key") or "") != subject_key):
+            run_id = ""
+    if not run_id and payload.get("task_id"):
+        task = ai_agent_find_by_id(state.get("tasks", []), payload.get("task_id"))
+        if task:
+            task_run_id = str(task.get("run_id") or "")
+            task_run = ai_agent_find_by_id(state.get("runs", []), task_run_id)
+            if task_run and (auth.get("kind") == "owner" or str(task_run.get("subject_key") or "") == subject_key):
+                run_id = task_run_id
+    if not run_id:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        run_id = str((active_run or {}).get("id") or "")
+    jobs = state.setdefault("sandbox_jobs", [])
+    if not isinstance(jobs, list):
+        jobs = []
+        state["sandbox_jobs"] = jobs
+    needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command)
+    job = {
+        "id": ai_agent_new_id("job"),
+        "run_id": run_id,
+        "task_id": str(payload.get("task_id") or "").strip(),
+        "command": command,
+        "reason": str(payload.get("reason") or "sandbox command request").strip(),
+        "project_path": str(payload.get("project_path") or "").strip(),
+        "status": "awaiting_owner_approval" if needs_approval else "queued",
+        "approval_id": "",
+        "approval_reasons": reasons,
+        "requested_by": actor,
+        "created_at": datetime.now(UTC).isoformat(),
+        "started_at": "",
+        "finished_at": "",
+        "exit_code": None,
+        "stdout": "",
+        "stderr": "",
+    }
+    jobs.insert(0, job)
+    del jobs[80:]
+    if needs_approval:
+        approval = ai_agent_create_approval(
+            state,
+            approval_type="sandbox_command",
+            title=f"Run sandbox command {job['id']}",
+            summary="; ".join(reasons) or command[:180],
+            requested_by=actor,
+            payload={"job_id": job["id"], "run_id": run_id, "command": command, "project_path": job["project_path"]},
+        )
+        job["approval_id"] = approval["id"]
+        if run_id:
+            ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
+    else:
+        ai_agent_run_sandbox_job(state, job, actor)
+    if run_id:
+        ai_agent_update_run_from_job(state, job)
+    ai_agent_activity(state, "Sandbox job queued", f"{job['id']}: {job['status']}", actor, {"job_id": job["id"], "command": command})
+    return job, "", 200
+
+
 
 @APP.get("/api/ai-agent/state")
 def api_ai_agent_state():
@@ -18733,6 +18831,41 @@ def api_ai_agent_chat():
         save_ai_agent_state(state)
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
+    auto_job = None
+    wants_inspection = any(term in prompt.lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
+    if wants_inspection and access.get("permissions", {}).get("execute") and task:
+        suggestions = task.get("suggested_commands") if isinstance(task.get("suggested_commands"), list) else []
+        inspect_command = next(
+            (
+                item for item in suggestions
+                if isinstance(item, dict)
+                and (
+                    "inspect" in str(item.get("label") or "").lower()
+                    or "project structure" in str(item.get("reason") or "").lower()
+                )
+            ),
+            None,
+        )
+        if inspect_command:
+            auto_payload = {
+                "command": inspect_command.get("command"),
+                "reason": inspect_command.get("reason") or "Automatic safe project inspection requested by chat.",
+                "project_path": inspect_command.get("project_path") or task.get("project_path") or "",
+                "task_id": task.get("id"),
+                "run_id": run_id,
+            }
+            auto_job, auto_error, _ = ai_agent_queue_sandbox_job(state, auth, access, auto_payload, actor)
+            if auto_job:
+                status = str(auto_job.get("status") or "queued")
+                if status in {"done", "failed", "blocked", "cancelled"}:
+                    detail = auto_job.get("stderr") or auto_job.get("stdout") or ""
+                    reply += f"\n\nI also ran the safe project inspection job `{auto_job.get('id')}` and it finished as `{status}`."
+                    if detail:
+                        reply += f"\nResult preview: {ai_agent_compact_text(detail, 420)}"
+                else:
+                    reply += f"\n\nI also queued the safe project inspection job `{auto_job.get('id')}` automatically. Status: `{status}`. Press Continue Run after it finishes and I will use the real output."
+            elif auto_error:
+                reply += f"\n\nI tried to queue the safe inspection job automatically, but it could not start yet: {auto_error}"
     if continued:
         reply = f"Continuing run {run_id}.\n" + reply
     assistant_message = ai_agent_chat_message(
@@ -18740,7 +18873,7 @@ def api_ai_agent_chat():
         role="assistant",
         author="Wandering Agent",
         content=reply,
-        payload={"run_id": run_id, "task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", "")},
+        payload={"run_id": run_id, "task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", ""), "auto_job_id": (auto_job or {}).get("id", "")},
         plan_steps=(task or {}).get("steps", []),
         run_id=run_id,
     )
@@ -18751,7 +18884,7 @@ def api_ai_agent_chat():
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""), run_id=run_id)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "task": task, "run": run, "continued": continued, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
+        {"ok": True, "task": task, "run": run, "continued": continued, "approval": approval, "auto_job": auto_job, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
         "ai-agent",
         "#ai-agent-chat",
     )
@@ -18764,71 +18897,10 @@ def api_ai_agent_sandbox_command():
         return error
     raw_payload = request_payload() or {}
     payload = strip_dashboard_control_fields(raw_payload)
-    command = str(payload.get("command") or "").strip()
-    allowed, reason = ai_agent_command_is_allowed(command)
-    if not allowed:
-        return jsonify({"ok": False, "error": reason}), 400
-    if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
-        return jsonify({"ok": False, "error": "deploy permission is required for deployment commands"}), 403
     actor = access.get("label") or dashboard_audit_actor(auth)
-    run_id = str(payload.get("run_id") or "").strip()
-    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
-    if run_id:
-        requested_run = ai_agent_find_by_id(state.get("runs", []), run_id)
-        if not requested_run or (auth.get("kind") != "owner" and str(requested_run.get("subject_key") or "") != subject_key):
-            run_id = ""
-    if not run_id and payload.get("task_id"):
-        task = ai_agent_find_by_id(state.get("tasks", []), payload.get("task_id"))
-        if task:
-            task_run_id = str(task.get("run_id") or "")
-            task_run = ai_agent_find_by_id(state.get("runs", []), task_run_id)
-            if task_run and (auth.get("kind") == "owner" or str(task_run.get("subject_key") or "") == subject_key):
-                run_id = task_run_id
-    if not run_id:
-        active_run = ai_agent_latest_run_for_subject(state, subject_key)
-        run_id = str((active_run or {}).get("id") or "")
-    jobs = state.setdefault("sandbox_jobs", [])
-    if not isinstance(jobs, list):
-        jobs = []
-        state["sandbox_jobs"] = jobs
-    needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command)
-    job = {
-        "id": ai_agent_new_id("job"),
-        "run_id": run_id,
-        "task_id": str(payload.get("task_id") or "").strip(),
-        "command": command,
-        "reason": str(payload.get("reason") or "sandbox command request").strip(),
-        "project_path": str(payload.get("project_path") or "").strip(),
-        "status": "awaiting_owner_approval" if needs_approval else "queued",
-        "approval_id": "",
-        "approval_reasons": reasons,
-        "requested_by": actor,
-        "created_at": datetime.now(UTC).isoformat(),
-        "started_at": "",
-        "finished_at": "",
-        "exit_code": None,
-        "stdout": "",
-        "stderr": "",
-    }
-    jobs.insert(0, job)
-    del jobs[80:]
-    if needs_approval:
-        approval = ai_agent_create_approval(
-            state,
-            approval_type="sandbox_command",
-            title=f"Run sandbox command {job['id']}",
-            summary="; ".join(reasons) or command[:180],
-            requested_by=actor,
-            payload={"job_id": job["id"], "run_id": run_id, "command": command, "project_path": job["project_path"]},
-        )
-        job["approval_id"] = approval["id"]
-        if run_id:
-            ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
-    else:
-        ai_agent_run_sandbox_job(state, job, actor)
-    if run_id:
-        ai_agent_update_run_from_job(state, job)
-    ai_agent_activity(state, "Sandbox job queued", f"{job['id']}: {job['status']}", actor, {"job_id": job["id"], "command": command})
+    job, error_message, status_code = ai_agent_queue_sandbox_job(state, auth, access, payload, actor)
+    if error_message:
+        return jsonify({"ok": False, "error": error_message}), status_code
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sandbox_command", job_id=job["id"])
     return dashboard_api_response(raw_payload, {"ok": True, "job": job, "note": "Sandbox job queued."}, "ai-agent", "#ai-agent-jobs")
