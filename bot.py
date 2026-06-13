@@ -27117,9 +27117,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
             + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
         )
-        output["messages"].append(
-            "Note: crate cargo tuning is class-based, so using `WoodenCrate` means other CE-spawned WoodenCrate instances can share that cargo setup."
-        )
+        if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
+            output["messages"].append(
+                "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
+            )
         if spawnable_parse_warning:
             output["messages"].append(spawnable_parse_warning)
 
@@ -27158,7 +27159,7 @@ def validate_console_ce_xml_bundle(built):
         if not territory_root.findall(".//zone"):
             messages.append(f"`{territory_file.get('path')}` has no animal territory `<zone>`.")
 
-    allowed_families = ("Ambient", "Animal", "Infected", "Item", "Static", "Trajectory", "Vehicle")
+    allowed_families = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Static", "Trajectory", "Vehicle")
     generated_events = {}
     for event_node in events_root.findall("event"):
         name = str(event_node.get("name") or "")
