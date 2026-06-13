@@ -37,8 +37,16 @@ python ai_sandbox_worker.py
 
 The dashboard calls:
 
+- `GET /health`
+- `GET /api/agent/jobs`
 - `POST /api/agent/jobs`
 - `GET /api/agent/jobs/<job_id>`
 - `POST /api/agent/jobs/<job_id>/cancel`
 
 Only the Primary Owner can approve, run, sync, or cancel worker jobs.
+
+### Failsafe behavior
+
+- If Railway restarts after dispatching a job, the worker keeps running and stores job results in `WANDERING_AI_WORKER_JOBS_FILE`.
+- When Railway comes back, use **Recover / Sync Worker Jobs** on the AI Development Agent page to import forgotten worker jobs.
+- If the worker itself restarts while a job is running, that job is marked `interrupted` so it will not sit forever as running. Re-run it from the dashboard if needed.

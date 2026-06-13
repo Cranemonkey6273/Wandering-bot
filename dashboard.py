@@ -2999,18 +2999,23 @@ PAGE_TEMPLATE = """
         </section>
         <section class="admin-panel">
           <h3>External Sandbox Worker</h3>
-          <p class="tool-note">Use Railway as the control panel and a separate Docker machine as the execution worker. The worker token is read from environment variables only and is never shown here.</p>
+          <p class="tool-note">Use Railway as the control panel and a separate Docker machine as the execution worker. If Railway restarts, the worker keeps its own job file and this panel can recover/sync those jobs afterwards.</p>
           <div class="ai-agent-plan">
             <div class="ai-agent-step"><strong>Runner</strong><span>{{ ai_agent_state.sandbox.runner|default('local docker') }}</span></div>
             <div class="ai-agent-step"><strong>Worker URL</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_url_configured else 'Not configured' }}</span></div>
             <div class="ai-agent-step"><strong>Worker Token</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_token_configured else 'Not configured' }}</span></div>
             <div class="ai-agent-step"><strong>Timeout</strong><span>{{ ai_agent_state.sandbox.timeout_seconds }}s command limit</span></div>
+            <div class="ai-agent-step"><strong>Failsafe</strong><span>Worker job catalogue is durable; Railway can import forgotten jobs after restart.</span></div>
+            <div class="ai-agent-step"><strong>Last Recovery Sync</strong><span>{{ ai_agent_state.sandbox.last_worker_catalog_sync_at or 'Never synced' }}</span></div>
+            {% if ai_agent_state.sandbox.last_worker_catalog_error %}
+            <div class="ai-agent-step"><strong>Last Sync Error</strong><span>{{ ai_agent_state.sandbox.last_worker_catalog_error }}</span></div>
+            {% endif %}
           </div>
           {% if auth.kind == "owner" %}
           <form class="admin-form" method="post" action="/api/owner/ai-agent-job-sync" data-route="/api/owner/ai-agent-job-sync">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-jobs">
             <input class="hidden-field" name="guild_id" value="global">
-            <div class="full modal-actions"><button type="submit">Sync Worker Jobs</button><span class="result muted"></span></div>
+            <div class="full modal-actions"><button type="submit">Recover / Sync Worker Jobs</button><span class="result muted"></span></div>
           </form>
           {% endif %}
         </section>
@@ -9810,6 +9815,8 @@ def ai_agent_default_state() -> dict[str, Any]:
             "worker_url_configured": bool(AI_AGENT_WORKER_URL),
             "worker_token_configured": bool(AI_AGENT_WORKER_TOKEN),
             "worker_http_timeout_seconds": AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS,
+            "last_worker_catalog_sync_at": "",
+            "last_worker_catalog_error": "",
         },
     }
 
@@ -9852,6 +9859,8 @@ def load_ai_agent_state() -> dict[str, Any]:
     sandbox["worker_url_configured"] = bool(AI_AGENT_WORKER_URL)
     sandbox["worker_token_configured"] = bool(AI_AGENT_WORKER_TOKEN)
     sandbox["worker_http_timeout_seconds"] = AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS
+    sandbox.setdefault("last_worker_catalog_sync_at", "")
+    sandbox.setdefault("last_worker_catalog_error", "")
     sandbox["runner"] = "external worker" if AI_AGENT_WORKER_URL else "local docker"
     if AI_AGENT_WORKER_URL:
         sandbox["status"] = "worker_configured"
@@ -10101,6 +10110,7 @@ def ai_agent_normalize_worker_status(status: Any) -> str:
         "error": "failed",
         "errored": "failed",
         "rejected": "blocked",
+        "interrupted": "failed",
         "pending": "dispatched",
         "accepted": "dispatched",
     }
@@ -10188,8 +10198,100 @@ def ai_agent_sync_worker_job(state: dict[str, Any], job: dict[str, Any], actor: 
     return job
 
 
+def ai_agent_worker_health_snapshot() -> dict[str, Any]:
+    snapshot = {
+        "configured": bool(AI_AGENT_WORKER_URL),
+        "ok": False,
+        "status": "not_configured" if not AI_AGENT_WORKER_URL else "unknown",
+        "error": "",
+        "jobs": {},
+        "checked_at": "",
+    }
+    if not AI_AGENT_WORKER_URL:
+        return snapshot
+    ok, data, error = ai_agent_worker_request("GET", "/health")
+    snapshot["checked_at"] = datetime.now(UTC).isoformat()
+    if not ok:
+        snapshot["status"] = "unreachable"
+        snapshot["error"] = error
+        return snapshot
+    snapshot["ok"] = True
+    snapshot["status"] = "online"
+    snapshot["jobs"] = data.get("jobs") if isinstance(data.get("jobs"), dict) else {}
+    return snapshot
+
+
+def ai_agent_import_worker_jobs(state: dict[str, Any], actor: str, limit: int = 80) -> tuple[int, int, str]:
+    if not AI_AGENT_WORKER_URL:
+        return 0, 0, "External sandbox worker is not configured"
+    ok, data, error = ai_agent_worker_request("GET", f"/api/agent/jobs?limit={max(1, min(200, int(limit)))}")
+    sandbox = state.setdefault("sandbox", {})
+    if not isinstance(sandbox, dict):
+        sandbox = {}
+        state["sandbox"] = sandbox
+    sandbox["last_worker_catalog_sync_at"] = datetime.now(UTC).isoformat()
+    if not ok:
+        sandbox["last_worker_catalog_error"] = error
+        ai_agent_activity(state, "Worker recovery sync failed", error, actor, {})
+        return 0, 0, error
+    sandbox["last_worker_catalog_error"] = ""
+    worker_jobs = data.get("jobs") if isinstance(data.get("jobs"), list) else []
+    local_jobs = state.setdefault("sandbox_jobs", [])
+    if not isinstance(local_jobs, list):
+        local_jobs = []
+        state["sandbox_jobs"] = local_jobs
+    index: dict[str, dict[str, Any]] = {}
+    for local_job in local_jobs:
+        if not isinstance(local_job, dict):
+            continue
+        for key in (local_job.get("remote_job_id"), local_job.get("id")):
+            if key:
+                index[str(key)] = local_job
+    imported = 0
+    updated = 0
+    for worker_job in reversed(worker_jobs):
+        if not isinstance(worker_job, dict):
+            continue
+        remote_id = str(worker_job.get("remote_job_id") or worker_job.get("id") or "").strip()
+        if not remote_id:
+            continue
+        local_job = index.get(remote_id)
+        if not local_job:
+            local_job = {
+                "id": remote_id,
+                "task_id": str(worker_job.get("task_id") or ""),
+                "command": str(worker_job.get("command") or ""),
+                "reason": str(worker_job.get("reason") or "Recovered from external sandbox worker"),
+                "project_path": str(worker_job.get("project_path") or ""),
+                "status": "dispatched",
+                "approval_id": "",
+                "approval_reasons": [],
+                "requested_by": str(worker_job.get("requested_by") or "worker"),
+                "created_at": str(worker_job.get("created_at") or datetime.now(UTC).isoformat()),
+                "started_at": "",
+                "finished_at": "",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": "",
+                "runner": "worker",
+                "remote_job_id": remote_id,
+                "recovered_from_worker": True,
+            }
+            local_jobs.insert(0, local_job)
+            index[remote_id] = local_job
+            imported += 1
+        else:
+            updated += 1
+        ai_agent_update_job_from_worker_payload(local_job, {"job": worker_job})
+    del local_jobs[120:]
+    if imported or updated:
+        ai_agent_activity(state, "Worker recovery sync complete", f"{imported} imported, {updated} updated", actor, {"imported": imported, "updated": updated})
+    return imported, updated, ""
+
+
 def ai_agent_sync_worker_jobs(state: dict[str, Any], actor: str, limit: int = 20) -> int:
-    synced = 0
+    imported, updated, _ = ai_agent_import_worker_jobs(state, actor)
+    checked = 0
     for job in state.get("sandbox_jobs", []):
         if not isinstance(job, dict):
             continue
@@ -10198,11 +10300,12 @@ def ai_agent_sync_worker_jobs(state: dict[str, Any], actor: str, limit: int = 20
         if str(job.get("status") or "") not in {"queued", "dispatched", "dispatching", "running"}:
             continue
         ai_agent_sync_worker_job(state, job, actor)
-        synced += 1
-        if synced >= limit:
+        checked += 1
+        if checked >= limit:
             break
+    synced = imported + updated + checked
     if synced:
-        ai_agent_activity(state, "Worker jobs synced", f"{synced} remote job(s) checked", actor, {"synced": synced})
+        ai_agent_activity(state, "Worker jobs synced", f"{imported} imported, {updated} updated, {checked} active checked", actor, {"imported": imported, "updated": updated, "checked": checked})
     return synced
 
 

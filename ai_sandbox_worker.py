@@ -86,6 +86,39 @@ def save_jobs(jobs: dict[str, dict[str, Any]]) -> None:
     JOBS_FILE.write_text(json.dumps(jobs, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def sorted_jobs(limit: int = 50) -> list[dict[str, Any]]:
+    jobs = list(load_jobs().values())
+    jobs = [job for job in jobs if isinstance(job, dict)]
+    jobs.sort(key=lambda item: str(item.get("created_at") or item.get("started_at") or ""), reverse=True)
+    return jobs[: max(1, min(200, limit))]
+
+
+def job_counts(jobs: dict[str, dict[str, Any]]) -> dict[str, int]:
+    values = [job for job in jobs.values() if isinstance(job, dict)]
+    return {
+        "total": len(values),
+        "active": sum(1 for job in values if str(job.get("status") or "") in {"queued", "running"}),
+        "done": sum(1 for job in values if str(job.get("status") or "") == "done"),
+        "failed": sum(1 for job in values if str(job.get("status") or "") in {"failed", "blocked", "cancelled", "interrupted"}),
+    }
+
+
+def mark_interrupted_jobs() -> None:
+    with JOB_LOCK:
+        jobs = load_jobs()
+        changed = False
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            if str(job.get("status") or "") in {"queued", "running"}:
+                job["status"] = "interrupted"
+                job["stderr"] = "Worker restarted before this job completed. Re-run from the dashboard if needed."
+                job["finished_at"] = utc_now()
+                changed = True
+        if changed:
+            save_jobs(jobs)
+
+
 def update_job(job_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     with JOB_LOCK:
         jobs = load_jobs()
@@ -207,6 +240,7 @@ def run_job(job_id: str) -> None:
 
 @APP.get("/health")
 def health():
+    jobs = load_jobs()
     return jsonify(
         {
             "ok": True,
@@ -214,8 +248,19 @@ def health():
             "token_configured": bool(WORKER_TOKEN),
             "workspace_root": str(WORKSPACE_ROOT),
             "docker_image": DEFAULT_DOCKER_IMAGE,
+            "jobs": job_counts(jobs),
         }
     )
+
+
+@APP.get("/api/agent/jobs")
+def list_jobs():
+    try:
+        limit = int(float(request.args.get("limit", "50")))
+    except (TypeError, ValueError):
+        limit = 50
+    jobs = sorted_jobs(limit)
+    return jsonify({"ok": True, "jobs": jobs, "count": len(jobs), "worker_time": utc_now()})
 
 
 @APP.post("/api/agent/jobs")
@@ -274,5 +319,6 @@ def cancel_job(job_id: str):
 
 if __name__ == "__main__":
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
+    mark_interrupted_jobs()
     port = int(os.getenv("PORT", "8787"))
     APP.run(host="0.0.0.0", port=port)
