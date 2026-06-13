@@ -1089,6 +1089,11 @@ PAGE_TEMPLATE = """
     .ai-agent-console pre { max-height: 14rem; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .65rem; background: rgba(0,0,0,.34); color: #d5f7ff; font-size: .78rem; line-height: 1.45; }
     .ai-agent-quick-prompts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
     .ai-agent-quick-prompts button { min-height: 2rem; padding: .38rem .6rem; font-size: .78rem; }
+    .ai-agent-files { display: grid; gap: .55rem; }
+    .ai-agent-file-list { display: grid; gap: .35rem; max-height: 13rem; overflow: auto; padding-right: .15rem; }
+    .ai-agent-file-list button { width: 100%; min-height: 2rem; padding: .42rem .55rem; text-align: left; font-size: .78rem; overflow-wrap: anywhere; }
+    .ai-agent-file-list button.active { border-color: rgba(103,245,231,.45); background: rgba(103,245,231,.12); color: #effcff; }
+    .ai-agent-file-preview { max-height: 20rem; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .65rem; background: rgba(0,0,0,.34); color: #d5f7ff; font-size: .76rem; line-height: 1.45; }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -3158,6 +3163,16 @@ PAGE_TEMPLATE = """
               {% else %}
               <pre>No sandbox commands have run yet.</pre>
               {% endif %}
+            </div>
+          </section>
+          <section class="admin-panel">
+            <h3>Files</h3>
+            <div class="ai-agent-files" data-ai-files-panel>
+              <div class="ai-agent-context-row"><span>Root</span><strong data-ai-files-root>Loading workspace...</strong></div>
+              <div class="ai-agent-file-list" data-ai-file-list>
+                <span class="tool-note">Loading files...</span>
+              </div>
+              <pre class="ai-agent-file-preview" data-ai-file-preview>Select a file to preview it here.</pre>
             </div>
           </section>
           <section class="admin-panel">
@@ -8947,6 +8962,116 @@ PAGE_TEMPLATE = """
       output.textContent = stdout || stderr || "No command output yet.";
       target.append(output);
     }
+    function aiAgentFileRoute(path, params) {
+      const token = new URLSearchParams(window.location.search).get("token");
+      if (token) params.set("token", token);
+      return secureDashboardUrl(`${path}?${params.toString()}`);
+    }
+    function aiAgentFileContext(form, state) {
+      const run = state?.active_run || {};
+      const runSelect = form?.querySelector("[data-ai-run-select]");
+      const projectInput = form?.elements?.project_path;
+      return {
+        runId: String(run.id || runSelect?.value || ""),
+        projectPath: String(projectInput?.value || run.project_path || ""),
+      };
+    }
+    function aiAgentFormatBytes(size) {
+      const bytes = Number(size || 0);
+      if (bytes < 1024) return `${bytes}b`;
+      if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}kb`;
+      return `${(bytes / 1024 / 1024).toFixed(1)}mb`;
+    }
+    async function aiAgentFetchFilePreview(path, panel) {
+      const preview = panel?.querySelector("[data-ai-file-preview]");
+      if (!preview || !path) return;
+      preview.textContent = "Loading file...";
+      const params = new URLSearchParams();
+      params.set("path", path);
+      if (panel.dataset.projectPath) params.set("project_path", panel.dataset.projectPath);
+      if (panel.dataset.runId) params.set("run_id", panel.dataset.runId);
+      try {
+        const response = await fetch(aiAgentFileRoute("/api/ai-agent/file", params), {
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        if (!response.ok || !body.ok) throw new Error(body.error || "Could not load file.");
+        preview.textContent = body.file?.content || "";
+      } catch (error) {
+        preview.textContent = error && error.message ? error.message : String(error);
+      }
+    }
+    function aiAgentRenderFileList(body, context) {
+      const panel = document.querySelector("[data-ai-files-panel]");
+      const list = document.querySelector("[data-ai-file-list]");
+      const root = document.querySelector("[data-ai-files-root]");
+      if (!panel || !list) return;
+      panel.dataset.projectPath = context.projectPath || "";
+      panel.dataset.runId = context.runId || "";
+      if (root) root.textContent = body?.error || body?.project_path || "Sandbox root";
+      list.replaceChildren();
+      const files = Array.isArray(body?.files) ? body.files : [];
+      if (!body?.ok && body?.error) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = body.error;
+        list.append(note);
+        return;
+      }
+      if (!files.length) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = "No safe preview files found yet.";
+        list.append(note);
+        return;
+      }
+      files.slice(0, 80).forEach((file) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `${file.path || file.name || "file"} - ${aiAgentFormatBytes(file.size)}`;
+        button.addEventListener("click", () => {
+          list.querySelectorAll("button").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          aiAgentFetchFilePreview(file.path || file.name || "", panel);
+        });
+        list.append(button);
+      });
+      if (body?.truncated) {
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = "File list truncated. Narrow the workspace path for more detail.";
+        list.append(note);
+      }
+    }
+    let aiAgentFilesKey = "";
+    let aiAgentFilesBusy = false;
+    async function aiAgentFetchFiles(form, state, options = {}) {
+      const panel = document.querySelector("[data-ai-files-panel]");
+      if (!panel || aiAgentFilesBusy) return;
+      const context = aiAgentFileContext(form, state);
+      const key = `${context.runId}|${context.projectPath}`;
+      if (!options.force && key === aiAgentFilesKey) return;
+      aiAgentFilesKey = key;
+      aiAgentFilesBusy = true;
+      const params = new URLSearchParams();
+      if (context.projectPath) params.set("project_path", context.projectPath);
+      if (context.runId) params.set("run_id", context.runId);
+      try {
+        const response = await fetch(aiAgentFileRoute("/api/ai-agent/files", params), {
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        let body = {};
+        try { body = await response.json(); } catch (error) {}
+        aiAgentRenderFileList(body, context);
+      } catch (error) {
+        aiAgentRenderFileList({ok: false, error: error && error.message ? error.message : String(error), files: []}, context);
+      } finally {
+        aiAgentFilesBusy = false;
+      }
+    }
     function aiAgentAppendMessages(state, thread) {
       if (!thread || !Array.isArray(state?.chat_messages)) return;
       const known = new Set(Array.from(thread.querySelectorAll("[data-message-id]")).map((node) => String(node.dataset.messageId || "")));
@@ -8971,6 +9096,7 @@ PAGE_TEMPLATE = """
       aiAgentUpdateWorkStream(state);
       aiAgentUpdateContextPanel(state);
       aiAgentUpdateConsolePanel(state);
+      aiAgentFetchFiles(form, state, {silent: true});
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
@@ -9043,7 +9169,16 @@ PAGE_TEMPLATE = """
           form.requestSubmit();
         });
       });
+      const projectInput = form.elements.project_path;
+      if (projectInput && projectInput.dataset.aiFilesReady !== "true") {
+        projectInput.dataset.aiFilesReady = "true";
+        projectInput.addEventListener("change", () => {
+          aiAgentFilesKey = "";
+          aiAgentFetchFiles(form, null, {force: true});
+        });
+      }
       aiAgentStartLivePolling(form, thread);
+      aiAgentFetchFiles(form, null, {force: true});
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const promptBox = form.elements.prompt;
@@ -10662,6 +10797,35 @@ AI_AGENT_BLOCKED_COMMAND_TERMS = (
     "init 0",
     "init 6",
 )
+AI_AGENT_FILE_SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "env",
+    "node_modules",
+    "dist",
+    "build",
+    ".next",
+    ".turbo",
+}
+AI_AGENT_SECRET_FILE_NAMES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    ".npmrc",
+    ".pypirc",
+    "id_rsa",
+    "id_ed25519",
+}
+AI_AGENT_FILE_PREVIEW_MAX_BYTES = 240_000
+AI_AGENT_FILE_LIST_MAX_ITEMS = 180
 
 
 def ai_agent_default_state() -> dict[str, Any]:
@@ -11119,6 +11283,96 @@ def ai_agent_workspace_path(project_path: Any = "") -> tuple[str, str]:
     if not os.path.isdir(workspace):
         return "", "workspace path does not exist"
     return workspace, ""
+
+
+def ai_agent_safe_rel_path(value: Any) -> str:
+    rel = str(value or "").strip().replace("\\", "/")
+    rel = rel.lstrip("/")
+    parts = [part for part in rel.split("/") if part and part != "."]
+    if any(part == ".." for part in parts):
+        return ""
+    return "/".join(parts)
+
+
+def ai_agent_file_is_secret(rel_path: str) -> bool:
+    parts = [part.lower() for part in str(rel_path or "").replace("\\", "/").split("/") if part]
+    if not parts:
+        return False
+    name = parts[-1]
+    if name in AI_AGENT_SECRET_FILE_NAMES:
+        return True
+    return name.endswith((".pem", ".key", ".p12", ".pfx"))
+
+
+def ai_agent_workspace_file_listing(project_path: Any = "") -> tuple[dict[str, Any], str]:
+    workspace, error = ai_agent_workspace_path(project_path)
+    if error:
+        return {"project_path": str(project_path or ""), "root": "", "files": [], "truncated": False}, error
+    files: list[dict[str, Any]] = []
+    truncated = False
+    for root, dirs, names in os.walk(workspace):
+        dirs[:] = sorted(
+            dirname for dirname in dirs
+            if dirname not in AI_AGENT_FILE_SKIP_DIRS and not dirname.startswith(".")
+        )
+        names = sorted(names)
+        for name in names:
+            full_path = os.path.join(root, name)
+            rel_path = os.path.relpath(full_path, workspace).replace("\\", "/")
+            if ai_agent_file_is_secret(rel_path):
+                continue
+            try:
+                stat = os.stat(full_path)
+            except OSError:
+                continue
+            files.append(
+                {
+                    "path": rel_path,
+                    "name": name,
+                    "size": int(stat.st_size),
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+                }
+            )
+            if len(files) >= AI_AGENT_FILE_LIST_MAX_ITEMS:
+                truncated = True
+                break
+        if truncated:
+            break
+    return {
+        "project_path": str(project_path or ""),
+        "root": workspace,
+        "files": files,
+        "truncated": truncated,
+    }, ""
+
+
+def ai_agent_workspace_file_content(project_path: Any, rel_path: Any) -> tuple[dict[str, Any] | None, str, int]:
+    workspace, error = ai_agent_workspace_path(project_path)
+    if error:
+        return None, error, 400
+    rel = ai_agent_safe_rel_path(rel_path)
+    if not rel:
+        return None, "file path is required", 400
+    if ai_agent_file_is_secret(rel):
+        return None, "secret-like files cannot be previewed", 403
+    full_path = os.path.abspath(os.path.join(workspace, rel))
+    try:
+        common = os.path.commonpath([workspace, full_path])
+    except ValueError:
+        return None, "file path is outside the workspace", 400
+    if common != workspace:
+        return None, "file path is outside the workspace", 400
+    if not os.path.isfile(full_path):
+        return None, "file was not found", 404
+    size = os.path.getsize(full_path)
+    if size > AI_AGENT_FILE_PREVIEW_MAX_BYTES:
+        return None, f"file is too large to preview ({size} bytes)", 413
+    with open(full_path, "rb") as handle:
+        raw = handle.read(AI_AGENT_FILE_PREVIEW_MAX_BYTES + 1)
+    if b"\x00" in raw:
+        return None, "binary files cannot be previewed", 415
+    text = raw.decode("utf-8", errors="replace")
+    return {"path": rel, "size": size, "content": text}, "", 200
 
 
 def ai_agent_pending_approval_count(state: dict[str, Any]) -> int:
@@ -18951,6 +19205,48 @@ def api_ai_agent_state():
             "server_time": datetime.now(UTC).isoformat(),
         }
     )
+
+
+@APP.get("/api/ai-agent/files")
+def api_ai_agent_files():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    run_id = str(request.args.get("run_id") or "").strip()
+    project_path = str(request.args.get("project_path") or "").strip()
+    if not project_path and run_id:
+        run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if run and (auth.get("kind") == "owner" or str(run.get("subject_key") or "") == subject_key):
+            project_path = str(run.get("project_path") or "").strip()
+    if not project_path:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        if active_run:
+            project_path = str(active_run.get("project_path") or "").strip()
+    listing, listing_error = ai_agent_workspace_file_listing(project_path)
+    return jsonify({"ok": not bool(listing_error), "error": listing_error, **listing})
+
+
+@APP.get("/api/ai-agent/file")
+def api_ai_agent_file():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    run_id = str(request.args.get("run_id") or "").strip()
+    project_path = str(request.args.get("project_path") or "").strip()
+    if not project_path and run_id:
+        run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if run and (auth.get("kind") == "owner" or str(run.get("subject_key") or "") == subject_key):
+            project_path = str(run.get("project_path") or "").strip()
+    if not project_path:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        if active_run:
+            project_path = str(active_run.get("project_path") or "").strip()
+    info, message, status = ai_agent_workspace_file_content(project_path, request.args.get("path"))
+    if not info:
+        return jsonify({"ok": False, "error": message}), status
+    return jsonify({"ok": True, "file": info})
 
 
 @APP.post("/api/ai-agent/task")
