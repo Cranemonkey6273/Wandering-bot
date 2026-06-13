@@ -1062,6 +1062,10 @@ PAGE_TEMPLATE = """
     .ai-codex-side { display: grid; gap: .85rem; align-content: start; }
     .ai-codex-side .ai-agent-step { background: rgba(1, 8, 11, .78); }
     .ai-codex-empty { border: 1px dashed rgba(103,245,231,.22); border-radius: .75rem; padding: 1rem; color: var(--muted); background: rgba(2, 9, 12, .62); }
+    .ai-agent-command-suggestions { display: grid; gap: .45rem; margin-top: .6rem; padding: .65rem; border: 1px solid rgba(103,245,231,.16); border-radius: .5rem; background: rgba(2, 9, 12, .62); }
+    .ai-agent-command-suggestions strong { color: #effcff; font-size: .86rem; }
+    .ai-agent-command-suggestions button { width: 100%; min-height: 2rem; padding: .38rem .55rem; text-align: left; font-size: .78rem; }
+    .ai-agent-command-suggestions .result { font-size: .78rem; }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -2974,7 +2978,7 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
         <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
-        <div class="ai-agent-stat"><span>Model</span><strong>{{ ai_agent_state.sandbox.llm_provider|default('local_planner') }} / {{ ai_agent_state.sandbox.llm_model|default('planner') }}</strong></div>
+        <div class="ai-agent-stat"><span>Agent Brain</span><strong>{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong data-ai-stat="tasks">{{ ai_agent_tasks|length }}</strong></div>
         <div class="ai-agent-stat"><span>Runs</span><strong data-ai-stat="runs">{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong data-ai-stat="approvals">{{ ai_agent_pending_approvals }}</strong></div>
@@ -2988,7 +2992,7 @@ PAGE_TEMPLATE = """
               <h3>Agent Conversation</h3>
               <p class="tool-note">Type the job like you would in Codex. The agent replies with a plan, logs it, and queues any risky work behind owner approval.</p>
             </div>
-            <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">Model {{ ai_agent_state.sandbox.llm_provider|default('local_planner') }}</span>
+            <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</span>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
           </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
@@ -3092,6 +3096,21 @@ PAGE_TEMPLATE = """
               {% for step in latest_task.steps[:5] %}
               <div class="ai-agent-step"><strong>{{ step.agent }} - {{ step.title }}</strong><span>{{ step.detail }}</span></div>
               {% endfor %}
+              {% if latest_task.suggested_commands %}
+              <div class="ai-agent-command-suggestions">
+                <strong>Suggested sandbox commands</strong>
+                {% for command in latest_task.suggested_commands[:4] %}
+                <button type="button"
+                  data-ai-command-suggestion
+                  data-command="{{ command.command|e }}"
+                  data-reason="{{ command.reason|e }}"
+                  data-project-path="{{ command.project_path|e }}"
+                  data-task-id="{{ latest_task.id|e }}"
+                  data-run-id="{{ latest_task.run_id|e }}">{{ command.label }}</button>
+                {% endfor %}
+                <span class="result muted"></span>
+              </div>
+              {% endif %}
             </div>
             {% else %}
             <p class="tool-note">No task has been planned yet.</p>
@@ -3122,6 +3141,9 @@ PAGE_TEMPLATE = """
             <div class="ai-agent-step"><strong>Worker URL</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_url_configured else 'Not configured' }}</span></div>
             <div class="ai-agent-step"><strong>Worker Token</strong><span>{{ 'Configured' if ai_agent_state.sandbox.worker_token_configured else 'Not configured' }}</span></div>
             <div class="ai-agent-step"><strong>Timeout</strong><span>{{ ai_agent_state.sandbox.timeout_seconds }}s command limit</span></div>
+            {% if auth.kind == 'owner' %}
+            <div class="ai-agent-step"><strong>Model Backend</strong><span>{{ ai_agent_state.sandbox.llm_provider|default('local_planner') }} / {{ ai_agent_state.sandbox.llm_model|default('planner') }}</span></div>
+            {% endif %}
             <div class="ai-agent-step"><strong>Failsafe</strong><span>Worker job catalogue is durable; Railway can import forgotten jobs after restart.</span></div>
             <div class="ai-agent-step"><strong>Last Recovery Sync</strong><span>{{ ai_agent_state.sandbox.last_worker_catalog_sync_at or 'Never synced' }}</span></div>
             {% if ai_agent_state.sandbox.last_worker_catalog_error %}
@@ -8570,6 +8592,110 @@ PAGE_TEMPLATE = """
       node.append(strong, span);
       return node;
     }
+    function aiAgentCommandSuggestionNode(command, form, thread) {
+      if (!command || !command.command) return null;
+      const wrap = document.createElement("div");
+      wrap.className = "ai-agent-command-suggestions";
+      const title = document.createElement("strong");
+      title.textContent = "Suggested sandbox command";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.aiCommandSuggestion = "true";
+      button.dataset.command = String(command.command || "");
+      button.dataset.reason = String(command.reason || "Suggested by Wandering Agent.");
+      button.dataset.projectPath = String(command.project_path || "");
+      button.dataset.taskId = String(command.task_id || "");
+      button.dataset.runId = String(command.run_id || "");
+      button.textContent = `${command.label || command.command}`;
+      const detail = document.createElement("span");
+      detail.className = "tool-note";
+      detail.textContent = String(command.reason || command.command || "");
+      const result = document.createElement("span");
+      result.className = "result muted";
+      wrap.append(title, button, detail, result);
+      aiAgentWireCommandSuggestion(button, form, thread);
+      return wrap;
+    }
+    function aiAgentCommandSuggestionList(task, form, thread) {
+      const commands = Array.isArray(task?.suggested_commands) ? task.suggested_commands : [];
+      if (!commands.length) return null;
+      const wrap = document.createElement("div");
+      wrap.className = "ai-agent-command-suggestions";
+      const title = document.createElement("strong");
+      title.textContent = "Suggested sandbox commands";
+      wrap.append(title);
+      commands.slice(0, 4).forEach((command) => {
+        if (!command || !command.command) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.aiCommandSuggestion = "true";
+        button.dataset.command = String(command.command || "");
+        button.dataset.reason = String(command.reason || "Suggested by Wandering Agent.");
+        button.dataset.projectPath = String(command.project_path || task.project_path || "");
+        button.dataset.taskId = String(task.id || "");
+        button.dataset.runId = String(task.run_id || "");
+        button.textContent = `${command.label || command.command}`;
+        wrap.append(button);
+        aiAgentWireCommandSuggestion(button, form, thread);
+      });
+      const result = document.createElement("span");
+      result.className = "result muted";
+      wrap.append(result);
+      return wrap;
+    }
+    function aiAgentWireCommandSuggestion(button, form, thread) {
+      if (!button || button.dataset.aiCommandReady === "true") return;
+      button.dataset.aiCommandReady = "true";
+      button.addEventListener("click", async () => {
+        const wrap = button.closest(".ai-agent-command-suggestions");
+        const result = wrap?.querySelector(".result");
+        const payload = {
+          guild_id: "global",
+          dashboard_mode: "{{ mode }}",
+          command: button.dataset.command || "",
+          reason: button.dataset.reason || "Suggested by Wandering Agent.",
+          project_path: button.dataset.projectPath || "",
+          task_id: button.dataset.taskId || "",
+          run_id: button.dataset.runId || "",
+        };
+        if (!payload.command.trim()) return;
+        const original = button.textContent;
+        button.disabled = true;
+        button.textContent = "Queueing...";
+        if (result) {
+          result.classList.remove("error", "success");
+          result.textContent = "Queueing sandbox job...";
+        }
+        const token = new URLSearchParams(window.location.search).get("token");
+        const route = token ? `/api/ai-agent/sandbox-command?token=${encodeURIComponent(token)}` : "/api/ai-agent/sandbox-command";
+        try {
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify(payload),
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (!response.ok) {
+            throw new Error(body.error || "Could not queue sandbox job.");
+          }
+          if (result) {
+            result.classList.add("success");
+            result.textContent = body.job?.status === "awaiting_owner_approval" ? "Queued for owner approval." : "Sandbox job queued.";
+          }
+          aiAgentFetchState(form, thread, {silent: true});
+        } catch (error) {
+          if (result) {
+            result.classList.add("error");
+            result.textContent = error && error.message ? error.message : String(error);
+          }
+        } finally {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+    }
     function aiAgentWireContinue(button, form) {
       if (!button || !form || button.dataset.aiContinueReady === "true") return;
       button.dataset.aiContinueReady = "true";
@@ -8641,7 +8767,7 @@ PAGE_TEMPLATE = """
       target.append(button);
       aiAgentWireContinue(button, form);
     }
-    function aiAgentUpdateLatestPlan(state) {
+    function aiAgentUpdateLatestPlan(state, form, thread) {
       const target = document.querySelector("[data-ai-latest-plan]");
       if (!target) return;
       const task = Array.isArray(state?.tasks) ? state.tasks[0] : null;
@@ -8657,6 +8783,8 @@ PAGE_TEMPLATE = """
       (Array.isArray(task.steps) ? task.steps : []).slice(0, 5).forEach((step) => {
         target.append(aiAgentStepNode(`${step.agent || "Agent"} - ${step.title || "Step"}`, step.detail || ""));
       });
+      const suggestions = aiAgentCommandSuggestionList(task, form, thread);
+      if (suggestions) target.append(suggestions);
     }
     function aiAgentAppendMessages(state, thread) {
       if (!thread || !Array.isArray(state?.chat_messages)) return;
@@ -8678,7 +8806,7 @@ PAGE_TEMPLATE = """
       aiAgentUpdateStats(state);
       aiAgentUpdateRunSelect(state, form);
       aiAgentUpdateCurrentRun(state, form);
-      aiAgentUpdateLatestPlan(state);
+      aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
@@ -8738,6 +8866,9 @@ PAGE_TEMPLATE = """
       aiChatScroll(thread);
       document.querySelectorAll("[data-ai-continue-run]").forEach((button) => {
         aiAgentWireContinue(button, form);
+      });
+      document.querySelectorAll("[data-ai-command-suggestion]").forEach((button) => {
+        aiAgentWireCommandSuggestion(button, form, thread);
       });
       aiAgentStartLivePolling(form, thread);
       form.addEventListener("submit", async (event) => {
@@ -18520,13 +18651,20 @@ def api_ai_agent_state():
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
     visible_state = ai_agent_visible_state(state, auth, access)
     visible_runs = visible_state.get("runs", [])
+    sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
+    if auth.get("kind") != "owner":
+        sandbox_payload["agent_brain"] = "online" if sandbox_payload.get("llm_configured") else "planner_ready"
+        sandbox_payload["llm_provider"] = "wandering_agent"
+        sandbox_payload["llm_model"] = "Wandering Agent"
+        sandbox_payload.pop("llm_base_url_configured", None)
+        sandbox_payload.pop("llm_api_key_configured", None)
     return jsonify(
         {
             "ok": True,
             "access": access,
             "god_mode_enabled": bool(state.get("god_mode_enabled")),
             "approval_rules": state.get("approval_rules", {}),
-            "sandbox": state.get("sandbox", {}),
+            "sandbox": sandbox_payload,
             "tasks": visible_state.get("tasks", [])[:30],
             "runs": visible_runs[:30],
             "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
