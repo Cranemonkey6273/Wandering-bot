@@ -216,6 +216,15 @@ DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMI
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
+AGENT_SIGNUPS_ENABLED = os.getenv("WANDERING_AGENT_SIGNUPS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+try:
+    AGENT_SIGNUP_CREDITS = max(0, int(float(os.getenv("WANDERING_AGENT_SIGNUP_CREDITS", "0"))))
+except (TypeError, ValueError):
+    AGENT_SIGNUP_CREDITS = 0
+try:
+    AGENT_CHAT_CREDIT_COST = max(0, int(float(os.getenv("WANDERING_AGENT_CHAT_CREDIT_COST", "1"))))
+except (TypeError, ValueError):
+    AGENT_CHAT_CREDIT_COST = 1
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_SECONDS", "300"))
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
@@ -289,6 +298,7 @@ FILES = {
     "longshot_records": "longshot_records.json",
     "removed_guilds": "removed_guilds.json",
     "ai_agent": "ai_agent.json",
+    "agent_accounts": "agent_accounts.json",
 }
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
@@ -327,6 +337,70 @@ LOGIN_TEMPLATE = """
       <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Open Dashboard</button>
     </form>
+  </main>
+</body>
+</html>
+"""
+
+AGENT_LOGIN_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wandering Agent Login</title>
+  <style>
+    :root { color-scheme: dark; --bg: #02090c; --panel: #071418; --line: rgba(103,245,231,.2); --text: #ecfeff; --muted: #9fc3c8; --accent: #24efe1; --danger: #ff7a8a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at top, rgba(36,239,225,.16), transparent 34rem), linear-gradient(180deg, #051014, var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(94vw, 62rem); display: grid; grid-template-columns: minmax(0, .9fr) minmax(18rem, .7fr); gap: 1rem; align-items: stretch; }
+    section { border: 1px solid var(--line); border-radius: .75rem; background: rgba(7, 20, 24, .88); padding: 1.15rem; box-shadow: 0 1rem 3rem rgba(0,0,0,.28); }
+    img { width: 5rem; height: 5rem; border-radius: .9rem; object-fit: cover; border: 1px solid var(--line); }
+    h1, h2 { margin: .75rem 0 .35rem; text-transform: uppercase; letter-spacing: .02em; }
+    p, li { color: var(--muted); line-height: 1.5; }
+    form { display: grid; gap: .75rem; margin-top: .9rem; }
+    label { display: grid; gap: .25rem; color: var(--muted); font-size: .9rem; }
+    input { width: 100%; border: 1px solid var(--line); border-radius: .55rem; background: #02090c; color: var(--text); padding: .75rem .8rem; }
+    button { border: 1px solid rgba(36,239,225,.42); border-radius: .55rem; background: rgba(36,239,225,.16); color: var(--text); padding: .8rem; font-weight: 900; cursor: pointer; }
+    .error { color: #ffe4e8; background: rgba(255,122,138,.14); border: 1px solid rgba(255,122,138,.34); padding: .65rem; border-radius: .55rem; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <img src="/brand-character" alt="Wandering Agent">
+      <h1>AI Development Agent</h1>
+      <p>Standalone coding-agent access for planning, editing, sandbox jobs, approvals and future paid credits. This login does not require the bot to be in a Discord server.</p>
+      <ul>
+        <li>Accounts are separate from Discord dashboard logins.</li>
+        <li>Credits are charged per agent prompt once billing is enabled.</li>
+        <li>High-risk execution still stays approval-gated.</li>
+      </ul>
+      <p class="muted">Owner dashboard login still has full unrestricted access.</p>
+    </section>
+    <section>
+      <h2>Sign In</h2>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="post" action="/agent/login">
+        <label>Email <input name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Open Agent</button>
+      </form>
+      <h2>Create Account</h2>
+      {% if signup_enabled %}
+      <form method="post" action="/agent/register">
+        <label>Name <input name="name" autocomplete="name" required></label>
+        <label>Email <input name="email" type="email" autocomplete="username" required></label>
+        <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button type="submit">Create Agent Account</button>
+      </form>
+      <p class="muted">New accounts start with {{ signup_credits }} credit(s). Payments/checkout are added in the billing step.</p>
+      {% else %}
+      <p class="muted">Public signups are locked. Set <code>WANDERING_AGENT_SIGNUPS_ENABLED=true</code> when billing is ready.</p>
+      {% endif %}
+    </section>
   </main>
 </body>
 </html>
@@ -2343,18 +2417,26 @@ PAGE_TEMPLATE = """
 <body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
+  {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
+  {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
+  {% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
   <header>
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
       <div><strong>Wandering Bot</strong><span>{{ view_title }}</span></div>
     </div>
     <nav>
+      {% if auth.kind == "agent_account" %}
+      <a href="/agent?section=ai-agent">AI Agent</a>
+      <a href="{{ logout_path }}">Logout</a>
+      {% else %}
       <a href="/">Overview</a>
       <a href="/admin">Admin</a>
       {% if auth.kind == "owner" %}<a href="/owner">Owner</a>{% endif %}
       <a href="/api/summary">API</a>
-      <a href="/login">Switch Login</a>
-      <a href="/logout">Logout</a>
+      <a href="{{ login_path }}">Switch Login</a>
+      <a href="{{ logout_path }}">Logout</a>
+      {% endif %}
     </nav>
     <div class="theme-picker" aria-label="Theme picker">
       <label>Theme
@@ -2412,9 +2494,9 @@ PAGE_TEMPLATE = """
       <img src="/brand-image" alt="Wandering Bot">
       <div>
         <strong>Wandering Bot</strong>
-        <small>{{ server.guild_name if server else view_title }}</small>
+        <small>{{ 'AI Development Agent' if auth.kind == 'agent_account' else (server.guild_name if server else view_title) }}</small>
         <span class="command-status"><span class="command-dot"></span>Online</span>
-        <small>DayZ | {{ server.platform_label if server else 'Xbox' }} | {{ (server.map|capitalize) if server else 'Chernarus' }}</small>
+        <small>{% if auth.kind == 'agent_account' %}Standalone coding workspace{% else %}DayZ | {{ server.platform_label if server else 'Xbox' }} | {{ (server.map|capitalize) if server else 'Chernarus' }}{% endif %}</small>
       </div>
     </div>
     {% if servers|length > 1 %}
@@ -2432,10 +2514,13 @@ PAGE_TEMPLATE = """
     </form>
     {% endif %}
     <div class="command-login-actions">
-      <a href="/login">Switch Login</a>
-      <a href="/logout">Logout</a>
+      <a href="{{ login_path }}">Switch Login</a>
+      <a href="{{ logout_path }}">Logout</a>
     </div>
     <nav class="command-side-nav">
+      {% if auth.kind == "agent_account" %}
+      <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
+      {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
@@ -2449,8 +2534,10 @@ PAGE_TEMPLATE = """
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Console</a>{% endif %}
-      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% endif %}
     </nav>
+    {% if auth.kind != "agent_account" %}
     <div class="command-quick">
       <span>Quick actions</span>
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Queue Event</a>{% endif %}
@@ -2458,13 +2545,14 @@ PAGE_TEMPLATE = """
       {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">Upload XML</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=server-control{{ server_qs }}">Restart Server</a>{% endif %}
     </div>
+    {% endif %}
   </aside>
   <main>
     <section class="hero">
       <div>
         <p class="muted">{{ generated_at }}</p>
-        <h1>{{ view_title }}</h1>
-        <p class="muted">Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Login when you manage more than one.</p>
+        <h1>{{ 'AI Development Agent' if auth.kind == 'agent_account' else view_title }}</h1>
+        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Login when you manage more than one.{% endif %}</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -2476,6 +2564,7 @@ PAGE_TEMPLATE = """
       <img src="/brand-image" alt="Wandering Bot mark">
     </section>
 
+    {% if auth.kind != "agent_account" %}
     {% if auth.kind == "owner" and server and server.dashboard_access.plan_status == "trial" and server.dashboard_access.trial_notice_enabled %}
     <section class="trial-notice" data-plan-notice data-plan-key="{{ server.guild_id }}-trial">
       <div><strong>Trial dashboard</strong> <span>{% if server.dashboard_access.trial_ends_at %}Trial ends {{ server.dashboard_access.trial_ends_at }}.{% else %}This server is currently running as a trial.{% endif %}</span></div>
@@ -2490,6 +2579,7 @@ PAGE_TEMPLATE = """
       <div class="stat"><span>Shop</span><strong>{{ summary.shop_items }}</strong></div>
       <div class="stat"><span>Factions</span><strong>{{ summary.factions }}</strong></div>
     </section>
+    {% endif %}
 
     {% if servers|length > 1 %}
     <section class="section-panel server-switcher" id="servers">
@@ -2507,6 +2597,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+    {% if auth.kind != "agent_account" %}
     <section class="section-nav" aria-label="Dashboard sections">
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
@@ -2528,7 +2619,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
-      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
@@ -2557,14 +2648,15 @@ PAGE_TEMPLATE = """
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
-          {% if section_allowed('ai-agent') %}<option value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
+          {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
-          <option value="/logout">Logout</option>
+          <option value="{{ logout_path }}">Logout</option>
         </select>
       </label>
     </section>
+    {% endif %}
 
     {% if active_section != "overview" %}
     <section class="command-page-head" aria-label="Current command section">
@@ -2574,9 +2666,15 @@ PAGE_TEMPLATE = """
         <p>{{ command_section.body }}</p>
       </div>
       <div class="command-page-meta">
+        {% if auth.kind == 'agent_account' %}
+        <span>Standalone Agent</span>
+        <span>Credits: {{ auth.credits|default(0) }}</span>
+        <span>Private workspace</span>
+        {% else %}
         <span>{{ server.guild_name if server else view_title }}</span>
         <span>{{ server.platform_label if server else 'Xbox' }}</span>
         <span>{{ (server.map|capitalize) if server else 'Chernarus' }}</span>
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -2879,6 +2977,7 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
+        {% if auth.kind == 'agent_account' %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ auth.credits|default(0) }}</strong></div>{% endif %}
       </div>
       <div class="ai-codex-workbench">
         <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
@@ -2923,7 +3022,7 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
           <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
-            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
+            <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
             <label class="full">Message<textarea name="prompt" placeholder="Ask the agent what to build, fix, test, deploy, or investigate..." required></textarea></label>
             <div class="ai-codex-options">
@@ -2954,7 +3053,7 @@ PAGE_TEMPLATE = """
               <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
             </div>
             <div class="ai-codex-submit">
-              <span class="tool-note">Owner approvals stay on for high-risk work while God Mode is disabled.</span>
+              <span class="tool-note">{% if auth.kind == 'agent_account' %}This prompt costs {{ agent_chat_credit_cost }} credit(s).{% else %}Owner approvals stay on for high-risk work while God Mode is disabled.{% endif %}</span>
               <span><button type="submit">Ask Agent</button><span class="result muted" data-ai-chat-result></span></span>
             </div>
           </form>
@@ -2990,7 +3089,7 @@ PAGE_TEMPLATE = """
           <h3>Sandbox Command Request</h3>
           <p class="tool-note">Commands are queued into the AI sandbox job list. If an external worker is configured, Railway dispatches jobs there; otherwise local Docker stays locked unless explicitly enabled.</p>
           <form class="admin-form" method="post" action="/api/ai-agent/sandbox-command" data-route="/api/ai-agent/sandbox-command">
-            <input class="hidden-field" name="return_to" value="/{{ 'owner' if auth.kind == 'owner' else 'admin' }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
+            <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
             <input class="hidden-field" name="guild_id" value="global">
             <label>Related task ID<input name="task_id" placeholder="optional ai-..."></label>
             <label>Sandbox path<input name="project_path" placeholder="blank = sandbox root"></label>
@@ -3068,6 +3167,46 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </section>
+        {% if auth.kind == "owner" %}
+        <section class="admin-panel">
+          <h3>Standalone Accounts & Credits</h3>
+          <p class="tool-note">Website-only coding-agent accounts. These do not require the bot to be installed in a Discord server.</p>
+          <form class="admin-form" method="post" action="/api/owner/agent-account" data-route="/api/owner/agent-account">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
+            <input class="hidden-field" name="guild_id" value="global">
+            <label>Email<input name="email" type="email" placeholder="customer@email.com" required></label>
+            <label>Status<select name="status"><option value="">Keep current</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
+            <label>Subscription tier<input name="subscription_tier" placeholder="free, pro, bot-plus-agent"></label>
+            <label>Subscription status<input name="subscription_status" placeholder="none, active, trial, lifetime"></label>
+            <label>Credit adjustment<input name="credit_adjustment" type="number" value="0"></label>
+            <label>Reason<input name="reason" placeholder="manual grant, refund, test credits"></label>
+            <div class="check-grid full">
+              {% for key in ai_agent_permission_keys %}
+              <label><input type="checkbox" name="perm_{{ key }}" value="1" {% if key in ['read', 'edit'] %}checked{% endif %}> {{ key|title }}</label>
+              {% endfor %}
+            </div>
+            <div class="full modal-actions"><button type="submit">Save Agent Account</button><span class="result muted"></span></div>
+          </form>
+          <div class="table-scroll">
+            <table class="item-table">
+              <thead><tr><th>Email</th><th>Name</th><th>Credits</th><th>Plan</th><th>Permissions</th></tr></thead>
+              <tbody>
+                {% for account in agent_accounts %}
+                <tr>
+                  <td>{{ account.email }}</td>
+                  <td>{{ account.name or '-' }}<br><span class="muted">{{ account.status }}</span></td>
+                  <td>{{ account.credits }}</td>
+                  <td>{{ account.subscription_tier }}<br><span class="muted">{{ account.subscription_status }}</span></td>
+                  <td>{% for key, enabled in account.permissions.items() if enabled %}<span class="pill ok">{{ key }}</span>{% else %}<span class="muted">None</span>{% endfor %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No standalone agent accounts yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        {% endif %}
         <section class="admin-panel">
           <h3>Sandbox & Approval Model</h3>
           <div class="ai-agent-plan">
@@ -8452,6 +8591,11 @@ PAGE_TEMPLATE = """
             return;
           }
           const assistant = body.assistant_message || {content: body.note || "Done.", plan_steps: []};
+          if (body.credits_remaining !== undefined && body.credits_remaining !== null) {
+            document.querySelectorAll("[data-ai-agent-credits]").forEach((node) => {
+              node.textContent = String(body.credits_remaining);
+            });
+          }
           if (assistant.id) typingMessage.dataset.messageId = String(assistant.id);
           if (time) time.textContent = assistant.created_at || new Date().toISOString();
           if (bubble) aiChatPlanSteps(bubble, assistant.plan_steps || []);
@@ -10065,6 +10209,8 @@ def ai_agent_subject_for_auth(auth: dict[str, Any] | None) -> str:
         return "anonymous"
     if auth.get("kind") == "owner":
         return f"owner:{OWNER_DASHBOARD_ID or 'owner'}"
+    if auth.get("kind") == "agent_account":
+        return f"agent:{auth.get('account_id') or 'unknown'}"
     return f"guild:{auth.get('guild_id') or 'unknown'}"
 
 
@@ -10078,6 +10224,19 @@ def ai_agent_access_for_auth(auth: dict[str, Any] | None, state: dict[str, Any] 
             "permissions": {key: True for key in AI_AGENT_PERMISSION_KEYS},
             "subject_key": ai_agent_subject_for_auth(auth),
             "label": "Primary Owner",
+        }
+    if isinstance(auth, dict) and auth.get("kind") == "agent_account":
+        permissions = auth.get("permissions") if isinstance(auth.get("permissions"), dict) else default_agent_account_permissions()
+        normalized_permissions = {key: bool(permissions.get(key, False)) for key in AI_AGENT_PERMISSION_KEYS}
+        allowed = bool(normalized_permissions.get("read"))
+        return {
+            "allowed": allowed,
+            "role": str(auth.get("subscription_tier") or "agent"),
+            "status": str(auth.get("subscription_status") or "active"),
+            "permissions": normalized_permissions,
+            "subject_key": ai_agent_subject_for_auth(auth),
+            "label": str(auth.get("label") or auth.get("email") or "Agent account"),
+            "credits": safe_int(auth.get("credits"), 0),
         }
     subject_key = ai_agent_subject_for_auth(auth)
     record = state.get("members", {}).get(subject_key)
@@ -10714,9 +10873,9 @@ def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, 
 
 
 def require_ai_agent_permission(permission: str = "read") -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, Any | None]:
-    auth = current_auth()
+    auth = current_ai_agent_auth()
     if not auth:
-        return None, None, None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
+        return None, None, None, (jsonify({"ok": False, "error": "dashboard or agent login required"}), 401)
     state = load_ai_agent_state()
     access = ai_agent_access_for_auth(auth, state)
     if not access.get("allowed") or not access.get("permissions", {}).get(permission, False):
@@ -10748,6 +10907,176 @@ def verify_dashboard_password(password: str, credentials: dict[str, Any]) -> boo
         if legacy_plain and secrets.compare_digest(str(password or ""), legacy_plain):
             return True
     return False
+
+
+def normalize_agent_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def load_agent_accounts() -> dict[str, Any]:
+    store = load_store("agent_accounts", {})
+    if not isinstance(store, dict):
+        store = {}
+    accounts = store.get("accounts")
+    ledger = store.get("ledger")
+    if not isinstance(accounts, dict):
+        accounts = {}
+    if not isinstance(ledger, list):
+        ledger = []
+    store["accounts"] = accounts
+    store["ledger"] = ledger
+    return store
+
+
+def save_agent_accounts(store: dict[str, Any]) -> None:
+    save_store("agent_accounts", store)
+
+
+def agent_account_id_for_email(email: str) -> str:
+    return hashlib.sha256(f"agent:{normalize_agent_email(email)}".encode("utf-8")).hexdigest()[:24]
+
+
+def agent_account_credentials(password: str) -> dict[str, str]:
+    salt = secrets.token_urlsafe(16)
+    return {"password_salt": salt, "password_hash": dashboard_password_hash(password, salt)}
+
+
+def verify_agent_account_password(password: str, account: dict[str, Any]) -> bool:
+    salt = str(account.get("password_salt") or "")
+    expected = str(account.get("password_hash") or "")
+    return bool(salt and expected and secrets.compare_digest(dashboard_password_hash(password, salt), expected))
+
+
+def agent_session_signature(account_id: str, account: dict[str, Any]) -> str:
+    password_hash = str(account.get("password_hash") or "")
+    return hashlib.sha256(f"agent-session:{account_id}:{password_hash}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
+
+
+def make_agent_session_cookie(account_id: str, account: dict[str, Any]) -> str:
+    return f"{account_id}:{agent_session_signature(account_id, account)}"
+
+
+def default_agent_account_permissions() -> dict[str, bool]:
+    return {"read": True, "edit": True, "execute": False, "deploy": False}
+
+
+def current_agent_account_auth() -> dict[str, Any] | None:
+    cookie = request.cookies.get("agent_account_session", "")
+    if ":" not in cookie:
+        return None
+    account_id, signature = cookie.split(":", 1)
+    store = load_agent_accounts()
+    account = store.get("accounts", {}).get(account_id)
+    if not isinstance(account, dict):
+        return None
+    if not secrets.compare_digest(signature, agent_session_signature(account_id, account)):
+        return None
+    status = str(account.get("status") or "active").lower()
+    if status not in {"active", "trial", "subscription", "lifetime"}:
+        return None
+    permissions = account.get("permissions") if isinstance(account.get("permissions"), dict) else default_agent_account_permissions()
+    return {
+        "kind": "agent_account",
+        "account_id": account_id,
+        "guild_id": None,
+        "guild_ids": [],
+        "label": str(account.get("name") or account.get("email") or account_id),
+        "email": str(account.get("email") or ""),
+        "credits": safe_int(account.get("credits"), 0),
+        "subscription_tier": str(account.get("subscription_tier") or "none"),
+        "subscription_status": str(account.get("subscription_status") or "none"),
+        "permissions": {key: bool(permissions.get(key, False)) for key in AI_AGENT_PERMISSION_KEYS},
+    }
+
+
+def current_ai_agent_auth() -> dict[str, Any] | None:
+    return current_auth() or current_agent_account_auth()
+
+
+def agent_account_credit_balance(account_id: str) -> int:
+    store = load_agent_accounts()
+    account = store.get("accounts", {}).get(str(account_id))
+    if not isinstance(account, dict):
+        return 0
+    return safe_int(account.get("credits"), 0)
+
+
+def agent_adjust_credits(account_id: str, amount: int, reason: str, actor: str, payload: dict[str, Any] | None = None) -> tuple[bool, str, int]:
+    store = load_agent_accounts()
+    accounts = store.setdefault("accounts", {})
+    account = accounts.get(str(account_id))
+    if not isinstance(account, dict):
+        return False, "agent account not found", 0
+    current = safe_int(account.get("credits"), 0)
+    amount = int(amount)
+    if current + amount < 0:
+        return False, "not enough credits", current
+    account["credits"] = current + amount
+    account["updated_at"] = datetime.now(UTC).isoformat()
+    ledger = store.setdefault("ledger", [])
+    if not isinstance(ledger, list):
+        ledger = []
+        store["ledger"] = ledger
+    ledger.insert(
+        0,
+        {
+            "id": f"credit-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+            "account_id": str(account_id),
+            "amount": amount,
+            "balance_after": account["credits"],
+            "reason": str(reason),
+            "actor": str(actor),
+            "payload": compact_audit_value(payload or {}),
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    del ledger[300:]
+    save_agent_accounts(store)
+    return True, "", safe_int(account.get("credits"), 0)
+
+
+def agent_charge_for_prompt(auth: dict[str, Any], prompt: str) -> tuple[bool, str, int]:
+    if not isinstance(auth, dict) or auth.get("kind") != "agent_account" or AGENT_CHAT_CREDIT_COST <= 0:
+        return True, "", safe_int(auth.get("credits") if isinstance(auth, dict) else 0, 0)
+    account_id = str(auth.get("account_id") or "")
+    balance = agent_account_credit_balance(account_id)
+    if balance < AGENT_CHAT_CREDIT_COST:
+        return False, f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", balance
+    ok, error, new_balance = agent_adjust_credits(
+        account_id,
+        -AGENT_CHAT_CREDIT_COST,
+        "AI agent prompt",
+        dashboard_audit_actor(auth),
+        {"prompt": str(prompt or "")[:180]},
+    )
+    if ok:
+        auth["credits"] = new_balance
+    return ok, error, new_balance
+
+
+def agent_account_rows(limit: int = 80) -> list[dict[str, Any]]:
+    store = load_agent_accounts()
+    rows = []
+    for account_id, account in store.get("accounts", {}).items():
+        if not isinstance(account, dict):
+            continue
+        permissions = account.get("permissions") if isinstance(account.get("permissions"), dict) else default_agent_account_permissions()
+        rows.append(
+            {
+                "id": str(account_id),
+                "name": str(account.get("name") or ""),
+                "email": str(account.get("email") or ""),
+                "status": str(account.get("status") or "active"),
+                "subscription_tier": str(account.get("subscription_tier") or "none"),
+                "subscription_status": str(account.get("subscription_status") or "none"),
+                "credits": safe_int(account.get("credits"), 0),
+                "permissions": {key: bool(permissions.get(key, False)) for key in AI_AGENT_PERMISSION_KEYS},
+                "created_at": str(account.get("created_at") or ""),
+                "updated_at": str(account.get("updated_at") or ""),
+            }
+        )
+    rows.sort(key=lambda item: item.get("created_at") or item.get("updated_at") or "", reverse=True)
+    return rows[: max(1, min(200, int(limit)))]
 
 
 def dashboard_credentials_for_config(config: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -10958,6 +11287,15 @@ def login_page(error: str = ""):
     return render_template_string(LOGIN_TEMPLATE, error=error)
 
 
+def agent_login_page(error: str = ""):
+    return render_template_string(
+        AGENT_LOGIN_TEMPLATE,
+        error=error,
+        signup_enabled=AGENT_SIGNUPS_ENABLED,
+        signup_credits=AGENT_SIGNUP_CREDITS,
+    )
+
+
 def require_page_auth(owner_only: bool = False):
     auth = current_auth()
     if not auth:
@@ -11083,6 +11421,8 @@ def dashboard_audit_actor(auth: dict[str, Any] | None) -> str:
     label = str(auth.get("label") or "").strip()
     if auth.get("kind") == "owner":
         return f"Owner dashboard ({label or 'all servers'})"
+    if auth.get("kind") == "agent_account":
+        return f"Agent account ({label or auth.get('email') or auth.get('account_id') or 'user'})"
     if label:
         return f"Server dashboard ({label})"
     return "Server dashboard"
@@ -14546,6 +14886,8 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
+    if auth.get("kind") == "agent_account":
+        active_section = "ai-agent"
     if auth.get("kind") != "owner" and active_section == "owner":
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section == "owner":
@@ -14568,6 +14910,8 @@ def page(mode: str, auth: dict[str, Any]):
     ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
 
     def section_allowed(section: str) -> bool:
+        if auth.get("kind") == "agent_account":
+            return section == "ai-agent"
         if section == "ai-agent":
             return bool(ai_agent_access.get("allowed") and ai_agent_access.get("permissions", {}).get("read"))
         if auth.get("kind") == "owner":
@@ -14650,6 +14994,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
+        agent_accounts=agent_account_rows() if auth.get("kind") == "owner" else [],
+        agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
         generated_at=state["generated_at"],
@@ -15036,6 +15382,114 @@ def login_post():
 def logout():
     response = make_response(redirect("/login"))
     response.delete_cookie("dashboard_session")
+    return response
+
+
+@APP.get("/agent")
+def agent_portal():
+    auth = current_auth() or current_agent_account_auth()
+    if not auth:
+        return redirect("/agent/login")
+    return page("admin", auth)
+
+
+@APP.get("/agent/login")
+def agent_login_get():
+    if current_auth() or current_agent_account_auth():
+        return redirect("/agent?section=ai-agent")
+    return agent_login_page()
+
+
+@APP.post("/agent/login")
+def agent_login_post():
+    email = normalize_agent_email(request.form.get("email"))
+    password = str(request.form.get("password") or "")
+    store = load_agent_accounts()
+    accounts = store.get("accounts", {})
+    account_id = agent_account_id_for_email(email)
+    account = accounts.get(account_id) if isinstance(accounts, dict) else None
+    if not email or not isinstance(account, dict) or not verify_agent_account_password(password, account):
+        return agent_login_page("Email or password is incorrect."), 401
+    if str(account.get("status") or "active").lower() in {"suspended", "disabled", "deleted"}:
+        return agent_login_page("This agent account is suspended."), 403
+    account["last_login_at"] = datetime.now(UTC).isoformat()
+    save_agent_accounts(store)
+    response = make_response(redirect("/agent?section=ai-agent"))
+    response.set_cookie(
+        "agent_account_session",
+        make_agent_session_cookie(account_id, account),
+        httponly=True,
+        secure=FORCE_HTTPS,
+        samesite="Lax",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return response
+
+
+@APP.post("/agent/register")
+def agent_register_post():
+    if not AGENT_SIGNUPS_ENABLED:
+        return agent_login_page("Public agent signups are currently locked."), 403
+    name = str(request.form.get("name") or "").strip()[:80]
+    email = normalize_agent_email(request.form.get("email"))
+    password = str(request.form.get("password") or "")
+    if not name or "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        return agent_login_page("Enter a valid name and email address."), 400
+    if len(password) < 8:
+        return agent_login_page("Password must be at least 8 characters."), 400
+    store = load_agent_accounts()
+    accounts = store.setdefault("accounts", {})
+    account_id = agent_account_id_for_email(email)
+    if account_id in accounts:
+        return agent_login_page("That email already has an agent account."), 409
+    credentials = agent_account_credentials(password)
+    account = {
+        "id": account_id,
+        "name": name,
+        "email": email,
+        "status": "active",
+        "role": "user",
+        "subscription_tier": "free",
+        "subscription_status": "none",
+        "credits": AGENT_SIGNUP_CREDITS,
+        "permissions": default_agent_account_permissions(),
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+        **credentials,
+    }
+    accounts[account_id] = account
+    ledger = store.setdefault("ledger", [])
+    if isinstance(ledger, list) and AGENT_SIGNUP_CREDITS:
+        ledger.insert(
+            0,
+            {
+                "id": f"credit-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+                "account_id": account_id,
+                "amount": AGENT_SIGNUP_CREDITS,
+                "balance_after": AGENT_SIGNUP_CREDITS,
+                "reason": "signup credit grant",
+                "actor": "agent signup",
+                "payload": {},
+                "created_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    save_agent_accounts(store)
+    response = make_response(redirect("/agent?section=ai-agent"))
+    response.set_cookie(
+        "agent_account_session",
+        make_agent_session_cookie(account_id, account),
+        httponly=True,
+        secure=FORCE_HTTPS,
+        samesite="Lax",
+        max_age=60 * 60 * 24 * 30,
+    )
+    return response
+
+
+@APP.get("/agent/logout")
+def agent_logout():
+    response = make_response(redirect("/agent/login"))
+    response.delete_cookie("agent_account_session")
     return response
 
 
@@ -17032,6 +17486,8 @@ def api_ai_agent_state():
             "pending_approvals": ai_agent_pending_approval_count(state),
             "job_counts": ai_agent_job_counts(state),
             "activity": state.get("activity", [])[:30],
+            "credits_remaining": safe_int(auth.get("credits"), 0) if isinstance(auth, dict) and auth.get("kind") == "agent_account" else None,
+            "chat_credit_cost": AGENT_CHAT_CREDIT_COST,
         }
     )
 
@@ -17065,6 +17521,10 @@ def api_ai_agent_chat():
     prompt = str(payload.get("prompt") or payload.get("message") or "").strip()
     if len(prompt) < 8:
         return jsonify({"ok": False, "error": "message is required"}), 400
+    if auth.get("kind") == "agent_account" and AGENT_CHAT_CREDIT_COST > 0:
+        balance = agent_account_credit_balance(str(auth.get("account_id") or ""))
+        if balance < AGENT_CHAT_CREDIT_COST:
+            return jsonify({"ok": False, "error": f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", "credits_remaining": balance}), 402
     actor = access.get("label") or dashboard_audit_actor(auth)
     user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode")})
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, prompt)
@@ -17081,11 +17541,14 @@ def api_ai_agent_chat():
         payload={"task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", "")},
         plan_steps=(task or {}).get("steps", []),
     )
+    charged, charge_error, credits_remaining = agent_charge_for_prompt(auth, prompt)
+    if not charged:
+        return jsonify({"ok": False, "error": charge_error or "Could not charge credits", "credits_remaining": credits_remaining}), 402
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""))
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "task": task, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "note": "Agent replied with a plan."},
+        {"ok": True, "task": task, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
         "ai-agent",
         "#ai-agent-chat",
     )
@@ -17308,6 +17771,54 @@ def api_owner_ai_agent_access():
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="grant", subject_key=subject_key)
     return dashboard_api_response(raw_payload, {"ok": True, "access": record, "note": "Saved AI agent access."}, "ai-agent", "#ai-agent")
+
+
+@APP.post("/api/owner/agent-account")
+def api_owner_agent_account():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    email = normalize_agent_email(payload.get("email"))
+    if not email:
+        return jsonify({"ok": False, "error": "email is required"}), 400
+    store = load_agent_accounts()
+    accounts = store.setdefault("accounts", {})
+    account_id = agent_account_id_for_email(email)
+    account = accounts.get(account_id)
+    if not isinstance(account, dict):
+        return jsonify({"ok": False, "error": "agent account not found. Ask the user to register first."}), 404
+    status = str(payload.get("status") or "").strip().lower()
+    if status in {"active", "suspended"}:
+        account["status"] = status
+    subscription_tier = str(payload.get("subscription_tier") or "").strip()
+    if subscription_tier:
+        account["subscription_tier"] = subscription_tier[:80]
+    subscription_status = str(payload.get("subscription_status") or "").strip()
+    if subscription_status:
+        account["subscription_status"] = subscription_status[:80]
+    permissions = {key: safe_bool(payload.get(f"perm_{key}"), key == "read") for key in AI_AGENT_PERMISSION_KEYS}
+    if not permissions.get("read"):
+        permissions["read"] = True
+    account["permissions"] = permissions
+    account["updated_at"] = datetime.now(UTC).isoformat()
+    actor = dashboard_audit_actor(current_auth())
+    adjustment = safe_int(payload.get("credit_adjustment"), 0)
+    save_agent_accounts(store)
+    if adjustment:
+        ok, credit_error, _ = agent_adjust_credits(account_id, adjustment, str(payload.get("reason") or "owner credit adjustment"), actor, {"email": email})
+        if not ok:
+            return jsonify({"ok": False, "error": credit_error}), 400
+        store = load_agent_accounts()
+        accounts = store.setdefault("accounts", {})
+        account = accounts.get(account_id, account)
+    state = load_ai_agent_state()
+    ai_agent_activity(state, "Agent account updated", f"{email}: {account.get('credits', 0)} credit(s)", actor, {"email": email, "permissions": permissions})
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="agent_account", email=email)
+    return dashboard_api_response(raw_payload, {"ok": True, "account": redact(account), "note": "Saved agent account."}, "ai-agent", "#ai-agent")
+
 
 @APP.post("/api/owner/guild-action")
 def api_owner_guild_action():
