@@ -283,6 +283,12 @@ OWNER_DASHBOARD_PASSWORD = os.getenv("WANDERING_OWNER_DASHBOARD_PASSWORD", "")
 OWNER_ADMIN_GUILD_IDS = os.getenv("WANDERING_OWNER_ADMIN_GUILD_IDS", "")
 DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "").strip()
+DEFAULT_BOT_INVITE_URL = os.getenv(
+    "BOT_INVITE_URL",
+    "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands",
+)
+SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "").strip()
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
 AGENT_SIGNUPS_ENABLED = os.getenv("WANDERING_AGENT_SIGNUPS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -406,6 +412,78 @@ LOGIN_TEMPLATE = """
       <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Open Dashboard</button>
     </form>
+  </main>
+</body>
+</html>
+"""
+
+PUBLIC_LANDING_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wandering Bot</title>
+  <style>
+    :root { color-scheme: dark; --bg: #02090c; --panel: rgba(7,20,24,.9); --line: rgba(103,245,231,.2); --text: #ecfeff; --muted: #9fc3c8; --accent: #24efe1; --green: #8ee85f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 20% 0%, rgba(36,239,225,.16), transparent 32rem), linear-gradient(180deg, #061216, var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(1180px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+    .hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(20rem, .55fr); gap: 1rem; align-items: stretch; }
+    .panel { border: 1px solid var(--line); background: var(--panel); border-radius: .85rem; padding: 1rem; box-shadow: 0 1rem 3rem rgba(0,0,0,.25); }
+    .brand { display: flex; gap: .9rem; align-items: center; margin-bottom: 1rem; }
+    .brand img { width: 5rem; height: 5rem; border-radius: .8rem; border: 1px solid var(--line); object-fit: cover; }
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.5rem); line-height: 1; text-transform: uppercase; letter-spacing: 0; }
+    h2 { margin: 0 0 .65rem; font-size: 1rem; text-transform: uppercase; letter-spacing: .04em; }
+    p, li { color: var(--muted); line-height: 1.55; }
+    .actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
+    a.button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(36,239,225,.42); border-radius: .55rem; padding: .78rem 1rem; color: var(--text); text-decoration: none; font-weight: 900; background: rgba(36,239,225,.13); }
+    a.button.primary { background: linear-gradient(135deg, rgba(36,239,225,.28), rgba(142,232,95,.18)); }
+    .steps { display: grid; gap: .75rem; margin-top: 1rem; }
+    .step { border: 1px solid var(--line); border-radius: .7rem; padding: .8rem; background: rgba(0,0,0,.22); }
+    .step strong { display: block; color: var(--text); margin-bottom: .25rem; }
+    code { color: var(--green); font-weight: 800; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
+    .mini { border: 1px solid var(--line); border-radius: .7rem; padding: .8rem; background: rgba(0,0,0,.2); }
+    .mini strong { display: block; }
+    .muted { color: var(--muted); }
+    @media (max-width: 820px) { main { width: min(100vw - 1rem, 42rem); padding-top: 1rem; } .hero, .grid { grid-template-columns: 1fr; } h1 { font-size: 2.35rem; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="panel">
+        <div class="brand">
+          <img src="/brand-image" alt="Wandering Bot logo">
+          <div>
+            <h1>Wandering Bot</h1>
+            <p class="muted">DayZ Discord bot, dashboard, live events, XML tools, moderation, economy, zones, and AI workspace.</p>
+          </div>
+        </div>
+        <p>Add the bot to your Discord first, then run the setup command inside your server. Dashboard login stays private until the server owner enables it.</p>
+        <div class="actions">
+          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Bot To Discord</a>
+          <a class="button" href="/login">Dashboard Login</a>
+          <a class="button" href="/agent/login">AI Agent Login</a>
+          {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
+        </div>
+        <div class="grid">
+          <div class="mini"><strong>Works With Nitrado</strong><span class="muted">Live ADM feeds, player tracking, XML uploads, restarts, and banlist tools.</span></div>
+          <div class="mini"><strong>Server Tools</strong><span class="muted">PVE events, zones, economy, shop, loadouts, moderation, and help pages.</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Quick Setup</h2>
+        <div class="steps">
+          <div class="step"><strong>1. Add the bot</strong><span>Click <code>Add Bot To Discord</code>, choose your Discord server, and grant the requested permissions.</span></div>
+          <div class="step"><strong>2. Run setup</strong><span>In Discord, run <code>/setup</code>. The bot walks you through Nitrado token, service ID, FTP details, map, and channels.</span></div>
+          <div class="step"><strong>3. Start live feeds</strong><span>Run <code>/admstatus</code> to check setup, then <code>/restartadm force</code> after the first connection.</span></div>
+          <div class="step"><strong>4. Link players</strong><span>Players use <code>/linkgamer</code>. Admins can check links with <code>/mylink</code> and dashboard moderation tools.</span></div>
+          <div class="step"><strong>Need help?</strong><span>Use <code>/supportbot</code> with the issue. It opens an admin support ticket back to the bot owner.</span></div>
+        </div>
+      </div>
+    </section>
   </main>
 </body>
 </html>
@@ -5892,27 +5970,51 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Discord Link Enforcement</h3>
+          {% set link_enforcement = server.config.discord_link_enforcement if server and server.config and server.config.discord_link_enforcement else {} %}
           <form class="admin-form" method="post" action="/api/admin/link-enforcement" data-route="/api/admin/link-enforcement">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Grace minutes after join <input name="grace_minutes" type="number" value="30" min="1"></label>
+            <label>Enabled
+              <select name="enabled">
+                <option value="true" {% if link_enforcement.enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if not link_enforcement.enabled %}selected{% endif %}>Off</option>
+              </select>
+              <small class="field-help">When on, the bot starts checking players as soon as their gamertag appears in the ADM connect feed.</small>
+            </label>
+            <label>Grace minutes after join
+              <input name="grace_minutes" type="number" value="{{ link_enforcement.grace_minutes or 30 }}" min="1">
+              <small class="field-help">How long the player gets to join Discord and run /linkgamer before action is taken.</small>
+            </label>
             <label>Action if still unlinked
               <select name="action">
-                <option value="notify">Notify staff only</option>
-                <option value="kick">Kick request / notify</option>
-                <option value="temp_ban">Temp ban through Nitrado</option>
-                <option value="perm_ban">Perm ban through Nitrado</option>
+                <option value="notify" {% if (link_enforcement.action or 'notify') == 'notify' %}selected{% endif %}>Notify staff only</option>
+                <option value="kick" {% if link_enforcement.action == 'kick' %}selected{% endif %}>Kick request / notify</option>
+                <option value="temp_ban" {% if link_enforcement.action == 'temp_ban' %}selected{% endif %}>Temp ban through Nitrado</option>
+                <option value="perm_ban" {% if link_enforcement.action == 'perm_ban' %}selected{% endif %}>Perm ban through Nitrado</option>
               </select>
+              <small class="field-help">Temp/perm ban edits the Nitrado ban list. Kick mode only warns because console DayZ has no clean live kick API.</small>
             </label>
-            <label>Temp ban minutes <input name="temp_ban_minutes" type="number" value="60" min="1"></label>
-            <label>Restart after ban <select name="restart_on_ban"><option value="true">Yes, immediately</option><option value="false">No</option></select></label>
+            <label>Temp ban minutes
+              <input name="temp_ban_minutes" type="number" value="{{ link_enforcement.temp_ban_minutes or 60 }}" min="1">
+              <small class="field-help">Only used when action is temp ban. The bot later removes the ban and can restart again.</small>
+            </label>
+            <label>Restart after ban
+              <select name="restart_on_ban">
+                <option value="true" {% if link_enforcement.restart_on_ban is not defined or link_enforcement.restart_on_ban %}selected{% endif %}>Yes, immediately</option>
+                <option value="false" {% if link_enforcement.restart_on_ban is defined and not link_enforcement.restart_on_ban %}selected{% endif %}>No</option>
+              </select>
+              <small class="field-help">Console ban-list changes are read on restart, so this makes the ban take effect straight away.</small>
+            </label>
             <label>Notify channel
               <select name="notification_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'public_shame' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == link_enforcement.notification_channel_key or channel.key == link_enforcement.notification_channel_key or ((not link_enforcement.notification_channel_key) and (channel.key == 'public_shame' or channel.key == 'admin_logs')) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
+              <small class="field-help">Where staff see warnings, failed ban attempts, and completed enforcement messages.</small>
             </label>
-            <label class="full">Player message / reason <textarea name="reason">You must join this Discord and link your gamertag with /linkgamer to play on this server.</textarea></label>
+            <label class="full">Player message / reason
+              <textarea name="reason">{{ link_enforcement.reason or 'You must join this Discord and link your gamertag with /linkgamer to play on this server.' }}</textarea>
+              <small class="field-help">This is saved with the enforcement record and sent in the staff notice.</small>
+            </label>
             <div class="full"><button type="submit">Save Enforcement</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -13285,6 +13387,23 @@ def login_page(error: str = ""):
     return render_template_string(LOGIN_TEMPLATE, error=error)
 
 
+def dashboard_bot_invite_url() -> str:
+    if DISCORD_CLIENT_ID:
+        return (
+            "https://discord.com/oauth2/authorize?"
+            f"client_id={DISCORD_CLIENT_ID}&permissions=8&integration_type=0&scope=bot+applications.commands"
+        )
+    return DEFAULT_BOT_INVITE_URL
+
+
+def public_landing_page():
+    return render_template_string(
+        PUBLIC_LANDING_TEMPLATE,
+        bot_invite_url=dashboard_bot_invite_url(),
+        support_url=SUPPORT_DISCORD_URL,
+    )
+
+
 def agent_login_page(error: str = ""):
     return render_template_string(
         AGENT_LOGIN_TEMPLATE,
@@ -17346,9 +17465,11 @@ def owner_zone_draft():
 
 @APP.get("/")
 def index():
-    auth, error = require_page_auth()
-    if error:
-        return error
+    auth = current_auth()
+    if not auth:
+        return public_landing_page()
+    if auth.get("kind") == "agent_account":
+        return redirect("/agent")
     return page("overview", auth)
 
 
@@ -19129,11 +19250,11 @@ def api_link_enforcement():
     config = guild_configs.setdefault(guild_id, {"channels": {}})
     notification_key, notification_id = resolve_channel_selection(config, payload.get("notification_channel_key") or "public_shame")
     record = {
-        "enabled": bool(payload.get("enabled", False)),
+        "enabled": safe_bool(payload.get("enabled"), False),
         "grace_minutes": max(1, safe_int(payload.get("grace_minutes"), 30)),
         "action": action,
         "temp_ban_minutes": max(1, safe_int(payload.get("temp_ban_minutes"), 60)),
-        "restart_on_ban": bool(payload.get("restart_on_ban", True)),
+        "restart_on_ban": safe_bool(payload.get("restart_on_ban"), True),
         "notification_channel_key": notification_key,
         "notification_channel_id": notification_id,
         "reason": str(payload.get("reason") or "Discord membership and gamertag link required.")[:500],

@@ -18979,6 +18979,79 @@ async def has_linked_discord_member_for_gamertag(guild, guild_id, gamertag):
     return False
 
 
+def has_known_linked_gamertag(guild_id, gamertag):
+    wanted = normalize_discord_name(gamertag)
+    if not wanted:
+        return False
+    for _user_id, data in linked_players.items():
+        if str(data.get("guild_id") or guild_id) != str(guild_id):
+            continue
+        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+            return True
+    return False
+
+
+def link_enforcement_pending_key(player_name):
+    return normalize_discord_name(player_name)
+
+
+def link_enforcement_pending_bucket(config):
+    state = config.setdefault("discord_link_enforcement_state", {})
+    if not isinstance(state, dict):
+        state = {}
+        config["discord_link_enforcement_state"] = state
+    pending = state.setdefault("pending", {})
+    if not isinstance(pending, dict):
+        pending = {}
+        state["pending"] = pending
+    return pending
+
+
+def clear_link_enforcement_pending(config, player_name):
+    key = link_enforcement_pending_key(player_name)
+    if not key:
+        return False
+    pending = link_enforcement_pending_bucket(config)
+    if key in pending:
+        pending.pop(key, None)
+        return True
+    return False
+
+
+def record_link_enforcement_join(guild_id, player_name):
+    guild_id = str(guild_id)
+    player_name = str(player_name or "").strip()
+    config = guild_configs.get(guild_id, {})
+    settings = config.get("discord_link_enforcement") or {}
+    if not settings.get("enabled") or not player_name:
+        return False
+    if has_known_linked_gamertag(guild_id, player_name):
+        changed = clear_link_enforcement_pending(config, player_name)
+        if changed:
+            save_guild_configs()
+        return False
+    key = link_enforcement_pending_key(player_name)
+    if not key:
+        return False
+    now_ts = datetime.now(UTC).timestamp()
+    grace_seconds = max(1, int(settings.get("grace_minutes") or 30)) * 60
+    pending = link_enforcement_pending_bucket(config)
+    record = pending.get(key)
+    if not isinstance(record, dict) or record.get("status") in {"enforced", "linked"}:
+        record = {
+            "gamertag": player_name,
+            "first_seen_ts": now_ts,
+            "deadline_ts": now_ts + grace_seconds,
+            "status": "pending",
+        }
+        pending[key] = record
+    record["gamertag"] = player_name
+    record["last_seen_ts"] = now_ts
+    record.setdefault("deadline_ts", float(record.get("first_seen_ts", now_ts)) + grace_seconds)
+    save_guild_configs()
+    return True
+
+
 async def _post_link_enforcement_notice(guild, config, title, description, color=0xE67E22):
     if not guild:
         return
@@ -19004,16 +19077,39 @@ async def _post_link_enforcement_notice(guild, config, title, description, color
 async def enforce_unlinked_player_after_grace(guild_id, player_name):
     guild_id = str(guild_id)
     player_name = str(player_name or "").strip()
-    await asyncio.sleep(max(1, int((guild_configs.get(guild_id, {}).get("discord_link_enforcement") or {}).get("grace_minutes", 30))) * 60)
+    config = guild_configs.get(guild_id, {})
+    settings = config.get("discord_link_enforcement") or {}
+    pending = link_enforcement_pending_bucket(config)
+    key = link_enforcement_pending_key(player_name)
+    pending_record = pending.get(key) if key else None
+    deadline_ts = float((pending_record or {}).get("deadline_ts") or 0)
+    if deadline_ts > 0:
+        delay_seconds = max(1, int(deadline_ts - datetime.now(UTC).timestamp()))
+    else:
+        delay_seconds = max(1, int(settings.get("grace_minutes", 30))) * 60
+    await asyncio.sleep(delay_seconds)
+    await enforce_unlinked_player_now(guild_id, player_name)
+
+
+async def enforce_unlinked_player_now(guild_id, player_name):
+    guild_id = str(guild_id)
+    player_name = str(player_name or "").strip()
     config = guild_configs.get(guild_id, {})
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
-        return
+        return False
+    pending = link_enforcement_pending_bucket(config)
+    key = link_enforcement_pending_key(player_name)
+    pending_record = pending.get(key) if key else None
+    if isinstance(pending_record, dict) and pending_record.get("status") in {"enforced", "linked"}:
+        return False
     if player_name not in online_players.get(guild_id, set()):
-        return
+        return False
     guild = bot.get_guild(int(guild_id))
     if await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
-        return
+        clear_link_enforcement_pending(config, player_name)
+        save_guild_configs()
+        return True
 
     action = str(settings.get("action") or "notify").lower()
     reason = str(settings.get("reason") or "Discord membership and gamertag link required.")[:500]
@@ -19021,11 +19117,21 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
     base_message = f"**{player_name}** stayed unlinked for **{grace} minute(s)**. Reason: {reason}"
 
     if action == "notify":
+        if isinstance(pending_record, dict) and pending_record.get("status") == "notified":
+            return False
+        if isinstance(pending_record, dict):
+            pending_record["status"] = "notified"
+            pending_record["notified_ts"] = datetime.now(UTC).timestamp()
+            save_guild_configs()
         await _post_link_enforcement_notice(guild, config, "Discord Link Required", base_message, 0xF1C40F)
-        return
+        return True
 
     if action == "kick":
         nitrado_send_chat(config, f"{player_name}: {reason}")
+        if isinstance(pending_record, dict):
+            pending_record["status"] = "notified"
+            pending_record["notified_ts"] = datetime.now(UTC).timestamp()
+            save_guild_configs()
         await _post_link_enforcement_notice(
             guild,
             config,
@@ -19033,13 +19139,13 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
             base_message + "\nKick mode does not edit the Nitrado banlist; use temp ban or perm ban for guaranteed server removal.",
             0xE67E22,
         )
-        return
+        return True
 
     if action in {"temp_ban", "perm_ban"}:
         ok, msg = add_player_to_nitrado_banlist(config, player_name)
         if not ok:
             await _post_link_enforcement_notice(guild, config, "Nitrado Ban Failed", base_message + f"\n{msg}", 0xE74C3C)
-            return
+            return False
         if action == "temp_ban":
             minutes = max(1, int(settings.get("temp_ban_minutes") or 60))
             config.setdefault("nitrado_temp_bans", []).append({
@@ -19047,6 +19153,7 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
                 "reason": reason,
                 "created_ts": datetime.now(UTC).timestamp(),
                 "until_ts": datetime.now(UTC).timestamp() + minutes * 60,
+                "restart_on_unban": bool(settings.get("restart_on_ban", True)),
                 "source": "discord_link_enforcement",
             })
             label = f"TEMP banned for {minutes} minute(s)"
@@ -19058,6 +19165,10 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
                 "source": "discord_link_enforcement",
             })
             label = "PERM banned"
+        if isinstance(pending_record, dict):
+            pending_record["status"] = "enforced"
+            pending_record["action"] = action
+            pending_record["enforced_ts"] = datetime.now(UTC).timestamp()
         save_guild_configs()
         restart_note = ""
         if settings.get("restart_on_ban", True):
@@ -19070,6 +19181,8 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
             base_message + f"\nResult: {label} through Nitrado banlist.{restart_note}",
             0xE74C3C,
         )
+        return True
+    return False
 
 
 def schedule_link_enforcement_check(guild_id, player_name):
@@ -19079,11 +19192,59 @@ def schedule_link_enforcement_check(guild_id, player_name):
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return
+    record_link_enforcement_join(guild_id, player_name)
     key = f"{guild_id}:{normalize_discord_name(player_name)}"
     old_task = _pending_link_enforcement_tasks.get(key)
     if old_task and not old_task.done():
         old_task.cancel()
     _pending_link_enforcement_tasks[key] = asyncio.create_task(enforce_unlinked_player_after_grace(guild_id, player_name))
+
+
+async def process_link_enforcement_deadlines():
+    now_ts = datetime.now(UTC).timestamp()
+    changed = False
+    for guild_id, config in active_guild_config_items():
+        settings = config.get("discord_link_enforcement") or {}
+        if not settings.get("enabled"):
+            continue
+        pending = link_enforcement_pending_bucket(config)
+        for key, record in list(pending.items()):
+            if not isinstance(record, dict):
+                pending.pop(key, None)
+                changed = True
+                continue
+            player_name = str(record.get("gamertag") or "").strip()
+            if not player_name:
+                pending.pop(key, None)
+                changed = True
+                continue
+            if has_known_linked_gamertag(guild_id, player_name):
+                record["status"] = "linked"
+                record["linked_ts"] = now_ts
+                pending.pop(key, None)
+                changed = True
+                continue
+            if record.get("status") in {"enforced", "linked", "notified"}:
+                continue
+            deadline_ts = float(record.get("deadline_ts") or 0)
+            if deadline_ts <= 0:
+                grace_seconds = max(1, int(settings.get("grace_minutes") or 30)) * 60
+                record["deadline_ts"] = float(record.get("first_seen_ts") or now_ts) + grace_seconds
+                changed = True
+                continue
+            if deadline_ts <= now_ts:
+                enforced = await enforce_unlinked_player_now(guild_id, player_name)
+                changed = changed or enforced
+    if changed:
+        save_guild_configs()
+
+
+@tasks.loop(minutes=1)
+async def link_enforcement_deadline_loop():
+    try:
+        await process_link_enforcement_deadlines()
+    except Exception as error:
+        print(f"LINK ENFORCEMENT LOOP ERROR: {error}")
 
 
 # ---------- Auto-enforcement ----------------------------------------------
@@ -19261,14 +19422,22 @@ async def process_nitrado_temp_ban_expiries():
                 remaining.append(record)
         if not expired:
             continue
+        restart_after_unban = False
         for record in expired:
             try:
                 ok, msg = remove_player_from_nitrado_banlist(config, record.get("gamertag", ""))
                 print(f"[SAFEZONE] auto-unban {record.get('gamertag')}: ok={ok} msg={msg}")
+                restart_after_unban = restart_after_unban or bool(record.get("restart_on_unban"))
             except Exception as err:
                 print(f"[SAFEZONE] auto-unban error: {err}")
         config["nitrado_temp_bans"] = remaining
         save_guild_configs()
+        if restart_after_unban:
+            try:
+                ok, msg = nitrado_restart_server_now(config)
+                print(f"[SAFEZONE] auto-unban restart: ok={ok} msg={msg}")
+            except Exception as err:
+                print(f"[SAFEZONE] auto-unban restart error: {err}")
 
 
 async def check_radar_zones_for_adm(guild_id, config, event_type, line):
@@ -23481,6 +23650,9 @@ async def start_background_tasks():
 
         if not temp_ban_expiry_loop.is_running():
             temp_ban_expiry_loop.start()
+
+        if not link_enforcement_deadline_loop.is_running():
+            link_enforcement_deadline_loop.start()
 
         if not dashboard_member_action_loop.is_running():
             dashboard_member_action_loop.start()
