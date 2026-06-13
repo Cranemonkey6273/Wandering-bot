@@ -1081,6 +1081,14 @@ PAGE_TEMPLATE = """
     .ai-agent-work-item[data-status*="pending"] { border-color: rgba(242,193,78,.3); }
     .ai-agent-work-item[data-status*="fail"],
     .ai-agent-work-item[data-status*="error"] { border-color: rgba(255,112,112,.34); }
+    .ai-agent-context { display: grid; gap: .5rem; }
+    .ai-agent-context-row { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: .55rem; align-items: baseline; padding: .45rem .55rem; border: 1px solid rgba(103,245,231,.12); border-radius: .48rem; background: rgba(2, 9, 12, .62); }
+    .ai-agent-context-row span { color: var(--dim); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+    .ai-agent-context-row strong { color: #effcff; font-size: .84rem; overflow-wrap: anywhere; }
+    .ai-agent-console { display: grid; gap: .45rem; }
+    .ai-agent-console pre { max-height: 14rem; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .65rem; background: rgba(0,0,0,.34); color: #d5f7ff; font-size: .78rem; line-height: 1.45; }
+    .ai-agent-quick-prompts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .ai-agent-quick-prompts button { min-height: 2rem; padding: .38rem .6rem; font-size: .78rem; }
     .ai-agent-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .65rem; margin-bottom: .85rem; }
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
@@ -3084,6 +3092,12 @@ PAGE_TEMPLATE = """
               <label><input type="checkbox" name="allow_execute" value="1"> Sandbox</label>
               <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
             </div>
+            <div class="ai-agent-quick-prompts">
+              <button type="button" data-ai-quick-prompt="Carry on this work. Continue the active run and move to the next unfinished step.">Carry On</button>
+              <button type="button" data-ai-quick-prompt="Inspect this project and tell me what is broken, what is unfinished, and what you can do next.">Inspect</button>
+              <button type="button" data-ai-quick-prompt="Run the safest available checks for this project and fix any failures you can safely handle.">Run Checks</button>
+              <button type="button" data-ai-quick-prompt="Summarize the latest work, current risks, and exact next actions.">Status</button>
+            </div>
             <div class="ai-codex-submit">
               <span class="tool-note">{% if auth.kind == 'agent_account' %}{{ agent_chat_credit_cost }} credit(s).{% else %}High-risk work asks first unless God Mode is enabled.{% endif %}</span>
               <span><button type="submit">Send</button><span class="result muted" data-ai-chat-result></span></span>
@@ -3111,6 +3125,38 @@ PAGE_TEMPLATE = """
                 <strong>Idle</strong>
                 <span>Ask the agent to inspect, build, test, or continue a run.</span>
               </div>
+              {% endif %}
+            </div>
+          </section>
+          <section class="admin-panel">
+            <h3>Workspace</h3>
+            <div class="ai-agent-context" data-ai-context>
+              {% if ai_agent_active_run %}
+              <div class="ai-agent-context-row"><span>Repo</span><strong>{{ ai_agent_active_run.repository or 'Not set' }}</strong></div>
+              <div class="ai-agent-context-row"><span>Path</span><strong>{{ ai_agent_active_run.project_path or 'Sandbox root' }}</strong></div>
+              <div class="ai-agent-context-row"><span>Type</span><strong>{{ ai_agent_active_run.project_type or 'auto' }}</strong></div>
+              <div class="ai-agent-context-row"><span>Next</span><strong>{{ ai_agent_active_run.next_action or 'Waiting' }}</strong></div>
+              {% else %}
+              <div class="ai-agent-context-row"><span>Repo</span><strong>Not set</strong></div>
+              <div class="ai-agent-context-row"><span>Path</span><strong>Sandbox root</strong></div>
+              <div class="ai-agent-context-row"><span>Type</span><strong>Auto detect</strong></div>
+              <div class="ai-agent-context-row"><span>Next</span><strong>Start a run</strong></div>
+              {% endif %}
+            </div>
+          </section>
+          <section class="admin-panel">
+            <h3>Console</h3>
+            <div class="ai-agent-console" data-ai-console>
+              {% if ai_agent_sandbox_jobs %}
+              {% set console_job = ai_agent_sandbox_jobs[0] %}
+              <div class="ai-agent-context-row"><span>{{ console_job.status|default('job') }}</span><strong>{{ console_job.command|default(console_job.id) }}</strong></div>
+              {% if console_job.stdout or console_job.stderr %}
+              <pre>{{ console_job.stdout or console_job.stderr }}</pre>
+              {% else %}
+              <pre>No command output yet.</pre>
+              {% endif %}
+              {% else %}
+              <pre>No sandbox commands have run yet.</pre>
               {% endif %}
             </div>
           </section>
@@ -8861,6 +8907,46 @@ PAGE_TEMPLATE = """
         target.append(aiAgentWorkItem("Idle", "Ask the agent to inspect, build, test, or continue a run.", "idle"));
       }
     }
+    function aiAgentContextRow(label, value) {
+      const row = document.createElement("div");
+      row.className = "ai-agent-context-row";
+      const key = document.createElement("span");
+      key.textContent = String(label || "");
+      const val = document.createElement("strong");
+      val.textContent = String(value || "");
+      row.append(key, val);
+      return row;
+    }
+    function aiAgentUpdateContextPanel(state) {
+      const target = document.querySelector("[data-ai-context]");
+      if (!target) return;
+      const run = state?.active_run || {};
+      target.replaceChildren(
+        aiAgentContextRow("Repo", run.repository || "Not set"),
+        aiAgentContextRow("Path", run.project_path || "Sandbox root"),
+        aiAgentContextRow("Type", run.project_type || "Auto detect"),
+        aiAgentContextRow("Next", run.next_action || (run.id ? "Waiting" : "Start a run")),
+      );
+    }
+    function aiAgentUpdateConsolePanel(state) {
+      const target = document.querySelector("[data-ai-console]");
+      if (!target) return;
+      const jobs = Array.isArray(state?.sandbox_jobs) ? state.sandbox_jobs : [];
+      const job = jobs[0];
+      target.replaceChildren();
+      if (!job) {
+        const empty = document.createElement("pre");
+        empty.textContent = "No sandbox commands have run yet.";
+        target.append(empty);
+        return;
+      }
+      target.append(aiAgentContextRow(job.status || "Job", job.command || job.id || "Sandbox job"));
+      const output = document.createElement("pre");
+      const stdout = String(job.stdout || "").trim();
+      const stderr = String(job.stderr || "").trim();
+      output.textContent = stdout || stderr || "No command output yet.";
+      target.append(output);
+    }
     function aiAgentAppendMessages(state, thread) {
       if (!thread || !Array.isArray(state?.chat_messages)) return;
       const known = new Set(Array.from(thread.querySelectorAll("[data-message-id]")).map((node) => String(node.dataset.messageId || "")));
@@ -8883,6 +8969,8 @@ PAGE_TEMPLATE = """
       aiAgentUpdateCurrentRun(state, form);
       aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentUpdateWorkStream(state);
+      aiAgentUpdateContextPanel(state);
+      aiAgentUpdateConsolePanel(state);
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
@@ -8945,6 +9033,15 @@ PAGE_TEMPLATE = """
       });
       document.querySelectorAll("[data-ai-command-suggestion]").forEach((button) => {
         aiAgentWireCommandSuggestion(button, form, thread);
+      });
+      document.querySelectorAll("[data-ai-quick-prompt]").forEach((button) => {
+        if (button.dataset.aiQuickPromptReady === "true") return;
+        button.dataset.aiQuickPromptReady = "true";
+        button.addEventListener("click", () => {
+          if (!form.elements.prompt) return;
+          form.elements.prompt.value = button.dataset.aiQuickPrompt || "";
+          form.requestSubmit();
+        });
       });
       aiAgentStartLivePolling(form, thread);
       form.addEventListener("submit", async (event) => {
