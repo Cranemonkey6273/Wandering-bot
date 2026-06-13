@@ -2975,6 +2975,7 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
         <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong>{{ ai_agent_tasks|length }}</strong></div>
+        <div class="ai-agent-stat"><span>Runs</span><strong>{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong>{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong>{{ ai_agent_job_counts.total }}</strong></div>
         {% if auth.kind == 'agent_account' %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ auth.credits|default(0) }}</strong></div>{% endif %}
@@ -3038,6 +3039,14 @@ PAGE_TEMPLATE = """
               </label>
               <label>Repository<input name="repository" placeholder="owner/repo or local path"></label>
               <label>Workspace path<input name="project_path" placeholder="optional worker folder"></label>
+              <label>Run
+                <select name="run_id" data-ai-run-select>
+                  <option value="">New run / auto</option>
+                  {% for run in ai_agent_runs[:12] %}
+                  <option value="{{ run.id }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}selected{% endif %}>{{ run.title or run.id }}</option>
+                  {% endfor %}
+                </select>
+              </label>
               <label>Mode
                 <select name="mode">
                   <option value="plan">Plan first</option>
@@ -3062,10 +3071,14 @@ PAGE_TEMPLATE = """
           <section class="admin-panel">
             <h3>Current Run</h3>
             <div class="ai-agent-plan">
-              <div class="ai-agent-step"><strong>Access</strong><span>{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span></div>
-              <div class="ai-agent-step"><strong>Approvals</strong><span>{{ ai_agent_pending_approvals }} waiting</span></div>
-              <div class="ai-agent-step"><strong>Sandbox Jobs</strong><span>{{ ai_agent_job_counts.queued }} active, {{ ai_agent_job_counts.done }} done, {{ ai_agent_job_counts.failed }} failed</span></div>
-              <div class="ai-agent-step"><strong>Safety</strong><span>God Mode {{ 'enabled' if ai_agent_state.god_mode_enabled else 'disabled' }}</span></div>
+              {% if ai_agent_active_run %}
+              <div class="ai-agent-step"><strong>{{ ai_agent_active_run.title or ai_agent_active_run.id }}</strong><span>{{ ai_agent_active_run.objective }}</span></div>
+              <div class="ai-agent-step"><strong>Status</strong><span>{{ ai_agent_active_run.status }} - {{ ai_agent_active_run.next_action or 'Waiting for input' }}</span></div>
+              <div class="ai-agent-step"><strong>History</strong><span>{{ ai_agent_active_run.task_ids|length }} task(s), {{ ai_agent_active_run.job_ids|length }} job(s), {{ ai_agent_active_run.continue_count|default(0) }} continue request(s)</span></div>
+              <button type="button" data-ai-continue-run="{{ ai_agent_active_run.id }}">Continue Run</button>
+              {% else %}
+              <div class="ai-agent-step"><strong>No active run</strong><span>Send a message to start a durable run.</span></div>
+              {% endif %}
             </div>
           </section>
           <section class="admin-panel">
@@ -3091,6 +3104,7 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/ai-agent/sandbox-command" data-route="/api/ai-agent/sandbox-command">
             <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
             <input class="hidden-field" name="guild_id" value="global">
+            <label>Related run ID<input name="run_id" value="{{ ai_agent_active_run.id if ai_agent_active_run else '' }}" placeholder="optional run-..."></label>
             <label>Related task ID<input name="task_id" placeholder="optional ai-..."></label>
             <label>Sandbox path<input name="project_path" placeholder="blank = sandbox root"></label>
             <label class="full">Command<textarea name="command" placeholder="pytest&#10;npm test&#10;npm run build" required></textarea></label>
@@ -3316,6 +3330,28 @@ PAGE_TEMPLATE = """
               </tr>
               {% else %}
               <tr><td colspan="6">No sandbox jobs yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="admin-panel full">
+        <h3>Agent Runs</h3>
+        <div class="table-scroll">
+          <table class="item-table">
+            <thead><tr><th>ID</th><th>Run</th><th>Status</th><th>Next</th><th>Linked Work</th><th>Updated</th></tr></thead>
+            <tbody>
+              {% for run in ai_agent_runs[:12] %}
+              <tr class="{{ 'status-bad' if run.status == 'needs_attention' else 'status-ok' if run.status == 'done' else 'status-warn' }}">
+                <td>{{ run.id }}</td>
+                <td><strong>{{ run.title }}</strong><br><span class="muted">{{ run.objective }}</span></td>
+                <td>{{ run.status }}</td>
+                <td>{{ run.next_action or '-' }}</td>
+                <td>{{ run.task_ids|length }} task(s), {{ run.job_ids|length }} job(s), {{ run.approval_ids|length }} approval(s)</td>
+                <td>{{ run.updated_at }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No agent runs yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -8528,6 +8564,21 @@ PAGE_TEMPLATE = """
       if (!form || !thread || form.dataset.aiChatReady === "true") return;
       form.dataset.aiChatReady = "true";
       aiChatScroll(thread);
+      document.querySelectorAll("[data-ai-continue-run]").forEach((button) => {
+        if (button.dataset.aiContinueReady === "true") return;
+        button.dataset.aiContinueReady = "true";
+        button.addEventListener("click", () => {
+          const runId = button.dataset.aiContinueRun || "";
+          const promptBox = form.elements.prompt;
+          const runSelect = form.querySelector("[data-ai-run-select]");
+          if (runSelect && runId) runSelect.value = runId;
+          if (promptBox) {
+            promptBox.value = "Carry on this work. Continue the active run and move to the next unfinished step.";
+            promptBox.focus();
+          }
+          form.requestSubmit();
+        });
+      });
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const promptBox = form.elements.prompt;
@@ -8593,6 +8644,16 @@ PAGE_TEMPLATE = """
             return;
           }
           const assistant = body.assistant_message || {content: body.note || "Done.", plan_steps: []};
+          if (body.run && body.run.id) {
+            const runSelect = form.querySelector("[data-ai-run-select]");
+            if (runSelect && !Array.from(runSelect.options).some((option) => option.value === String(body.run.id))) {
+              const option = document.createElement("option");
+              option.value = String(body.run.id);
+              option.textContent = String(body.run.title || body.run.id);
+              runSelect.insertBefore(option, runSelect.options[1] || null);
+            }
+            if (runSelect) runSelect.value = String(body.run.id);
+          }
           if (body.credits_remaining !== undefined && body.credits_remaining !== null) {
             document.querySelectorAll("[data-ai-agent-credits]").forEach((node) => {
               node.textContent = String(body.credits_remaining);
@@ -10124,6 +10185,8 @@ def ai_agent_default_state() -> dict[str, Any]:
         "approval_rules": dict(AI_AGENT_DEFAULT_APPROVAL_RULES),
         "members": {},
         "tasks": [],
+        "runs": [],
+        "active_runs": {},
         "approvals": [],
         "sandbox_jobs": [],
         "chat_messages": [],
@@ -10172,6 +10235,10 @@ def load_ai_agent_state() -> dict[str, Any]:
         merged["members"] = {}
     if not isinstance(merged.get("tasks"), list):
         merged["tasks"] = []
+    if not isinstance(merged.get("runs"), list):
+        merged["runs"] = []
+    if not isinstance(merged.get("active_runs"), dict):
+        merged["active_runs"] = {}
     if not isinstance(merged.get("approvals"), list):
         merged["approvals"] = []
     if not isinstance(merged.get("sandbox_jobs"), list):
@@ -10283,9 +10350,11 @@ def ai_agent_chat_message(
     content: str,
     payload: dict[str, Any] | None = None,
     plan_steps: list[Any] | None = None,
+    run_id: str = "",
 ) -> dict[str, Any]:
     message = {
         "id": ai_agent_new_id("msg"),
+        "run_id": str(run_id or ""),
         "role": "user" if role == "user" else "assistant",
         "author": str(author or ("You" if role == "user" else "Wandering Agent")),
         "content": str(content or "").strip()[:4000],
@@ -10299,11 +10368,214 @@ def ai_agent_chat_message(
         state["chat_messages"] = messages
     messages.insert(0, message)
     del messages[120:]
+    if run_id:
+        ai_agent_attach_run_item(state, run_id, "message_ids", message["id"])
     return message
 
 
 def ai_agent_new_id(prefix: str) -> str:
     return f"{prefix}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}"
+
+
+def ai_agent_run_title(objective: str) -> str:
+    title = re.sub(r"\s+", " ", str(objective or "").strip())
+    if not title:
+        return "Untitled agent run"
+    return title[:84] + ("..." if len(title) > 84 else "")
+
+
+def ai_agent_continue_prompt(text: str) -> bool:
+    lower = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    if not lower:
+        return False
+    direct = {
+        "continue",
+        "carry on",
+        "carry on please",
+        "carry on mate",
+        "continue please",
+        "resume",
+        "resume work",
+        "keep going",
+        "keep going please",
+        "go on",
+        "next step",
+        "do the next step",
+    }
+    if lower in direct:
+        return True
+    return any(phrase in lower for phrase in ("carry on this", "continue this", "resume this", "keep working on", "finish this run", "continue the active run"))
+
+
+def ai_agent_runs_for_subject(state: dict[str, Any], subject_key: str) -> list[dict[str, Any]]:
+    runs = state.get("runs") if isinstance(state.get("runs"), list) else []
+    subject = str(subject_key or "")
+    return [item for item in runs if isinstance(item, dict) and str(item.get("subject_key") or "") == subject]
+
+
+def ai_agent_latest_run_for_subject(state: dict[str, Any], subject_key: str) -> dict[str, Any] | None:
+    active_map = state.setdefault("active_runs", {})
+    if not isinstance(active_map, dict):
+        active_map = {}
+        state["active_runs"] = active_map
+    active_id = str(active_map.get(str(subject_key or "")) or "")
+    if active_id:
+        active = ai_agent_find_by_id(state.get("runs", []), active_id)
+        if active and str(active.get("status") or "") not in {"done", "cancelled", "archived"}:
+            return active
+    candidates = ai_agent_runs_for_subject(state, subject_key)
+    for run in candidates:
+        if str(run.get("status") or "") not in {"done", "cancelled", "archived"}:
+            return run
+    return candidates[0] if candidates else None
+
+
+def ai_agent_set_active_run(state: dict[str, Any], subject_key: str, run_id: str) -> None:
+    active_map = state.setdefault("active_runs", {})
+    if not isinstance(active_map, dict):
+        active_map = {}
+        state["active_runs"] = active_map
+    if subject_key and run_id:
+        active_map[str(subject_key)] = str(run_id)
+        state["last_active_run_id"] = str(run_id)
+
+
+def ai_agent_create_run(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    payload: dict[str, Any],
+    objective: str,
+) -> dict[str, Any]:
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    run = {
+        "id": ai_agent_new_id("run"),
+        "title": ai_agent_run_title(objective),
+        "objective": str(objective or "").strip()[:1000],
+        "status": "planning",
+        "subject_key": subject_key,
+        "created_by": access.get("label") or dashboard_audit_actor(auth),
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+        "last_message_at": datetime.now(UTC).isoformat(),
+        "project_type": str(payload.get("project_type") or "auto"),
+        "repository": str(payload.get("repository") or "").strip(),
+        "project_path": str(payload.get("project_path") or "").strip(),
+        "current_step_index": 0,
+        "next_action": "Create plan",
+        "summary": "Run created. Waiting for the first agent plan.",
+        "task_ids": [],
+        "job_ids": [],
+        "approval_ids": [],
+        "message_ids": [],
+        "continue_count": 0,
+        "completed_steps": [],
+    }
+    runs = state.setdefault("runs", [])
+    if not isinstance(runs, list):
+        runs = []
+        state["runs"] = runs
+    runs.insert(0, run)
+    del runs[80:]
+    ai_agent_set_active_run(state, subject_key, run["id"])
+    ai_agent_activity(state, "AI agent run started", f"{run['id']}: {run['title']}", run["created_by"], {"run_id": run["id"]})
+    return run
+
+
+def ai_agent_resolve_run_for_prompt(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    payload: dict[str, Any],
+    prompt: str,
+) -> tuple[dict[str, Any], bool]:
+    requested_run_id = str(payload.get("run_id") or "").strip()
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    if requested_run_id:
+        run = ai_agent_find_by_id(state.get("runs", []), requested_run_id)
+        if run and (auth.get("kind") == "owner" or str(run.get("subject_key") or "") == subject_key):
+            if ai_agent_continue_prompt(prompt):
+                run["continue_count"] = safe_int(run.get("continue_count"), 0) + 1
+                run["updated_at"] = datetime.now(UTC).isoformat()
+            ai_agent_set_active_run(state, subject_key, run["id"])
+            return run, True
+    if ai_agent_continue_prompt(prompt):
+        run = ai_agent_latest_run_for_subject(state, subject_key)
+        if run:
+            run["continue_count"] = safe_int(run.get("continue_count"), 0) + 1
+            run["updated_at"] = datetime.now(UTC).isoformat()
+            ai_agent_set_active_run(state, subject_key, run["id"])
+            return run, True
+    return ai_agent_create_run(state, auth, access, payload, prompt), False
+
+
+def ai_agent_attach_run_item(state: dict[str, Any], run_id: str, key: str, value: str) -> None:
+    if not run_id or not value:
+        return
+    run = ai_agent_find_by_id(state.get("runs", []), run_id)
+    if not run:
+        return
+    items = run.setdefault(key, [])
+    if not isinstance(items, list):
+        items = []
+        run[key] = items
+    value = str(value)
+    if value not in items:
+        items.insert(0, value)
+        del items[80:]
+    run["updated_at"] = datetime.now(UTC).isoformat()
+    run["last_message_at"] = datetime.now(UTC).isoformat()
+
+
+def ai_agent_update_run_from_task(state: dict[str, Any], run_id: str, task: dict[str, Any]) -> None:
+    run = ai_agent_find_by_id(state.get("runs", []), run_id)
+    if not run or not isinstance(task, dict):
+        return
+    ai_agent_attach_run_item(state, run_id, "task_ids", task.get("id"))
+    run["status"] = str(task.get("status") or run.get("status") or "planned")
+    run["project_type"] = str(task.get("project_type") or run.get("project_type") or "auto")
+    run["repository"] = str(task.get("repository") or run.get("repository") or "")
+    run["project_path"] = str(task.get("project_path") or run.get("project_path") or "")
+    steps = task.get("steps") if isinstance(task.get("steps"), list) else []
+    index = safe_int(run.get("current_step_index"), 0)
+    if steps:
+        run["next_action"] = f"{steps[min(index, len(steps) - 1)].get('agent', 'Agent')} - {steps[min(index, len(steps) - 1)].get('title', 'Next step')}"
+    run["summary"] = f"Latest task {task.get('id')} is {task.get('status')} with {len(steps)} planned step(s)."
+    run["updated_at"] = datetime.now(UTC).isoformat()
+
+
+def ai_agent_update_run_from_job(state: dict[str, Any], job: dict[str, Any]) -> None:
+    run_id = str(job.get("run_id") or "")
+    if not run_id:
+        return
+    run = ai_agent_find_by_id(state.get("runs", []), run_id)
+    if not run:
+        return
+    ai_agent_attach_run_item(state, run_id, "job_ids", job.get("id"))
+    status = str(job.get("status") or "")
+    if status in {"done"}:
+        run["status"] = "checking"
+        run["current_step_index"] = safe_int(run.get("current_step_index"), 0) + 1
+        run["next_action"] = "Review job output and continue"
+    elif status in {"failed", "blocked", "cancelled"}:
+        run["status"] = "needs_attention"
+        run["next_action"] = "Debug failed job"
+    elif status in {"queued", "awaiting_owner_approval", "dispatching", "dispatched", "running"}:
+        run["status"] = "running"
+        run["next_action"] = f"Wait for sandbox job {status}"
+    run["summary"] = f"Sandbox job {job.get('id')} is {status or 'unknown'}."
+    run["updated_at"] = datetime.now(UTC).isoformat()
+
+
+def ai_agent_run_counts(state: dict[str, Any]) -> dict[str, int]:
+    runs = [item for item in state.get("runs", []) if isinstance(item, dict)]
+    active_statuses = {"planning", "planned", "awaiting_owner_approval", "ready_for_sandbox", "running", "checking", "needs_attention"}
+    return {
+        "total": len(runs),
+        "active": sum(1 for item in runs if str(item.get("status") or "") in active_statuses),
+        "done": sum(1 for item in runs if str(item.get("status") or "") == "done"),
+        "needs_attention": sum(1 for item in runs if str(item.get("status") or "") == "needs_attention"),
+    }
 
 
 def ai_agent_redact_log(text: Any) -> str:
@@ -10471,6 +10743,8 @@ def ai_agent_update_job_from_worker_payload(job: dict[str, Any], data: dict[str,
     remote_job_id = source.get("remote_job_id") or source.get("job_id") or source.get("id") or job.get("remote_job_id")
     if remote_job_id:
         job["remote_job_id"] = str(remote_job_id)
+    if source.get("run_id") or data.get("run_id"):
+        job["run_id"] = str(source.get("run_id") or data.get("run_id"))
     status = ai_agent_normalize_worker_status(source.get("status") or data.get("status") or job.get("status"))
     job["status"] = status
     job["runner"] = "worker"
@@ -10502,6 +10776,7 @@ def ai_agent_dispatch_worker_job(state: dict[str, Any], job: dict[str, Any], act
     job["started_at"] = datetime.now(UTC).isoformat()
     payload = {
         "job_id": job.get("id"),
+        "run_id": job.get("run_id") or "",
         "task_id": job.get("task_id"),
         "command": command,
         "project_path": job.get("project_path") or "",
@@ -10522,9 +10797,11 @@ def ai_agent_dispatch_worker_job(state: dict[str, Any], job: dict[str, Any], act
                 "last_worker_sync_at": datetime.now(UTC).isoformat(),
             }
         )
+        ai_agent_update_run_from_job(state, job)
         ai_agent_activity(state, "Worker dispatch failed", f"{job.get('id')}: {error}", actor, {"job_id": job.get("id")})
         return job
     ai_agent_update_job_from_worker_payload(job, data)
+    ai_agent_update_run_from_job(state, job)
     ai_agent_activity(state, "Sandbox job dispatched", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": job.get("remote_job_id")})
     return job
 
@@ -10542,6 +10819,7 @@ def ai_agent_sync_worker_job(state: dict[str, Any], job: dict[str, Any], actor: 
         return job
     previous_status = str(job.get("status") or "")
     ai_agent_update_job_from_worker_payload(job, data)
+    ai_agent_update_run_from_job(state, job)
     if str(job.get("status") or "") != previous_status:
         ai_agent_activity(state, "Sandbox job synced", f"{job.get('id')}: {previous_status} -> {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
     return job
@@ -10609,6 +10887,7 @@ def ai_agent_import_worker_jobs(state: dict[str, Any], actor: str, limit: int = 
             local_job = {
                 "id": remote_id,
                 "task_id": str(worker_job.get("task_id") or ""),
+                "run_id": str(worker_job.get("run_id") or ""),
                 "command": str(worker_job.get("command") or ""),
                 "reason": str(worker_job.get("reason") or "Recovered from external sandbox worker"),
                 "project_path": str(worker_job.get("project_path") or ""),
@@ -10632,6 +10911,7 @@ def ai_agent_import_worker_jobs(state: dict[str, Any], actor: str, limit: int = 
         else:
             updated += 1
         ai_agent_update_job_from_worker_payload(local_job, {"job": worker_job})
+        ai_agent_update_run_from_job(state, local_job)
     del local_jobs[120:]
     if imported or updated:
         ai_agent_activity(state, "Worker recovery sync complete", f"{imported} imported, {updated} updated", actor, {"imported": imported, "updated": updated})
@@ -10665,6 +10945,7 @@ def ai_agent_cancel_worker_job(state: dict[str, Any], job: dict[str, Any], actor
     ok, data, error = ai_agent_worker_request("POST", f"/api/agent/jobs/{urllib.parse.quote(remote_job_id, safe='')}/cancel")
     if ok:
         ai_agent_update_job_from_worker_payload(job, data)
+        ai_agent_update_run_from_job(state, job)
         ai_agent_activity(state, "Worker job cancelled", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "remote_job_id": remote_job_id})
     else:
         job["stderr"] = error
@@ -10692,17 +10973,20 @@ def ai_agent_run_docker_job(state: dict[str, Any], job: dict[str, Any], actor: s
             }
         )
         ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: Docker sandbox disabled", actor, job)
+        ai_agent_update_run_from_job(state, job)
         return job
     workspace, workspace_error = ai_agent_workspace_path(job.get("project_path"))
     if workspace_error:
         job.update({"status": "blocked", "exit_code": None, "stdout": "", "stderr": workspace_error, "finished_at": datetime.now(UTC).isoformat()})
         ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {workspace_error}", actor, job)
+        ai_agent_update_run_from_job(state, job)
         return job
     command = str(job.get("command") or "")
     allowed, reason = ai_agent_command_is_allowed(command)
     if not allowed:
         job.update({"status": "blocked", "exit_code": None, "stdout": "", "stderr": reason, "finished_at": datetime.now(UTC).isoformat()})
         ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {reason}", actor, job)
+        ai_agent_update_run_from_job(state, job)
         return job
     docker_command = [
         "docker",
@@ -10746,6 +11030,7 @@ def ai_agent_run_docker_job(state: dict[str, Any], job: dict[str, Any], actor: s
         )
     except Exception as error:
         job.update({"status": "failed", "exit_code": None, "stdout": "", "stderr": ai_agent_redact_log(str(error)), "finished_at": datetime.now(UTC).isoformat()})
+    ai_agent_update_run_from_job(state, job)
     ai_agent_activity(state, "Sandbox job finished", f"{job.get('id')}: {job.get('status')}", actor, {"job_id": job.get("id"), "exit_code": job.get("exit_code")})
     return job
 
@@ -10799,6 +11084,7 @@ def ai_agent_create_task_record(
     access: dict[str, Any],
     payload: dict[str, Any],
     objective: str,
+    run_id: str = "",
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str, int]:
     mode = str(payload.get("mode") or "plan").strip().lower()
     requested = {
@@ -10825,6 +11111,7 @@ def ai_agent_create_task_record(
         status = "ready_for_sandbox"
     task = {
         "id": task_id,
+        "run_id": str(run_id or ""),
         "objective": objective[:500],
         "project_type": project_type,
         "repository": str(payload.get("repository") or "").strip(),
@@ -10840,6 +11127,8 @@ def ai_agent_create_task_record(
     }
     tasks.insert(0, task)
     del tasks[60:]
+    if run_id:
+        ai_agent_update_run_from_task(state, run_id, task)
     approval = None
     if plan.get("approvals"):
         approval = ai_agent_create_approval(
@@ -10848,9 +11137,12 @@ def ai_agent_create_task_record(
             title=f"Approve agent task {task_id}",
             summary="; ".join(plan.get("approvals", [])),
             requested_by=task["created_by"],
-            payload={"task_id": task_id, "objective": objective[:240], "requested_permissions": requested},
+            payload={"task_id": task_id, "run_id": run_id, "objective": objective[:240], "requested_permissions": requested},
         )
         task["approval_id"] = approval["id"]
+        if run_id:
+            ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
+            ai_agent_update_run_from_task(state, run_id, task)
     ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
     return task, approval, "", 200
 
@@ -10858,8 +11150,10 @@ def ai_agent_create_task_record(
 def ai_agent_assistant_reply_for_task(task: dict[str, Any], approval: dict[str, Any] | None = None) -> str:
     steps = task.get("steps") if isinstance(task.get("steps"), list) else []
     approvals = task.get("approvals") if isinstance(task.get("approvals"), list) else []
+    run_id = str(task.get("run_id") or "")
     lines = [
         f"I created plan {task.get('id')} and split it into {len(steps)} step(s).",
+        f"Run: {run_id or 'not attached'}.",
         f"Status: {task.get('status')}. Complexity: {task.get('complexity')}.",
     ]
     if approvals:
@@ -14910,6 +15204,12 @@ def page(mode: str, auth: dict[str, Any]):
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
     ai_agent_state = load_ai_agent_state()
     ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
+    ai_agent_subject_key = str(ai_agent_access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    ai_agent_all_runs = ai_agent_state.get("runs", []) if isinstance(ai_agent_state.get("runs"), list) else []
+    ai_agent_runs = ai_agent_all_runs if auth.get("kind") == "owner" else ai_agent_runs_for_subject(ai_agent_state, ai_agent_subject_key)
+    ai_agent_active_run = ai_agent_latest_run_for_subject(ai_agent_state, ai_agent_subject_key)
+    if not ai_agent_active_run and auth.get("kind") == "owner":
+        ai_agent_active_run = next((item for item in ai_agent_all_runs if isinstance(item, dict)), None)
 
     def section_allowed(section: str) -> bool:
         if auth.get("kind") == "agent_account":
@@ -14992,6 +15292,9 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_state),
         ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
         ai_agent_chat_messages=ai_agent_state.get("chat_messages", []),
+        ai_agent_runs=ai_agent_runs[:20],
+        ai_agent_active_run=ai_agent_active_run or {},
+        ai_agent_run_counts=ai_agent_run_counts(ai_agent_state),
         ai_agent_job_counts=ai_agent_job_counts(ai_agent_state),
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
@@ -17474,6 +17777,8 @@ def api_ai_agent_state():
     auth, access, state, error = require_ai_agent_permission("read")
     if error:
         return error
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    visible_runs = state.get("runs", []) if auth.get("kind") == "owner" else ai_agent_runs_for_subject(state, subject_key)
     return jsonify(
         {
             "ok": True,
@@ -17482,6 +17787,9 @@ def api_ai_agent_state():
             "approval_rules": state.get("approval_rules", {}),
             "sandbox": state.get("sandbox", {}),
             "tasks": state.get("tasks", [])[:30],
+            "runs": visible_runs[:30],
+            "active_run": ai_agent_latest_run_for_subject(state, subject_key),
+            "run_counts": ai_agent_run_counts(state),
             "approvals": state.get("approvals", [])[:30],
             "sandbox_jobs": state.get("sandbox_jobs", [])[:30],
             "chat_messages": state.get("chat_messages", [])[:50],
@@ -17504,12 +17812,14 @@ def api_ai_agent_task():
     objective = str(payload.get("objective") or "").strip()
     if len(objective) < 8:
         return jsonify({"ok": False, "error": "objective is required"}), 400
-    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, objective)
+    run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, objective)
+    task_objective = f"Continue existing run: {run.get('objective', '')}\nLatest instruction: {objective}" if continued else objective
+    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run.get("id", ""))
     if error_message:
         return jsonify({"ok": False, "error": error_message}), status_code
     save_ai_agent_state(state)
-    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task.get("id") if task else "")
-    body = {"ok": True, "task": task, "note": "Agent plan created. High-risk actions remain approval-gated."}
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task.get("id") if task else "", run_id=run.get("id"))
+    body = {"ok": True, "task": task, "run": run, "continued": continued, "note": "Agent plan created. High-risk actions remain approval-gated."}
     return dashboard_api_response(raw_payload, body, "ai-agent", "#ai-agent")
 
 
@@ -17528,29 +17838,35 @@ def api_ai_agent_chat():
         if balance < AGENT_CHAT_CREDIT_COST:
             return jsonify({"ok": False, "error": f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", "credits_remaining": balance}), 402
     actor = access.get("label") or dashboard_audit_actor(auth)
-    user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode")})
-    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, prompt)
+    run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, prompt)
+    run_id = str(run.get("id") or "")
+    user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode"), "continued": continued}, run_id=run_id)
+    task_objective = f"Continue existing run: {run.get('objective', '')}\nLatest instruction: {prompt}" if continued else prompt
+    task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run_id)
     if error_message:
-        assistant_message = ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}")
+        assistant_message = ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}", run_id=run_id)
         save_ai_agent_state(state)
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_assistant_reply_for_task(task or {}, approval)
+    if continued:
+        reply = f"Continuing run {run_id}.\n" + reply
     assistant_message = ai_agent_chat_message(
         state,
         role="assistant",
         author="Wandering Agent",
         content=reply,
-        payload={"task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", "")},
+        payload={"run_id": run_id, "task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", "")},
         plan_steps=(task or {}).get("steps", []),
+        run_id=run_id,
     )
     charged, charge_error, credits_remaining = agent_charge_for_prompt(auth, prompt)
     if not charged:
         return jsonify({"ok": False, "error": charge_error or "Could not charge credits", "credits_remaining": credits_remaining}), 402
     save_ai_agent_state(state)
-    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""))
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""), run_id=run_id)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "task": task, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
+        {"ok": True, "task": task, "run": run, "continued": continued, "approval": approval, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
         "ai-agent",
         "#ai-agent-chat",
     )
@@ -17570,6 +17886,22 @@ def api_ai_agent_sandbox_command():
     if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
         return jsonify({"ok": False, "error": "deploy permission is required for deployment commands"}), 403
     actor = access.get("label") or dashboard_audit_actor(auth)
+    run_id = str(payload.get("run_id") or "").strip()
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    if run_id:
+        requested_run = ai_agent_find_by_id(state.get("runs", []), run_id)
+        if not requested_run or (auth.get("kind") != "owner" and str(requested_run.get("subject_key") or "") != subject_key):
+            run_id = ""
+    if not run_id and payload.get("task_id"):
+        task = ai_agent_find_by_id(state.get("tasks", []), payload.get("task_id"))
+        if task:
+            task_run_id = str(task.get("run_id") or "")
+            task_run = ai_agent_find_by_id(state.get("runs", []), task_run_id)
+            if task_run and (auth.get("kind") == "owner" or str(task_run.get("subject_key") or "") == subject_key):
+                run_id = task_run_id
+    if not run_id:
+        active_run = ai_agent_latest_run_for_subject(state, subject_key)
+        run_id = str((active_run or {}).get("id") or "")
     jobs = state.setdefault("sandbox_jobs", [])
     if not isinstance(jobs, list):
         jobs = []
@@ -17577,6 +17909,7 @@ def api_ai_agent_sandbox_command():
     needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command)
     job = {
         "id": ai_agent_new_id("job"),
+        "run_id": run_id,
         "task_id": str(payload.get("task_id") or "").strip(),
         "command": command,
         "reason": str(payload.get("reason") or "sandbox command request").strip(),
@@ -17601,11 +17934,15 @@ def api_ai_agent_sandbox_command():
             title=f"Run sandbox command {job['id']}",
             summary="; ".join(reasons) or command[:180],
             requested_by=actor,
-            payload={"job_id": job["id"], "command": command, "project_path": job["project_path"]},
+            payload={"job_id": job["id"], "run_id": run_id, "command": command, "project_path": job["project_path"]},
         )
         job["approval_id"] = approval["id"]
+        if run_id:
+            ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
     else:
         ai_agent_run_sandbox_job(state, job, actor)
+    if run_id:
+        ai_agent_update_run_from_job(state, job)
     ai_agent_activity(state, "Sandbox job queued", f"{job['id']}: {job['status']}", actor, {"job_id": job["id"], "command": command})
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sandbox_command", job_id=job["id"])
@@ -17637,6 +17974,7 @@ def api_owner_ai_agent_approval():
     approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     job_id = str(approval_payload.get("job_id") or payload.get("job_id") or "")
     task_id = str(approval_payload.get("task_id") or payload.get("task_id") or "")
+    run_id = str(approval_payload.get("run_id") or payload.get("run_id") or "")
     if job_id:
         job = ai_agent_find_by_id(state.get("sandbox_jobs", []), job_id)
     if task_id:
@@ -17645,15 +17983,20 @@ def api_owner_ai_agent_approval():
             task["status"] = "approved" if action == "approve" else "cancelled"
             task["approved_at"] = datetime.now(UTC).isoformat() if action == "approve" else ""
             task["approval_status"] = approval["status"]
+            if not run_id:
+                run_id = str(task.get("run_id") or "")
+            if run_id:
+                ai_agent_update_run_from_task(state, run_id, task)
     if job:
         if action == "reject":
             job["status"] = "cancelled"
             job["finished_at"] = datetime.now(UTC).isoformat()
             job["stderr"] = "Owner rejected the sandbox command request."
+            ai_agent_update_run_from_job(state, job)
         elif str(job.get("status") or "") == "awaiting_owner_approval":
             job["status"] = "queued"
             ai_agent_run_sandbox_job(state, job, actor)
-    ai_agent_activity(state, f"Approval {approval['status']}", f"{approval.get('id')}: {approval.get('title')}", actor, {"approval_id": approval.get("id"), "job_id": job_id, "task_id": task_id})
+    ai_agent_activity(state, f"Approval {approval['status']}", f"{approval.get('id')}: {approval.get('title')}", actor, {"approval_id": approval.get("id"), "job_id": job_id, "task_id": task_id, "run_id": run_id})
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, approval_id=approval.get("id"))
     return dashboard_api_response(raw_payload, {"ok": True, "approval": approval, "job": job, "note": f"Approval {approval['status']}."}, "ai-agent", "#ai-agent-approvals")
@@ -17681,6 +18024,7 @@ def api_owner_ai_agent_job_action():
             job["status"] = "cancelled"
             job["finished_at"] = datetime.now(UTC).isoformat()
             job["stderr"] = "Cancelled by owner."
+            ai_agent_update_run_from_job(state, job)
             ai_agent_activity(state, "Sandbox job cancelled", str(job.get("id")), actor, job)
     elif action == "run":
         if str(job.get("status") or "") == "awaiting_owner_approval":

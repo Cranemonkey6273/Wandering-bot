@@ -274,6 +274,7 @@ def create_job():
     job = {
         "id": job_id,
         "remote_job_id": job_id,
+        "run_id": str(payload.get("run_id") or ""),
         "task_id": str(payload.get("task_id") or ""),
         "command": command,
         "project_path": str(payload.get("project_path") or ""),

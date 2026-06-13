@@ -50,3 +50,4 @@ Only the Primary Owner can approve, run, sync, or cancel worker jobs.
 - If Railway restarts after dispatching a job, the worker keeps running and stores job results in `WANDERING_AI_WORKER_JOBS_FILE`.
 - When Railway comes back, use **Recover / Sync Worker Jobs** on the AI Development Agent page to import forgotten worker jobs.
 - If the worker itself restarts while a job is running, that job is marked `interrupted` so it will not sit forever as running. Re-run it from the dashboard if needed.
+- Agent conversations create durable runs. Pick a run in the chat composer or press **Continue Run** to attach the next message, task, approval, and sandbox job to the same work thread after refreshes or Railway restarts.
