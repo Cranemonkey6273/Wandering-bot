@@ -12227,6 +12227,45 @@ def ai_agent_sync_worker_jobs(state: dict[str, Any], actor: str, limit: int = 20
     return synced
 
 
+def ai_agent_iso_age_seconds(value: Any) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 999999.0
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return max(0.0, (datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds())
+    except Exception:
+        return 999999.0
+
+
+def ai_agent_maybe_sync_worker_jobs(state: dict[str, Any], actor: str, *, recover: bool = False, min_interval_seconds: int = 12) -> int:
+    if not AI_AGENT_WORKER_URL:
+        return 0
+    sandbox = state.setdefault("sandbox", {})
+    if not isinstance(sandbox, dict):
+        sandbox = {}
+        state["sandbox"] = sandbox
+    if ai_agent_iso_age_seconds(sandbox.get("last_worker_live_sync_at")) < max(2, min_interval_seconds):
+        return 0
+    sandbox["last_worker_live_sync_at"] = datetime.now(UTC).isoformat()
+    active_statuses = {"queued", "dispatched", "dispatching", "running"}
+    active_local_jobs = [
+        job for job in state.get("sandbox_jobs", [])
+        if isinstance(job, dict)
+        and str(job.get("runner") or "") == "worker"
+        and str(job.get("status") or "") in active_statuses
+    ]
+    if recover:
+        return ai_agent_sync_worker_jobs(state, actor, limit=12)
+    checked = 0
+    for job in active_local_jobs[:8]:
+        ai_agent_sync_worker_job(state, job, actor)
+        checked += 1
+    return checked
+
+
 def ai_agent_cancel_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
     remote_job_id = str(job.get("remote_job_id") or job.get("id") or "").strip()
     if not remote_job_id or not AI_AGENT_WORKER_URL:
@@ -12596,6 +12635,124 @@ def ai_agent_merge_suggested_commands(task: dict[str, Any], suggestions: list[di
             break
     task["suggested_commands"] = merged
     return merged
+
+
+def ai_agent_recent_run_commands(state: dict[str, Any], run_id: str) -> set[str]:
+    run = ai_agent_find_by_id(state.get("runs", []), run_id)
+    if not run:
+        return set()
+    job_ids = {str(item) for item in run.get("job_ids", []) if item}
+    commands: set[str] = set()
+    for job in state.get("sandbox_jobs", []):
+        if not isinstance(job, dict):
+            continue
+        if str(job.get("run_id") or "") != str(run_id or "") and str(job.get("id") or "") not in job_ids:
+            continue
+        command = str(job.get("command") or "").strip().lower()
+        if command:
+            commands.add(command)
+    return commands
+
+
+def ai_agent_prompt_wants_checks(prompt: str) -> bool:
+    lower = str(prompt or "").lower()
+    return any(term in lower for term in ("check", "test", "build", "compile", "lint", "run it", "fix", "debug", "verify"))
+
+
+def ai_agent_select_auto_command(
+    state: dict[str, Any],
+    task: dict[str, Any],
+    run: dict[str, Any],
+    prompt: str,
+    *,
+    continued: bool,
+    explicit_execute: bool,
+) -> dict[str, Any] | None:
+    suggestions = task.get("suggested_commands") if isinstance(task.get("suggested_commands"), list) else []
+    if not suggestions:
+        suggestions = ai_agent_merge_suggested_commands(task, ai_agent_suggested_commands_for_task(task, run))
+    if not suggestions:
+        return None
+    already_tried = ai_agent_recent_run_commands(state, str(run.get("id") or task.get("run_id") or ""))
+    wants_checks = ai_agent_prompt_wants_checks(prompt)
+    preferred_terms: list[str] = []
+    if wants_checks:
+        preferred_terms = ["compile", "test", "build", "lint", "check"]
+    elif continued:
+        preferred_terms = ["workspace changes", "inspect", "project structure", "status"]
+    else:
+        preferred_terms = ["inspect", "workspace changes", "status"]
+
+    def usable(item: dict[str, Any]) -> bool:
+        command = str(item.get("command") or "").strip()
+        if not command:
+            return False
+        risk = str(item.get("risk") or ai_agent_command_risk(command)).lower()
+        if risk == "high":
+            return False
+        if risk == "medium" and not (explicit_execute or wants_checks):
+            return False
+        if command.lower() in already_tried and not wants_checks:
+            return False
+        return True
+
+    for term in preferred_terms:
+        for item in suggestions:
+            if not isinstance(item, dict) or not usable(item):
+                continue
+            haystack = " ".join(str(item.get(key) or "") for key in ("label", "reason", "command")).lower()
+            if term in haystack:
+                return item
+    for item in suggestions:
+        if isinstance(item, dict) and usable(item):
+            return item
+    return None
+
+
+def ai_agent_job_summary(job: dict[str, Any] | None) -> str:
+    if not isinstance(job, dict):
+        return ""
+    status = str(job.get("status") or "queued")
+    command = ai_agent_compact_text(str(job.get("command") or job.get("reason") or "sandbox job").replace("\n", " "), 120)
+    if status in {"done", "failed", "blocked", "cancelled"}:
+        detail = ai_agent_compact_text(job.get("stderr") or job.get("stdout") or "", 520)
+        return f"Sandbox job `{job.get('id')}` finished as `{status}` for `{command}`." + (f"\nOutput preview: {detail}" if detail else "")
+    if status == "awaiting_owner_approval":
+        return f"Sandbox job `{job.get('id')}` is waiting for owner approval before `{command}` can run."
+    return f"Sandbox job `{job.get('id')}` is `{status}` for `{command}`. The live panel will update automatically."
+
+
+def ai_agent_queue_chat_auto_job(
+    state: dict[str, Any],
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    task: dict[str, Any] | None,
+    run: dict[str, Any],
+    payload: dict[str, Any],
+    prompt: str,
+    *,
+    continued: bool,
+    actor: str,
+) -> tuple[dict[str, Any] | None, str]:
+    if not isinstance(task, dict):
+        return None, ""
+    if not access.get("permissions", {}).get("execute"):
+        return None, "This account can plan and edit, but sandbox execution is not enabled."
+    explicit_execute = safe_bool(payload.get("allow_execute"), False) or str(payload.get("mode") or "").lower() in {"execute", "deploy"}
+    command = ai_agent_select_auto_command(state, task, run, prompt, continued=continued, explicit_execute=explicit_execute)
+    if not command:
+        return None, "No safe automatic sandbox command was available for this step. Pick one from Suggested sandbox commands."
+    job_payload = {
+        "command": command.get("command"),
+        "reason": command.get("reason") or ("Continue the active run." if continued else "Automatic agent follow-up."),
+        "project_path": command.get("project_path") or task.get("project_path") or run.get("project_path") or "",
+        "task_id": task.get("id"),
+        "run_id": run.get("id") or task.get("run_id") or "",
+    }
+    job, error, _ = ai_agent_queue_sandbox_job(state, auth, access, job_payload, actor)
+    if job:
+        return job, ai_agent_job_summary(job)
+    return None, f"I picked `{command.get('label') or command.get('command')}`, but could not queue it yet: {error}"
 
 
 def ai_agent_extract_json_object(content: str) -> dict[str, Any]:
@@ -14047,7 +14204,9 @@ def default_cfggameplay_spawngear_config() -> dict[str, Any]:
 
 
 def normalize_cfggameplay_for_loadout(raw: Any) -> dict[str, Any]:
-    config = raw if isinstance(raw, dict) else {}
+    if isinstance(raw, dict) and raw:
+        return raw
+    config: dict[str, Any] = {}
     if not config:
         config = default_cfggameplay_spawngear_config()
     config.setdefault("version", 121)
@@ -14070,12 +14229,113 @@ def normalize_cfggameplay_for_loadout(raw: Any) -> dict[str, Any]:
     return config
 
 
-def build_loadout_package_zip(loadout_payload: Any, cfggameplay_payload: Any | None = None) -> io.BytesIO:
-    if not isinstance(loadout_payload, dict):
+PLAYER_LOADOUT_ITEM_KEYS = {"itemType", "item", "Type", "type"}
+PLAYER_LOADOUT_LIST_KEYS = {"items", "cloth", "attachments", "cargo"}
+PLAYER_LOADOUT_BLOCKED_EXACT = {
+    "woodencrate",
+    "staticobj_misc_woodencrate_5x",
+    "seachest",
+    "barrel_blue",
+    "barrel_green",
+    "barrel_red",
+    "barrel_yellow",
+    "offroadhatchback",
+    "civiliansedan",
+    "hatchback_02",
+    "sedan_02",
+    "truck_01",
+    "truck_01_covered",
+    "truck_01_cargo",
+    "offroad_02",
+    "boat_01",
+}
+PLAYER_LOADOUT_BLOCKED_PREFIXES = (
+    "staticobj_",
+    "land_",
+    "wreck_",
+    "vehicle",
+    "offroad",
+    "hatchback",
+    "sedan",
+    "truck_01",
+    "boat_01",
+)
+
+
+def is_disallowed_player_loadout_class(value: Any) -> bool:
+    name = safe_dayz_class(value)
+    if not name:
+        return False
+    lower = name.lower()
+    if lower in PLAYER_LOADOUT_BLOCKED_EXACT:
+        return True
+    if lower.startswith(PLAYER_LOADOUT_BLOCKED_PREFIXES):
+        return True
+    return disallowed_vehicle_part_class(lower)
+
+
+def iter_player_loadout_classnames(value: Any, parent_key: str = "") -> list[str]:
+    names: list[str] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key)
+            if key_text in PLAYER_LOADOUT_ITEM_KEYS and not isinstance(child, (dict, list)):
+                name = safe_dayz_class(child)
+                if name:
+                    names.append(name)
+                continue
+            names.extend(iter_player_loadout_classnames(child, key_text))
+    elif isinstance(value, list):
+        for child in value:
+            if isinstance(child, str) and parent_key in PLAYER_LOADOUT_LIST_KEYS:
+                name = safe_dayz_class(child)
+                if name:
+                    names.append(name)
+            else:
+                names.extend(iter_player_loadout_classnames(child, parent_key))
+    return names
+
+
+def validate_custom_loadout_payload(payload: dict[str, Any]) -> None:
+    names = iter_player_loadout_classnames(payload)
+    blocked = sorted({name for name in names if is_disallowed_player_loadout_class(name)})
+    if blocked:
+        preview = ", ".join(blocked[:12])
+        suffix = f" and {len(blocked) - 12} more" if len(blocked) > 12 else ""
+        raise ValueError(
+            "custom_loadout.json contains world, vehicle, or storage classes that do not belong in player spawn gear: "
+            f"{preview}{suffix}. Remove those from the player loadout before uploading."
+        )
+
+
+def normalize_custom_loadout_payload(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
         raise ValueError("custom_loadout.json must be a JSON object.")
-    player_data = loadout_payload.get("PlayerData")
-    if not isinstance(player_data, dict) or not isinstance(player_data.get("SpawnGear"), dict):
-        raise ValueError("custom_loadout.json must include PlayerData.SpawnGear.")
+    payload = dict(raw)
+    player_data = payload.get("PlayerData")
+    if isinstance(player_data, dict) and isinstance(player_data.get("SpawnGear"), dict):
+        spawngear = dict(player_data["SpawnGear"])
+        if "customSpawnGearFilePath" in spawngear and not any(key in spawngear for key in ("presets", "attachmentSlotItemSets", "cloth", "attachments", "cargo", "slots")):
+            raise ValueError("That looks like cfggameplay.json, not custom_loadout.json. Paste the loadout preset file into custom_loadout.json.")
+    elif "presets" in payload:
+        presets = payload.get("presets")
+        if not isinstance(presets, list) or not presets:
+            raise ValueError("custom_loadout.json presets must be a non-empty list.")
+    elif "attachmentSlotItemSets" in payload or "discreteUnsortedItemSets" in payload:
+        payload.setdefault("spawnWeight", 1)
+        payload.setdefault("name", "Wandering Bot Loadout")
+        payload.setdefault("characterTypes", [])
+    else:
+        raise ValueError(
+            "custom_loadout.json must be DayZ custom spawn gear, such as a DZBTools loadout preset, "
+            "a presets list, or a dashboard PlayerData.SpawnGear export."
+        )
+    validate_custom_loadout_payload(payload)
+    return payload
+
+
+def build_loadout_package_zip(loadout_payload: Any, cfggameplay_payload: Any | None = None) -> io.BytesIO:
+    loadout_payload = normalize_custom_loadout_payload(loadout_payload)
     cfggameplay = normalize_cfggameplay_for_loadout(cfggameplay_payload)
     loadout_text = json.dumps(loadout_payload, indent=2, ensure_ascii=False)
     cfggameplay_text = json.dumps(cfggameplay, indent=2, ensure_ascii=False)
@@ -15028,10 +15288,10 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
                 if category.lower() in str(item.get("category") or "").lower()
                 or category.lower().split("/")[0] in str(item.get("name") or "").lower()
             ]
-        return unique_visual_items(candidates, None if is_cargo_slot else 120)
+        return unique_visual_items(candidates, None)
     if str(meta.get("key", "")).startswith("cargo:"):
         return unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
-    return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []))
+    return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []), None)
 
 
 def unique_visual_items(items: list[dict[str, Any]], limit: int | None = 120) -> list[dict[str, Any]]:
@@ -18169,11 +18429,7 @@ def api_loadout_package_inject():
         _guild_id, config = dashboard_config_from_payload(payload)
         defaults = dashboard_default_ce_paths(config)
         loadout_payload = parse_strict_dashboard_json(str(payload.get("loadout_json") or ""), "custom_loadout.json")
-        if not isinstance(loadout_payload, dict):
-            raise ValueError("custom_loadout.json must be a JSON object.")
-        player_data = loadout_payload.get("PlayerData")
-        if not isinstance(player_data, dict) or not isinstance(player_data.get("SpawnGear"), dict):
-            raise ValueError("custom_loadout.json must include PlayerData.SpawnGear.")
+        loadout_payload = normalize_custom_loadout_payload(loadout_payload)
         cfg_text = str(payload.get("cfggameplay_json") or "").strip()
         cfg_payload = parse_strict_dashboard_json(cfg_text, "cfggameplay.json") if cfg_text else None
         cfggameplay = normalize_cfggameplay_for_loadout(cfg_payload)
@@ -19760,6 +20016,9 @@ def api_ai_agent_state():
     auth, access, state, error = require_ai_agent_permission("read")
     if error:
         return error
+    actor = access.get("label") or dashboard_audit_actor(auth)
+    if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
+        save_ai_agent_state(state)
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
     visible_state = ai_agent_visible_state(state, auth, access)
     visible_runs = visible_state.get("runs", [])
@@ -19921,6 +20180,8 @@ def api_ai_agent_chat():
     run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, prompt)
     run_id = str(run.get("id") or "")
     user_message = ai_agent_chat_message(state, role="user", author=actor, content=prompt, payload={"project_type": payload.get("project_type"), "mode": payload.get("mode"), "continued": continued}, run_id=run_id)
+    if continued:
+        ai_agent_maybe_sync_worker_jobs(state, actor, recover=True, min_interval_seconds=3)
     run_context = ai_agent_run_context_summary(state, run)
     task_objective = f"Continue existing run: {json.dumps(run_context, ensure_ascii=False, default=str)}\nLatest instruction: {prompt}" if continued else prompt
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run_id)
@@ -19930,40 +20191,16 @@ def api_ai_agent_chat():
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
     auto_job = None
-    wants_inspection = any(term in prompt.lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
-    if wants_inspection and access.get("permissions", {}).get("execute") and task:
-        suggestions = task.get("suggested_commands") if isinstance(task.get("suggested_commands"), list) else []
-        inspect_command = next(
-            (
-                item for item in suggestions
-                if isinstance(item, dict)
-                and (
-                    "inspect" in str(item.get("label") or "").lower()
-                    or "project structure" in str(item.get("reason") or "").lower()
-                )
-            ),
-            None,
-        )
-        if inspect_command:
-            auto_payload = {
-                "command": inspect_command.get("command"),
-                "reason": inspect_command.get("reason") or "Automatic safe project inspection requested by chat.",
-                "project_path": inspect_command.get("project_path") or task.get("project_path") or "",
-                "task_id": task.get("id"),
-                "run_id": run_id,
-            }
-            auto_job, auto_error, _ = ai_agent_queue_sandbox_job(state, auth, access, auto_payload, actor)
-            if auto_job:
-                status = str(auto_job.get("status") or "queued")
-                if status in {"done", "failed", "blocked", "cancelled"}:
-                    detail = auto_job.get("stderr") or auto_job.get("stdout") or ""
-                    reply += f"\n\nI also ran the safe project inspection job `{auto_job.get('id')}` and it finished as `{status}`."
-                    if detail:
-                        reply += f"\nResult preview: {ai_agent_compact_text(detail, 420)}"
-                else:
-                    reply += f"\n\nI also queued the safe project inspection job `{auto_job.get('id')}` automatically. Status: `{status}`. Press Continue Run after it finishes and I will use the real output."
-            elif auto_error:
-                reply += f"\n\nI tried to queue the safe inspection job automatically, but it could not start yet: {auto_error}"
+    auto_note = ""
+    wants_auto_followup = (
+        continued
+        or any(term in prompt.lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
+        or ai_agent_prompt_wants_checks(prompt)
+    )
+    if wants_auto_followup:
+        auto_job, auto_note = ai_agent_queue_chat_auto_job(state, auth, access, task, run, payload, prompt, continued=continued, actor=actor)
+        if auto_note:
+            reply += f"\n\n{auto_note}"
     if continued:
         reply = f"Continuing run {run_id}.\n" + reply
     assistant_message = ai_agent_chat_message(
