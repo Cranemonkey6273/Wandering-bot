@@ -14,6 +14,7 @@ import re
 import secrets
 import hashlib
 import subprocess
+import time
 import zipfile
 import urllib.error
 import urllib.parse
@@ -25,7 +26,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
-from flask import Flask, g, jsonify, make_response, redirect, render_template_string, request, send_file
+from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
 
 DATA_ROOT = (
@@ -3175,6 +3176,7 @@ PAGE_TEMPLATE = """
             </div>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</span>
             <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
+            <span class="pill ok" data-ai-live-status>Live sync</span>
           </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
             {% for message in ai_agent_chat_messages|reverse %}
@@ -9418,22 +9420,35 @@ PAGE_TEMPLATE = """
         result.textContent = active;
       }
     }
+    function aiAgentSetLiveStatus(text, kind = "ok") {
+      document.querySelectorAll("[data-ai-live-status]").forEach((node) => {
+        node.textContent = String(text || "Live sync");
+        node.classList.remove("ok", "warn", "bad");
+        node.classList.add(kind);
+      });
+    }
+    function aiAgentJsonRoute(path) {
+      const token = new URLSearchParams(window.location.search).get("token");
+      return secureDashboardUrl(token ? `${path}?token=${encodeURIComponent(token)}` : path);
+    }
     let aiAgentPollTimer = null;
     let aiAgentPollBusy = false;
+    let aiAgentEventSource = null;
     async function aiAgentFetchState(form, thread, options = {}) {
       if (aiAgentPollBusy) return;
       aiAgentPollBusy = true;
-      const token = new URLSearchParams(window.location.search).get("token");
-      const route = token ? `/api/ai-agent/state?token=${encodeURIComponent(token)}` : "/api/ai-agent/state";
       try {
-        const response = await fetch(secureDashboardUrl(route), {
+        const response = await fetch(aiAgentJsonRoute("/api/ai-agent/state"), {
           method: "GET",
           headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
           credentials: "same-origin",
         });
         let body = {};
         try { body = await response.json(); } catch (error) {}
-        if (response.ok) aiAgentSyncState(body, form, thread);
+        if (response.ok) {
+          aiAgentSyncState(body, form, thread);
+          if (!aiAgentEventSource) aiAgentSetLiveStatus("Polling", "warn");
+        }
         else if (!options.silent) {
           const result = form?.querySelector("[data-ai-chat-result], .result");
           if (result) {
@@ -9453,13 +9468,52 @@ PAGE_TEMPLATE = """
         aiAgentPollBusy = false;
       }
     }
+    function aiAgentStartEventStream(form, thread) {
+      if (!window.EventSource || !form || !thread || aiAgentEventSource) return false;
+      try {
+        const source = new EventSource(aiAgentJsonRoute("/api/ai-agent/events"), {withCredentials: true});
+        aiAgentEventSource = source;
+        aiAgentSetLiveStatus("Connecting", "warn");
+        source.addEventListener("open", () => {
+          aiAgentSetLiveStatus("Live", "ok");
+        });
+        source.addEventListener("state", (event) => {
+          try {
+            const body = JSON.parse(event.data || "{}");
+            if (body && body.ok !== false) {
+              aiAgentSyncState(body, form, thread);
+              aiAgentSetLiveStatus("Live", "ok");
+            }
+          } catch (error) {
+            aiAgentSetLiveStatus("Live parse issue", "warn");
+          }
+        });
+        source.addEventListener("close", () => {
+          source.close();
+          if (aiAgentEventSource === source) aiAgentEventSource = null;
+          aiAgentSetLiveStatus("Reconnecting", "warn");
+          window.setTimeout(() => aiAgentStartEventStream(form, thread), 1200);
+        });
+        source.onerror = () => {
+          source.close();
+          if (aiAgentEventSource === source) aiAgentEventSource = null;
+          aiAgentSetLiveStatus("Polling", "warn");
+        };
+        return true;
+      } catch (error) {
+        aiAgentSetLiveStatus("Polling", "warn");
+        return false;
+      }
+    }
     function aiAgentStartLivePolling(form, thread) {
       if (aiAgentPollTimer || !form || !thread) return;
+      aiAgentStartEventStream(form, thread);
       aiAgentFetchState(form, thread, {silent: true});
       aiAgentPollTimer = window.setInterval(() => {
         if (document.hidden) return;
+        if (!aiAgentEventSource) aiAgentStartEventStream(form, thread);
         aiAgentFetchState(form, thread, {silent: true});
-      }, 4000);
+      }, 5000);
     }
     function setupAiAgentChat() {
       const form = document.querySelector("[data-ai-chat-form]");
@@ -9529,6 +9583,7 @@ PAGE_TEMPLATE = """
           result.classList.remove("error", "success");
           result.textContent = "Agent is thinking...";
         }
+        aiAgentSetLiveStatus("Thinking", "warn");
         if (button) {
           button.disabled = true;
           button.textContent = "Thinking...";
@@ -9553,6 +9608,7 @@ PAGE_TEMPLATE = """
           if (!response.ok) {
             const message = body.error || "The agent could not answer that yet.";
             if (content) content.textContent = message;
+            aiAgentSetLiveStatus("Error", "bad");
             if (result) {
               result.classList.add("error");
               result.textContent = message;
@@ -9584,6 +9640,7 @@ PAGE_TEMPLATE = """
           if (bubble) aiChatPlanSteps(bubble, assistant.plan_steps || []);
           if (content) {
             aiChatTypeText(content, assistant.content || body.note || "Done.", () => {
+              aiAgentSetLiveStatus("Live", "ok");
               if (result) {
                 result.classList.add("success");
                 result.textContent = "Agent replied.";
@@ -9595,6 +9652,7 @@ PAGE_TEMPLATE = """
           const content = typingMessage.querySelector("p");
           const message = `Request failed: ${error && error.message ? error.message : error}`;
           if (content) content.textContent = message;
+          aiAgentSetLiveStatus("Error", "bad");
           if (result) {
             result.classList.add("error");
             result.textContent = message;
@@ -20010,6 +20068,38 @@ def ai_agent_queue_sandbox_job(
     return job, "", 200
 
 
+def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    visible_state = ai_agent_visible_state(state, auth, access)
+    visible_runs = visible_state.get("runs", []) if isinstance(visible_state.get("runs"), list) else []
+    sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
+    if auth.get("kind") != "owner":
+        sandbox_payload["agent_brain"] = "online" if sandbox_payload.get("llm_configured") else "planner_ready"
+        sandbox_payload["llm_provider"] = "wandering_agent"
+        sandbox_payload["llm_model"] = "Wandering Agent"
+        sandbox_payload.pop("llm_base_url_configured", None)
+        sandbox_payload.pop("llm_api_key_configured", None)
+    return {
+        "ok": True,
+        "access": access,
+        "god_mode_enabled": bool(state.get("god_mode_enabled")),
+        "approval_rules": state.get("approval_rules", {}),
+        "sandbox": sandbox_payload,
+        "tasks": visible_state.get("tasks", [])[:30],
+        "runs": visible_runs[:30],
+        "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
+        "run_counts": ai_agent_run_counts(visible_state),
+        "approvals": visible_state.get("approvals", [])[:30],
+        "sandbox_jobs": visible_state.get("sandbox_jobs", [])[:30],
+        "chat_messages": visible_state.get("chat_messages", [])[:50],
+        "pending_approvals": ai_agent_pending_approval_count(visible_state),
+        "job_counts": ai_agent_job_counts(visible_state),
+        "activity": visible_state.get("activity", [])[:30] if auth.get("kind") == "owner" else [],
+        "credits_remaining": safe_int(auth.get("credits"), 0) if isinstance(auth, dict) and auth.get("kind") == "agent_account" else None,
+        "chat_credit_cost": AGENT_CHAT_CREDIT_COST,
+        "server_time": datetime.now(UTC).isoformat(),
+    }
+
 
 @APP.get("/api/ai-agent/state")
 def api_ai_agent_state():
@@ -20019,37 +20109,36 @@ def api_ai_agent_state():
     actor = access.get("label") or dashboard_audit_actor(auth)
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
-    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
-    visible_state = ai_agent_visible_state(state, auth, access)
-    visible_runs = visible_state.get("runs", [])
-    sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
-    if auth.get("kind") != "owner":
-        sandbox_payload["agent_brain"] = "online" if sandbox_payload.get("llm_configured") else "planner_ready"
-        sandbox_payload["llm_provider"] = "wandering_agent"
-        sandbox_payload["llm_model"] = "Wandering Agent"
-        sandbox_payload.pop("llm_base_url_configured", None)
-        sandbox_payload.pop("llm_api_key_configured", None)
-    return jsonify(
-        {
-            "ok": True,
-            "access": access,
-            "god_mode_enabled": bool(state.get("god_mode_enabled")),
-            "approval_rules": state.get("approval_rules", {}),
-            "sandbox": sandbox_payload,
-            "tasks": visible_state.get("tasks", [])[:30],
-            "runs": visible_runs[:30],
-            "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
-            "run_counts": ai_agent_run_counts(visible_state),
-            "approvals": visible_state.get("approvals", [])[:30],
-            "sandbox_jobs": visible_state.get("sandbox_jobs", [])[:30],
-            "chat_messages": visible_state.get("chat_messages", [])[:50],
-            "pending_approvals": ai_agent_pending_approval_count(visible_state),
-            "job_counts": ai_agent_job_counts(visible_state),
-            "activity": visible_state.get("activity", [])[:30] if auth.get("kind") == "owner" else [],
-            "credits_remaining": safe_int(auth.get("credits"), 0) if isinstance(auth, dict) and auth.get("kind") == "agent_account" else None,
-            "chat_credit_cost": AGENT_CHAT_CREDIT_COST,
-            "server_time": datetime.now(UTC).isoformat(),
-        }
+    return jsonify(ai_agent_state_payload(auth, access, state))
+
+
+@APP.get("/api/ai-agent/events")
+def api_ai_agent_events():
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    actor = access.get("label") or dashboard_audit_actor(auth)
+    if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
+        save_ai_agent_state(state)
+
+    def sse_payload(payload: dict[str, Any], event_name: str = "state") -> str:
+        return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+
+    @stream_with_context
+    def generate():
+        yield sse_payload(ai_agent_state_payload(auth, access, state))
+        for _ in range(45):
+            time.sleep(2)
+            live_state = load_ai_agent_state()
+            if ai_agent_maybe_sync_worker_jobs(live_state, actor, recover=False, min_interval_seconds=2):
+                save_ai_agent_state(live_state)
+            yield sse_payload(ai_agent_state_payload(auth, access, live_state))
+        yield sse_payload({"ok": True, "message": "reconnect"}, "close")
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
