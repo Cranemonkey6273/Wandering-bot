@@ -6340,9 +6340,27 @@ async def maybe_translate_message(message):
             return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
         if _norm(translated) == _norm(message.content):
-            print(f"[TRANSLATE] rule#{rule_index} skipped - already in target lang")
-            record_translation_runtime_stat(guild_id, "skipped", f"rule#{rule_index} already in target lang")
-            continue
+            retry_translated = None
+            if src_lang not in {"auto", "autodetect"}:
+                retry_translated = await translate_text(
+                    message.content[:900],
+                    target_lang,
+                    "auto",
+                )
+            if retry_translated and _norm(retry_translated) != _norm(message.content):
+                translated = retry_translated
+                print(f"[TRANSLATE] rule#{rule_index} autodetect retry succeeded")
+            else:
+                print(
+                    f"[TRANSLATE] rule#{rule_index} skipped - unchanged result "
+                    f"src={src_lang} target={target_lang} result={translated[:120]!r}"
+                )
+                record_translation_runtime_stat(
+                    guild_id,
+                    "skipped",
+                    f"rule#{rule_index} unchanged translation result src={src_lang} target={target_lang}",
+                )
+                continue
 
         target_channel, target_error = await resolve_translation_target_channel(message, rule, mode)
         if not target_channel:
@@ -10941,11 +10959,20 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     state["diagnostics_updated_ts"] = now_ts
 
     saw_new_restart = force_restart_post
+    restart_history_record = None
     last_known = int(state.get("restart_marker_count") or 0)
     if len(restart_markers) > last_known:
         saw_new_restart = True
         state["restart_marker_count"] = len(restart_markers)
         state["last_restart_ts"] = now_ts
+        restart_history_record = append_restart_history(
+            guild_id,
+            config,
+            "rpt_detected",
+            "detected",
+            f"Fresh mission marker detected in latest RPT. Total restart markers now {len(restart_markers)}.",
+            "RPT tracker",
+        )
 
     existing_by_id = {e["id"]: e for e in state.get("events", [])}
     fresh_ids = set()
@@ -10976,6 +11003,9 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
 
     if saw_new_restart:
         await _post_rpt_restart_report(guild, state, new_events_this_cycle or kept, diagnostics)
+        if restart_history_record:
+            save_guild_configs()
+            await publish_restart_history(guild_id, config, restart_history_record)
         save_rpt_event_tracker()
 
     return f"OK — {len(kept)} live event(s), restart={saw_new_restart}, restarts_total={state.get('restart_marker_count', 0)}"
@@ -20039,6 +20069,16 @@ async def restartserver(ctx):
 
     ok, message = await asyncio.to_thread(nitrado_restart_server_now, config)
     print(f"RESTART STATUS: ok={ok} {message}")
+    record = append_restart_history(
+        guild_id,
+        config,
+        "discord_command",
+        "requested" if ok else "failed",
+        message,
+        str(ctx.author),
+    )
+    save_guild_configs()
+    await publish_restart_history(guild_id, config, record)
 
 
 @bot.command()
@@ -20238,6 +20278,60 @@ last_restart_hour = {}
 restart_warning_tracker = {}
 
 
+def append_restart_history(guild_id, config, source, status, details="", actor=""):
+    if not isinstance(config, dict):
+        return {}
+    history = config.setdefault("restart_history", [])
+    if not isinstance(history, list):
+        history = []
+        config["restart_history"] = history
+    record = {
+        "id": f"restart-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}",
+        "created_at": datetime.now(UTC).isoformat(),
+        "source": str(source or "unknown")[:80],
+        "status": str(status or "detected")[:80],
+        "details": str(details or "")[:500],
+        "actor": str(actor or "")[:160],
+    }
+    history.insert(0, record)
+    del history[60:]
+    return record
+
+
+async def publish_restart_history(guild_id, config, record):
+    if not record or not isinstance(config, dict):
+        return
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel_id = (
+        config.get("restart_log_channel_id")
+        or channels.get(config.get("restart_log_channel_key") or "restart_alerts")
+        or channels.get("restart_alerts")
+        or channels.get("admin_logs")
+    )
+    if not channel_id:
+        return
+    try:
+        channel = bot.get_channel(int(channel_id))
+    except Exception:
+        channel = None
+    if not channel:
+        return
+    embed = discord.Embed(
+        title="Server Restart Log",
+        description=str(record.get("details") or "Restart activity recorded.")[:1500],
+        color=0x94B4FF if str(record.get("status")) in {"requested", "detected"} else 0xE74C3C,
+    )
+    embed.add_field(name="Source", value=str(record.get("source") or "unknown").replace("_", " ").title(), inline=True)
+    embed.add_field(name="Status", value=str(record.get("status") or "detected").replace("_", " ").title(), inline=True)
+    if record.get("actor"):
+        embed.add_field(name="Actor", value=str(record.get("actor"))[:1000], inline=False)
+    embed.timestamp = datetime.now(UTC)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as error:
+        print(f"[RESTART LOG] failed for {guild_id}: {error}")
+
+
 RESTART_COUNTDOWN_WARNINGS = {
     30: {
         "title": "⏰ HEADS UP — SERVER RESTARTING IN 30 MINUTES",
@@ -20289,9 +20383,7 @@ RESTART_DOWN_FUNNIES = [
 
 
 def _minutes_until_next_restart(now, restart_offset, restart_interval):
-    """Return minutes until the next scheduled restart hour, or None if
-    the next restart is further away than the largest configured warning
-    threshold."""
+    """Return minutes until the next scheduled restart hour."""
     try:
         restart_offset = int(restart_offset or 0) % 24
         restart_interval = int(restart_interval or 0)
@@ -20317,10 +20409,7 @@ def _minutes_until_next_restart(now, restart_offset, restart_interval):
             delta += 24 * 60
         candidates.append(delta)
 
-    minutes_left = min(candidates) if candidates else None
-    if minutes_left is None or minutes_left > max(RESTART_COUNTDOWN_WARNINGS):
-        return None
-    return minutes_left
+    return min(candidates) if candidates else None
 
 
 @tasks.loop(minutes=1)
@@ -20335,7 +20424,7 @@ async def scheduled_restart_loop():
 
     # ────────────────────────────────────────────────────────────────
     # PRE-RESTART COUNTDOWN WARNINGS in general_chat
-    # Fires once at 30 minutes before each scheduled restart.
+    # Fires once for each configured warning minute before each scheduled restart.
     # The warning is deleted when the restart triggers so chat does not
     # fill up with old restart notices.
     # ────────────────────────────────────────────────────────────────
@@ -20355,21 +20444,38 @@ async def scheduled_restart_loop():
             minutes_until = _minutes_until_next_restart(now, restart_offset, restart_interval)
             if minutes_until is None:
                 continue
-            if minutes_until != 30:
+
+            configured_warnings = []
+            for raw_warning in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
+                try:
+                    warning_minute = int(raw_warning)
+                except Exception:
+                    continue
+                if warning_minute > 0 and warning_minute not in configured_warnings:
+                    configured_warnings.append(warning_minute)
+            if minutes_until not in configured_warnings:
                 continue
 
-            warning = RESTART_COUNTDOWN_WARNINGS.get(minutes_until)
-            if not warning:
-                continue
+            warning = RESTART_COUNTDOWN_WARNINGS.get(minutes_until) or {
+                "title": f"RESTART IN {minutes_until} MINUTES",
+                "body": "Scheduled restart warning. Finish up and get somewhere safe.",
+                "color": 0xF39C12,
+            }
 
             channels = config.get("channels", {})
             # Honour per-guild override: admins can set the countdown to
             # post in a dedicated channel via /extra setcountdownchannel.
             # Falls back to general_chat if no override is configured.
             countdown_channel_id = (
-                channels.get("restart_countdown")
+                config.get("restart_channel_id")
+                or channels.get(config.get("restart_channel_key") or "")
+                or channels.get("restart_countdown")
                 or channels.get("general_chat")
             )
+            try:
+                countdown_channel_id = int(countdown_channel_id)
+            except Exception:
+                countdown_channel_id = None
             chat_channel = bot.get_channel(countdown_channel_id)
             if not chat_channel:
                 continue
@@ -20444,9 +20550,16 @@ async def scheduled_restart_loop():
 
             channels = config.get("channels", {})
 
-            announce_channel = bot.get_channel(
-                channels.get("restart_alerts")
+            announce_channel_id = (
+                config.get("restart_channel_id")
+                or channels.get(config.get("restart_channel_key") or "")
+                or channels.get("restart_alerts")
             )
+            try:
+                announce_channel_id = int(announce_channel_id)
+            except Exception:
+                announce_channel_id = None
+            announce_channel = bot.get_channel(announce_channel_id)
 
             if announce_channel:
 
@@ -20477,9 +20590,15 @@ async def scheduled_restart_loop():
                 # Post the "go touch grass" follow-up to the same channel
                 # the countdown was using (honours the per-guild override).
                 countdown_channel_id = (
-                    channels.get("restart_countdown")
+                    config.get("restart_channel_id")
+                    or channels.get(config.get("restart_channel_key") or "")
+                    or channels.get("restart_countdown")
                     or channels.get("general_chat")
                 )
+                try:
+                    countdown_channel_id = int(countdown_channel_id)
+                except Exception:
+                    countdown_channel_id = None
                 chat_channel = bot.get_channel(countdown_channel_id)
                 if chat_channel:
                     final_embed = discord.Embed(
@@ -20574,9 +20693,41 @@ async def scheduled_restart_loop():
                         )
 
                         print(f"AUTO RESTART STATUS: {restart_response.status_code}")
+                        restart_ok = restart_response.status_code in {200, 201, 202, 204}
+                        record = append_restart_history(
+                            guild_id,
+                            config,
+                            "bot_schedule",
+                            "requested" if restart_ok else "failed",
+                            f"Scheduled restart at {current_hour:02d}:00 UTC. Nitrado status {restart_response.status_code}.",
+                            "scheduled_restart_loop",
+                        )
+                        save_guild_configs()
+                        await publish_restart_history(guild_id, config, record)
 
                     except Exception as restart_error:
                         print(restart_error)
+                        record = append_restart_history(
+                            guild_id,
+                            config,
+                            "bot_schedule",
+                            "failed",
+                            f"Scheduled restart exception: {restart_error}",
+                            "scheduled_restart_loop",
+                        )
+                        save_guild_configs()
+                        await publish_restart_history(guild_id, config, record)
+                else:
+                    record = append_restart_history(
+                        guild_id,
+                        config,
+                        "bot_schedule",
+                        "blocked",
+                        "Scheduled restart reached its time, but Nitrado token or service id is missing.",
+                        "scheduled_restart_loop",
+                    )
+                    save_guild_configs()
+                    await publish_restart_history(guild_id, config, record)
 
         except Exception as error:
 

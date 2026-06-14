@@ -6089,9 +6089,10 @@ PAGE_TEMPLATE = """
       {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'cfgignorelist') if server else 'cfgignorelist' %}
       <div class="mini-grid" style="margin-bottom:1rem">
         <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
+        <div class="mini-card"><span class="muted">Next restart</span><strong>{{ restart_status.next_restart_uk }}</strong><span>{% if restart_status.minutes_until is not none %}In about {{ restart_status.minutes_until }} min{% else %}Schedule disabled{% endif %}</span></div>
+        <div class="mini-card"><span class="muted">Last restart</span><strong>{{ restart_status.last_restart.status|default('No log yet')|replace('_', ' ')|title }}</strong><span>{{ restart_status.last_restart.source|default('Waiting for bot/RPT')|replace('_', ' ')|title }}</span></div>
         <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_first_date %} from {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_first_date %} from {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
-        <div class="mini-card"><span class="muted">Repeat</span><strong>{{ vr_interval_value }} {{ vr_interval_unit }}</strong><span>{% if vr_weekday %}{{ vr_weekday|title }}{% elif vr_month_day %}Day {{ vr_month_day }}{% else %}From first date{% endif %}</span></div>
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
@@ -6107,9 +6108,43 @@ PAGE_TEMPLATE = """
               <select name="restart_channel_key">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
+              <small class="field-help">Where pre-restart warning messages go.</small>
             </label>
+            <label>Restart log channel
+              <select name="restart_log_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == restart_status.log_channel_key or channel.id == restart_status.log_channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Where the bot posts restart audit logs: scheduled, command, dashboard, vehicle reset and RPT-detected restarts.</small>
+            </label>
+            <div class="full embed-preview"><strong>Live restart status</strong><span>{% if restart_status.enabled %}Next restart: {{ restart_status.next_restart_uk }}. Warning minutes: {{ restart_status.warnings|join(', ') }}.{% else %}Restart schedule is disabled.{% endif %} External Nitrado/manual restarts show here after the next RPT pull detects the fresh mission.</span></div>
             <div class="full"><button type="submit">Save Restart Schedule</button> <span class="result muted"></span></div>
           </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Live Restart Log</h3>
+          <div class="stack">
+            <div class="embed-preview"><strong>Warning channel</strong><span>{{ channel_label(server.channels if server else [], restart_status.warning_channel_id or restart_status.warning_channel_key, 'Not set') }}</span></div>
+            <div class="embed-preview"><strong>Audit channel</strong><span>{{ channel_label(server.channels if server else [], restart_status.log_channel_id or restart_status.log_channel_key, 'Not set') }}</span></div>
+            {% if restart_status.history %}
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead><tr><th>Time</th><th>Source</th><th>Status</th><th>Details</th></tr></thead>
+                  <tbody>
+                    {% for item in restart_status.history %}
+                    <tr>
+                      <td>{{ item.created_at|default(item.detected_at|default(''))|replace('T', ' ')|replace('+00:00', ' UTC') }}</td>
+                      <td>{{ item.source|default('unknown')|replace('_', ' ')|title }}</td>
+                      <td>{{ item.status|default('detected')|replace('_', ' ')|title }}</td>
+                      <td>{{ item.details|default(item.message|default('')) }}</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <p class="tool-note">No restart log yet. The next bot-triggered restart or RPT-detected restart will appear here.</p>
+            {% endif %}
+          </div>
         </article>
         <article class="admin-panel">
           <h3>Damage Settings</h3>
@@ -15676,6 +15711,56 @@ def local_dashboard_clock() -> str:
     return datetime.now(DASHBOARD_TIMEZONE).strftime("%H:%M")
 
 
+def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        config = {}
+    enabled = config.get("restart_schedule_enabled", True) is not False
+    interval = max(1, min(24, safe_int(config.get("restart_interval_hours"), 4)))
+    start_hour = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
+    warnings = []
+    for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in warnings:
+            warnings.append(minute)
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    history = config.get("restart_history") if isinstance(config.get("restart_history"), list) else []
+    now = datetime.now(UTC)
+    next_restart_utc = None
+    minutes_until = None
+    if enabled:
+        candidate_hours = [
+            hour for hour in range(24)
+            if hour >= start_hour and ((hour - start_hour) % interval == 0)
+        ]
+        if not candidate_hours:
+            candidate_hours = [start_hour]
+        candidates = []
+        for day_offset in (0, 1):
+            base_date = (now + timedelta(days=day_offset)).date()
+            for hour in candidate_hours:
+                candidate = datetime(base_date.year, base_date.month, base_date.day, hour, 0, tzinfo=UTC)
+                if candidate > now:
+                    candidates.append(candidate)
+        next_restart_utc = min(candidates) if candidates else None
+        if next_restart_utc:
+            minutes_until = int((next_restart_utc - now).total_seconds() // 60)
+    return {
+        "enabled": enabled,
+        "interval_hours": interval,
+        "start_hour": start_hour,
+        "warnings": sorted(warnings, reverse=True),
+        "next_restart_utc": next_restart_utc.isoformat() if next_restart_utc else "",
+        "next_restart_uk": next_restart_utc.astimezone(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M UK") if next_restart_utc else "Not scheduled",
+        "minutes_until": minutes_until,
+        "warning_channel_key": str(config.get("restart_channel_key") or "admin_logs"),
+        "warning_channel_id": str(config.get("restart_channel_id") or channels.get(config.get("restart_channel_key") or "admin_logs") or ""),
+        "log_channel_key": str(config.get("restart_log_channel_key") or "restart_alerts"),
+        "log_channel_id": str(config.get("restart_log_channel_id") or channels.get(config.get("restart_log_channel_key") or "restart_alerts") or ""),
+        "last_restart": history[0] if history and isinstance(history[0], dict) else {},
+        "history": [item for item in history[:12] if isinstance(item, dict)],
+    }
+
+
 def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
     if not DISCORD_TOKEN or not guild_id:
         return []
@@ -17420,11 +17505,19 @@ def page(mode: str, auth: dict[str, Any]):
     visual_loadout_category = str(request.args.get("loadout_category") or "").strip()
     if visual_loadout_category not in {item["key"] for item in VISUAL_LOADOUT_CATEGORY_FILTERS}:
         visual_loadout_category = ""
-    visual_loadout_items = visual_loadout_items_for_view(picker_groups, visual_loadout_slot, visual_loadout_category)
-    visual_loadout_draft = normalize_visual_loadout_draft(selected_config.get("visual_loadout_draft") if isinstance(selected_config, dict) else {})
-    visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
-    visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups)
-    visual_loadout_slot_card_rows = visual_loadout_slot_cards(visual_loadout_draft, picker_groups)
+    if active_section == "visual-loadout":
+        visual_loadout_items = visual_loadout_items_for_view(picker_groups, visual_loadout_slot, visual_loadout_category)
+        visual_loadout_draft = normalize_visual_loadout_draft(selected_config.get("visual_loadout_draft") if isinstance(selected_config, dict) else {})
+        visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
+        visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups)
+        visual_loadout_slot_card_rows = visual_loadout_slot_cards(visual_loadout_draft, picker_groups)
+    else:
+        visual_loadout_items = []
+        visual_loadout_draft = empty_visual_loadout_draft()
+        visual_loadout_json_text = "{}"
+        visual_loadout_equipped_rows = []
+        visual_loadout_slot_card_rows = []
+    restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -17457,6 +17550,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text=visual_loadout_json_text,
         visual_loadout_selected_rows=visual_loadout_equipped_rows,
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
+        restart_status=restart_status,
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
         ai_agent_tasks=ai_agent_state.get("tasks", []),
@@ -19686,6 +19780,10 @@ def api_server_control():
         restart_key, restart_id = resolve_channel_selection(config, payload.get("restart_channel_key"))
         config["restart_channel_key"] = restart_key
         config["restart_channel_id"] = restart_id
+    if "restart_log_channel_key" in payload:
+        restart_log_key, restart_log_id = resolve_channel_selection(config, payload.get("restart_log_channel_key"))
+        config["restart_log_channel_key"] = restart_log_key
+        config["restart_log_channel_id"] = restart_log_id
 
     if "base_damage_state" in payload:
         config["base_damage_state"] = "off" if str(payload.get("base_damage_state")).lower() == "off" else "on"
@@ -19802,6 +19900,7 @@ def api_server_control():
         "restart_start_hour",
         "restart_warning_minutes",
         "restart_channel_key",
+        "restart_log_channel_key",
     }.intersection(payload.keys()):
         saved_parts.append("restart schedule")
     if {"base_damage_state", "container_damage_state"}.intersection(payload.keys()) or damage_schedule_keys.intersection(payload.keys()):
