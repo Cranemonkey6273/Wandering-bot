@@ -15963,10 +15963,12 @@ async def dashboard_member_action_loop():
                 action["processed_at"] = datetime.now(UTC).isoformat()
                 if ok and action_type == "dayz_temp_ban":
                     minutes = max(1, int(action.get("minutes") or 1440))
+                    until_dt = datetime.now(UTC) + timedelta(minutes=minutes)
                     config.setdefault("nitrado_temp_bans", []).append(
                         {
                             "gamertag": player_name,
-                            "expires_at": (datetime.now(UTC) + timedelta(minutes=minutes)).isoformat(),
+                            "expires_at": until_dt.isoformat(),
+                            "until_ts": until_dt.timestamp(),
                             "reason": str(action.get("reason") or "Dashboard temp ban"),
                             "source": "dashboard",
                         }
@@ -19183,7 +19185,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
                 "reason": reason,
                 "created_ts": datetime.now(UTC).timestamp(),
                 "until_ts": datetime.now(UTC).timestamp() + minutes * 60,
-                "restart_on_unban": bool(settings.get("restart_on_ban", True)),
+                "restart_on_unban": False,
                 "source": "discord_link_enforcement",
             })
             label = f"TEMP banned for {minutes} minute(s)"
@@ -19200,15 +19202,11 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             pending_record["action"] = action
             pending_record["enforced_ts"] = datetime.now(UTC).timestamp()
         save_guild_configs()
-        restart_note = ""
-        if settings.get("restart_on_ban", True):
-            restart_ok, restart_msg = nitrado_restart_server_now(config)
-            restart_note = f"\nImmediate restart: {'OK' if restart_ok else 'FAILED'} - {restart_msg}"
         await _post_link_enforcement_notice(
             guild,
             config,
             "Unlinked Player Enforced",
-            base_message + f"\nResult: {label} through Nitrado banlist.{restart_note}",
+            base_message + f"\nResult: {label} through Nitrado banlist.\nNo restart requested; Nitrado should kick the player once the ban list refreshes.",
             0xE74C3C,
         )
         return True
@@ -19446,28 +19444,26 @@ async def process_nitrado_temp_ban_expiries():
         remaining = []
         expired = []
         for record in temp_bans:
-            if float(record.get("until_ts", 0)) <= now_ts:
+            until_ts = float(record.get("until_ts") or 0)
+            if until_ts <= 0 and record.get("expires_at"):
+                try:
+                    until_ts = datetime.fromisoformat(str(record.get("expires_at")).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    until_ts = 0
+            if until_ts <= now_ts:
                 expired.append(record)
             else:
                 remaining.append(record)
         if not expired:
             continue
-        restart_after_unban = False
         for record in expired:
             try:
                 ok, msg = remove_player_from_nitrado_banlist(config, record.get("gamertag", ""))
                 print(f"[SAFEZONE] auto-unban {record.get('gamertag')}: ok={ok} msg={msg}")
-                restart_after_unban = restart_after_unban or bool(record.get("restart_on_unban"))
             except Exception as err:
                 print(f"[SAFEZONE] auto-unban error: {err}")
         config["nitrado_temp_bans"] = remaining
         save_guild_configs()
-        if restart_after_unban:
-            try:
-                ok, msg = nitrado_restart_server_now(config)
-                print(f"[SAFEZONE] auto-unban restart: ok={ok} msg={msg}")
-            except Exception as err:
-                print(f"[SAFEZONE] auto-unban restart error: {err}")
 
 
 async def check_radar_zones_for_adm(guild_id, config, event_type, line):
@@ -20141,6 +20137,7 @@ async def setrestartinterval(ctx, hours: int):
 
     guild_configs[guild_id]["restart_interval_hours"] = hours
     guild_configs[guild_id]["restart_schedule_enabled"] = True
+    guild_configs[guild_id]["restart_schedule_confirmed"] = True
 
     save_guild_configs()
 
@@ -20176,6 +20173,7 @@ async def setrestartstart(ctx, hour: int):
 
     guild_configs[guild_id]["restart_start_hour"] = hour
     guild_configs[guild_id]["restart_schedule_enabled"] = True
+    guild_configs[guild_id]["restart_schedule_confirmed"] = True
 
     save_guild_configs()
 
@@ -20197,7 +20195,7 @@ async def listrestarts(ctx):
 
     config = guild_configs.get(guild_id, {})
 
-    if config.get("restart_schedule_enabled", True) is False:
+    if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
         embed = discord.Embed(
             title="RESTART SCHEDULE OFF",
             description="Automatic recurring restarts are disabled. Use `/setrestartinterval` and `/setrestartstart` to set them up again.",
@@ -20256,6 +20254,7 @@ async def cancelrestarts(ctx):
         return
 
     guild_configs[guild_id]["restart_schedule_enabled"] = False
+    guild_configs[guild_id]["restart_schedule_confirmed"] = False
     save_guild_configs()
 
     embed = discord.Embed(
@@ -20430,7 +20429,7 @@ async def scheduled_restart_loop():
     # ────────────────────────────────────────────────────────────────
     for guild_id, config in active_guild_config_items():
         try:
-            if config.get("restart_schedule_enabled", True) is False:
+            if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
                 continue
 
             restart_interval = int(config.get(
@@ -20517,7 +20516,7 @@ async def scheduled_restart_loop():
 
     for guild_id, config in active_guild_config_items():
 
-        if config.get("restart_schedule_enabled", True) is False:
+        if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
             continue
 
         restart_interval = config.get(
@@ -28415,6 +28414,16 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
         event["status"] = "Vehicles init set to 0; restarting server for wipe cycle"
         save_guild_configs()
         restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+        record = append_restart_history(
+            guild_id,
+            config,
+            "vehicle_reset",
+            "requested" if restart_ok else "failed",
+            f"Economy vehicle reset restart: {restart_message}",
+            "vehicle reset workflow",
+        )
+        save_guild_configs()
+        await publish_restart_history(guild_id, config, record)
         if not restart_ok:
             event["status"] = restart_message
             return False, restart_message
@@ -28676,6 +28685,16 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 return False, event["status"]
 
             restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+            record = append_restart_history(
+                guild_id,
+                config,
+                "vehicle_reset",
+                "requested" if restart_ok else "failed",
+                f"Scheduled cfgignorelist vehicle reset restore restart: {restart_message}",
+                "vehicle reset workflow",
+            )
+            save_guild_configs()
+            await publish_restart_history(guild_id, config, record)
             if not restart_ok:
                 event["status"] = f"Original cfgignorelist restored, but restore restart failed: {restart_message}"
                 return False, event["status"]
@@ -28772,6 +28791,16 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
         event["status"] = "Vehicle-only cfgignorelist.xml uploaded; restarting server for reset cycle"
         save_guild_configs()
         restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+        record = append_restart_history(
+            guild_id,
+            config,
+            "vehicle_reset",
+            "requested" if restart_ok else "failed",
+            f"cfgignorelist vehicle reset restart: {restart_message}",
+            "vehicle reset workflow",
+        )
+        save_guild_configs()
+        await publish_restart_history(guild_id, config, record)
         if not restart_ok:
             event["status"] = restart_message
             return False, restart_message
@@ -38228,6 +38257,117 @@ async def gameban_list(interaction: discord.Interaction):
 # ============================================================================
 # /server liveevents … — RPT-based live event tracker
 # ============================================================================
+
+@gameban_group.command(name="live", description="Read the live Nitrado banlist file.")
+@app_commands.default_permissions(ban_members=True)
+async def gameban_live(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("Need Ban Members permission.", ephemeral=True)
+        return
+    config = guild_configs.get(str(interaction.guild.id), {})
+    await interaction.response.defer(ephemeral=True)
+    live_entries = await asyncio.to_thread(fetch_nitrado_banlist, config)
+    if not live_entries:
+        await interaction.followup.send("No live Nitrado ban-list entries found.", ephemeral=True)
+        return
+    lines = [f"- `{name}`" for name in live_entries[:40]]
+    if len(live_entries) > 40:
+        lines.append(f"- +{len(live_entries) - 40} more")
+    embed = discord.Embed(
+        title=f"Live Nitrado Ban List ({len(live_entries)})",
+        description="\n".join(lines)[:4000],
+        color=0xE74C3C,
+    )
+    await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
+
+
+@bot.command(name="banlist")
+async def banlist_command(ctx):
+    if not has_staff_permissions(ctx):
+        return
+    config = guild_configs.get(str(ctx.guild.id), {})
+    live_entries = await asyncio.to_thread(fetch_nitrado_banlist, config)
+    temps = config.get("nitrado_temp_bans", [])
+    perms = config.get("nitrado_perm_bans", [])
+    if not live_entries and not temps and not perms:
+        await ctx.send("No DayZ-server bans active.")
+        return
+    lines = []
+    if live_entries:
+        lines.append("**Live Nitrado ban list**")
+        for name in live_entries[:30]:
+            lines.append(f"- `{name}`")
+        if len(live_entries) > 30:
+            lines.append(f"- +{len(live_entries) - 30} more")
+    now_ts = datetime.now(UTC).timestamp()
+    if temps:
+        lines.append("\n**Tracked temp bans**")
+    for record in temps[:20]:
+        remaining_s = max(0, int(record.get("until_ts", 0) - now_ts))
+        lines.append(f"- `{record.get('gamertag')}` temp, {format_duration_seconds(remaining_s)} left")
+    if perms:
+        lines.append("\n**Tracked perm bans**")
+    for record in perms[:20]:
+        lines.append(f"- `{record.get('gamertag')}` perm")
+    embed = discord.Embed(
+        title=f"DayZ Server Bans ({len(live_entries)} live)",
+        description="\n".join(lines)[:4000],
+        color=0xE74C3C,
+    )
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command(name="nitradoban")
+async def nitradoban_command(ctx, gamertag: str, minutes: int = 0, *, reason: str = "Manual ban"):
+    if not has_staff_permissions(ctx):
+        return
+    config = guild_configs.setdefault(str(ctx.guild.id), {"channels": {}})
+    ok, msg = await asyncio.to_thread(add_player_to_nitrado_banlist, config, gamertag)
+    if not ok:
+        await ctx.send(f"Banlist push failed: `{msg}`")
+        return
+    if minutes > 0:
+        config.setdefault("nitrado_temp_bans", []).append({
+            "gamertag": gamertag.strip(),
+            "zone_id": None,
+            "zone_name": "Manual",
+            "trigger": "manual",
+            "reason": reason,
+            "created_ts": datetime.now(UTC).timestamp(),
+            "until_ts": datetime.now(UTC).timestamp() + minutes * 60,
+            "offense_count": 1,
+        })
+        label = f"Temp-banned `{gamertag}` for {format_duration_seconds(minutes * 60)}"
+    else:
+        config.setdefault("nitrado_perm_bans", []).append({
+            "gamertag": gamertag.strip(),
+            "zone_id": None,
+            "zone_name": "Manual",
+            "trigger": "manual",
+            "reason": reason,
+            "created_ts": datetime.now(UTC).timestamp(),
+            "offense_count": 1,
+        })
+        label = f"Perm-banned `{gamertag}`"
+    save_guild_configs()
+    await ctx.send(f"{label}. No restart requested; Nitrado should kick them once the ban list refreshes.")
+
+
+@bot.command(name="nitradounban")
+async def nitradounban_command(ctx, gamertag: str):
+    if not has_staff_permissions(ctx):
+        return
+    config = guild_configs.setdefault(str(ctx.guild.id), {"channels": {}})
+    ok, msg = await asyncio.to_thread(remove_player_from_nitrado_banlist, config, gamertag)
+    if not ok:
+        await ctx.send(f"Banlist remove failed: `{msg}`")
+        return
+    needle = gamertag.strip().lower()
+    config["nitrado_temp_bans"] = [r for r in config.get("nitrado_temp_bans", []) if r.get("gamertag", "").lower() != needle]
+    config["nitrado_perm_bans"] = [r for r in config.get("nitrado_perm_bans", []) if r.get("gamertag", "").lower() != needle]
+    save_guild_configs()
+    await ctx.send(f"Unbanned `{gamertag}` from the DayZ server. No restart requested.")
+
 
 liveevents_group = app_commands.Group(
     name="liveevents",

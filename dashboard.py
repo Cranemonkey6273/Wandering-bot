@@ -5966,7 +5966,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Server Rules & Nitrado Control</h2>
-          <p class="tool-note">Control Discord-link enforcement, automatic Nitrado bans, immediate restart-on-ban, and DayZ on-screen messages. File changes take effect after a server restart.</p>
+          <p class="tool-note">Control Discord-link enforcement, automatic Nitrado bans, and DayZ on-screen messages. Nitrado ban-list changes apply live after a short delay, so the bot does not restart the server for bans.</p>
         </div>
       </div>
       <div class="panel-grid">
@@ -5998,14 +5998,7 @@ PAGE_TEMPLATE = """
             </label>
             <label>Temp ban minutes
               <input name="temp_ban_minutes" type="number" value="{{ link_enforcement.temp_ban_minutes or 60 }}" min="1">
-              <small class="field-help">Only used when action is temp ban. The bot later removes the ban and can restart again.</small>
-            </label>
-            <label>Restart after ban
-              <select name="restart_on_ban">
-                <option value="true" {% if link_enforcement.restart_on_ban is not defined or link_enforcement.restart_on_ban %}selected{% endif %}>Yes, immediately</option>
-                <option value="false" {% if link_enforcement.restart_on_ban is defined and not link_enforcement.restart_on_ban %}selected{% endif %}>No</option>
-              </select>
-              <small class="field-help">Console ban-list changes are read on restart, so this makes the ban take effect straight away.</small>
+              <small class="field-help">Only used when action is temp ban. The bot later removes the ban list entry without restarting the server.</small>
             </label>
             <label>Notify channel
               <select name="notification_channel_key">
@@ -6059,7 +6052,7 @@ PAGE_TEMPLATE = """
           <p class="tool-note">Maintenance controls for this server only: restarts, raid damage, container damage, and vehicle reset schedules. Spawn events and loadout builders live on their own pages.</p>
         </div>
       </div>
-      {% set restart_on = not (server and server.config.restart_schedule_enabled == false) %}
+      {% set restart_on = server and server.config.restart_schedule_enabled == true and server.config.restart_schedule_confirmed == true %}
       {% set restart_hours = (server.config.restart_interval_hours if server else 4) or 4 %}
       {% set restart_start = (server.config.restart_start_hour if server else 0) or 0 %}
       {% set restart_warnings = (server.config.restart_warning_minutes|join(', ') if server and server.config.restart_warning_minutes else '30, 15, 10, 5, 1') %}
@@ -15714,7 +15707,7 @@ def local_dashboard_clock() -> str:
 def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
         config = {}
-    enabled = config.get("restart_schedule_enabled", True) is not False
+    enabled = config.get("restart_schedule_enabled") is True and config.get("restart_schedule_confirmed") is True
     interval = max(1, min(24, safe_int(config.get("restart_interval_hours"), 4)))
     start_hour = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
     warnings = []
@@ -19668,7 +19661,7 @@ def api_link_enforcement():
         "grace_minutes": max(1, safe_int(payload.get("grace_minutes"), 30)),
         "action": action,
         "temp_ban_minutes": max(1, safe_int(payload.get("temp_ban_minutes"), 60)),
-        "restart_on_ban": safe_bool(payload.get("restart_on_ban"), True),
+        "restart_on_ban": False,
         "notification_channel_key": notification_key,
         "notification_channel_id": notification_id,
         "reason": str(payload.get("reason") or "Discord membership and gamertag link required.")[:500],
@@ -19764,7 +19757,8 @@ def api_server_control():
     config = guild_configs.setdefault(guild_id, {"channels": {}})
 
     if "restart_schedule_enabled" in payload:
-        config["restart_schedule_enabled"] = safe_bool(payload.get("restart_schedule_enabled"), True)
+        config["restart_schedule_enabled"] = safe_bool(payload.get("restart_schedule_enabled"), False)
+        config["restart_schedule_confirmed"] = bool(config["restart_schedule_enabled"])
     if "restart_interval_hours" in payload:
         config["restart_interval_hours"] = max(1, min(24, safe_int(payload.get("restart_interval_hours"), 4)))
     if "restart_start_hour" in payload:
