@@ -168,6 +168,30 @@ VISUAL_LOADOUT_CATEGORY_FILTERS = [
     {"key": "Food/Drink", "label": "Food"},
     {"key": "Misc", "label": "Misc"},
 ]
+STACK_WATCH_OBJECT_PRESETS = [
+    {"label": "Garden plot", "value": "GardenPlot", "group": "Base building"},
+    {"label": "Fence kit", "value": "FenceKit", "group": "Base building"},
+    {"label": "Watchtower kit", "value": "WatchtowerKit", "group": "Base building"},
+    {"label": "Flag pole kit", "value": "TerritoryFlagKit", "group": "Base building"},
+    {"label": "Shelter kit", "value": "ShelterKit", "group": "Base building"},
+    {"label": "Fireplace", "value": "Fireplace", "group": "Base building"},
+    {"label": "Indoor fireplace", "value": "FireplaceIndoor", "group": "Base building"},
+    {"label": "Indoor oven", "value": "OvenIndoor", "group": "Base building"},
+    {"label": "Wooden crate", "value": "WoodenCrate", "group": "Storage"},
+    {"label": "Sea chest", "value": "SeaChest", "group": "Storage"},
+    {"label": "Protector case", "value": "SmallProtectorCase", "group": "Storage"},
+    {"label": "Green barrel", "value": "Barrel_Green", "group": "Storage"},
+    {"label": "Blue barrel", "value": "Barrel_Blue", "group": "Storage"},
+    {"label": "Red barrel", "value": "Barrel_Red", "group": "Storage"},
+    {"label": "Yellow barrel", "value": "Barrel_Yellow", "group": "Storage"},
+    {"label": "Medium tent", "value": "MediumTent", "group": "Tents"},
+    {"label": "Large tent", "value": "LargeTent", "group": "Tents"},
+    {"label": "Car tent", "value": "CarTent", "group": "Tents"},
+    {"label": "Party tent", "value": "PartyTent", "group": "Tents"},
+    {"label": "Tripwire", "value": "TripwireTrap", "group": "Traps"},
+    {"label": "Bear trap", "value": "BearTrap", "group": "Traps"},
+    {"label": "Land mine", "value": "LandMineTrap", "group": "Traps"},
+]
 VISUAL_LOADOUT_SLOT_FALLBACKS = {
     "Head": [
         "BallisticHelmet", "BallisticHelmet_Black", "BallisticHelmet_Green", "CombatHelmet_Black", "CombatHelmet_Green",
@@ -5841,6 +5865,7 @@ PAGE_TEMPLATE = """
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
     {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
     {% set stack = (server.config.stack_watch if server and server.config and server.config.stack_watch else {}) %}
+    {% set stack_objects = (stack.objects or ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit']) %}
     <section class="section-panel" id="moderation">
       <div class="section-head">
         <div>
@@ -5928,6 +5953,14 @@ PAGE_TEMPLATE = """
             <label>Recent window seconds <input type="number" min="10" max="1800" name="stack_watch_window_seconds" value="{{ stack.window_seconds or 180 }}"></label>
             <label>Nearby radius metres <input type="number" min="1" max="100" name="stack_watch_radius_meters" value="{{ stack.radius_meters or 8 }}"></label>
             <label>Trigger count <input type="number" min="1" max="20" name="stack_watch_min_count" value="{{ stack.min_count or 2 }}"></label>
+            <label>Action on trigger
+              <select name="stack_watch_action">
+                <option value="notify" {{ 'selected' if not stack.action or stack.action == 'notify' else '' }}>Notify staff only</option>
+                <option value="temp_ban" {{ 'selected' if stack.action == 'temp_ban' else '' }}>Temp game ban</option>
+                <option value="perm_ban" {{ 'selected' if stack.action == 'perm_ban' else '' }}>Perm game ban</option>
+              </select>
+            </label>
+            <label>Temp ban minutes <input type="number" min="1" max="525600" name="stack_watch_temp_ban_minutes" value="{{ stack.temp_ban_minutes or 1440 }}"></label>
             <label>Alert each watched placement
               <select name="stack_watch_alert_each"><option value="true" {{ 'selected' if stack.alert_each_watched is not defined or stack.alert_each_watched else '' }}>Yes</option><option value="false" {{ 'selected' if stack.alert_each_watched is defined and not stack.alert_each_watched else '' }}>Only after trigger count</option></select>
             </label>
@@ -5936,8 +5969,16 @@ PAGE_TEMPLATE = """
             <label>Area radius metres <input type="number" min="0" max="30000" name="stack_watch_area_radius_meters" value="{{ stack.area_radius_meters or 0 }}" placeholder="0 = whole map"></label>
             <label>Minimum height <input name="stack_watch_min_height" value="{{ stack.min_height or '' }}" placeholder="optional"></label>
             <label>Maximum height <input name="stack_watch_max_height" value="{{ stack.max_height or '' }}" placeholder="optional"></label>
-            <label class="full">Watched objects <textarea name="stack_watch_objects" placeholder="GardenPlot&#10;Fireplace&#10;FenceKit">{% for item in (stack.objects or ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit']) %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
-            <div class="embed-preview full"><strong>ADM placement watch</strong><span>Detects lines like Nameless Object&lt;GardenPlot&gt;, counts nearby repeat placements, and alerts staff for possible stacking raids.</span></div>
+            <label class="full">Quick watched object presets
+              <select name="stack_watch_object_presets" multiple size="10">
+                {% for preset in stack_watch_object_presets %}
+                <option value="{{ preset.value }}" {{ 'selected' if preset.value in stack_objects else '' }}>{{ preset.group }} - {{ preset.label }} ({{ preset.value }})</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label class="full">Custom watched objects <textarea name="stack_watch_objects" placeholder="GardenPlot&#10;Fireplace&#10;FenceKit">{% for item in stack_objects %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <label class="full">Ban/alert reason <input name="stack_watch_reason" value="{{ stack.reason or 'Possible stacking raid from repeated nearby build placements.' }}"></label>
+            <div class="embed-preview full"><strong>ADM placement watch</strong><span>Detects lines like Nameless Object&lt;GardenPlot&gt;, counts nearby repeat placements, and alerts staff. Ban actions only run after the trigger count is met.</span></div>
             <div class="full"><button type="submit">Save Stack Watch</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -5950,6 +5991,14 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Stack watch</span><strong>{{ 'On' if stack.enabled is not defined or stack.enabled else 'Off' }}</strong></div>
           </div>
           <div class="recipe-list">
+            <div class="recipe-row">
+              <strong>Stack Watch Rule</strong>
+              <span class="muted">{{ 'On' if stack.enabled is not defined or stack.enabled else 'Off' }} · {{ stack.action or 'notify' }} · {{ stack.min_count or 2 }} placement(s) in {{ stack.window_seconds or 180 }}s within {{ stack.radius_meters or 8 }}m</span>
+            </div>
+            <div class="recipe-row">
+              <strong>Watched Objects</strong>
+              <span class="muted">{{ stack_objects|join(', ') }}</span>
+            </div>
             {% for user_id, strike in strikes.items() %}
             <div class="recipe-row"><strong>{{ user_id }}</strong><span class="muted">{{ strike.count or 0 }} strike(s) · {{ strike.last_violation or 'no detail' }}</span></div>
             {% else %}
@@ -15380,6 +15429,19 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
     return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []), None)
 
 
+def visual_item_allowed_for_slot(groups: dict[str, Any], slot: str, item_name: str) -> bool:
+    meta = visual_loadout_slot_meta(slot)
+    item_key = str(item_name or "").strip().lower()
+    if not meta or not item_key:
+        return False
+    if str(meta.get("key", "")).startswith("cargo:"):
+        candidates = groups.get("player_cargo") or groups.get("cargo") or groups.get("all") or []
+    else:
+        picker = str(meta.get("picker") or "Head")
+        candidates = groups.get(picker) or []
+    return item_key in {str(item.get("name") or "").strip().lower() for item in candidates or []}
+
+
 def unique_visual_items(items: list[dict[str, Any]], limit: int | None = 120) -> list[dict[str, Any]]:
     seen: set[str] = set()
     rows: list[dict[str, Any]] = []
@@ -17535,6 +17597,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
         visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
         visual_loadout_categories=VISUAL_LOADOUT_CATEGORY_FILTERS,
+        stack_watch_object_presets=STACK_WATCH_OBJECT_PRESETS,
         visual_player_cargo_names=visual_player_cargo_names,
         visual_loadout_slot=visual_loadout_slot,
         visual_loadout_category=visual_loadout_category,
@@ -18420,6 +18483,7 @@ def api_visual_loadout_draft():
         guild_configs = {}
     config = guild_configs.setdefault(guild_id, {"channels": {}})
     draft = normalize_visual_loadout_draft(config.get("visual_loadout_draft"))
+    picker_groups = xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id)))
     if action == "clear":
         draft = empty_visual_loadout_draft()
     elif action == "remove":
@@ -18447,7 +18511,7 @@ def api_visual_loadout_draft():
             if wants_json_response():
                 return jsonify({"ok": False, "error": "select a parent item before adding children"}), 400
             return redirect(return_to)
-        allowed_slots = visual_compatible_child_slots(parent_item, xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id))))
+        allowed_slots = visual_compatible_child_slots(parent_item, picker_groups)
         allowed = next((row for row in allowed_slots if row.get("key") == child_slot), None)
         allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
         if not allowed or item_name.lower() not in allowed_names:
@@ -18474,7 +18538,7 @@ def api_visual_loadout_draft():
             if wants_json_response():
                 return jsonify({"ok": False, "error": "select the child item before adding its children"}), 400
             return redirect(return_to)
-        nested_slots = visual_compatible_child_slots(selected_child, xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id))))
+        nested_slots = visual_compatible_child_slots(selected_child, picker_groups)
         allowed = next((row for row in nested_slots if row.get("key") == nested_slot), None)
         allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
         if not allowed or item_name.lower() not in allowed_names:
@@ -18498,6 +18562,10 @@ def api_visual_loadout_draft():
                 return jsonify({"ok": False, "error": "item is required"}), 400
             return redirect(return_to)
         meta = visual_loadout_slot_meta(slot) or VISUAL_LOADOUT_SLOTS[0]
+        if not visual_item_allowed_for_slot(picker_groups, str(meta.get("key") or slot), item_name):
+            if wants_json_response():
+                return jsonify({"ok": False, "error": "that item is not compatible with the selected loadout slot"}), 400
+            return redirect(return_to)
         if str(meta.get("key", "")).startswith("cargo:"):
             container = str(meta.get("container") or "Backpack")
             draft["cargo"].setdefault(container, [])
@@ -19612,13 +19680,25 @@ def api_moderation_guard():
         stack_previous = {}
     stack = dict(stack_previous)
     stack["enabled"] = safe_bool(payload.get("stack_watch_enabled"), safe_bool(stack_previous.get("enabled"), True))
+    preset_values = payload.get("stack_watch_object_presets")
+    preset_values = preset_values if isinstance(preset_values, list) else [preset_values]
+    stack_objects = lines_or_csv(
+        lines_or_csv(preset_values, []) + lines_or_csv(payload.get("stack_watch_objects"), []),
+        stack_previous.get("objects") or ["GardenPlot", "Fireplace", "FireplaceIndoor", "OvenIndoor", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
+    )
     stack["objects"] = lines_or_csv(
-        payload.get("stack_watch_objects"),
+        stack_objects,
         stack_previous.get("objects") or ["GardenPlot", "Fireplace", "FireplaceIndoor", "OvenIndoor", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
     )
     stack["window_seconds"] = max(10, min(1800, safe_int(payload.get("stack_watch_window_seconds"), safe_int(stack_previous.get("window_seconds"), 180))))
     stack["radius_meters"] = max(1, min(100, safe_int(payload.get("stack_watch_radius_meters"), safe_int(stack_previous.get("radius_meters"), 8))))
     stack["min_count"] = max(1, min(20, safe_int(payload.get("stack_watch_min_count"), safe_int(stack_previous.get("min_count"), 2))))
+    stack_action = str(payload.get("stack_watch_action") or stack_previous.get("action") or "notify").strip().lower()
+    if stack_action not in {"notify", "temp_ban", "perm_ban"}:
+        stack_action = "notify"
+    stack["action"] = stack_action
+    stack["temp_ban_minutes"] = max(1, min(525600, safe_int(payload.get("stack_watch_temp_ban_minutes"), safe_int(stack_previous.get("temp_ban_minutes"), 1440))))
+    stack["reason"] = str(payload.get("stack_watch_reason") or stack_previous.get("reason") or "Possible stacking raid from repeated nearby build placements.").strip()[:500]
     stack["alert_each_watched"] = safe_bool(payload.get("stack_watch_alert_each"), safe_bool(stack_previous.get("alert_each_watched"), True))
     stack["channel_key"] = str(payload.get("stack_watch_channel_key") or stack_previous.get("channel_key") or "admin_logs").strip()[:80]
     stack["area_x"] = str(payload.get("stack_watch_area_x") if payload.get("stack_watch_area_x") is not None else stack_previous.get("area_x", "")).strip()[:40]

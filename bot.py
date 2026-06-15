@@ -139,6 +139,10 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
+# Runtime-only source metadata for the ADM file currently being parsed.
+# This lets the parser tell the difference between the latest live log and
+# an intentional cold-start history sweep.
+adm_parse_context = {}
 # Tracks which guilds have already had their last-24h ADM history swept
 # on this process boot. Reset every time the Railway container recycles
 # so a fresh restart re-ingests the previous day's events into the
@@ -358,6 +362,7 @@ DEFAULT_CHANNEL_NAMES = {
     "economy": "💰🛒・black-market・🛒💰",
     "money_feed": "💰🧾・money-feed・🧾💰",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
+    "nitrado_ban_logs": "nitrado-ban-feed",
     "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
     "cheat_checks": "🕵️🚫・pc-cheat-check・🚫🕵️",
     "command_logs": "📜🛡️・command-logs・🛡️📜",
@@ -416,6 +421,7 @@ CHANNEL_ALIASES = {
     "money_feed": ["moneyfeed", "moneylogs", "financefeed", "penniesfeed", "incomefeed"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
+    "nitrado_ban_logs": ["nitradobanfeed", "nitradobanlogs", "gamebanlogs", "banlistpushes"],
     "dashboard_audit": ["dashboardaudit", "dashboardchanges", "dashboardlogs", "dbchanges"],
     "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
     "command_logs": ["commandlogs", "commands"],
@@ -4921,6 +4927,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "cheat_checks",
     "command_logs",
     "dashboard_audit",
+    "nitrado_ban_logs",
     "money_feed",
     "link_audit",
     "moderation_logs",
@@ -4970,6 +4977,7 @@ CHANNEL_RESTORE_PACKS = {
         "cheat_checks",
         "command_logs",
         "dashboard_audit",
+        "nitrado_ban_logs",
         "link_audit",
         "moderation_logs",
         "faction_staff",
@@ -5054,6 +5062,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "economy": "economy",
     "money_feed": "economy",
     "admin_logs": "staff_ops",
+    "nitrado_ban_logs": "staff_ops",
     "dashboard_audit": "staff_ops",
     "cheat_checks": "staff_ops",
     "command_logs": "staff_ops",
@@ -9898,6 +9907,13 @@ def extract_adm_event_time(line, *, now=None, config=None):
 ADM_EVENT_MAX_AGE_SECONDS = 2 * 60 * 60
 
 
+def adm_event_max_age_seconds():
+    try:
+        return max(300, int(os.getenv("WANDERING_ADM_EVENT_MAX_AGE_SECONDS", ADM_EVENT_MAX_AGE_SECONDS)))
+    except Exception:
+        return ADM_EVENT_MAX_AGE_SECONDS
+
+
 def is_adm_event_stale(event_time, *, now=None, max_age_seconds=ADM_EVENT_MAX_AGE_SECONDS):
     """Return True if `event_time` is older than `max_age_seconds` relative
     to `now` (defaults to current UTC). Used to suppress feed dispatch for
@@ -9913,6 +9929,17 @@ def is_adm_event_stale(event_time, *, now=None, max_age_seconds=ADM_EVENT_MAX_AG
     except Exception:
         return False
     return age > max_age_seconds
+
+
+def should_guard_stale_adm_events(guild_id):
+    context = adm_parse_context.get(str(guild_id), {})
+    if context.get("history_sweep"):
+        return True
+    try:
+        process_age = (datetime.now(UTC) - BOT_PROCESS_START_TIME).total_seconds()
+    except Exception:
+        process_age = ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS + 1
+    return process_age <= ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS
 
 
 def load_processed_adm_lines():
@@ -11882,6 +11909,7 @@ async def on_guild_join(guild):
     admin_logs = await make_channel("🛡️📕・admin-logs・📕🛡️", cat=staff_category)
     link_audit = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["link_audit"], category=staff_category, overwrites=staff_overwrites)
     moderation_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["moderation_logs"], category=staff_category, overwrites=staff_overwrites)
+    nitrado_ban_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"], category=staff_category, overwrites=staff_overwrites)
     cheat_checks = await guild.create_text_channel("🕵️🚫・pc-cheat-check・🚫🕵️", category=staff_category, overwrites=staff_overwrites)
     command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
@@ -11946,6 +11974,7 @@ async def on_guild_join(guild):
             "admin_logs": admin_logs.id,
             "link_audit": link_audit.id,
             "moderation_logs": moderation_logs.id,
+            "nitrado_ban_logs": nitrado_ban_logs.id,
             "cheat_checks": cheat_checks.id,
             "command_logs": command_logs.id,
             "purchase_logs": purchase_logs.id,
@@ -12320,6 +12349,7 @@ async def setup_command(
     await ensure_channel("admin_logs", "🛡️📕・admin-logs・📕🛡️", cat=staff_category)
     await ensure_channel("link_audit", DEFAULT_CHANNEL_NAMES["link_audit"], cat=staff_category, private=True)
     await ensure_channel("moderation_logs", DEFAULT_CHANNEL_NAMES["moderation_logs"], cat=staff_category, private=True)
+    await ensure_channel("nitrado_ban_logs", DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"], cat=staff_category, private=True)
     await ensure_channel("cheat_checks", "🕵️🚫・pc-cheat-check・🚫🕵️", cat=staff_category, private=True)
     await ensure_channel("command_logs", "📜🛡️・command-logs・🛡️📜", cat=staff_category)
     await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
@@ -14347,6 +14377,7 @@ async def parse_adm(guild_id, config):
 
     online_state_changed = False
     online_state_reason = ""
+    stale_adm_skipped = 0
 
     for raw_line in lines[-250:]:
 
@@ -14383,15 +14414,16 @@ async def parse_adm(guild_id, config):
 
         remember_processed_line(guild_id, line_hash)
 
-        # NOTE: No age guard. The previous PR #27 age guard was over-engineered
-        # and silently dropped live events on non-UTC Nitrado nodes (parsed
-        # HH:MM:SS in server-local time → anchored to UTC today → looked
-        # in the future → rolled back to yesterday → flagged 24h stale →
-        # dropped). The hash dedupe via `processed_lines` is the ONLY
-        # replay-protection we need: every line is hashed once, persisted
-        # to processed_adm_lines.json, and never dispatched twice. When a
-        # new ADM file rolls in we re-process it fresh, but already-seen
-        # hashes are skipped automatically.
+        if event_type and should_guard_stale_adm_events(guild_id) and is_adm_event_stale(
+            event_time,
+            max_age_seconds=adm_event_max_age_seconds(),
+        ):
+            stale_adm_skipped += 1
+            continue
+
+        # Hash dedupe is the normal replay guard. The age guard above is
+        # limited to cold-start/history sweeps so rotated ADM logs do not
+        # get announced again with yesterday's timestamps.
 
         if not event_type:
             if extract_adm_coords(line):
@@ -15763,6 +15795,14 @@ async def parse_adm(guild_id, config):
                             except Exception as thread_error:
                                 print(f"[THREAD] longshot thread failed: {thread_error}")
 
+    if stale_adm_skipped:
+        context = adm_parse_context.get(str(guild_id), {})
+        print(
+            f"[ADM STALE GUARD] {guild_display_name(guild_id)} ({guild_id}) "
+            f"skipped {stale_adm_skipped} old ADM event(s) from "
+            f"{context.get('source_path') or 'current ADM'}"
+        )
+
     if online_state_changed:
         await upsert_online_dashboard_message(guild_id, config, online_state_reason or "ADM live sync")
 
@@ -15825,7 +15865,15 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             try:
                 ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older)
                 if ok_dl:
-                    await parse_adm(guild_id, config)
+                    adm_parse_context[str(guild_id)] = {
+                        "source_path": older.get("path") or "",
+                        "source_datetime": older.get("_adm_datetime") or older.get("mtime") or "",
+                        "history_sweep": True,
+                    }
+                    try:
+                        await parse_adm(guild_id, config)
+                    finally:
+                        adm_parse_context.pop(str(guild_id), None)
             except Exception as err:
                 print(f"[ADM COLD-START] sweep error on {older.get('path')}: {err}")
         _adm_history_swept[str(guild_id)] = True
@@ -15848,10 +15896,18 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if not success:
         return False, "ADM download failed"
 
-    await parse_adm(
-        guild_id,
-        config
-    )
+    adm_parse_context[str(guild_id)] = {
+        "source_path": latest_log.get("path") or "",
+        "source_datetime": latest_log.get("_adm_datetime") or latest_log.get("mtime") or "",
+        "history_sweep": False,
+    }
+    try:
+        await parse_adm(
+            guild_id,
+            config
+        )
+    finally:
+        adm_parse_context.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
     return True, "ADM feed refreshed"
@@ -15957,19 +16013,28 @@ async def dashboard_member_action_loop():
             if action_type not in {"dayz_temp_ban", "dayz_perm_ban"} or not player_name:
                 continue
             try:
-                ok, message = add_player_to_nitrado_banlist(config, player_name)
+                minutes = max(1, int(action.get("minutes") or 1440)) if action_type == "dayz_temp_ban" else None
+                reason = str(action.get("reason") or ("Dashboard temp ban" if action_type == "dayz_temp_ban" else "Dashboard perm ban"))
+                ok, message = await add_player_to_nitrado_banlist_async(
+                    guild_id,
+                    config,
+                    player_name,
+                    ban_type="temp" if action_type == "dayz_temp_ban" else "perm",
+                    reason=reason,
+                    source="dashboard_members",
+                    minutes=minutes,
+                )
                 action["status"] = "done" if ok else "failed"
                 action["result"] = message
                 action["processed_at"] = datetime.now(UTC).isoformat()
                 if ok and action_type == "dayz_temp_ban":
-                    minutes = max(1, int(action.get("minutes") or 1440))
                     until_dt = datetime.now(UTC) + timedelta(minutes=minutes)
                     config.setdefault("nitrado_temp_bans", []).append(
                         {
                             "gamertag": player_name,
                             "expires_at": until_dt.isoformat(),
                             "until_ts": until_dt.timestamp(),
-                            "reason": str(action.get("reason") or "Dashboard temp ban"),
+                            "reason": reason,
                             "source": "dashboard",
                         }
                     )
@@ -15977,7 +16042,7 @@ async def dashboard_member_action_loop():
                     config.setdefault("nitrado_perm_bans", []).append(
                         {
                             "gamertag": player_name,
-                            "reason": str(action.get("reason") or "Dashboard perm ban"),
+                            "reason": reason,
                             "source": "dashboard",
                             "created_at": datetime.now(UTC).isoformat(),
                         }
@@ -18159,14 +18224,25 @@ async def _handle_stack_watch_action(interaction, custom_id):
         return
 
     await interaction.response.defer(ephemeral=True)
-    ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, player_name)
+    if action not in {"temp", "perm"}:
+        await interaction.followup.send("Unknown stack-watch action.", ephemeral=True)
+        return
+    minutes = 1440 if action == "temp" else None
+    ok, message = await add_player_to_nitrado_banlist_async(
+        guild_id,
+        config,
+        player_name,
+        ban_type="temp" if action == "temp" else "perm",
+        reason="Stack Watch: possible item stacking raid",
+        source="stack_watch_button",
+        minutes=minutes,
+    )
     if not ok:
         await interaction.followup.send(f"Game-ban write failed for `{player_name}`: {message}", ephemeral=True)
         return
 
     now_ts = datetime.now(UTC).timestamp()
     if action == "temp":
-        minutes = 1440
         config.setdefault("nitrado_temp_bans", []).append({
             "gamertag": player_name,
             "reason": "Stack Watch: possible item stacking raid",
@@ -18183,13 +18259,10 @@ async def _handle_stack_watch_action(interaction, custom_id):
             "source": "stack_watch",
         })
         result = f"Permanent game-ban queued for `{player_name}`."
-    else:
-        await interaction.followup.send("Unknown stack-watch action.", ephemeral=True)
-        return
 
     save_guild_configs()
     await interaction.followup.send(
-        f"{result}\n{message}\nRestart the server if you need the ban applied immediately.",
+        f"{result}\n{message}\nNo restart requested; Nitrado should kick the player once the ban list refreshes.",
         ephemeral=True,
     )
 
@@ -18217,6 +18290,9 @@ def stack_watch_settings(config):
     settings.setdefault("window_seconds", 180)
     settings.setdefault("radius_meters", 8)
     settings.setdefault("min_count", 2)
+    settings.setdefault("action", "notify")
+    settings.setdefault("temp_ban_minutes", 1440)
+    settings.setdefault("reason", "Possible stacking raid from repeated nearby build placements.")
     settings.setdefault("alert_each_watched", True)
     settings.setdefault("channel_key", "admin_logs")
     settings.setdefault("area_x", "")
@@ -18344,17 +18420,24 @@ async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_ti
         return
 
     map_link = build_izurvive_link(f"{x}, {z}, {y}", guild_id)
-    severity = "POSSIBLE STACKING RAID" if len(nearby) >= min_count else "WATCHED OBJECT PLACED"
+    triggered = len(nearby) >= min_count
+    severity = "POSSIBLE STACKING RAID" if triggered else "WATCHED OBJECT PLACED"
+    configured_action = stack_watch_action(settings)
+    if triggered:
+        action_result = await apply_stack_watch_configured_action(guild_id, config, settings, player_name)
+    else:
+        action_result = "Below trigger count; no automatic ban action ran."
     embed = discord.Embed(
         title=f"STACK WATCH - {severity}",
         description=f"**{player_name}** placed **{object_name}**.",
-        color=0xE74C3C if len(nearby) >= min_count else 0xF1C40F,
+        color=0xE74C3C if triggered else 0xF1C40F,
     )
     embed.add_field(name="Object", value=f"`{object_name}`", inline=True)
     embed.add_field(name="Recent nearby count", value=f"`{len(nearby)}` in `{window}s` within `{radius:g}m`", inline=True)
     embed.add_field(name="Position", value=f"X `{x:.1f}` / Z `{z:.1f}` / Height `{y:.1f}`", inline=False)
     if map_link:
         embed.add_field(name="Map", value=f"[Open iZurvive](<{map_link}>)", inline=False)
+    embed.add_field(name="Configured Action", value=f"`{configured_action}` - {action_result}", inline=False)
     embed.add_field(name="Admin Actions", value=f"`/server gameban add gamertag:{player_name} minutes:1440 reason:Possible stacking raid`\nUse dashboard Members/Moderation for Discord actions.", inline=False)
     embed.add_field(name="ADM Evidence", value=f"`{line[:900]}`", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -18614,6 +18697,10 @@ def _nitrado_banlist_path(config):
     return NITRADO_BANLIST_FTP_PATH.format(user=nitrado_user)
 
 
+def normalize_nitrado_banlist_name(value):
+    return re.sub(r"[\r\n]+", " ", str(value or "")).strip()
+
+
 def fetch_nitrado_banlist(config):
     """Return the current ban-override.txt as a list of stripped gamertag
     lines. Reads the sticky `_nitrado_banlist_working_path` first if set,
@@ -18738,7 +18825,15 @@ def push_nitrado_banlist(config, entries):
     if not nitrado_user:
         return False, "Nitrado user not configured."
 
-    payload = "\n".join(dict.fromkeys(e.strip() for e in entries if e and e.strip())) + "\n"
+    clean_entries = []
+    seen_entries = set()
+    for entry in entries or []:
+        clean = normalize_nitrado_banlist_name(entry)
+        key = clean.casefold()
+        if clean and key not in seen_entries:
+            seen_entries.add(key)
+            clean_entries.append(clean)
+    payload = "\n".join(clean_entries) + ("\n" if clean_entries else "")
 
     candidate_paths = []
     sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
@@ -18786,10 +18881,11 @@ def push_nitrado_banlist(config, entries):
 
 
 def add_player_to_nitrado_banlist(config, gamertag):
+    gamertag = normalize_nitrado_banlist_name(gamertag)
     if not gamertag:
         return False, "Empty gamertag."
     current = fetch_nitrado_banlist(config)
-    needle = gamertag.strip()
+    needle = gamertag
     if any(line.lower() == needle.lower() for line in current):
         return True, "Already banned."
     current.append(needle)
@@ -18797,14 +18893,114 @@ def add_player_to_nitrado_banlist(config, gamertag):
 
 
 def remove_player_from_nitrado_banlist(config, gamertag):
+    gamertag = normalize_nitrado_banlist_name(gamertag)
     if not gamertag:
         return False, "Empty gamertag."
     current = fetch_nitrado_banlist(config)
-    needle = gamertag.strip().lower()
+    needle = gamertag.lower()
     kept = [line for line in current if line.lower() != needle]
     if len(kept) == len(current):
         return True, "Player was not in banlist."
     return push_nitrado_banlist(config, kept)
+
+
+async def post_nitrado_banlist_log(
+    guild_id,
+    config,
+    *,
+    action,
+    gamertag,
+    ban_type="",
+    reason="",
+    source="",
+    result="",
+    ok=True,
+    minutes=None,
+):
+    try:
+        guild_id = str(guild_id)
+        guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+        if not guild:
+            return
+        channel = None
+        channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+        channel_id = channels.get("nitrado_ban_logs")
+        if channel_id:
+            channel = guild.get_channel(int(channel_id))
+        if not channel:
+            channel = await get_or_create_feed_channel(
+                guild,
+                config,
+                "nitrado_ban_logs",
+                DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"],
+                private=True,
+            )
+        if not channel:
+            return
+
+        clean_name = normalize_nitrado_banlist_name(gamertag)
+        action_text = "Added to Nitrado ban list" if str(action).lower() == "add" else "Removed from Nitrado ban list"
+        ban_label = str(ban_type or "").replace("_", " ").strip() or ("remove" if str(action).lower() == "remove" else "ban")
+        if minutes:
+            ban_label = f"{ban_label} ({minutes} minute(s))"
+        colour = 0x2ECC71 if ok and str(action).lower() == "remove" else (0xE74C3C if ok else 0xF1C40F)
+        embed = discord.Embed(
+            title="Nitrado Ban Feed",
+            description=action_text,
+            color=colour,
+        )
+        embed.add_field(name="Exact ban-list line", value=f"```text\n{clean_name or 'Unknown'}\n```", inline=False)
+        embed.add_field(name="Type", value=f"`{ban_label}`", inline=True)
+        embed.add_field(name="Source", value=f"`{source or 'unknown'}`", inline=True)
+        embed.add_field(name="Result", value=f"`{'OK' if ok else 'FAILED'}`", inline=True)
+        if reason:
+            embed.add_field(name="Reason", value=str(reason)[:900], inline=False)
+        if result:
+            embed.add_field(name="Nitrado response", value=str(result)[:900], inline=False)
+        try:
+            uk_now = datetime.now(ZoneInfo("Europe/Dublin")).strftime("%Y-%m-%d %H:%M:%S UK")
+        except Exception:
+            uk_now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        embed.set_footer(text=f"Wandering Bot Nitrado audit - {uk_now}")
+        embed.timestamp = datetime.now(UTC)
+        await channel.send(embed=style_embed(embed))
+    except Exception as error:
+        print(f"[NITRADO BAN FEED] log failed: {error}")
+
+
+async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, clean_name)
+    await post_nitrado_banlist_log(
+        guild_id,
+        config,
+        action="add",
+        gamertag=clean_name,
+        ban_type=ban_type,
+        reason=reason,
+        source=source,
+        result=message,
+        ok=ok,
+        minutes=minutes,
+    )
+    return ok, message
+
+
+async def remove_player_from_nitrado_banlist_async(guild_id, config, gamertag, *, reason="", source=""):
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    ok, message = await asyncio.to_thread(remove_player_from_nitrado_banlist, config, clean_name)
+    await post_nitrado_banlist_log(
+        guild_id,
+        config,
+        action="remove",
+        gamertag=clean_name,
+        ban_type="unban",
+        reason=reason,
+        source=source,
+        result=message,
+        ok=ok,
+    )
+    return ok, message
 
 
 def nitrado_restart_server_now(config):
@@ -19174,12 +19370,20 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         return True
 
     if action in {"temp_ban", "perm_ban"}:
-        ok, msg = add_player_to_nitrado_banlist(config, player_name)
+        minutes = max(1, int(settings.get("temp_ban_minutes") or 60)) if action == "temp_ban" else None
+        ok, msg = await add_player_to_nitrado_banlist_async(
+            guild_id,
+            config,
+            player_name,
+            ban_type="temp" if action == "temp_ban" else "perm",
+            reason=reason,
+            source="discord_link_enforcement",
+            minutes=minutes,
+        )
         if not ok:
             await _post_link_enforcement_notice(guild, config, "Nitrado Ban Failed", base_message + f"\n{msg}", 0xE74C3C)
             return False
         if action == "temp_ban":
-            minutes = max(1, int(settings.get("temp_ban_minutes") or 60))
             config.setdefault("nitrado_temp_bans", []).append({
                 "gamertag": player_name,
                 "reason": reason,
@@ -19320,7 +19524,15 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
     forced_perm = offense_count >= escalate_after
     effective_ban_type = "perm" if (ban_type == "perm" or forced_perm) else "temp"
 
-    ok, msg = add_player_to_nitrado_banlist(config, gamertag)
+    ok, msg = await add_player_to_nitrado_banlist_async(
+        str(guild.id),
+        config,
+        gamertag,
+        ban_type="perm" if effective_ban_type == "perm" else "temp",
+        reason=f"Safe-zone violation: {trigger_name} in {zone.get('name')}",
+        source="safe_zone",
+        minutes=duration_minutes if effective_ban_type == "temp" else None,
+    )
     if not ok:
         print(f"[SAFEZONE] banlist push failed for {gamertag}: {msg}")
         return False, f"FTP push failed: {msg}"
@@ -19458,7 +19670,13 @@ async def process_nitrado_temp_ban_expiries():
             continue
         for record in expired:
             try:
-                ok, msg = remove_player_from_nitrado_banlist(config, record.get("gamertag", ""))
+                ok, msg = await remove_player_from_nitrado_banlist_async(
+                    guild_id_str,
+                    config,
+                    record.get("gamertag", ""),
+                    reason=str(record.get("reason") or "Temp ban expired"),
+                    source="temp_ban_expiry",
+                )
                 print(f"[SAFEZONE] auto-unban {record.get('gamertag')}: ok={ok} msg={msg}")
             except Exception as err:
                 print(f"[SAFEZONE] auto-unban error: {err}")
@@ -25738,6 +25956,75 @@ def console_ce_event_config(config):
     settings.setdefault("cfgareaeffects_path", "")
     settings.setdefault("cfgeffectarea_path", "")
     return settings
+
+
+def stack_watch_action(settings):
+    action = str((settings or {}).get("action") or "notify").strip().lower()
+    return action if action in {"notify", "temp_ban", "perm_ban"} else "notify"
+
+
+async def apply_stack_watch_configured_action(guild_id, config, settings, player_name):
+    action = stack_watch_action(settings)
+    if action == "notify":
+        return "Notify only; no automatic game ban configured."
+
+    reason = str(settings.get("reason") or "Stack Watch: possible item stacking raid").strip()[:500]
+    now_ts = datetime.now(UTC).timestamp()
+    player_key = normalize_discord_name(player_name)
+    if action == "temp_ban":
+        try:
+            minutes = max(1, min(525600, int(settings.get("temp_ban_minutes") or 1440)))
+        except Exception:
+            minutes = 1440
+        ok, message = await add_player_to_nitrado_banlist_async(
+            guild_id,
+            config,
+            player_name,
+            ban_type="temp",
+            reason=reason,
+            source="stack_watch_auto",
+            minutes=minutes,
+        )
+        if not ok:
+            return f"Automatic game-ban failed: {message}"
+        existing = [
+            record for record in config.get("nitrado_temp_bans", [])
+            if normalize_discord_name(record.get("gamertag")) == player_key and record.get("source") == "stack_watch"
+        ]
+        if not existing:
+            config.setdefault("nitrado_temp_bans", []).append({
+                "gamertag": player_name,
+                "reason": reason,
+                "created_ts": now_ts,
+                "until_ts": now_ts + minutes * 60,
+                "source": "stack_watch",
+            })
+        save_guild_configs()
+        return f"Temp game-ban queued for {minutes} minute(s). {message} No restart requested."
+
+    ok, message = await add_player_to_nitrado_banlist_async(
+        guild_id,
+        config,
+        player_name,
+        ban_type="perm",
+        reason=reason,
+        source="stack_watch_auto",
+    )
+    if not ok:
+        return f"Automatic game-ban failed: {message}"
+    existing = [
+        record for record in config.get("nitrado_perm_bans", [])
+        if normalize_discord_name(record.get("gamertag")) == player_key and record.get("source") == "stack_watch"
+    ]
+    if not existing:
+        config.setdefault("nitrado_perm_bans", []).append({
+            "gamertag": player_name,
+            "reason": reason,
+            "created_ts": now_ts,
+            "source": "stack_watch",
+        })
+    save_guild_configs()
+    return f"Permanent game-ban queued. {message} No restart requested."
 
 
 def ce_event_family_for_record(event_type, class_name=""):
@@ -38166,7 +38453,15 @@ async def gameban_add(interaction: discord.Interaction, gamertag: str, minutes: 
         return
     config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
     await interaction.response.defer(ephemeral=True)
-    ok, msg = add_player_to_nitrado_banlist(config, gamertag)
+    ok, msg = await add_player_to_nitrado_banlist_async(
+        str(interaction.guild.id),
+        config,
+        gamertag,
+        ban_type="temp" if minutes > 0 else "perm",
+        reason=reason,
+        source="slash_gameban_add",
+        minutes=minutes if minutes > 0 else None,
+    )
     if not ok:
         await interaction.followup.send(f"❌ Banlist push failed: `{msg}`", ephemeral=True)
         return
@@ -38213,7 +38508,13 @@ async def gameban_remove(interaction: discord.Interaction, gamertag: str):
         return
     config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
     await interaction.response.defer(ephemeral=True)
-    ok, msg = remove_player_from_nitrado_banlist(config, gamertag)
+    ok, msg = await remove_player_from_nitrado_banlist_async(
+        str(interaction.guild.id),
+        config,
+        gamertag,
+        reason="Manual gameban remove",
+        source="slash_gameban_remove",
+    )
     if not ok:
         await interaction.followup.send(f"❌ Banlist remove failed: `{msg}`", ephemeral=True)
         return
@@ -38322,7 +38623,15 @@ async def nitradoban_command(ctx, gamertag: str, minutes: int = 0, *, reason: st
     if not has_staff_permissions(ctx):
         return
     config = guild_configs.setdefault(str(ctx.guild.id), {"channels": {}})
-    ok, msg = await asyncio.to_thread(add_player_to_nitrado_banlist, config, gamertag)
+    ok, msg = await add_player_to_nitrado_banlist_async(
+        str(ctx.guild.id),
+        config,
+        gamertag,
+        ban_type="temp" if minutes > 0 else "perm",
+        reason=reason,
+        source="prefix_nitradoban",
+        minutes=minutes if minutes > 0 else None,
+    )
     if not ok:
         await ctx.send(f"Banlist push failed: `{msg}`")
         return
@@ -38358,7 +38667,13 @@ async def nitradounban_command(ctx, gamertag: str):
     if not has_staff_permissions(ctx):
         return
     config = guild_configs.setdefault(str(ctx.guild.id), {"channels": {}})
-    ok, msg = await asyncio.to_thread(remove_player_from_nitrado_banlist, config, gamertag)
+    ok, msg = await remove_player_from_nitrado_banlist_async(
+        str(ctx.guild.id),
+        config,
+        gamertag,
+        reason="Manual nitradounban",
+        source="prefix_nitradounban",
+    )
     if not ok:
         await ctx.send(f"Banlist remove failed: `{msg}`")
         return
