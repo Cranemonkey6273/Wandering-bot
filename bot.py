@@ -344,6 +344,7 @@ DEFAULT_CHANNEL_NAMES = {
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
     "longshots": "🎯🏹・longshots・🏹🎯",
     "restart_alerts": "📢⏰・restart-alerts・⏰📢",
+    "restart_logs": "restart-log",
     "bot_updates": "📢✨・bot-updates・✨📢",
     "welcome": "👋🟩・welcome・🟩👋",
     "public_shame": "🚫📣・wandering-in-shame・📣🚫",
@@ -405,6 +406,7 @@ CHANNEL_ALIASES = {
     "heatmap": ["heatmap", "conflictheatmap", "pvpheatmap"],
     "longshots": ["longshots", "longshot", "snipes"],
     "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+    "restart_logs": ["restartlog", "restartlogs", "restartaudit", "restartauditlog", "serverrestartlog", "serverrestartlogs"],
     "bot_updates": ["botupdates", "updates", "changelog", "newfeatures", "patchnotes"],
     "welcome": ["welcome", "newsurvivor"],
     "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
@@ -4928,6 +4930,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "command_logs",
     "dashboard_audit",
     "nitrado_ban_logs",
+    "restart_logs",
     "money_feed",
     "link_audit",
     "moderation_logs",
@@ -4978,6 +4981,7 @@ CHANNEL_RESTORE_PACKS = {
         "command_logs",
         "dashboard_audit",
         "nitrado_ban_logs",
+        "restart_logs",
         "link_audit",
         "moderation_logs",
         "faction_staff",
@@ -5044,6 +5048,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "heatmap": "server_info",
     "longshots": "server_info",
     "restart_alerts": "server_info",
+    "restart_logs": "staff_ops",
     "bot_updates": "bot_updates",
     "welcome": "survivor_comms",
     "public_shame": "survivor_comms",
@@ -6334,42 +6339,58 @@ async def maybe_translate_message(message):
               f"src={src_lang} target={target_lang} mode={mode} "
               f"text={message.content[:80]!r}")
 
-        translated = await translate_text(
-            message.content[:900],
-            target_lang,
-            src_lang,
-        )
-
-        if not translated:
-            print(f"[TRANSLATE] rule#{rule_index} backend returned None")
-            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} backend returned None")
-            continue
-
         def _norm(s):
             return "".join(ch for ch in (s or "").lower() if ch.isalnum())
 
-        if _norm(translated) == _norm(message.content):
-            retry_translated = None
-            if src_lang not in {"auto", "autodetect"}:
-                retry_translated = await translate_text(
-                    message.content[:900],
-                    target_lang,
-                    "auto",
-                )
-            if retry_translated and _norm(retry_translated) != _norm(message.content):
-                translated = retry_translated
-                print(f"[TRANSLATE] rule#{rule_index} autodetect retry succeeded")
-            else:
+        if src_lang not in {"auto", "autodetect"} and src_lang == target_lang:
+            print(f"[TRANSLATE] rule#{rule_index} skipped - source and target are both {target_lang}")
+            record_translation_runtime_stat(
+                guild_id,
+                "skipped",
+                f"rule#{rule_index} source and target are both {target_lang}",
+            )
+            continue
+
+        translated = None
+        used_source = src_lang
+        last_result = ""
+        attempts = [src_lang]
+        if src_lang not in {"auto", "autodetect"}:
+            attempts.append("auto")
+            if src_lang != "en" and target_lang != "en":
+                attempts.append("en")
+
+        for attempt_source in dict.fromkeys(attempts):
+            candidate = await translate_text(
+                message.content[:900],
+                target_lang,
+                attempt_source,
+            )
+            if not candidate:
+                continue
+            last_result = candidate
+            if _norm(candidate) != _norm(message.content):
+                translated = candidate
+                used_source = attempt_source
+                if attempt_source != src_lang:
+                    print(f"[TRANSLATE] rule#{rule_index} retry source={attempt_source} succeeded")
+                break
+
+        if not translated:
+            if last_result:
                 print(
-                    f"[TRANSLATE] rule#{rule_index} skipped - unchanged result "
-                    f"src={src_lang} target={target_lang} result={translated[:120]!r}"
+                    f"[TRANSLATE] rule#{rule_index} skipped - unchanged result after fallbacks "
+                    f"src={src_lang} target={target_lang} result={last_result[:120]!r}"
                 )
                 record_translation_runtime_stat(
                     guild_id,
                     "skipped",
-                    f"rule#{rule_index} unchanged translation result src={src_lang} target={target_lang}",
+                    f"rule#{rule_index} unchanged after fallback src={src_lang} target={target_lang}",
                 )
-                continue
+            else:
+                print(f"[TRANSLATE] rule#{rule_index} backend returned None for all sources {attempts}")
+                record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} backend returned None")
+            continue
 
         target_channel, target_error = await resolve_translation_target_channel(message, rule, mode)
         if not target_channel:
@@ -6391,6 +6412,7 @@ async def maybe_translate_message(message):
         embed.add_field(name="From", value=message.author.mention, inline=True)
         if mode == "channel":
             embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
+        embed.set_footer(text=f"Translation {used_source.upper()} -> {target_lang.upper()}")
 
         try:
             await target_channel.send(embed=style_embed(embed))
@@ -11910,6 +11932,7 @@ async def on_guild_join(guild):
     link_audit = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["link_audit"], category=staff_category, overwrites=staff_overwrites)
     moderation_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["moderation_logs"], category=staff_category, overwrites=staff_overwrites)
     nitrado_ban_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"], category=staff_category, overwrites=staff_overwrites)
+    restart_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["restart_logs"], category=staff_category, overwrites=staff_overwrites)
     cheat_checks = await guild.create_text_channel("🕵️🚫・pc-cheat-check・🚫🕵️", category=staff_category, overwrites=staff_overwrites)
     command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
     purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
@@ -11959,6 +11982,7 @@ async def on_guild_join(guild):
             "heatmap": heatmap_channel.id,
             "longshots": longshot_channel.id,
             "restart_alerts": restart_alerts.id,
+            "restart_logs": restart_logs.id,
             "bot_updates": bot_updates.id,
             "welcome": welcome_channel.id,
             "public_shame": public_shame.id,
@@ -12214,6 +12238,7 @@ async def setup_command(
         "heatmap": ["heatmap", "conflictheatmap", "pvPheatmap".lower()],
         "longshots": ["longshots", "longshot", "snipes"],
         "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
+        "restart_logs": ["restartlog", "restartlogs", "restartaudit", "restartauditlog", "serverrestartlog", "serverrestartlogs"],
         "bot_updates": ["botupdates", "updates", "changelog", "newfeatures", "patchnotes"],
         "welcome": ["welcome", "newsurvivor", "joins"],
         "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
@@ -12329,6 +12354,7 @@ async def setup_command(
     await ensure_channel("heatmap", "🔥🗺️・heatmap・🗺️🔥", cat=info_category)
     await ensure_channel("longshots", "🎯🏹・longshots・🏹🎯", cat=info_category)
     await ensure_channel("restart_alerts", "📢⏰・restart-alerts・⏰📢", cat=info_category)
+    await ensure_channel("restart_logs", DEFAULT_CHANNEL_NAMES["restart_logs"], cat=staff_category, private=True)
     await ensure_channel("bot_updates", "📢✨・bot-updates・✨📢", cat=bot_updates_category)
 
     await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
@@ -20519,9 +20545,11 @@ async def publish_restart_history(guild_id, config, record):
     if not record or not isinstance(config, dict):
         return
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    log_key = config.get("restart_log_channel_key") or "restart_logs"
     channel_id = (
         config.get("restart_log_channel_id")
-        or channels.get(config.get("restart_log_channel_key") or "restart_alerts")
+        or channels.get(log_key)
+        or channels.get("restart_logs")
         or channels.get("restart_alerts")
         or channels.get("admin_logs")
     )

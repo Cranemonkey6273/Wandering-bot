@@ -8873,14 +8873,14 @@ PAGE_TEMPLATE = """
             }
           }
         } catch (error) {}
-        if (attempts < 120 && row.isConnected) {
-          window.setTimeout(poll, attempts < 6 ? 2500 : 5000);
+        if (attempts < 36 && row.isConnected) {
+          window.setTimeout(poll, attempts < 4 ? 3000 : 8000);
         } else {
           row.dataset.statusPoll = "paused";
           if (statusCell && scenarioStatusIsPending(statusCell.textContent, row.dataset.eventUpload)) {
             const paused = document.createElement("small");
             paused.className = "muted";
-            paused.textContent = "Still waiting for the bot worker. This row will update after refresh if the worker completes later.";
+            paused.textContent = "Still waiting for the bot worker. This row will refresh on the next page sync.";
             statusCell.append(document.createElement("br"), paused);
           }
         }
@@ -13057,6 +13057,9 @@ def ai_agent_llm_reply_for_task(
         "You are Wandering Agent, a private owner-controlled AI software engineering agent inside a dashboard. "
         "Return only a JSON object. Do not claim you edited files, ran commands, deployed, pushed to GitHub, "
         "or inspected private code unless the supplied context proves it. Be concise, practical, and Codex-like. "
+        "Default to action: when the safe next step is obvious, say what is happening now and use the supplied "
+        "suggested commands instead of asking the user to restate the task. Ask a question only when the missing "
+        "answer would make the next action unsafe or impossible. "
         "If the user asks you to inspect a project but no sandbox/job output is present, say that the next step is "
         "to queue the Inspect Project sandbox command, then continue after the job output is available. "
         "Respect approval gates: production deploys, database migrations, secrets, file deletion, repository deletion, "
@@ -13941,22 +13944,33 @@ def enqueue_dashboard_audit_event(response: Any) -> None:
     save_store("dashboard_audit_queue", queue)
 
 
+def dashboard_auth_error_response(message: str, status_code: int):
+    if wants_json_response():
+        return jsonify({"ok": False, "error": message}), status_code
+    try:
+        payload = request_payload()
+    except Exception:
+        payload = {}
+    fallback = "/owner?section=overview" if (current_auth() or {}).get("kind") == "owner" else "/admin?section=overview"
+    return redirect(safe_dashboard_return((payload or {}).get("return_to"), fallback))
+
+
 def require_admin() -> tuple[dict[str, Any] | None, Any | None]:
     auth = current_auth()
     if not auth:
-        return None, (jsonify({"ok": False, "error": "dashboard login required"}), 401)
+        return None, dashboard_auth_error_response("dashboard login required", 401)
     payload = scoped_payload_for_auth(request_payload(), auth)
     if payload.get("_scope_denied"):
-        return None, (jsonify({"ok": False, "error": "server is not in this admin scope"}), 403)
+        return None, dashboard_auth_error_response("server is not in this admin scope", 403)
     if auth.get("kind") == "guild":
         guild_id = normalize_guild_id(payload.get("guild_id") or auth.get("guild_id"))
         guild_configs = load_store("guild_configs", {})
         config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
         if not isinstance(config, dict) or not dashboard_admin_login_enabled(config):
-            return None, (jsonify({"ok": False, "error": "dashboard access is disabled for this server"}), 403)
+            return None, dashboard_auth_error_response("dashboard access is disabled for this server", 403)
         feature = ADMIN_ROUTE_FEATURES.get(request.path)
         if feature and not dashboard_feature_allowed(config, feature):
-            return None, (jsonify({"ok": False, "error": f"{feature} is not enabled for this dashboard"}), 403)
+            return None, dashboard_auth_error_response(f"{feature} is not enabled for this dashboard", 403)
     return payload, None
 
 
@@ -15404,11 +15418,15 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
     if category:
         if not is_cargo_slot:
             picker = str(meta.get("picker") or "Head")
-            slot_items = groups.get(picker) if isinstance(groups.get(picker), list) else []
+            slot_items = visual_slot_item_candidates(groups, picker)
             if category == "Weapons":
                 candidates = slot_items if picker in {"Hands", "Left Shoulder", "Right Shoulder"} else []
             elif category == "Clothing":
-                candidates = slot_items
+                candidates = [
+                    item for item in slot_items
+                    if "cloth" in str(item.get("category") or "").lower()
+                    or visual_loadout_picker_fallback_category(picker) == "Clothes"
+                ]
             else:
                 candidates = [
                     item for item in slot_items
@@ -15426,7 +15444,7 @@ def visual_loadout_items_for_view(groups: dict[str, Any], slot: str, category: s
         return unique_visual_items(candidates, None)
     if str(meta.get("key", "")).startswith("cargo:"):
         return unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
-    return unique_visual_items(groups.get(str(meta.get("picker") or "Head"), []), None)
+    return visual_slot_item_candidates(groups, str(meta.get("picker") or "Head"))
 
 
 def visual_item_allowed_for_slot(groups: dict[str, Any], slot: str, item_name: str) -> bool:
@@ -15438,7 +15456,7 @@ def visual_item_allowed_for_slot(groups: dict[str, Any], slot: str, item_name: s
         candidates = groups.get("player_cargo") or groups.get("cargo") or groups.get("all") or []
     else:
         picker = str(meta.get("picker") or "Head")
-        candidates = groups.get(picker) or []
+        candidates = visual_slot_item_candidates(groups, picker)
     return item_key in {str(item.get("name") or "").strip().lower() for item in candidates or []}
 
 
@@ -15513,6 +15531,22 @@ def visual_items_matching(groups: dict[str, Any], names: list[str], fallback_cat
                 "fallback_image_url": f"/item-thumb/{urllib.parse.quote(fallback_category)}",
             })
     return unique_visual_items(rows)
+
+
+def visual_loadout_picker_fallback_category(picker: str) -> str:
+    if picker in {"Hands", "Left Shoulder", "Right Shoulder"}:
+        return "Weapons"
+    if picker == "Back":
+        return "Containers"
+    return "Clothes"
+
+
+def visual_slot_item_candidates(groups: dict[str, Any], picker: str) -> list[dict[str, Any]]:
+    picker = str(picker or "Head")
+    rows = groups.get(picker) if isinstance(groups.get(picker), list) else []
+    fallback_names = VISUAL_LOADOUT_SLOT_FALLBACKS.get(picker, [])
+    fallback_rows = visual_items_matching(groups, fallback_names, visual_loadout_picker_fallback_category(picker)) if fallback_names else []
+    return unique_visual_items(list(rows or []) + fallback_rows, None)
 
 
 def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
@@ -15809,8 +15843,8 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
         "minutes_until": minutes_until,
         "warning_channel_key": str(config.get("restart_channel_key") or "admin_logs"),
         "warning_channel_id": str(config.get("restart_channel_id") or channels.get(config.get("restart_channel_key") or "admin_logs") or ""),
-        "log_channel_key": str(config.get("restart_log_channel_key") or "restart_alerts"),
-        "log_channel_id": str(config.get("restart_log_channel_id") or channels.get(config.get("restart_log_channel_key") or "restart_alerts") or ""),
+        "log_channel_key": str(config.get("restart_log_channel_key") or "restart_logs"),
+        "log_channel_id": str(config.get("restart_log_channel_id") or channels.get(config.get("restart_log_channel_key") or "restart_logs") or channels.get("restart_alerts") or ""),
         "last_restart": history[0] if history and isinstance(history[0], dict) else {},
         "history": [item for item in history[:12] if isinstance(item, dict)],
     }
