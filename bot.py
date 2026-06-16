@@ -10887,7 +10887,26 @@ def parse_rpt_diagnostics(rpt_text, limit=16):
             "line_index": int(line_index or 0),
         })
 
-    for i, raw_line in enumerate(rpt_text.splitlines()):
+    lines = rpt_text.splitlines()
+    managed_event_hits = 0
+    for i, raw_line in enumerate(lines):
+        m = re.search(r'\[\d+\]\s+((?:Animal|Infected|Vehicle|Static)WanderingBot_[A-Za-z0-9_]+)', raw_line)
+        if not m:
+            continue
+        next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if "primary spawner" not in next_line.lower() or "active: yes" not in next_line.lower():
+            continue
+        add(
+            "Managed event loaded",
+            m.group(1),
+            f"CE loaded this Wandering Bot definition ({next_line}); startup RPT lists do not include runtime spawn coordinates",
+            i,
+        )
+        managed_event_hits += 1
+        if managed_event_hits >= 4:
+            break
+
+    for i, raw_line in enumerate(lines):
         line = raw_line.strip()
         if not line:
             continue
@@ -10909,7 +10928,11 @@ def parse_rpt_diagnostics(rpt_text, limit=16):
             continue
         m = re.search(r'File\s+"([^"]+)"\s+does not exist', line, re.I)
         if m:
-            add("Missing file", m.group(1), "required CE/XML file is missing", i)
+            missing_path = m.group(1)
+            if "wanderingbot" in normalize_discord_name(missing_path) and "territor" in missing_path.lower():
+                add("Missing animal territory XML", missing_path, "cfgenvironment.xml references this Wandering Bot animal territory file, but DayZ could not open it", i)
+            else:
+                add("Missing file", missing_path, "required CE/XML file is missing", i)
             continue
         m = re.search(r'\[ERROR\]\[XML\]\s+::\s+(.+)', line, re.I)
         if m:
@@ -11054,7 +11077,7 @@ def _build_rpt_event_embed(guild_id, state):
             lines.append(f"- **{kind}** `{name}`: {message}"[:240])
         if len(diagnostics) > 8:
             lines.append(f"- +{len(diagnostics) - 8} more warning(s) in the latest RPT pull")
-        embed.add_field(name="Spawn / XML warnings", value="\n".join(lines)[:1024], inline=False)
+        embed.add_field(name="Spawn / XML status", value="\n".join(lines)[:1024], inline=False)
     embed.set_footer(text=f"Wandering Bot Alpha — refresh every 5 min · Updated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     return embed
 
@@ -28328,32 +28351,69 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
     territory_ok = True
+    failed_territory_files = []
     for territory_file in built.get("animal_territory_files") or []:
         path = territory_file.get("path")
         text = territory_file.get("text")
         if not path or not text:
             territory_ok = False
+            failed_territory_files.append(territory_file)
             messages.append("Animal territory upload skipped because the target path or content was missing.")
             continue
         one_ok, one_message = upload_text_file_to_nitrado(config, path, text)
         territory_ok = territory_ok and one_ok
+        if not one_ok:
+            failed_territory_files.append(territory_file)
         messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
 
     cfgenvironment_ok = True
     if built.get("cfgenvironment_text"):
-        if territory_ok:
+        cfgenvironment_text = built["cfgenvironment_text"]
+        if failed_territory_files:
+            try:
+                env_root = ET.fromstring(str(cfgenvironment_text or "").encode("utf-8"))
+                territories = env_root.find("territories") if env_root.tag != "territories" else env_root
+                removed_refs = 0
+                if territories is not None:
+                    failed_paths = {
+                        f"env/{os.path.basename(str(item.get('path') or '')).lower()}"
+                        for item in failed_territory_files
+                        if str(item.get("path") or "").strip()
+                    }
+                    failed_usables = {
+                        os.path.splitext(os.path.basename(str(item.get("path") or "")).lower())[0]
+                        for item in failed_territory_files
+                        if str(item.get("path") or "").strip()
+                    }
+                    for node in list(territories):
+                        if node.tag == "file":
+                            path_value = str(node.get("path") or "").replace("\\", "/").lower()
+                            if path_value in failed_paths:
+                                territories.remove(node)
+                                removed_refs += 1
+                        elif node.tag == "territory":
+                            usable_values = {
+                                str(file_node.get("usable") or "").lower()
+                                for file_node in node.findall("file")
+                            }
+                            if usable_values & failed_usables:
+                                territories.remove(node)
+                                removed_refs += 1
+                cfgenvironment_text = xml_text_from_root(env_root)
+                messages.append(
+                    f"`cfgenvironment.xml`: removed `{removed_refs}` reference(s) for animal territory file(s) that did not upload, then uploaded the cleaned environment file."
+                )
+            except Exception as error:
+                cfgenvironment_ok = False
+                messages.append(f"`cfgenvironment.xml` cleanup failed after animal territory upload failure: {error}")
+
+        if cfgenvironment_ok:
             cfgenvironment_ok, cfgenvironment_message = upload_text_file_to_nitrado(
                 config,
                 built["cfgenvironment_path"],
-                built["cfgenvironment_text"]
+                cfgenvironment_text
             )
             messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
-        else:
-            cfgenvironment_ok = False
-            messages.append(
-                "`cfgenvironment.xml` upload skipped because one or more animal territory files failed to upload. "
-                "This prevents the server from referencing missing `env/wanderingbot_*_territories.xml` files."
-            )
 
     cfgareaeffects_ok = True
     if built.get("cfgareaeffects_text"):
