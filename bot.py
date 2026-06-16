@@ -9955,13 +9955,7 @@ def is_adm_event_stale(event_time, *, now=None, max_age_seconds=ADM_EVENT_MAX_AG
 
 def should_guard_stale_adm_events(guild_id):
     context = adm_parse_context.get(str(guild_id), {})
-    if context.get("history_sweep"):
-        return True
-    try:
-        process_age = (datetime.now(UTC) - BOT_PROCESS_START_TIME).total_seconds()
-    except Exception:
-        process_age = ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS + 1
-    return process_age <= ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS
+    return bool(context.get("history_sweep"))
 
 
 def load_processed_adm_lines():
@@ -10091,6 +10085,16 @@ def remember_processed_kill_event(guild_id, fingerprint):
 def is_processed_kill_event(guild_id, fingerprint):
     ensure_guild_runtime(guild_id)
     return fingerprint in processed_kill_events.get(str(guild_id), {})
+
+
+def reset_processed_adm_caches(guild_id):
+    guild_id = str(guild_id)
+    processed_lines[guild_id] = OrderedDict()
+    processed_adm_events[guild_id] = OrderedDict()
+    processed_kill_events[guild_id] = OrderedDict()
+    save_processed_adm_lines()
+    save_processed_adm_events()
+    save_processed_kill_events()
 
 
 def active_guild_ids():
@@ -14438,8 +14442,6 @@ async def parse_adm(guild_id, config):
         if line_hash in processed_lines[guild_id]:
             continue
 
-        remember_processed_line(guild_id, line_hash)
-
         if event_type and should_guard_stale_adm_events(guild_id) and is_adm_event_stale(
             event_time,
             max_age_seconds=adm_event_max_age_seconds(),
@@ -14447,9 +14449,11 @@ async def parse_adm(guild_id, config):
             stale_adm_skipped += 1
             continue
 
+        remember_processed_line(guild_id, line_hash)
+
         # Hash dedupe is the normal replay guard. The age guard above is
-        # limited to cold-start/history sweeps so rotated ADM logs do not
-        # get announced again with yesterday's timestamps.
+        # limited to explicit history sweeps so rotated ADM logs do not get
+        # announced again with yesterday's timestamps.
 
         if not event_type:
             if extract_adm_coords(line):
@@ -15860,8 +15864,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         return False, "Showcase guild skipped; no ADM setup needed"
 
     if force:
-        processed_lines[guild_id] = OrderedDict()
-        save_processed_adm_lines()
+        reset_processed_adm_caches(guild_id)
 
     required_keys = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
     missing = [key for key in required_keys if not config.get(key)]
