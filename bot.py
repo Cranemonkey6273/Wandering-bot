@@ -2820,6 +2820,12 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
     }
 
     save_linked_players()
+    await cleanup_link_enforcement_after_link(
+        guild_id,
+        config,
+        verified_name,
+        source="linkgamer",
+    )
     await announce_verified_gamer_link(guild, config, member, verified_name)
     return True, verified_name
 
@@ -16107,16 +16113,34 @@ async def dashboard_member_action_loop():
                 action["result"] = message
                 action["processed_at"] = datetime.now(UTC).isoformat()
                 if ok and action_type == "dayz_temp_ban":
-                    until_dt = datetime.now(UTC) + timedelta(minutes=minutes)
-                    config.setdefault("nitrado_temp_bans", []).append(
-                        {
-                            "gamertag": player_name,
-                            "expires_at": until_dt.isoformat(),
-                            "until_ts": until_dt.timestamp(),
-                            "reason": reason,
-                            "source": "dashboard",
-                        }
-                    )
+                    clean_name = normalize_nitrado_banlist_name(player_name)
+                    now_dt = datetime.now(UTC)
+                    now_ts = now_dt.timestamp()
+                    wanted = normalize_discord_name(clean_name)
+                    matched = None
+                    for record in config.setdefault("nitrado_temp_bans", []):
+                        if normalize_discord_name(record.get("gamertag", "")) == wanted:
+                            matched = record
+                            break
+                    if matched:
+                        base_until = max(now_ts, float(matched.get("until_ts") or 0))
+                        matched["gamertag"] = clean_name
+                        matched["until_ts"] = base_until + minutes * 60
+                        matched["expires_at"] = datetime.fromtimestamp(matched["until_ts"], UTC).isoformat()
+                        matched["reason"] = reason
+                        matched["source"] = "dashboard_members"
+                        matched["extended_at"] = now_dt.isoformat()
+                    else:
+                        until_dt = now_dt + timedelta(minutes=minutes)
+                        config.setdefault("nitrado_temp_bans", []).append(
+                            {
+                                "gamertag": clean_name,
+                                "expires_at": until_dt.isoformat(),
+                                "until_ts": until_dt.timestamp(),
+                                "reason": reason,
+                                "source": "dashboard_members",
+                            }
+                        )
                 elif ok and action_type == "dayz_perm_ban":
                     config.setdefault("nitrado_perm_bans", []).append(
                         {
@@ -19065,21 +19089,80 @@ async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban
     return ok, message
 
 
-async def remove_player_from_nitrado_banlist_async(guild_id, config, gamertag, *, reason="", source=""):
+async def remove_player_from_nitrado_banlist_async(guild_id, config, gamertag, *, reason="", source="", log_if_missing=True):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     ok, message = await asyncio.to_thread(remove_player_from_nitrado_banlist, config, clean_name)
-    await post_nitrado_banlist_log(
-        guild_id,
-        config,
-        action="remove",
-        gamertag=clean_name,
-        ban_type="unban",
-        reason=reason,
-        source=source,
-        result=message,
-        ok=ok,
-    )
+    already_missing = "not in banlist" in str(message or "").lower()
+    if log_if_missing or not already_missing:
+        await post_nitrado_banlist_log(
+            guild_id,
+            config,
+            action="remove",
+            gamertag=clean_name,
+            ban_type="unban",
+            reason=reason,
+            source=source,
+            result=message,
+            ok=ok,
+        )
     return ok, message
+
+
+def _temp_ban_record_is_link_enforcement(record):
+    source = str(record.get("source") or "").lower()
+    reason = str(record.get("reason") or "").lower()
+    return (
+        source == "discord_link_enforcement"
+        or "linkgamer" in reason
+        or "join this discord" in reason
+        or "discord membership" in reason
+        or "link your gamertag" in reason
+    )
+
+
+async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, source="linkgamer"):
+    """Clear pending Discord-link enforcement as soon as a gamertag is linked."""
+    guild_id = str(guild_id)
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    wanted = normalize_discord_name(clean_name)
+    if not wanted:
+        return False
+
+    changed = False
+    if clear_link_enforcement_pending(config, clean_name):
+        changed = True
+
+    task_key = f"{guild_id}:{wanted}"
+    task = _pending_link_enforcement_tasks.pop(task_key, None)
+    if task and not task.done():
+        task.cancel()
+        changed = True
+
+    remaining = []
+    for record in config.get("nitrado_temp_bans", []):
+        if not isinstance(record, dict):
+            continue
+        record_name = normalize_discord_name(record.get("gamertag", ""))
+        if record_name == wanted and _temp_ban_record_is_link_enforcement(record):
+            changed = True
+            try:
+                await remove_player_from_nitrado_banlist_async(
+                    guild_id,
+                    config,
+                    clean_name,
+                    reason="Gamertag linked in Discord; clearing link-enforcement temp ban.",
+                    source=source,
+                    log_if_missing=False,
+                )
+            except Exception as error:
+                print(f"[LINK ENFORCEMENT] linked cleanup unban failed for {clean_name}: {error}")
+            continue
+        remaining.append(record)
+
+    if changed:
+        config["nitrado_temp_bans"] = remaining
+        save_guild_configs()
+    return changed
 
 
 def nitrado_restart_server_now(config):
@@ -19757,6 +19840,7 @@ async def process_nitrado_temp_ban_expiries():
                     record.get("gamertag", ""),
                     reason=str(record.get("reason") or "Temp ban expired"),
                     source="temp_ban_expiry",
+                    log_if_missing=False,
                 )
                 print(f"[SAFEZONE] auto-unban {record.get('gamertag')}: ok={ok} msg={msg}")
             except Exception as err:
@@ -23815,6 +23899,12 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         stats["last_adm_seen"] = stats.get("last_adm_seen") or str(datetime.now(UTC))
         save_player_stats()
 
+    await cleanup_link_enforcement_after_link(
+        guild_id,
+        config,
+        verified_name,
+        source="forcelinkgamer",
+    )
     await announce_verified_gamer_link(guild, config, target_member, verified_name)
     return True, verified_name
 
@@ -38549,16 +38639,19 @@ async def gameban_add(interaction: discord.Interaction, gamertag: str, minutes: 
         await interaction.followup.send(f"❌ Banlist push failed: `{msg}`", ephemeral=True)
         return
     if minutes > 0:
+        clean_name = normalize_nitrado_banlist_name(gamertag)
         until_ts = datetime.now(UTC).timestamp() + minutes * 60
         config.setdefault("nitrado_temp_bans", []).append({
-            "gamertag": gamertag.strip(),
+            "gamertag": clean_name,
             "zone_id": None,
             "zone_name": "Manual",
             "trigger": "manual",
             "reason": reason,
             "created_ts": datetime.now(UTC).timestamp(),
             "until_ts": until_ts,
+            "expires_at": datetime.fromtimestamp(until_ts, UTC).isoformat(),
             "offense_count": 1,
+            "source": "slash_gameban_add",
         })
         save_guild_configs()
         await interaction.followup.send(
@@ -38580,6 +38673,71 @@ async def gameban_add(interaction: discord.Interaction, gamertag: str, minutes: 
             f"🔨 PERM-banned `{gamertag}`. Reason: {reason}",
             ephemeral=True,
         )
+
+
+@gameban_group.command(name="extend", description="Extend an existing temp DayZ-server ban, or create one if missing.")
+@app_commands.describe(
+    gamertag="DayZ gamertag",
+    minutes="Extra minutes to add",
+    reason="Reason for the extension",
+)
+@app_commands.default_permissions(ban_members=True)
+async def gameban_extend(interaction: discord.Interaction, gamertag: str, minutes: int, reason: str = "Manual temp-ban extension"):
+    if not interaction.user.guild_permissions.ban_members:
+        await interaction.response.send_message("Need Ban Members permission.", ephemeral=True)
+        return
+    config = guild_configs.setdefault(str(interaction.guild.id), {"channels": {}})
+    await interaction.response.defer(ephemeral=True)
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    minutes = max(1, int(minutes or 1))
+    ok, msg = await add_player_to_nitrado_banlist_async(
+        str(interaction.guild.id),
+        config,
+        clean_name,
+        ban_type="temp",
+        reason=reason,
+        source="slash_gameban_extend",
+        minutes=minutes,
+    )
+    if not ok:
+        await interaction.followup.send(f"Ban extension failed: `{msg}`", ephemeral=True)
+        return
+
+    now_ts = datetime.now(UTC).timestamp()
+    wanted = normalize_discord_name(clean_name)
+    matched = None
+    for record in config.setdefault("nitrado_temp_bans", []):
+        if normalize_discord_name(record.get("gamertag", "")) == wanted:
+            matched = record
+            break
+    if matched:
+        base_until = max(now_ts, float(matched.get("until_ts") or 0))
+        matched["gamertag"] = clean_name
+        matched["until_ts"] = base_until + minutes * 60
+        matched["expires_at"] = datetime.fromtimestamp(matched["until_ts"], UTC).isoformat()
+        matched["reason"] = reason
+        matched["source"] = matched.get("source") or "slash_gameban_extend"
+        matched["extended_at"] = datetime.now(UTC).isoformat()
+        matched["extended_by"] = str(interaction.user.id)
+    else:
+        until_ts = now_ts + minutes * 60
+        config.setdefault("nitrado_temp_bans", []).append({
+            "gamertag": clean_name,
+            "zone_id": None,
+            "zone_name": "Manual",
+            "trigger": "manual",
+            "reason": reason,
+            "created_ts": now_ts,
+            "until_ts": until_ts,
+            "expires_at": datetime.fromtimestamp(until_ts, UTC).isoformat(),
+            "offense_count": 1,
+            "source": "slash_gameban_extend",
+        })
+    save_guild_configs()
+    await interaction.followup.send(
+        f"`{clean_name}` temp ban extended by {format_duration_seconds(minutes * 60)}. No server restart requested.",
+        ephemeral=True,
+    )
 
 
 @gameban_group.command(name="remove", description="Remove a gamertag from the Nitrado banlist (unban).")

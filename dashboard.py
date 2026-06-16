@@ -2343,6 +2343,7 @@ PAGE_TEMPLATE = """
     .scenario-actions button { min-height: 2.2rem; padding: .35rem .55rem; white-space: nowrap; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
+    .inline-action .compact-number { min-width: 5rem; max-width: 6.5rem; }
     .owner-server-list { display: grid; gap: .65rem; }
     .owner-server-card { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(14rem, auto); gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
     .owner-server-card h4 { margin: 0 0 .35rem; color: var(--text); }
@@ -4488,6 +4489,14 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="player_name" value="{{ member.name }}">
                     <input class="hidden-field" name="action" value="dayz_perm_ban">
                     <button type="submit">DayZ Ban</button> <span class="result muted"></span>
+                  </form>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/member-action" data-route="/api/admin/member-action" data-confirm="Queue a temporary DayZ/Nitrado ban for {{ member.name }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                    <input class="hidden-field" name="member_id" value="{{ member.discord_id }}">
+                    <input class="hidden-field" name="player_name" value="{{ member.name }}">
+                    <input class="hidden-field" name="action" value="dayz_temp_ban">
+                    <input class="compact-number" name="minutes" type="number" min="1" value="60" title="Minutes">
+                    <button type="submit">Temp DayZ Ban</button> <span class="result muted"></span>
                   </form>
                 </td>
               </tr>
@@ -20185,6 +20194,7 @@ def api_member_action():
         "action": action,
         "player_name": player_name,
         "member_id": member_id,
+        "minutes": max(1, safe_int(payload.get("minutes"), 1440)) if action == "dayz_temp_ban" else None,
         "reason": reason,
         "status": "queued",
         "created_by": "dashboard",
