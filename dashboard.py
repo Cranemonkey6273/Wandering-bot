@@ -11048,6 +11048,33 @@ def scenario_event_key(event: Any) -> str:
     return str(event.get("id") or event.get("name") or "").strip()
 
 
+MANAGED_SINGLE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
+
+
+def managed_scenario_key_part(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def managed_scenario_event_key(event_type: Any, preset: Any = "", class_name: Any = "") -> str:
+    event_type_text = str(event_type or "").strip().lower()
+    if event_type_text not in MANAGED_SINGLE_SCENARIO_TYPES:
+        return ""
+    preset_key = managed_scenario_key_part(preset)
+    if not preset_key or preset_key in {"custom", "customvehicle"}:
+        preset_key = managed_scenario_key_part(class_name)
+    return f"{event_type_text}:{preset_key or 'managed'}"
+
+
+def managed_scenario_event_key_for_event(event: Any) -> str:
+    if not isinstance(event, dict):
+        return ""
+    return managed_scenario_event_key(
+        event.get("event_type"),
+        event.get("preset") or event.get("spawn_preset"),
+        event.get("class_name"),
+    )
+
+
 def scenario_event_tombstones(config: Any) -> dict[str, Any]:
     tombstones = config.get("scenario_event_tombstones") if isinstance(config, dict) else {}
     return tombstones if isinstance(tombstones, dict) else {}
@@ -19360,13 +19387,61 @@ def api_scenario_event():
 
     base_name = str(payload.get("name") or "").strip()
     label_name = str(preset.get("label") or event_type.replace("_", " ").title()).strip()
-    created_events: list[dict[str, Any]] = []
     tombstones = config.get("scenario_event_tombstones")
+    managed_reuse_ids: list[int] = []
+    managed_existing_event: dict[str, Any] = {}
+    managed_key = managed_scenario_event_key(event_type, spawn_preset, class_name)
+    if requested_event_id <= 0 and managed_key:
+        retained_events = []
+        replaced_events = []
+        for event in events:
+            if (
+                isinstance(event, dict)
+                and str(event.get("created_by") or "") == "dashboard"
+                and managed_scenario_event_key_for_event(event) == managed_key
+            ):
+                replaced_events.append(event)
+            else:
+                retained_events.append(event)
+        if replaced_events:
+            events[:] = retained_events
+            managed_existing_event = dict(replaced_events[0])
+            managed_reuse_ids = [
+                safe_int(event.get("id"), 0)
+                for event in replaced_events
+                if isinstance(event, dict) and safe_int(event.get("id"), 0) > 0
+            ]
+            existing_ids = [
+                safe_int(event.get("id"), 0)
+                for event in events
+                if isinstance(event, dict) and safe_int(event.get("id"), 0) > 0
+            ]
+            if isinstance(tombstones, dict):
+                for deleted_id in tombstones:
+                    deleted_int = safe_int(deleted_id, 0)
+                    if deleted_int > 0:
+                        existing_ids.append(deleted_int)
+            next_event_id = max(existing_ids + managed_reuse_ids or [0]) + 1
+    created_events: list[dict[str, Any]] = []
+    allocated_event_ids = {
+        safe_int(event.get("id"), 0)
+        for event in events
+        if isinstance(event, dict) and safe_int(event.get("id"), 0) > 0
+    }
     for location_index, location in enumerate(location_records):
-        current_event_id = requested_event_id if existing_index is not None else next_event_id + location_index
+        if existing_index is not None:
+            current_event_id = requested_event_id
+        elif location_index < len(managed_reuse_ids):
+            current_event_id = managed_reuse_ids[location_index]
+        else:
+            while next_event_id in allocated_event_ids or next_event_id in managed_reuse_ids:
+                next_event_id += 1
+            current_event_id = next_event_id
+            next_event_id += 1
+        allocated_event_ids.add(current_event_id)
         if isinstance(tombstones, dict):
             tombstones.pop(str(current_event_id), None)
-        event = dict(existing_event) if existing_index is not None else {}
+        event = dict(existing_event) if existing_index is not None else (dict(managed_existing_event) if location_index == 0 else {})
         loc_name = str(location.get("name") or location_name or "Dashboard").strip()
         if base_name and len(location_records) > 1:
             display_name = f"{base_name} - {loc_name}" if loc_name.lower() not in base_name.lower() else base_name
@@ -19411,8 +19486,8 @@ def api_scenario_event():
             "enabled": True,
             "status": "Saved - native CE XML upload requested",
             "upload_status": "waiting_for_bot_upload",
-            "created_by": existing_event.get("created_by") or "dashboard",
-            "created_at": existing_event.get("created_at") or datetime.now(UTC).isoformat(),
+            "created_by": event.get("created_by") or "dashboard",
+            "created_at": event.get("created_at") or datetime.now(UTC).isoformat(),
             "updated_at": datetime.now(UTC).isoformat(),
         })
         if event_type == "vehicle_reset_all":

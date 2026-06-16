@@ -25707,6 +25707,12 @@ dayz_reference_cache = {}
 
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
+STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
+INVALID_SPAWNABLETYPE_ITEM_KEYS = {
+    normalize_discord_name("Flaregun"),
+    normalize_discord_name("Ammo_Flare"),
+    normalize_discord_name("Ammo_FlareRed"),
+}
 
 
 def dayz_reference_path(map_key, *parts):
@@ -26309,7 +26315,27 @@ def ce_event_name(event, suffix="", family=""):
     kind = normalize_discord_name(event.get("event_type", "event")) or "event"
     tail = f"_{normalize_discord_name(suffix)}" if suffix else ""
     event_family = str(family or ce_event_family_for_record(kind, event.get("class_name"))).strip() or "Static"
+    stable_slug = stable_console_event_slug(event)
+    if stable_slug:
+        return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{stable_slug}{tail}"[:64]
     return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{event_id}_{kind}{tail}"[:64]
+
+
+def stable_console_event_slug(event):
+    event_type = str((event or {}).get("event_type") or "").strip().lower()
+    if event_type not in STABLE_CONSOLE_EVENT_TYPES:
+        return ""
+    preset = normalize_discord_name(
+        (event or {}).get("preset")
+        or (event or {}).get("spawn_preset")
+        or ""
+    )
+    if not preset or preset in {"custom", "customvehicle"}:
+        preset = normalize_discord_name((event or {}).get("class_name") or "")
+    if not preset:
+        preset = "managed"
+    prefix = "animal" if event_type == "animal_pack" else "horde"
+    return f"{prefix}_{preset}"[:48]
 
 
 def ce_event_nominal_count(event, override_count=None):
@@ -26378,7 +26404,7 @@ def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
         name = str(child.get("name") or "")
-        if CONSOLE_CE_EVENT_MARKER in name or name.startswith(CONSOLE_CE_EVENT_PREFIX):
+        if CONSOLE_CE_EVENT_MARKER in name or name.startswith(CONSOLE_CE_EVENT_PREFIX) or "wanderingbot" in normalize_discord_name(name):
             root.remove(child)
             removed += 1
     return removed
@@ -26693,6 +26719,25 @@ def replace_spawnabletypes_group(type_node, tag_name, items):
     return True
 
 
+def sanitize_spawnabletypes_ignored_items(root):
+    removed_items = 0
+    removed_groups = 0
+    for type_node in root.findall("type"):
+        for group_tag in ("cargo", "attachments"):
+            for group_node in list(type_node.findall(group_tag)):
+                touched_group = False
+                for item_node in list(group_node.findall("item")):
+                    item_key = normalize_discord_name(item_node.get("name") or "")
+                    if item_key in INVALID_SPAWNABLETYPE_ITEM_KEYS:
+                        group_node.remove(item_node)
+                        removed_items += 1
+                        touched_group = True
+                if touched_group and not group_node.findall("item"):
+                    type_node.remove(group_node)
+                    removed_groups += 1
+    return removed_items, removed_groups
+
+
 def merge_airdrop_loot_into_spawnabletypes(root, events):
     changed_classes = set()
     cargo_blocks = 0
@@ -26969,7 +27014,7 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
     bad_values = {"tier4"} if map_key in {"livonia", "enoch", "sakhal"} else set()
 
     for group_node in list(root.findall("group")):
-        if CONSOLE_CE_EVENT_MARKER.lower() in str(group_node.get("name") or "").lower():
+        if "wanderingbot" in normalize_discord_name(group_node.get("name") or ""):
             root.remove(group_node)
             removed_groups += 1
             changed = True
@@ -27038,8 +27083,16 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     return group_node, changed
 
 
+def find_or_create_named_child(root, tag_name, name):
+    wanted = str(name or "").strip()
+    for child in root.findall(tag_name):
+        if str(child.get("name") or "").strip().lower() == wanted.lower():
+            return child, False
+    return ET.SubElement(root, tag_name, {"name": wanted}), True
+
+
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
-    event_node = ET.SubElement(root, "event", {"name": event_name})
+    event_node, _ = find_or_create_named_child(root, "event", event_name)
     if empty:
         return event_node
     count = max(1, int(count or 1))
@@ -27139,8 +27192,13 @@ def remote_mission_base_from_ce_paths(built):
     return ""
 
 
+def ce_file_slug(value):
+    slug = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    return re.sub(r"_+", "_", slug)
+
+
 def animal_territory_file_name(record):
-    safe = normalize_discord_name(record.get("territory_file_key") or record.get("territory_name") or record.get("name") or "animal")
+    safe = ce_file_slug(record.get("territory_file_key") or record.get("territory_name") or record.get("name") or "animal")
     return f"wanderingbot_{safe}_territories.xml"[:96]
 
 
@@ -27162,10 +27220,16 @@ def animal_territory_group_key(record):
 def group_animal_territory_records(records):
     groups = {}
     for record in records:
-        key = normalize_discord_name(record.get("territory_name") or record.get("name") or animal_territory_group_key(record))
+        key = ce_file_slug(record.get("territory_file_key") or record.get("territory_name") or record.get("name") or animal_territory_group_key(record))
+        if key.startswith("wanderingbot"):
+            key = re.sub(r"^wanderingbot_?", "", key)
+        if key.startswith("animal") and not key.startswith("animal_") and len(key) > len("animal"):
+            key = f"animal_{key[len('animal'):]}"
+        elif not key.startswith("animal_"):
+            key = f"animal_{key}"
         group = groups.setdefault(key, {
-            "territory_file_key": f"animal_{key}",
-            "territory_name": record.get("territory_name") or record.get("name") or f"WanderingBot_{key}",
+            "territory_file_key": key,
+            "territory_name": record.get("territory_name") or f"WanderingBot_{key}",
             "animal_behavior": record.get("animal_behavior"),
             "territory_zone": record.get("territory_zone"),
             "territory_color": record.get("territory_color"),
@@ -27187,7 +27251,7 @@ def remove_wandering_environment_nodes(root):
     for child in list(territories):
         if child.tag == "file":
             path = str(child.get("path") or "").lower()
-            if "wanderingbot_" in path or CONSOLE_CE_EVENT_MARKER.lower() in path:
+            if "wanderingbot" in normalize_discord_name(path):
                 territories.remove(child)
                 removed_files += 1
         elif child.tag == "territory":
@@ -27197,9 +27261,8 @@ def remove_wandering_environment_nodes(root):
                 for file_node in child.findall("file")
             ]
             if (
-                "wanderingbot_" in name
-                or CONSOLE_CE_EVENT_MARKER.lower() in name
-                or any("wanderingbot_" in usable or CONSOLE_CE_EVENT_MARKER.lower() in usable for usable in usable_names)
+                "wanderingbot" in normalize_discord_name(name)
+                or any("wanderingbot" in normalize_discord_name(usable) for usable in usable_names)
             ):
                 territories.remove(child)
                 removed_territories += 1
@@ -27366,6 +27429,7 @@ def console_ce_records_for_event(event):
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
         "remove_damaged": event_type in {"airdrop", "loot_crate"},
+        "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
     }
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
@@ -27389,7 +27453,8 @@ def console_ce_records_for_event(event):
         )
     if event_type == "animal_pack":
         territory = animal_territory_profile(class_name)
-        territory_name = record_name[len("Animal"):] if record_name.startswith("Animal") else record_name
+        territory_key = stable_console_event_slug(event) or normalize_discord_name(record_name)
+        territory_name = f"WanderingBot_{territory_key}"
         record.update({
             "nominal": count,
             "min_count": count,
@@ -27397,6 +27462,7 @@ def console_ce_records_for_event(event):
             "saferadius": 2,
             "cleanupradius": 100,
             "animal_territory": True,
+            "territory_file_key": territory_key,
             "territory_name": territory_name,
             "territory_zone": territory.get("zone"),
             "territory_color": territory.get("color"),
@@ -27434,6 +27500,82 @@ def console_ce_records_for_event(event):
         )
 
     return records, warnings
+
+
+def console_ce_definition_child_records(record):
+    child_records = record.get("child_records")
+    if isinstance(child_records, list) and child_records:
+        source_records = child_records
+    else:
+        source_records = [{
+            "type": record.get("event_child_type") or record.get("class_name"),
+            "count": record.get("count", 1),
+            "lootmin": record.get("child_lootmin", 0),
+            "lootmax": record.get("child_lootmax", 0),
+        }]
+    cleaned = []
+    for child_record in source_records:
+        if not isinstance(child_record, dict):
+            continue
+        child_type = str(child_record.get("type") or "").strip()
+        if not child_type:
+            continue
+        cleaned.append({
+            "type": child_type,
+            "count": max(1, safe_int(child_record.get("count"), 1)),
+            "lootmin": max(0, safe_int(child_record.get("lootmin"), record.get("child_lootmin", 0))),
+            "lootmax": max(0, safe_int(child_record.get("lootmax"), record.get("child_lootmax", 0))),
+        })
+    return cleaned
+
+
+def merge_console_ce_definition_records(records):
+    merged = []
+    stable_by_name = {}
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        name = str(record.get("name") or "").strip()
+        if not name or not record.get("stable_definition"):
+            merged.append(record)
+            continue
+        existing = stable_by_name.get(name.lower())
+        if existing is None:
+            existing = dict(record)
+            existing["child_records"] = console_ce_definition_child_records(record)
+            stable_by_name[name.lower()] = existing
+            merged.append(existing)
+            continue
+
+        existing["count"] = min(250, max(1, safe_int(existing.get("count"), 1)) + max(1, safe_int(record.get("count"), 1)))
+        existing["nominal"] = existing["count"]
+        existing["min_count"] = existing["count"]
+        existing["max_count"] = existing["count"]
+        for key in ("lifetime", "restock", "saferadius", "distanceradius", "cleanupradius"):
+            existing[key] = max(safe_int(existing.get(key), 0), safe_int(record.get(key), 0))
+
+        child_map = {
+            (
+                str(child.get("type") or "").lower(),
+                safe_int(child.get("lootmin"), 0),
+                safe_int(child.get("lootmax"), 0),
+            ): dict(child)
+            for child in console_ce_definition_child_records(existing)
+        }
+        for child in console_ce_definition_child_records(record):
+            key = (
+                str(child.get("type") or "").lower(),
+                safe_int(child.get("lootmin"), 0),
+                safe_int(child.get("lootmax"), 0),
+            )
+            if key in child_map:
+                child_map[key]["count"] = min(250, safe_int(child_map[key].get("count"), 1) + safe_int(child.get("count"), 1))
+            else:
+                child_map[key] = dict(child)
+        existing["child_records"] = list(child_map.values())
+
+    return merged
 
 
 def download_console_ce_source(config, guild_id, key, requested_path=""):
@@ -27560,7 +27702,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         records.extend(event_records)
         warnings.extend(event_warnings)
 
-    for record in records:
+    definition_records = merge_console_ce_definition_records(records)
+    for record in definition_records:
         add_console_ce_event_definition(
             events_root,
             record["name"],
@@ -27582,6 +27725,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             remove_damaged=bool(record.get("remove_damaged")),
             empty_children=bool(record.get("empty_event_children")),
         )
+    for record in records:
         add_console_ce_event_spawn(
             spawns_root,
             record["name"],
@@ -27598,7 +27742,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         events_source,
         spawns_source,
         f"Removed `{removed_events}` old WanderingBot event definition(s) and `{removed_spawns}` old spawn point block(s).",
-        f"Generated `{len(records)}` native CE event record(s).",
+        f"Generated `{len(records)}` native CE spawn record(s) across `{len(definition_records)}` managed event definition(s).",
     ]
     if events_parse_warning:
         messages.append(events_parse_warning)
@@ -27802,6 +27946,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
         if spawnable_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {spawnable_parse_warning}")
+        removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
         changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
         output["spawnabletypes_path"] = resolved_spawnable_path
         output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
@@ -27813,6 +27958,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
             + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
         )
+        if removed_ignored_items:
+            output["messages"].append(
+                f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
+                f"and cleaned `{removed_empty_groups}` empty cargo/attachment group(s)."
+            )
         if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
             output["messages"].append(
                 "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
