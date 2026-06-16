@@ -27883,11 +27883,24 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "messages": messages,
         "source_fallbacks": source_fallbacks,
     }
+    mission_base = remote_mission_base_from_ce_paths(output)
+    output["mission_base"] = mission_base
+    output["mission_folder"] = mission_base.rstrip("/").split("/")[-1] if mission_base else ""
+    output["managed_event_names"] = sorted({
+        str(record.get("name") or "").strip()
+        for record in definition_records
+        if str(record.get("name") or "").strip()
+    })[:24]
+    output["managed_spawn_names"] = sorted({
+        str(record.get("name") or "").strip()
+        for record in records
+        if str(record.get("name") or "").strip()
+    })[:24]
+    output["restart_required"] = bool(records or config.get("scenario_events_cleanup_pending"))
 
     animal_records = [record for record in records if record.get("animal_territory")]
     should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
     if should_cleanup_environment:
-        mission_base = remote_mission_base_from_ce_paths(output)
         if not mission_base:
             output.setdefault("source_fallbacks", []).append(
                 "cfgenvironment.xml: could not infer mission folder from resolved CE paths."
@@ -28516,6 +28529,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         return False
     summaries = [_scenario_notice_event_summary(event) for event in (events or [])]
     summaries = [summary for summary in summaries if summary]
+    mission_base, mission_folder, managed_names = native_ce_upload_metadata_from_built(built or {})
     notices = config.setdefault("scenario_event_discord_notices", [])
     if not isinstance(notices, list):
         notices = []
@@ -28524,6 +28538,9 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "created_at": datetime.now(UTC).isoformat(),
         "source": str(source or "Dashboard")[:80],
         "success": bool(success),
+        "mission_base": mission_base,
+        "mission_folder": mission_folder,
+        "managed_event_names": managed_names,
         "events_path": str((built or {}).get("events_path") or ""),
         "spawns_path": str((built or {}).get("spawns_path") or ""),
         "eventgroups_path": str((built or {}).get("eventgroups_path") or ""),
@@ -28584,6 +28601,19 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         event_lines.append(_scenario_notice_event_line(event, guild.id))
     if event_lines:
         embed.add_field(name="Queued dashboard event(s)", value="\n".join(event_lines)[:1024], inline=False)
+
+    target_lines = []
+    if notice.get("mission_folder"):
+        target_lines.append(f"- **Mission** `{notice.get('mission_folder')}`")
+    if notice.get("mission_base"):
+        target_lines.append(f"- **Remote base** `{notice.get('mission_base')}`")
+    managed_names = [str(name) for name in (notice.get("managed_event_names") or []) if str(name).strip()]
+    if managed_names:
+        target_lines.append(f"- **Managed CE definition(s)** `{', '.join(managed_names[:5])}`")
+        if len(managed_names) > 5:
+            target_lines.append(f"- +{len(managed_names) - 5} more managed definition(s)")
+    if target_lines:
+        embed.add_field(name="CE target", value="\n".join(target_lines)[:1024], inline=False)
 
     live_events = list((rpt_event_tracker.get(str(guild_id), {}) or {}).get("events") or [])
     if live_events:
@@ -28673,6 +28703,46 @@ async def process_scenario_event_discord_notices(guild_id, config):
     return changed
 
 
+def native_ce_upload_metadata_from_built(built):
+    built = built if isinstance(built, dict) else {}
+    mission_base = str(built.get("mission_base") or "").strip()
+    if not mission_base:
+        mission_base = remote_mission_base_from_ce_paths(built)
+    mission_folder = str(built.get("mission_folder") or "").strip()
+    if not mission_folder and mission_base:
+        mission_folder = mission_base.rstrip("/").split("/")[-1]
+    managed_names = []
+    for value in (built.get("managed_event_names") or built.get("managed_spawn_names") or []):
+        text = str(value or "").strip()
+        if text and text not in managed_names:
+            managed_names.append(text)
+    return mission_base, mission_folder, managed_names[:24]
+
+
+def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_status="uploaded", status_text=None):
+    mission_base, mission_folder, managed_names = native_ce_upload_metadata_from_built(built)
+    event["native_ce_uploaded_at"] = now_text
+    event["native_ce_events_path"] = built.get("events_path", "")
+    event["native_ce_spawns_path"] = built.get("spawns_path", "")
+    event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
+    event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+    event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
+    event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+    event["native_ce_mission_base"] = mission_base
+    event["native_ce_mission_folder"] = mission_folder
+    event["native_ce_managed_event_names"] = managed_names
+    event["native_ce_restart_required"] = bool(built.get("restart_required", True))
+    event["native_ce_territory_paths"] = [
+        str(item.get("path") or "")
+        for item in (built.get("animal_territory_files") or [])
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    ][:8]
+    event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
+    event["upload_status"] = upload_status
+    event["status"] = status_text or "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+    event.pop("upload_error", None)
+
+
 def dashboard_upload_console_ce_event_files(guild_id):
     guild_id = str(guild_id)
     load_guild_configs()
@@ -28711,23 +28781,8 @@ def dashboard_upload_console_ce_event_files(guild_id):
             continue
         affected_events.append(event)
         if success:
-            event["native_ce_uploaded_at"] = now_text
-            event["native_ce_events_path"] = built.get("events_path", "")
-            event["native_ce_spawns_path"] = built.get("spawns_path", "")
-            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
-            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
-            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
-            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
-            event["native_ce_territory_paths"] = [
-                str(item.get("path") or "")
-                for item in (built.get("animal_territory_files") or [])
-                if isinstance(item, dict) and str(item.get("path") or "").strip()
-            ][:8]
-            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
-            event["upload_status"] = "uploaded"
-            event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+            apply_native_ce_upload_metadata(event, built, messages, now_text)
             event["updated_at"] = now_text
-            event.pop("upload_error", None)
             changed = True
         elif str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed"}:
             attempts = int(event.get("upload_attempts") or 0) + 1
@@ -30821,22 +30876,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         event["upload_attempts"] = attempts
         event["updated_at"] = now_text
         if upload_success:
-            event["native_ce_uploaded_at"] = now_text
-            event["native_ce_events_path"] = built.get("events_path", "")
-            event["native_ce_spawns_path"] = built.get("spawns_path", "")
-            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
-            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
-            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
-            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
-            event["native_ce_territory_paths"] = [
-                str(item.get("path") or "")
-                for item in (built.get("animal_territory_files") or [])
-                if isinstance(item, dict) and str(item.get("path") or "").strip()
-            ][:8]
-            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
-            event["upload_status"] = "uploaded"
-            event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
-            event.pop("upload_error", None)
+            apply_native_ce_upload_metadata(event, built, messages, now_text)
         else:
             event["upload_status"] = "failed"
             event["upload_error"] = status_text

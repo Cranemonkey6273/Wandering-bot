@@ -2400,6 +2400,10 @@ PAGE_TEMPLATE = """
     .scenario-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
     .scenario-actions .result { display: none; }
     .scenario-actions button { min-height: 2.2rem; padding: .35rem .55rem; white-space: nowrap; }
+    .event-detail-row td { background: rgba(255,255,255,.018); }
+    .event-upload-detail { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 0; }
+    .event-upload-detail span { display: inline-flex; flex-wrap: wrap; gap: .25rem; align-items: baseline; max-width: 100%; border: 1px solid var(--line); border-radius: .4rem; padding: .24rem .45rem; background: #070b08; color: var(--muted); overflow-wrap: anywhere; }
+    .event-upload-detail strong { color: var(--text); font-size: .76rem; text-transform: uppercase; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
     .inline-action .compact-number { min-width: 5rem; max-width: 6.5rem; }
@@ -4810,7 +4814,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Uploaded</span><strong>{{ scenario_summary.uploaded|default(0) }}</strong><span>{% if scenario_summary.last_uploaded_at %}Last {{ scenario_summary.last_uploaded_at[:16]|replace('T', ' ') }}{% else %}No upload yet{% endif %}</span></div>
             <div class="mini-card"><span class="muted">Pending</span><strong>{{ scenario_summary.pending|default(0) }}</strong><span>{% if scenario_summary.cleanup_pending %}Cleanup queued{% else %}Worker queue{% endif %}</span></div>
             <div class="mini-card"><span class="muted">Failed</span><strong>{{ scenario_summary.failed|default(0) }}</strong><span>{% if scenario_summary.cleanup_error %}Cleanup needs attention{% else %}Upload failures{% endif %}</span></div>
-            <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} warning(s)</span></div>
+            <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} status item(s)</span></div>
           </div>
           <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Failed means the upload was blocked or rejected.</span></div>
           <div class="shop-toolbar" style="margin-top:.85rem">
@@ -4850,7 +4854,21 @@ PAGE_TEMPLATE = """
                 </td>
               </tr>
               <tr class="event-detail-row" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
-                <td colspan="8"><span class="muted">Upload:</span> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}{% if event.native_ce_uploaded_at %} | uploaded {{ event.native_ce_uploaded_at[:16]|replace('T', ' ') }}{% endif %}{% if event.native_ce_events_path %} | events {{ event.native_ce_events_path }}{% endif %}{% if event.native_ce_spawns_path %} | spawns {{ event.native_ce_spawns_path }}{% endif %}{% if event.native_ce_spawnabletypes_path %} | spawnabletypes {{ event.native_ce_spawnabletypes_path }}{% endif %}{% if event.native_ce_cfgenvironment_path %} | environment {{ event.native_ce_cfgenvironment_path }}{% endif %}{% if event.native_ce_territory_paths %} | territories {{ event.native_ce_territory_paths|length }}{% endif %}{% if event.upload_error %}<br><span class="muted">Last error:</span> {{ event.upload_error }}{% endif %}</td>
+                <td colspan="8">
+                  <div class="event-upload-detail">
+                    <span><strong>Upload</strong> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}</span>
+                    {% if event.native_ce_uploaded_at %}<span><strong>Uploaded</strong> {{ event.native_ce_uploaded_at[:16]|replace('T', ' ') }}</span>{% endif %}
+                    {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
+                    {% if event.native_ce_restart_required %}<span><strong>Restart</strong> one server restart needed</span>{% endif %}
+                    {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names[:3]|join(', ') }}{% if event.native_ce_managed_event_names|length > 3 %} +{{ event.native_ce_managed_event_names|length - 3 }}{% endif %}</span>{% endif %}
+                    {% if event.native_ce_events_path %}<span><strong>events.xml</strong> {{ event.native_ce_events_path }}</span>{% endif %}
+                    {% if event.native_ce_spawns_path %}<span><strong>cfgeventspawns</strong> {{ event.native_ce_spawns_path }}</span>{% endif %}
+                    {% if event.native_ce_spawnabletypes_path %}<span><strong>spawnabletypes</strong> {{ event.native_ce_spawnabletypes_path }}</span>{% endif %}
+                    {% if event.native_ce_cfgenvironment_path %}<span><strong>environment</strong> {{ event.native_ce_cfgenvironment_path }}</span>{% endif %}
+                    {% if event.native_ce_territory_paths %}<span><strong>Territories</strong> {{ event.native_ce_territory_paths|length }}</span>{% endif %}
+                    {% if event.upload_error %}<span><strong>Last error</strong> {{ event.upload_error }}</span>{% endif %}
+                  </div>
+                </td>
               </tr>
               {% else %}
               <tr><td colspan="8">No scenario events queued.</td></tr>
@@ -8950,16 +8968,35 @@ PAGE_TEMPLATE = """
     function setScenarioDetailRow(row, eventData, trackerData) {
       const detail = scenarioDetailRowFor(row);
       if (!detail || !eventData) return;
-      const parts = [`Upload: ${String(eventData.upload_status || "queued").replace(/_/g, " ")}`];
-      if (eventData.native_ce_uploaded_at) parts.push(`uploaded ${String(eventData.native_ce_uploaded_at).slice(0, 16).replace("T", " ")}`);
-      if (eventData.native_ce_events_path) parts.push(`events ${eventData.native_ce_events_path}`);
-      if (eventData.native_ce_spawns_path) parts.push(`spawns ${eventData.native_ce_spawns_path}`);
-      if (eventData.native_ce_spawnabletypes_path) parts.push(`spawnabletypes ${eventData.native_ce_spawnabletypes_path}`);
-      if (eventData.native_ce_cfgenvironment_path) parts.push(`environment ${eventData.native_ce_cfgenvironment_path}`);
-      if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) parts.push(`territories ${eventData.native_ce_territory_paths.length}`);
-      if (trackerData) parts.push(`RPT ${trackerData.live_count || 0} live / ${trackerData.diagnostics_count || 0} warning(s)`);
-      if (eventData.upload_error) parts.push(`Last error: ${eventData.upload_error}`);
-      detail.querySelector("td").textContent = parts.join(" | ");
+      const cell = detail.querySelector("td");
+      if (!cell) return;
+      cell.textContent = "";
+      const wrap = document.createElement("div");
+      wrap.className = "event-upload-detail";
+      const addPart = (label, value) => {
+        if (value === undefined || value === null || String(value).trim() === "") return;
+        const chip = document.createElement("span");
+        const strong = document.createElement("strong");
+        strong.textContent = label;
+        chip.append(strong, document.createTextNode(` ${value}`));
+        wrap.append(chip);
+      };
+      addPart("Upload", String(eventData.upload_status || "queued").replace(/_/g, " "));
+      if (eventData.native_ce_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at).slice(0, 16).replace("T", " "));
+      addPart("Mission", eventData.native_ce_mission_folder || "");
+      if (eventData.native_ce_restart_required) addPart("Restart", "one server restart needed");
+      if (Array.isArray(eventData.native_ce_managed_event_names) && eventData.native_ce_managed_event_names.length) {
+        const names = eventData.native_ce_managed_event_names.slice(0, 3).join(", ");
+        addPart("Definitions", `${names}${eventData.native_ce_managed_event_names.length > 3 ? ` +${eventData.native_ce_managed_event_names.length - 3}` : ""}`);
+      }
+      addPart("events.xml", eventData.native_ce_events_path || "");
+      addPart("cfgeventspawns", eventData.native_ce_spawns_path || "");
+      addPart("spawnabletypes", eventData.native_ce_spawnabletypes_path || "");
+      addPart("environment", eventData.native_ce_cfgenvironment_path || "");
+      if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) addPart("Territories", eventData.native_ce_territory_paths.length);
+      if (trackerData) addPart("RPT", `${trackerData.live_count || 0} live / ${trackerData.diagnostics_count || 0} status item(s)`);
+      addPart("Last error", eventData.upload_error || "");
+      cell.append(wrap);
       detail.dataset.eventUpload = eventData.upload_status || "";
       detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${eventData.upload_status || ""}`.toLowerCase();
     }
@@ -11238,6 +11275,59 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     return {"ok": False, "messages": ["Native CE XML uploader returned an unexpected result."]}
 
 
+def dashboard_native_ce_mission_from_built(built: Any) -> tuple[str, str]:
+    built = built if isinstance(built, dict) else {}
+    mission_base = str(built.get("mission_base") or "").replace("\\", "/").strip().rstrip("/")
+    if not mission_base:
+        for key, suffix in (
+            ("spawns_path", "/cfgeventspawns.xml"),
+            ("events_path", "/db/events.xml"),
+            ("cfgenvironment_path", "/cfgenvironment.xml"),
+        ):
+            path = str(built.get(key) or "").replace("\\", "/").strip().rstrip("/")
+            if path.lower().endswith(suffix.lower()):
+                mission_base = path[:-len(suffix)].rstrip("/")
+                break
+    mission_folder = str(built.get("mission_folder") or "").strip()
+    if not mission_folder and mission_base:
+        mission_folder = mission_base.rsplit("/", 1)[-1]
+    return mission_base, mission_folder
+
+
+def dashboard_native_ce_managed_names(built: Any) -> list[str]:
+    built = built if isinstance(built, dict) else {}
+    names: list[str] = []
+    for value in (built.get("managed_event_names") or built.get("managed_spawn_names") or []):
+        text = str(value or "").strip()
+        if text and text not in names:
+            names.append(text)
+    return names[:24]
+
+
+def apply_dashboard_native_ce_upload_metadata(event: dict[str, Any], built: dict[str, Any], messages: list[Any], now_text: str, upload_status: str = "uploaded", status_text: str | None = None) -> None:
+    mission_base, mission_folder = dashboard_native_ce_mission_from_built(built)
+    event["native_ce_uploaded_at"] = now_text
+    event["native_ce_events_path"] = built.get("events_path", "")
+    event["native_ce_spawns_path"] = built.get("spawns_path", "")
+    event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
+    event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+    event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
+    event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+    event["native_ce_mission_base"] = mission_base
+    event["native_ce_mission_folder"] = mission_folder
+    event["native_ce_managed_event_names"] = dashboard_native_ce_managed_names(built)
+    event["native_ce_restart_required"] = bool(built.get("restart_required", True))
+    event["native_ce_territory_paths"] = [
+        str(item.get("path") or "")
+        for item in (built.get("animal_territory_files") or [])
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    ][:8]
+    event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
+    event["upload_status"] = upload_status
+    event["status"] = status_text or "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+    event.pop("upload_error", None)
+
+
 def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> dict[str, Any] | None:
     upload_result = run_runtime_scenario_xml_upload(guild_id)
     if upload_result is None:
@@ -11275,22 +11365,14 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             continue
         event["updated_at"] = now_text
         if upload_ok:
-            event["native_ce_uploaded_at"] = now_text
-            event["native_ce_events_path"] = built.get("events_path", "")
-            event["native_ce_spawns_path"] = built.get("spawns_path", "")
-            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
-            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
-            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
-            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
-            event["native_ce_territory_paths"] = [
-                str(item.get("path") or "")
-                for item in (built.get("animal_territory_files") or [])
-                if isinstance(item, dict) and str(item.get("path") or "").strip()
-            ][:8]
-            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
-            event["upload_status"] = "removed" if removed and is_target else "uploaded"
-            event["status"] = "Removed from native CE XML" if removed and is_target else "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
-            event.pop("upload_error", None)
+            apply_dashboard_native_ce_upload_metadata(
+                event,
+                built,
+                messages,
+                now_text,
+                upload_status="removed" if removed and is_target else "uploaded",
+                status_text="Removed from native CE XML" if removed and is_target else None,
+            )
         else:
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
             event["upload_status"] = "failed"
@@ -19767,6 +19849,10 @@ def api_scenario_event_status():
                 "native_ce_spawns_path": event.get("native_ce_spawns_path") or "",
                 "native_ce_spawnabletypes_path": event.get("native_ce_spawnabletypes_path") or "",
                 "native_ce_cfgenvironment_path": event.get("native_ce_cfgenvironment_path") or "",
+                "native_ce_mission_base": event.get("native_ce_mission_base") or "",
+                "native_ce_mission_folder": event.get("native_ce_mission_folder") or "",
+                "native_ce_managed_event_names": event.get("native_ce_managed_event_names") if isinstance(event.get("native_ce_managed_event_names"), list) else [],
+                "native_ce_restart_required": bool(event.get("native_ce_restart_required")),
                 "native_ce_territory_paths": event.get("native_ce_territory_paths") if isinstance(event.get("native_ce_territory_paths"), list) else [],
                 "tracker": tracker,
             })
