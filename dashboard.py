@@ -2398,6 +2398,11 @@ PAGE_TEMPLATE = """
     .shop-picker-card img, .item-thumb { width: 2rem; height: 2rem; border-radius: .4rem; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }
     .shop-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .shop-picker-card span { color: var(--muted); font-size: .78rem; }
+    .bundle-row-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .55rem; max-height: 28rem; overflow: auto; padding: .15rem; }
+    .bundle-row { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; gap: .45rem; align-items: end; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; }
+    .shop-bulk-form { grid-template-columns: 1fr; }
+    .shop-bulk-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .55rem; align-items: end; margin-bottom: .65rem; }
+    .shop-bulk-controls button { align-self: end; }
     .item-table .item-name-cell { display: flex; align-items: center; gap: .55rem; min-width: 0; }
     .item-table .item-name-cell strong { overflow-wrap: anywhere; }
     .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; align-items: start; }
@@ -4920,6 +4925,8 @@ PAGE_TEMPLATE = """
     {% if mode in ["admin", "owner"] and active_section == "shop" %}
     {% set edit_shop_key = request.args.get('edit_shop', '') %}
     {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailsBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids='', blocked_user_ids='') %}
+    {% set category_options = server.shop_category_options if server and server.shop_category_options else shop_category_options %}
+    {% set shop_item_options = server.shop_items if server else [] %}
     {% if server and edit_shop_key %}
       {% for item in server.shop_items %}
         {% if item.name == edit_shop_key %}
@@ -4943,19 +4950,22 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Edit Shop Item</h3>
-          <form class="admin-form {% if edit_shop_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/shop-item" data-route="/api/admin/shop-item" id="shop-edit-form">
+          <form class="admin-form {% if edit_shop_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/shop-item" data-route="/api/admin/shop-item" data-html-submit="true" id="shop-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <label>Item name <input name="item_name" value="{{ edit_shop.item_name }}"></label>
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+            <label>Item name
+              <select name="item_name" data-visual-select>
+                {% for item in shop_item_options %}
+                <option value="{{ item.name }}" {% if item.name == edit_shop.item_name %}selected{% endif %}>{{ item.name }} - {{ item.category }}</option>
+                {% endfor %}
+              </select>
+            </label>
             <label>Price <input name="price" type="number" value="{{ edit_shop.price }}"></label>
             <label>Category
               <select name="category">
-                <option value="Building" {% if edit_shop.category == 'Building' %}selected{% endif %}>Building</option>
-                <option value="Weapons" {% if edit_shop.category == 'Weapons' %}selected{% endif %}>Weapons</option>
-                <option value="Medical" {% if edit_shop.category == 'Medical' %}selected{% endif %}>Medical</option>
-                <option value="Food" {% if edit_shop.category == 'Food' %}selected{% endif %}>Food</option>
-                <option value="Tools" {% if edit_shop.category == 'Tools' %}selected{% endif %}>Tools</option>
-                <option value="Clothing" {% if edit_shop.category == 'Clothing' %}selected{% endif %}>Clothing</option>
-                <option value="General" {% if edit_shop.category == 'General' %}selected{% endif %}>General</option>
+                {% for category in category_options %}
+                <option value="{{ category }}" {% if edit_shop.category == category %}selected{% endif %}>{{ category }}</option>
+                {% endfor %}
               </select>
             </label>
             <label>Available <select name="enabled"><option value="true" {% if edit_shop.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_shop.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
@@ -4967,39 +4977,42 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Build Shop Bundle</h3>
-          <form class="admin-form" method="post" action="/api/admin/shop-bundle" data-route="/api/admin/shop-bundle" id="shop-bundle-form">
+          <form class="admin-form" method="post" action="/api/admin/shop-bundle" data-route="/api/admin/shop-bundle" data-html-submit="true" id="shop-bundle-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
             <label>Bundle name <input name="bundle_name" value="Flagpole Kit"></label>
             <label>Price <input name="price" type="number" value="2500"></label>
-            <label>Category <input name="category" value="Bundles"></label>
+            <label>Category
+              <select name="category">
+                {% for category in category_options %}
+                <option value="{{ category }}" {% if category == 'Bundles' %}selected{% endif %}>{{ category }}</option>
+                {% endfor %}
+              </select>
+            </label>
             <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
             <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
             <div class="full">
-              <div class="item-picker" data-item-picker data-picker-mode="bundle">
-                <div class="item-picker-controls">
-                  <label>Find item from this server's shop/types list
-                    <input data-picker-item list="bundle-item-options" placeholder="Search item classname">
+              <div class="bundle-row-grid">
+                {% for row_index in range(shop_bundle_rows) %}
+                <div class="bundle-row">
+                  <label>Item {{ loop.index }}
+                    <select name="bundle_item">
+                      <option value="">Choose item</option>
+                      {% for item in shop_item_options if item.type != 'bundle' %}
+                      <option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>
+                      {% endfor %}
+                    </select>
                   </label>
-                  <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                  <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                  <label>Slot <select data-picker-slot><option value="">Any</option><option>Head</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option></select></label>
-                  <button type="button" data-picker-add>Add</button>
+                  <label>Qty <input name="bundle_quantity" type="number" min="1" max="999" value="1"></label>
                 </div>
-                <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick an item to preview it.</span></div>
-                <div class="shop-picker-list">
-                  {% for item in (server.shop_items[:12] if server else []) %}
-                  <button type="button" class="shop-picker-card" data-picker-card data-item="{{ item.name }}" data-image="{{ item.image_url }}" data-fallback="{{ item.fallback_image_url }}"><img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong><span>{{ item.category }}</span></span></button>
-                  {% endfor %}
-                </div>
+                {% endfor %}
               </div>
-              <datalist id="bundle-item-options">
-                {% for item in (server.shop_items if server else []) %}<option value="{{ item.name }}">{{ item.category }}</option>{% endfor %}
-              </datalist>
+              <div class="inline-actions" style="margin-top:.65rem">
+                <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&bundle_rows={{ shop_bundle_rows + 18 }}#shop-bundle-form">Add 18 More Rows</a>
+                <span class="muted">{{ shop_bundle_rows }} bundle item rows shown.</span>
+              </div>
             </div>
-            <label class="full">Bundle items
-              <textarea name="bundle_items" data-picker-output placeholder="1x Flag_Base&#10;1x WoodenLog&#10;32x Nail"></textarea>
-            </label>
             <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full"><button type="submit">Save Bundle</button> <span class="result muted"></span></div>
           </form>
@@ -5017,44 +5030,77 @@ PAGE_TEMPLATE = """
             </label>
             <span class="pill"><span data-shop-count>{{ server.shop_items|length if server else 0 }}</span> items</span>
           </div>
-          <table class="item-table">
-            <thead><tr><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
-            <tbody>
-              {% for item in (server.shop_items if server else []) %}
-              <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
-                <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
-                <td>{{ item.category }}</td>
-                <td>{{ item.price }}</td>
-                <td>{{ 'On' if item.enabled else 'Off' }}</td>
-                <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
-                <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
-              </tr>
-              {% else %}
-              <tr><td colspan="6">No shop items available.</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <form class="admin-form shop-bulk-form" method="post" action="/api/admin/shop-bulk" data-route="/api/admin/shop-bulk" data-html-submit="true">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+            <div class="shop-bulk-controls full">
+              <label>Apply to
+                <select name="scope">
+                  <option value="selected">Checked items</option>
+                  <option value="category">Entire category below</option>
+                  <option value="all">Every shop item</option>
+                </select>
+              </label>
+              <label>Source category
+                <select name="source_category">
+                  {% for category in (server.shop_categories.keys() if server else []) %}
+                  <option value="{{ category }}">{{ category }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Bulk action
+                <select name="action">
+                  <option value="set_category">Move to category</option>
+                  <option value="set_price">Set exact price</option>
+                  <option value="adjust_price">Add/subtract price</option>
+                  <option value="enable">Enable</option>
+                  <option value="disable">Disable</option>
+                  <option value="delete">Delete</option>
+                </select>
+              </label>
+              <label>Target category
+                <select name="category">
+                  {% for category in category_options %}
+                  <option value="{{ category }}" {% if category == 'General' %}selected{% endif %}>{{ category }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Price / amount <input name="price" type="number" value="0"></label>
+              <button type="submit">Apply Bulk Change</button>
+              <span class="result muted"></span>
+            </div>
+            <div class="table-scroll full">
+              <table class="item-table">
+                <thead><tr><th>Pick</th><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
+                <tbody>
+                  {% for item in (server.shop_items if server else []) %}
+                  <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
+                    <td><input type="checkbox" name="item_names" value="{{ item.name }}" aria-label="Select {{ item.name }}"></td>
+                    <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
+                    <td>{{ item.category }}</td>
+                    <td>{{ item.price }}</td>
+                    <td>{{ 'On' if item.enabled else 'Off' }}</td>
+                    <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
+                    <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
+                  </tr>
+                  {% else %}
+                  <tr><td colspan="7">No shop items available.</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </form>
         </article>
-        {% for category, items in (server.shop_categories.items() if server else []) %}
-        <article class="admin-panel">
-          <h3>{{ category }}</h3>
-          <table class="item-table">
-            <thead><tr><th>Item</th><th>Price</th><th>Status</th><th>Edit</th></tr></thead>
-            <tbody>
-              {% for item in items %}
-              <tr>
-                <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
-                <td>{{ item.price }}</td>
-                <td>{{ 'On' if item.enabled else 'Off' }}</td>
-                <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+        <article class="admin-panel full">
+          <h3>Category Overview</h3>
+          <div class="mini-grid">
+            {% for category, items in (server.shop_categories.items() if server else []) %}
+            <div class="mini-card"><strong>{{ items|length }}</strong><span>{{ category }}</span></div>
+            {% else %}
+            <p class="muted">Import types.xml in Discord with `/tools importtypesxml`, then manage the items here.</p>
+            {% endfor %}
+          </div>
         </article>
-        {% else %}
-        <article class="admin-panel"><h3>No Shop Items</h3><p class="muted">Import types.xml in Discord with `/tools importtypesxml`, then manage the items here.</p></article>
-        {% endfor %}
       </div>
     </section>
     {% endif %}
@@ -8779,6 +8825,7 @@ PAGE_TEMPLATE = """
       "/api/admin/economy-rule",
       "/api/admin/shop-item",
       "/api/admin/shop-bundle",
+      "/api/admin/shop-bulk",
       "/api/admin/moderation-guard",
       "/api/admin/link-enforcement",
       "/api/admin/on-screen-message",
@@ -9761,6 +9808,7 @@ PAGE_TEMPLATE = """
       }
       form.addEventListener("submit", async (event) => {
         if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit]")) return;
+        if (form.dataset.htmlSubmit === "true") return;
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
         form.querySelectorAll("[data-item-picker]").forEach((picker) => {
@@ -10835,6 +10883,7 @@ ADMIN_ROUTES = [
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
     "/api/admin/shop-bundle",
+    "/api/admin/shop-bulk",
     "/api/admin/theme",
     "/api/admin/convert-dayz-xml",
     "/api/admin/loot-tweak",
@@ -10893,6 +10942,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/reaction-role-panel": "embeds",
     "/api/admin/shop-item": "shop",
     "/api/admin/shop-bundle": "shop",
+    "/api/admin/shop-bulk": "shop",
     "/api/admin/scenario-event": "pve_quests",
     "/api/admin/scenario-event-action": "pve_quests",
     "/api/admin/economy-rule": "economy",
@@ -13754,7 +13804,8 @@ def scoped_payload_for_auth(payload: dict[str, Any], auth: dict[str, Any]) -> di
 def request_payload() -> dict[str, Any]:
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        data = request.form.to_dict(flat=True)
+        raw_form = request.form.to_dict(flat=False)
+        data = {key: values if len(values) > 1 else values[0] for key, values in raw_form.items()}
     return dict(data or {})
 
 
@@ -13804,6 +13855,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "scenario-event": "PVE workshop event saved",
         "scenario-event-action": "PVE workshop event updated",
         "server-control": "Server control updated",
+        "shop-bulk": "Shop bulk update saved",
         "shop-bundle": "Shop bundle saved",
         "shop-item": "Shop item saved",
         "shop-item-action": "Shop item updated",
@@ -14120,7 +14172,26 @@ def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
             quantity = safe_int(match.group(1) or match.group(3), 1)
             item_name = match.group(2).strip()
         quantity = max(1, min(999, quantity))
-        if item_name and is_shop_sellable_item(item_name, ""):
+        if item_name and safe_dayz_class(item_name) and is_shop_sellable_item(item_name, ""):
+            rows.append({"item": item_name, "quantity": quantity})
+    return rows
+
+
+def parse_shop_bundle_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items = payload.get("bundle_item")
+    quantities = payload.get("bundle_quantity")
+    if items is None:
+        return parse_shop_bundle_items(payload.get("bundle_items") or payload.get("items"))
+    item_values = items if isinstance(items, list) else [items]
+    qty_values = quantities if isinstance(quantities, list) else [quantities]
+    rows = []
+    for index, raw_item in enumerate(item_values):
+        item_name = str(raw_item or "").strip()
+        if not item_name:
+            continue
+        quantity = safe_int(qty_values[index] if index < len(qty_values) else 1, 1)
+        quantity = max(1, min(999, quantity))
+        if safe_dayz_class(item_name) and is_shop_sellable_item(item_name, ""):
             rows.append({"item": item_name, "quantity": quantity})
     return rows
 
@@ -16242,7 +16313,7 @@ def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
 def is_shop_sellable_item(item_name: Any, category: Any = "") -> bool:
     name = str(item_name or "").strip()
     lower = name.lower()
-    category_lower = str(category or "").lower()
+    category_lower = normalize_shop_category(category, "").lower()
     if not name:
         return False
     blocked_prefixes = (
@@ -16625,6 +16696,119 @@ COMMAND_SECTION_META = {
 }
 
 
+SHOP_CATEGORY_PRESETS = (
+    "Weapons",
+    "Ammunition",
+    "Attachments",
+    "Explosives",
+    "Clothing",
+    "Backpacks",
+    "Medical",
+    "Food & Drink",
+    "Building",
+    "Base Storage",
+    "Tools",
+    "Navigation",
+    "Lights & Power",
+    "Vehicle Parts",
+    "Misc",
+    "General",
+    "Bundles",
+)
+
+SHOP_CATEGORY_ALIASES = {
+    "ammo": "Ammunition",
+    "ammunition": "Ammunition",
+    "magazine": "Ammunition",
+    "magazines": "Ammunition",
+    "weapons": "Weapons",
+    "weapon": "Weapons",
+    "explosives": "Explosives",
+    "explosive": "Explosives",
+    "clothes": "Clothing",
+    "clothing": "Clothing",
+    "bags": "Backpacks",
+    "backpacks": "Backpacks",
+    "containers": "Base Storage",
+    "container": "Base Storage",
+    "storage": "Base Storage",
+    "food": "Food & Drink",
+    "food/drink": "Food & Drink",
+    "food & drink": "Food & Drink",
+    "drink": "Food & Drink",
+    "medicine": "Medical",
+    "medical": "Medical",
+    "tools": "Tools",
+    "tool": "Tools",
+    "building": "Building",
+    "basebuilding": "Building",
+    "vehicleparts": "Vehicle Parts",
+    "vehicle parts": "Vehicle Parts",
+    "vehiclesparts": "Vehicle Parts",
+    "misc": "Misc",
+    "general": "General",
+    "bundles": "Bundles",
+    "bundle": "Bundles",
+}
+
+SHOP_CATEGORY_TERMS = (
+    ("Ammunition", ("ammo", "mag_", "magazine", "bullet", "cartridge", "shell", "arrow", "quiver")),
+    ("Attachments", ("optic", "scope", "suppressor", "bayonet", "buttstock", "hndgrd", "handguard", "bipod", "light", "weaponflashlight")),
+    ("Explosives", ("grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive")),
+    ("Weapons", ("rifle", "akm", "ak74", "ak101", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "sks", "svd", "fal", "aug", "vss", "crossbow", "bow", "knife", "spear")),
+    ("Backpacks", ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag")),
+    ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "shemag")),
+    ("Base Storage", ("barrel", "crate", "chest", "case", "container", "sea_chest", "tent", "shelter", "protectorcase")),
+    ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory")),
+    ("Tools", ("hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod")),
+    ("Lights & Power", ("battery", "generator", "cable", "spotlight", "headtorch", "flashlight")),
+    ("Navigation", ("compass", "gps", "map", "rangefinder", "binoculars", "transmitter", "radio")),
+    ("Medical", ("bandage", "saline", "morphine", "epinephrine", "vitamin", "charcoal", "tetracycline", "purification", "disinfect")),
+    ("Food & Drink", ("apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds", "canteen", "bottle", "rice", "cereal")),
+    ("Vehicle Parts", ("sparkplug", "radiator", "headlight", "carbattery", "truckbattery")),
+)
+
+
+def normalize_shop_category(value: Any, fallback: str = "General") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    compact = re.sub(r"[^a-z0-9]+", "", text.lower())
+    lowered = re.sub(r"\s+", " ", text.lower()).strip()
+    for key in (lowered, compact):
+        if key in SHOP_CATEGORY_ALIASES:
+            return SHOP_CATEGORY_ALIASES[key]
+    for category in SHOP_CATEGORY_PRESETS:
+        if category.lower() == lowered or re.sub(r"[^a-z0-9]+", "", category.lower()) == compact:
+            return category
+    return text[:40] or fallback
+
+
+def infer_shop_category(item_name: Any, category: Any = "", usage: Any = "") -> str:
+    category_text = str(category or "").strip()
+    if category_text:
+        return normalize_shop_category(category_text)
+    name = str(item_name or "").strip().lower()
+    usage_text = str(usage or "").strip()
+    if usage_text:
+        normalized_usage = normalize_shop_category(usage_text, "")
+        if normalized_usage:
+            return normalized_usage
+    for preset, terms in SHOP_CATEGORY_TERMS:
+        if any(term in name for term in terms):
+            return preset
+    return "General"
+
+
+def shop_category_options(existing: Any = None) -> list[str]:
+    values = list(SHOP_CATEGORY_PRESETS)
+    for category in existing or []:
+        normalized = normalize_shop_category(category)
+        if normalized not in values:
+            values.append(normalized)
+    return values
+
+
 def dashboard_theme_from_config(config: dict[str, Any]) -> str:
     return "command"
 
@@ -16648,7 +16832,7 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
         if not isinstance(data, dict):
             data = {}
         is_bundle = str(data.get("type") or "").lower() == "bundle"
-        category = str(data.get("category") or ("Bundles" if is_bundle else "General"))
+        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else infer_shop_category(item_name)))
         if not is_bundle and not is_shop_sellable_item(item_name, category):
             continue
         bundle_items = parse_shop_bundle_items(data.get("bundle_items", [])) if is_bundle else []
@@ -16686,7 +16870,7 @@ def count_shop_items(shop: Any) -> int:
         if not isinstance(data, dict):
             data = {}
         is_bundle = str(data.get("type") or "").lower() == "bundle"
-        category = str(data.get("category") or ("Bundles" if is_bundle else "General"))
+        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else infer_shop_category(item_name)))
         if is_bundle or is_shop_sellable_item(item_name, category):
             total += 1
     return total
@@ -17402,6 +17586,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         server_shop_item_count = count_shop_items(server_shop) if needs_shop or needs_shop_counts else 0
         server_shop_categories = shop_category_map(server_shop) if needs_shop else {}
         server_shop_items = flat_shop_items(server_shop) if needs_shop else []
+        server_shop_category_options = shop_category_options(server_shop_categories.keys()) if needs_shop else list(SHOP_CATEGORY_PRESETS)
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
         discord_members = discord_guild_members(guild_id) if needs_discord_members else []
@@ -17453,6 +17638,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "shop_items": redact(server_shop_items),
                 "shop_item_count": server_shop_item_count,
                 "shop_categories": redact(server_shop_categories),
+                "shop_category_options": server_shop_category_options,
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
@@ -17494,6 +17680,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         "shop": redact(shop),
         "shop_items": redact(shop_items),
         "shop_categories": redact(shop_categories),
+        "shop_category_options": shop_category_options(shop_categories.keys()),
         "wallets": redact(wallets),
         "delivery_queue": redact(delivery_queue),
         "dashboard_admin": redact(dashboard_admin),
@@ -17615,6 +17802,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text = "{}"
         visual_loadout_equipped_rows = []
         visual_loadout_slot_card_rows = []
+    shop_bundle_rows = max(6, min(250, safe_int(request.args.get("bundle_rows"), 18)))
     restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
         PAGE_TEMPLATE,
@@ -17634,6 +17822,7 @@ def page(mode: str, auth: dict[str, Any]):
         servers=state["servers"],
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
+        shop_category_options=state.get("shop_category_options", list(SHOP_CATEGORY_PRESETS)),
         xml_picker_groups=picker_groups,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
@@ -17649,6 +17838,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text=visual_loadout_json_text,
         visual_loadout_selected_rows=visual_loadout_equipped_rows,
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
+        shop_bundle_rows=shop_bundle_rows,
         restart_status=restart_status,
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
@@ -18304,7 +18494,8 @@ def api_shop_item():
     item_name = str(payload.get("item_name") or payload.get("name") or "").strip()
     if not item_name:
         return jsonify({"ok": False, "error": "item_name is required"}), 400
-    if not is_shop_sellable_item(item_name, payload.get("category")):
+    category = infer_shop_category(item_name, payload.get("category"))
+    if not is_shop_sellable_item(item_name, category):
         return jsonify({"ok": False, "error": "that class is not a shop item"}), 400
     guild_id = normalize_guild_id(payload.get("guild_id"))
     shop = load_store("shop", {})
@@ -18319,7 +18510,7 @@ def api_shop_item():
     existing.update(
         {
             "price": safe_int(payload.get("price", existing.get("price", 0))),
-            "category": str(payload.get("category") or existing.get("category") or "General"),
+            "category": category,
             "enabled": safe_bool(payload.get("enabled", existing.get("enabled", True)), True),
             "daily_limit": safe_int(payload.get("daily_limit", existing.get("daily_limit", 0))),
             "allowed_role_ids": csv_list(payload.get("allowed_role_ids", existing.get("allowed_role_ids", []))),
@@ -18348,7 +18539,7 @@ def api_shop_bundle():
     bundle_name = str(payload.get("bundle_name") or payload.get("item_name") or payload.get("name") or "").strip()
     if not bundle_name:
         return jsonify({"ok": False, "error": "bundle_name is required"}), 400
-    bundle_items = parse_shop_bundle_items(payload.get("bundle_items") or payload.get("items"))
+    bundle_items = parse_shop_bundle_payload(payload)
     if not bundle_items:
         return jsonify({"ok": False, "error": "add at least one valid bundle item"}), 400
     guild_id = normalize_guild_id(payload.get("guild_id"))
@@ -18364,7 +18555,7 @@ def api_shop_bundle():
         {
             "type": "bundle",
             "price": safe_int(payload.get("price", existing.get("price", 0))),
-            "category": str(payload.get("category") or existing.get("category") or "Bundles"),
+            "category": normalize_shop_category(payload.get("category") or existing.get("category") or "Bundles"),
             "enabled": safe_bool(payload.get("enabled", existing.get("enabled", True)), True),
             "daily_limit": safe_int(payload.get("daily_limit", existing.get("daily_limit", 0))),
             "allowed_role_ids": csv_list(payload.get("allowed_role_ids", existing.get("allowed_role_ids", []))),
@@ -18381,6 +18572,86 @@ def api_shop_bundle():
         {"ok": True, "bundle": {bundle_name: existing}, "note": "Saved shop bundle."},
         "shop",
         "#shop-bundle-form",
+    )
+
+
+@APP.post("/api/admin/shop-bulk")
+def api_shop_bulk():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    shop = load_store("shop", {})
+    if not isinstance(shop, dict):
+        shop = {}
+    guild_shop = shop.setdefault(guild_id, {})
+    if not isinstance(guild_shop, dict) or is_shop_record(guild_shop):
+        guild_shop = {}
+        shop[guild_id] = guild_shop
+    scope = str(payload.get("scope") or "selected").strip().lower()
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in {"set_category", "set_price", "adjust_price", "enable", "disable", "delete"}:
+        return jsonify({"ok": False, "error": "choose a valid bulk action"}), 400
+    selected_names = set(csv_list(payload.get("item_names")))
+    if scope == "category":
+        source_category = normalize_shop_category(payload.get("source_category"), "")
+        target_names = {
+            name for name, data in guild_shop.items()
+            if isinstance(data, dict)
+            and normalize_shop_category(data.get("category") or infer_shop_category(name)) == source_category
+        }
+    elif scope == "all":
+        target_names = {str(name) for name in guild_shop.keys()}
+    else:
+        target_names = selected_names
+    if not target_names:
+        return jsonify({"ok": False, "error": "no shop items matched that bulk edit"}), 400
+
+    target_category = normalize_shop_category(payload.get("category"), "General")
+    price_value = safe_int(payload.get("price"), 0)
+    changed = 0
+    deleted = 0
+    skipped = 0
+    for item_name in sorted(target_names, key=str.lower):
+        data = guild_shop.get(item_name)
+        if not isinstance(data, dict):
+            skipped += 1
+            continue
+        is_bundle = str(data.get("type") or "").lower() == "bundle"
+        if action == "delete":
+            del guild_shop[item_name]
+            deleted += 1
+            continue
+        if action == "set_category":
+            if not is_bundle and not is_shop_sellable_item(item_name, target_category):
+                skipped += 1
+                continue
+            data["category"] = target_category
+        elif action == "set_price":
+            data["price"] = max(0, price_value)
+        elif action == "adjust_price":
+            data["price"] = max(0, safe_int(data.get("price"), 0) + price_value)
+        elif action == "enable":
+            data["enabled"] = True
+        elif action == "disable":
+            data["enabled"] = False
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        changed += 1
+    save_store("shop", shop)
+    parts = []
+    if changed:
+        parts.append(f"{changed} changed")
+    if deleted:
+        parts.append(f"{deleted} deleted")
+    if skipped:
+        parts.append(f"{skipped} skipped")
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "changed": changed, "deleted": deleted, "skipped": skipped, "note": f"Bulk shop update: {', '.join(parts) or 'no changes'}."},
+        "shop",
+        "#shop-control",
     )
 
 

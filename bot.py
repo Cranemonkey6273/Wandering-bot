@@ -24757,6 +24757,88 @@ wallets = {}
 delivery_queue = []
 vehicle_rentals_queue = []
 
+SHOP_CATEGORY_PRESETS = (
+    "Weapons", "Ammunition", "Attachments", "Explosives", "Clothing", "Backpacks",
+    "Medical", "Food & Drink", "Building", "Base Storage", "Tools", "Navigation",
+    "Lights & Power", "Vehicle Parts", "Misc", "General", "Bundles",
+)
+
+SHOP_CATEGORY_ALIASES = {
+    "ammo": "Ammunition",
+    "ammunition": "Ammunition",
+    "magazine": "Ammunition",
+    "magazines": "Ammunition",
+    "weapon": "Weapons",
+    "weapons": "Weapons",
+    "explosive": "Explosives",
+    "explosives": "Explosives",
+    "clothes": "Clothing",
+    "clothing": "Clothing",
+    "bags": "Backpacks",
+    "backpacks": "Backpacks",
+    "container": "Base Storage",
+    "containers": "Base Storage",
+    "storage": "Base Storage",
+    "food": "Food & Drink",
+    "food/drink": "Food & Drink",
+    "food & drink": "Food & Drink",
+    "drink": "Food & Drink",
+    "medicine": "Medical",
+    "medical": "Medical",
+    "tool": "Tools",
+    "tools": "Tools",
+    "building": "Building",
+    "basebuilding": "Building",
+    "vehicleparts": "Vehicle Parts",
+    "vehicle parts": "Vehicle Parts",
+    "vehiclesparts": "Vehicle Parts",
+    "misc": "Misc",
+    "general": "General",
+    "bundle": "Bundles",
+    "bundles": "Bundles",
+}
+
+SHOP_CATEGORY_TERMS = (
+    ("Ammunition", ("ammo", "mag_", "magazine", "bullet", "cartridge", "shell", "arrow", "quiver")),
+    ("Attachments", ("optic", "scope", "suppressor", "bayonet", "buttstock", "hndgrd", "handguard", "bipod", "light", "weaponflashlight")),
+    ("Explosives", ("grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive")),
+    ("Weapons", ("rifle", "akm", "ak74", "ak101", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "sks", "svd", "fal", "aug", "vss", "crossbow", "bow", "knife", "spear")),
+    ("Backpacks", ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag")),
+    ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "shemag")),
+    ("Base Storage", ("barrel", "crate", "chest", "case", "container", "sea_chest", "tent", "shelter", "protectorcase")),
+    ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory")),
+    ("Tools", ("hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod")),
+    ("Lights & Power", ("battery", "generator", "cable", "spotlight", "headtorch", "flashlight")),
+    ("Navigation", ("compass", "gps", "map", "rangefinder", "binoculars", "transmitter", "radio")),
+    ("Medical", ("bandage", "saline", "morphine", "epinephrine", "vitamin", "charcoal", "tetracycline", "purification", "disinfect")),
+    ("Food & Drink", ("apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds", "canteen", "bottle", "rice", "cereal")),
+    ("Vehicle Parts", ("sparkplug", "radiator", "headlight", "carbattery", "truckbattery")),
+)
+
+
+def normalize_shop_category(value, fallback="General"):
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    compact = re.sub(r"[^a-z0-9]+", "", text.lower())
+    lowered = re.sub(r"\s+", " ", text.lower()).strip()
+    for key in (lowered, compact):
+        if key in SHOP_CATEGORY_ALIASES:
+            return SHOP_CATEGORY_ALIASES[key]
+    for category in SHOP_CATEGORY_PRESETS:
+        if category.lower() == lowered or re.sub(r"[^a-z0-9]+", "", category.lower()) == compact:
+            return category
+    return text[:40] or fallback
+
+
+def shop_category_options(existing=None):
+    values = list(SHOP_CATEGORY_PRESETS)
+    for category in existing or []:
+        normalized = normalize_shop_category(category)
+        if normalized not in values:
+            values.append(normalized)
+    return values
+
 
 def find_types_xml(source_path=None):
     candidates = []
@@ -24801,12 +24883,12 @@ def find_types_xml(source_path=None):
 
 def guess_shop_category(item_name, xml_category=None, usage=None):
     if xml_category:
-        return xml_category.title()
+        return normalize_shop_category(xml_category)
 
     lower = item_name.lower()
 
     if any(word in lower for word in ["animal_", "zmbm_", "zmbf_", "infected"]):
-        return "NPCs"
+        return "Misc"
 
     if any(word in lower for word in ["wheel", "hood", "trunk", "door", "battery", "radiator", "sparkplug", "headlight"]):
         return "Vehicle Parts"
@@ -24815,7 +24897,7 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
         return "Vehicles"
 
     if any(word in lower for word in ["ammo", "mag_", "magazine", "bullet", "cartridge", "shell"]):
-        return "Ammo"
+        return "Ammunition"
 
     if any(word in lower for word in ["grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive"]):
         return "Explosives"
@@ -24827,7 +24909,7 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
         return "Clothing"
 
     if any(word in lower for word in ["barrel", "crate", "chest", "case", "container", "drybag", "pouch", "pot", "protectorcase", "sea_chest", "tent"]):
-        return "Containers"
+        return "Base Storage"
 
     if any(word in lower for word in ["nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camo net", "flag_base", "territory", "fence", "watchtower", "generator"]):
         return "Building"
@@ -24839,10 +24921,14 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
         return "Medical"
 
     if any(word in lower for word in ["apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds", "canteen", "bottle", "rice", "cereal"]):
-        return "Food"
+        return "Food & Drink"
 
     if usage:
-        return usage.title()
+        return normalize_shop_category(usage)
+
+    for category, terms in SHOP_CATEGORY_TERMS:
+        if any(term in lower for term in terms):
+            return category
 
     return "General"
 
@@ -24850,7 +24936,7 @@ def guess_shop_category(item_name, xml_category=None, usage=None):
 def is_shop_sellable_item(item_name, category=""):
     name = str(item_name or "").strip()
     lower = name.lower()
-    category_lower = str(category or "").lower()
+    category_lower = normalize_shop_category(category, "").lower()
     if not name:
         return False
     blocked_prefixes = (
@@ -25308,7 +25394,7 @@ def shop_bundle_items(item_config):
             quantity = int(raw.get("quantity", 1) or 1)
         except (TypeError, ValueError):
             quantity = 1
-        quantity = max(1, min(100, quantity))
+        quantity = max(1, min(999, quantity))
         if item_name:
             rows.append({"item": item_name, "quantity": quantity})
     return rows
@@ -29598,9 +29684,43 @@ async def shop(ctx):
 
     embed = discord.Embed(
         title="🛒 BLACK MARKET SHOP",
-        description="\n".join(lines[:25]),
+        description="Items are grouped by server shop category. Use `/buy item_name x y` to order for next restart delivery.",
         color=0x9B59B6
     )
+
+    categories = defaultdict(list)
+    for item_name, data in items.items():
+        if not isinstance(data, dict):
+            data = {}
+        is_bundle = str(data.get("type") or "").lower() == "bundle"
+        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else guess_shop_category(item_name)))
+        if not is_bundle and not is_shop_sellable_item(item_name, category):
+            continue
+        if not data.get("enabled", True):
+            continue
+        bundle_items = shop_bundle_items(data)
+        bundle_note = ""
+        if bundle_items:
+            shown = ", ".join(f"{row['quantity']}x {row['item']}" for row in bundle_items[:4])
+            more = f" +{len(bundle_items) - 4} more" if len(bundle_items) > 4 else ""
+            bundle_note = f" ({shown}{more})"
+        categories[category].append(f"- `{item_name}` - {data.get('price', 0)} pennies{bundle_note}")
+
+    field_count = 0
+    for category in shop_category_options(categories.keys()):
+        rows = categories.get(category, [])
+        if not rows:
+            continue
+        if field_count >= 25:
+            break
+        value = "\n".join(rows[:10])
+        if len(rows) > 10:
+            value += f"\n...and {len(rows) - 10} more"
+        embed.add_field(name=f"Category: {category}", value=value[:1024], inline=False)
+        field_count += 1
+
+    if not embed.fields:
+        embed.description = "Shop is currently empty or all items are disabled."
 
     embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -30432,6 +30552,10 @@ async def addshopitem(
 ):
 
     items = guild_shop_items(str(ctx.guild.id) if ctx.guild else None)
+    category = guess_shop_category(item_name, category if category != "General" else None)
+    if not is_shop_sellable_item(item_name, category):
+        await ctx.send("That class is not allowed in the player shop.")
+        return
     items[item_name] = {
         "price": price,
         "category": category,
@@ -30498,7 +30622,11 @@ async def editshopitem(
         items[item_name]["price"] = price
 
     if category is not None:
-        items[item_name]["category"] = category
+        normalized_category = guess_shop_category(item_name, category)
+        if not is_shop_sellable_item(item_name, normalized_category):
+            await ctx.send("That category/class combination is not allowed in the player shop.")
+            return
+        items[item_name]["category"] = normalized_category
 
     save_shop()
 
@@ -30552,7 +30680,7 @@ async def shopcategories(ctx):
 
     for item, data in items.items():
 
-        category = data.get("category", "General")
+        category = normalize_shop_category(data.get("category") or guess_shop_category(item))
 
         if category not in categories:
             categories[category] = []
@@ -33719,6 +33847,29 @@ def autocomplete_matches(options, current):
 async def faction_name_autocomplete(interaction: discord.Interaction, current: str):
     guild_id = str(interaction.guild.id) if interaction.guild else ""
     options = [(name, name) for name in sorted(all_guild_factions(guild_id), key=lambda item: item.lower())]
+    return autocomplete_matches(options, current)
+
+
+async def shop_category_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    items = guild_shop_items(guild_id)
+    existing = [
+        normalize_shop_category(data.get("category") if isinstance(data, dict) else "")
+        for data in items.values()
+    ]
+    return autocomplete_matches([(category, category) for category in shop_category_options(existing)], current)
+
+
+async def shop_item_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    items = guild_shop_items(guild_id)
+    options = []
+    for item_name, data in sorted(items.items(), key=lambda item: str(item[0]).lower()):
+        if not isinstance(data, dict):
+            data = {}
+        category = normalize_shop_category(data.get("category") or guess_shop_category(item_name))
+        label = f"{item_name} - {category}"
+        options.append((label, item_name))
     return autocomplete_matches(options, current)
 
 
@@ -39179,6 +39330,7 @@ async def slash_importtypesxml(
 @bot.tree.command(name="addshopitem", description="Admin: add an item to the shop")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname", price="Price in pennies", category="Shop category")
+@app_commands.autocomplete(category=shop_category_autocomplete)
 async def slash_addshopitem(interaction: discord.Interaction, item_name: str, price: int, category: str = "General"):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -39187,6 +39339,7 @@ async def slash_addshopitem(interaction: discord.Interaction, item_name: str, pr
 @bot.tree.command(name="editshopitem", description="Admin: edit a shop item")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname", price="Optional new price", category="Optional new category")
+@app_commands.autocomplete(item_name=shop_item_autocomplete, category=shop_category_autocomplete)
 async def slash_editshopitem(interaction: discord.Interaction, item_name: str, price: int = None, category: str = None):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -39195,6 +39348,7 @@ async def slash_editshopitem(interaction: discord.Interaction, item_name: str, p
 @bot.tree.command(name="toggleshopitem", description="Admin: enable or disable a shop item")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname")
+@app_commands.autocomplete(item_name=shop_item_autocomplete)
 async def slash_toggleshopitem(interaction: discord.Interaction, item_name: str):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -39203,6 +39357,7 @@ async def slash_toggleshopitem(interaction: discord.Interaction, item_name: str)
 @bot.tree.command(name="removeshopitem", description="Admin: remove an item from the shop")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(item_name="Item classname")
+@app_commands.autocomplete(item_name=shop_item_autocomplete)
 async def slash_removeshopitem(interaction: discord.Interaction, item_name: str):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
