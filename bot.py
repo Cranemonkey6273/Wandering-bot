@@ -236,6 +236,7 @@ last_showcase_proactive_time = {} # guild_id -> timestamp
 last_showcase_greeting_image = {} # guild_id -> timestamp
 last_showcase_discussion_time = {} # guild_id -> timestamp
 last_showcase_reaction_time = {}  # channel_id -> timestamp
+feed_route_log_time = {}          # (guild_id, channel_key, reason) -> timestamp
 owner_natural_language_cooldowns = {}
 translation_runtime_stats = {}
 
@@ -5193,6 +5194,69 @@ def is_channel_key_disabled(config, key):
     return key in set(disabled_channel_keys(config))
 
 
+def _feed_route_should_log(guild_id, key, reason, seconds=300):
+    now_ts = time.time()
+    route_key = (str(guild_id), str(key), str(reason))
+    last_ts = feed_route_log_time.get(route_key, 0)
+    if now_ts - last_ts < seconds:
+        return False
+    feed_route_log_time[route_key] = now_ts
+    return True
+
+
+def _safe_channel_id(value):
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except Exception:
+        return None
+
+
+def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_repair=True):
+    channels = config.setdefault("channels", {})
+    if not isinstance(channels, dict):
+        channels = {}
+        config["channels"] = channels
+
+    if is_channel_key_disabled(config, key):
+        if required and _feed_route_should_log(guild_id, key, "disabled"):
+            print(f"[FEED ROUTE] {guild_id} #{DEFAULT_CHANNEL_NAMES.get(key, key)} is disabled in config; not posting feed.")
+        return None
+
+    guild = None
+    try:
+        guild = bot.get_guild(int(guild_id))
+    except Exception:
+        guild = None
+
+    saved_id = _safe_channel_id(channels.get(key))
+    if saved_id:
+        channel = bot.get_channel(saved_id)
+        if channel:
+            return channel
+        if guild:
+            channel = guild.get_channel(saved_id)
+            if channel:
+                return channel
+
+    if allow_name_repair and guild:
+        for channel in getattr(guild, "text_channels", []):
+            if channel_matches_saved_key(channel, key):
+                channels[key] = channel.id
+                save_guild_configs()
+                if _feed_route_should_log(guild_id, key, "repaired"):
+                    print(f"[FEED ROUTE] {guild_id} repaired #{DEFAULT_CHANNEL_NAMES.get(key, key)} to channel id {channel.id}.")
+                return channel
+
+    if required and _feed_route_should_log(guild_id, key, "missing"):
+        if saved_id:
+            print(f"[FEED ROUTE] {guild_id} saved #{DEFAULT_CHANNEL_NAMES.get(key, key)} channel id {saved_id} could not be resolved.")
+        else:
+            print(f"[FEED ROUTE] {guild_id} has no saved channel id for #{DEFAULT_CHANNEL_NAMES.get(key, key)}.")
+    return None
+
+
 def set_channel_key_disabled(config, key, disabled=True):
     disabled_keys = disabled_channel_keys(config)
     if disabled and key not in disabled_keys:
@@ -5225,7 +5289,8 @@ def discover_existing_guild_channels(guild, config):
     for key in DEFAULT_CHANNEL_NAMES:
         existing_id = channels.get(key)
 
-        if existing_id and guild.get_channel(existing_id):
+        existing_channel_id = _safe_channel_id(existing_id)
+        if existing_channel_id and guild.get_channel(existing_channel_id):
             continue
 
         for channel in guild.text_channels:
@@ -9911,10 +9976,13 @@ def extract_adm_event_time(line, *, now=None, config=None):
     candidate_local = reference_local.replace(hour=hh, minute=mm, second=ss, microsecond=0)
     # ADM lines only contain wall-clock time. Compare in the server's own
     # timezone so live UK/EU summer-time logs are not mislabelled yesterday.
-    if candidate_local > reference_local + timedelta(minutes=5):
+    # Only roll back across midnight when the parsed time is wildly ahead of
+    # the current local time. A few minutes of Nitrado/Railway clock drift is
+    # normal and must not turn today's event into yesterday's feed item.
+    if candidate_local > reference_local + timedelta(hours=12):
         candidate_local -= timedelta(days=1)
     candidate = candidate_local.astimezone(UTC)
-    if candidate > reference_utc + timedelta(minutes=5):
+    if candidate > reference_utc + timedelta(hours=12):
         candidate -= timedelta(days=1)
     return candidate
 
@@ -14385,25 +14453,11 @@ async def parse_adm(guild_id, config):
 
     channels = config.get("channels", {})
 
-    killfeed_channel = bot.get_channel(
-        channels.get("killfeed")
-    )
-
-    raid_channel = bot.get_channel(
-        channels.get("raids")
-    )
-
-    build_channel = bot.get_channel(
-        channels.get("building")
-    )
-
-    connect_channel = bot.get_channel(
-        channels.get("connections")
-    )
-
-    disconnect_channel = bot.get_channel(
-        channels.get("disconnects")
-    )
+    killfeed_channel = resolve_feed_channel(guild_id, config, "killfeed", required=True)
+    raid_channel = resolve_feed_channel(guild_id, config, "raids", required=True)
+    build_channel = resolve_feed_channel(guild_id, config, "building", required=True)
+    connect_channel = resolve_feed_channel(guild_id, config, "connections", required=True)
+    disconnect_channel = resolve_feed_channel(guild_id, config, "disconnects", required=True)
 
     online_state_changed = False
     online_state_reason = ""
@@ -14746,10 +14800,6 @@ async def parse_adm(guild_id, config):
             )
 
             embed.timestamp = event_time
-
-            disconnect_channel = bot.get_channel(
-                channels.get("disconnects")
-            )
 
             if disconnect_channel:
                 await disconnect_channel.send(embed=embed)
@@ -18953,9 +19003,9 @@ async def post_nitrado_banlist_log(
             return
         channel = None
         channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
-        channel_id = channels.get("nitrado_ban_logs")
+        channel_id = _safe_channel_id(channels.get("nitrado_ban_logs"))
         if channel_id:
-            channel = guild.get_channel(int(channel_id))
+            channel = guild.get_channel(channel_id) or bot.get_channel(channel_id)
         if not channel:
             channel = await get_or_create_feed_channel(
                 guild,
@@ -19314,10 +19364,12 @@ async def _post_link_enforcement_notice(guild, config, title, description, color
         return
     settings = config.get("discord_link_enforcement") or {}
     channel_key = settings.get("notification_channel_key") or "public_shame"
-    channel_id = settings.get("notification_channel_id")
+    channel_id = _safe_channel_id(settings.get("notification_channel_id"))
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
-    channel = bot.get_channel(int(channel_id)) if str(channel_id or "").isdigit() else None
-    channel = channel or bot.get_channel(channels.get(channel_key)) or bot.get_channel(channels.get("public_shame")) or bot.get_channel(channels.get("admin_log"))
+    channel = bot.get_channel(channel_id) if channel_id else None
+    channel = channel or resolve_feed_channel(str(guild.id), config, channel_key)
+    channel = channel or resolve_feed_channel(str(guild.id), config, "public_shame")
+    channel = channel or resolve_feed_channel(str(guild.id), config, "admin_logs")
     if not channel:
         print(f"[LINK ENFORCEMENT] {title}: {description}")
         return
