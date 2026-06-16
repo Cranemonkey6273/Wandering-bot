@@ -168,6 +168,64 @@ VISUAL_LOADOUT_CATEGORY_FILTERS = [
     {"key": "Food/Drink", "label": "Food"},
     {"key": "Misc", "label": "Misc"},
 ]
+VISUAL_LOADOUT_SLOT_RULES = {
+    "Head": {
+        "include": ("helmet", "cap", "beanie", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap", "radarcap", "officerhat", "zsh3", "mich", "headtorch"),
+        "exclude": ("armband", "mask", "glove", "pants", "boots", "bag", "backpack", "vest", "holster", "pouches"),
+    },
+    "Eyes": {
+        "include": ("glasses", "eyewear", "nvg", "goggles"),
+        "exclude": ("armband", "mask", "helmet", "pants", "boots", "bag", "backpack", "vest"),
+    },
+    "Mask": {
+        "include": ("mask", "respirator", "bandana", "balaclava", "shemag", "airborne", "gasmask", "gp5"),
+        "exclude": ("armband", "glove", "pants", "boots", "bag", "backpack", "vest", "helmet"),
+    },
+    "Body": {
+        "include": ("jacket", "shirt", "hoodie", "coat", "torso", "body", "sweater", "parka", "gorka", "bdujacket", "cucjacket", "ttskojacket", "nbcjacket", "raincoat"),
+        "exclude": ("armband", "mask", "pants", "boots", "glove", "bag", "backpack", "vest", "holster", "pouches"),
+    },
+    "Vest": {
+        "include": ("vest", "platecarrier", "chestholster", "smershvest", "pressvest", "policevest", "highcapacityvest"),
+        "exclude": ("armband", "mask", "pants", "boots", "glove", "bag", "backpack", "pouches", "platecarrierholster"),
+    },
+    "Back": {
+        "include": ("bag", "backpack", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag", "coyotebag", "assaultbag", "huntingbag", "tortillabag", "smershbag"),
+        "exclude": ("armband", "mask", "pants", "boots", "glove", "vest", "helmet", "holster", "pouches"),
+    },
+    "Hips": {
+        "include": ("belt", "holster", "sheath", "hippack", "fanny"),
+        "exclude": ("armband", "mask", "pants", "boots", "bag", "backpack", "vest", "helmet"),
+    },
+    "Legs": {
+        "include": ("pants", "trousers", "jeans", "shorts", "skirt", "cargopants", "bdupants", "cucpants", "gorkapants", "nbcpants"),
+        "exclude": ("armband", "mask", "glove", "boots", "bag", "backpack", "vest", "helmet"),
+    },
+    "Feet": {
+        "include": ("boots", "shoes", "sneakers", "wellies", "footwraps"),
+        "exclude": ("armband", "mask", "glove", "pants", "bag", "backpack", "vest", "helmet"),
+    },
+    "Hands": {
+        "include": ("weapon", "rifle", "gun", "pistol", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "asval", "crossbow", "knife", "axe", "hatchet", "hammer", "shovel", "saw", "wrench", "pickaxe", "tool", "machete"),
+        "exclude": ("armband", "mask", "pants", "boots", "bag", "backpack", "vest", "mag_", "ammobox", "ammo_", "optic", "suppressor", "bayonet", "handguard", "hndgrd", "buttstock", "bttstck"),
+    },
+    "Left Shoulder": {
+        "include": ("weapon", "rifle", "gun", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "asval", "crossbow", "repeater", "winchester"),
+        "exclude": ("mag_", "ammobox", "ammo_", "optic", "suppressor", "bayonet", "handguard", "hndgrd", "buttstock", "bttstck", "armband", "mask", "pants", "boots", "bag", "backpack", "vest"),
+    },
+    "Right Shoulder": {
+        "include": ("weapon", "rifle", "gun", "shotgun", "smg", "akm", "ak74", "ak101", "m4a1", "mosin", "sks", "svd", "fal", "aug", "vss", "asval", "crossbow", "repeater", "winchester"),
+        "exclude": ("mag_", "ammobox", "ammo_", "optic", "suppressor", "bayonet", "handguard", "hndgrd", "buttstock", "bttstck", "armband", "mask", "pants", "boots", "bag", "backpack", "vest"),
+    },
+    "Gloves": {
+        "include": ("glove", "gloves"),
+        "exclude": ("armband", "mask", "pants", "boots", "bag", "backpack", "vest", "helmet"),
+    },
+    "Armband": {
+        "include": ("armband",),
+        "exclude": ("mask", "glove", "pants", "boots", "bag", "backpack", "vest", "helmet"),
+    },
+}
 STACK_WATCH_OBJECT_PRESETS = [
     {"label": "Garden plot", "value": "GardenPlot", "group": "Base building"},
     {"label": "Fence kit", "value": "FenceKit", "group": "Base building"},
@@ -15699,7 +15757,8 @@ def visual_slot_item_candidates(groups: dict[str, Any], picker: str) -> list[dic
     rows = groups.get(picker) if isinstance(groups.get(picker), list) else []
     fallback_names = VISUAL_LOADOUT_SLOT_FALLBACKS.get(picker, [])
     fallback_rows = visual_items_matching(groups, fallback_names, visual_loadout_picker_fallback_category(picker)) if fallback_names else []
-    return unique_visual_items(list(rows or []) + fallback_rows, None)
+    candidates = [item for item in list(rows or []) + fallback_rows if visual_slot_rule_matches(item, picker)]
+    return unique_visual_items(candidates, None)
 
 
 def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
@@ -16963,6 +17022,18 @@ def item_not_matching_terms(item: dict[str, Any], terms: tuple[str, ...]) -> boo
     return not item_matches_terms(item, terms)
 
 
+def visual_item_search_text(item: dict[str, Any]) -> str:
+    return f"{item.get('name', '')} {item.get('category', '')}".lower()
+
+
+def visual_slot_rule_matches(item: dict[str, Any], slot: str) -> bool:
+    rules = VISUAL_LOADOUT_SLOT_RULES.get(str(slot or ""))
+    if not rules:
+        return True
+    text = visual_item_search_text(item)
+    return any(term in text for term in rules["include"]) and not any(term in text for term in rules["exclude"])
+
+
 def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
     def fallback_item(name: str, category: str) -> dict[str, Any]:
         return {
@@ -17185,8 +17256,11 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             return True
         return whole_vehicle_aliases.get(name, "").lower() in whole_vehicle_names
 
-    def group_or_fallback(group_items: list[dict[str, Any]], fallback_names: list[str], category: str) -> list[dict[str, Any]]:
-        return unique_named(group_items + [fallback_item(name, category) for name in fallback_names])
+    def group_or_fallback(group_items: list[dict[str, Any]], fallback_names: list[str], category: str, slot: str = "") -> list[dict[str, Any]]:
+        combined = group_items + [fallback_item(name, category) for name in fallback_names]
+        if slot:
+            combined = [item for item in combined if visual_slot_rule_matches(item, slot)]
+        return unique_named(combined)
 
     def is_player_cargo_item(item: dict[str, Any]) -> bool:
         name = str(item.get("name", "")).strip()
@@ -17210,20 +17284,20 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
         "player_cargo": [item for item in catalog_items if is_player_cargo_item(item)],
         "containers": [item for item in catalog_items if item_matches_terms(item, container_terms)],
         "vehicles": [item for item in items if is_whole_vehicle(item)],
-        "Head": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, head_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Head"], "Clothes"),
-        "Eyes": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, eye_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Eyes"], "Clothes"),
-        "Mask": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, mask_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Mask"], "Clothes"),
-        "Body": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, body_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Body"], "Clothes"),
-        "Vest": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, vest_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Vest"], "Clothes"),
-        "Back": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "improvisedbag", "coyotebag", "assaultbag", "huntingbag"))], VISUAL_LOADOUT_SLOT_FALLBACKS["Back"], "Containers"),
-        "Hips": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, hips_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Hips"], "Clothes"),
-        "Legs": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, legs_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Legs"], "Clothes"),
-        "Feet": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, feet_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Feet"], "Clothes"),
-        "Hands": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, hands_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Hands"], "Weapons"),
-        "Left Shoulder": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, firearm_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Left Shoulder"], "Weapons"),
-        "Right Shoulder": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, firearm_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Right Shoulder"], "Weapons"),
-        "Gloves": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, gloves_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Gloves"], "Clothes"),
-        "Armband": group_or_fallback([item for item in catalog_items if item_name_matches_terms(item, armband_terms)], VISUAL_LOADOUT_SLOT_FALLBACKS["Armband"], "Clothes"),
+        "Head": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Head")], VISUAL_LOADOUT_SLOT_FALLBACKS["Head"], "Clothes", "Head"),
+        "Eyes": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Eyes")], VISUAL_LOADOUT_SLOT_FALLBACKS["Eyes"], "Clothes", "Eyes"),
+        "Mask": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Mask")], VISUAL_LOADOUT_SLOT_FALLBACKS["Mask"], "Clothes", "Mask"),
+        "Body": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Body")], VISUAL_LOADOUT_SLOT_FALLBACKS["Body"], "Clothes", "Body"),
+        "Vest": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Vest")], VISUAL_LOADOUT_SLOT_FALLBACKS["Vest"], "Clothes", "Vest"),
+        "Back": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Back")], VISUAL_LOADOUT_SLOT_FALLBACKS["Back"], "Containers", "Back"),
+        "Hips": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Hips")], VISUAL_LOADOUT_SLOT_FALLBACKS["Hips"], "Clothes", "Hips"),
+        "Legs": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Legs")], VISUAL_LOADOUT_SLOT_FALLBACKS["Legs"], "Clothes", "Legs"),
+        "Feet": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Feet")], VISUAL_LOADOUT_SLOT_FALLBACKS["Feet"], "Clothes", "Feet"),
+        "Hands": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Hands")], VISUAL_LOADOUT_SLOT_FALLBACKS["Hands"], "Weapons", "Hands"),
+        "Left Shoulder": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Left Shoulder")], VISUAL_LOADOUT_SLOT_FALLBACKS["Left Shoulder"], "Weapons", "Left Shoulder"),
+        "Right Shoulder": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Right Shoulder")], VISUAL_LOADOUT_SLOT_FALLBACKS["Right Shoulder"], "Weapons", "Right Shoulder"),
+        "Gloves": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Gloves")], VISUAL_LOADOUT_SLOT_FALLBACKS["Gloves"], "Clothes", "Gloves"),
+        "Armband": group_or_fallback([item for item in catalog_items if visual_slot_rule_matches(item, "Armband")], VISUAL_LOADOUT_SLOT_FALLBACKS["Armband"], "Clothes", "Armband"),
     }
     groups["vehicles"] = unique_named(groups["vehicles"] + known_vehicles)
     groups["containers"] = unique_named(groups["containers"] + known_containers)
