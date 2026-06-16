@@ -9950,6 +9950,23 @@ def adm_timezone_for_config(config=None):
         return UTC
 
 
+def adm_line_time_parts(line):
+    if not line:
+        return None
+    match = _ADM_TIME_PREFIX_RE.match(line)
+    if not match:
+        return None
+    try:
+        hh = int(match.group(1))
+        mm = int(match.group(2))
+        ss = int(match.group(3))
+    except Exception:
+        return None
+    if not (0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60):
+        return None
+    return hh, mm, ss
+
+
 def extract_adm_event_time(line, *, now=None, config=None):
     """Extract the in-game wall-clock time from an ADM log line and return
     a timezone-aware UTC datetime, or None if the line has no recognisable
@@ -9962,22 +9979,17 @@ def extract_adm_event_time(line, *, now=None, config=None):
     in the future relative to `now`, which handles late-night scans
     where the log line was written just before UTC midnight).
     """
-    if not line:
+    parts = adm_line_time_parts(line)
+    if not parts:
         return None
-    match = _ADM_TIME_PREFIX_RE.match(line)
-    if not match:
-        return None
-    try:
-        hh = int(match.group(1))
-        mm = int(match.group(2))
-        ss = int(match.group(3))
-        if not (0 <= hh < 24 and 0 <= mm < 60 and 0 <= ss < 60):
-            return None
-    except Exception:
-        return None
+    hh, mm, ss = parts
 
     tz = adm_timezone_for_config(config)
     reference_utc = now or datetime.now(UTC)
+    if reference_utc.tzinfo is None:
+        reference_utc = reference_utc.replace(tzinfo=UTC)
+    else:
+        reference_utc = reference_utc.astimezone(UTC)
     reference_local = reference_utc.astimezone(tz)
     candidate_local = reference_local.replace(hour=hh, minute=mm, second=ss, microsecond=0)
     # ADM lines only contain wall-clock time. Compare in the server's own
@@ -9991,6 +10003,52 @@ def extract_adm_event_time(line, *, now=None, config=None):
     if candidate > reference_utc + timedelta(hours=12):
         candidate -= timedelta(days=1)
     return candidate
+
+
+def normalize_live_adm_event_time(line, event_time, *, config=None, now=None):
+    """Keep live ADM feed timestamps on the nearest plausible current day."""
+    if event_time is None:
+        return None
+    reference_utc = now or datetime.now(UTC)
+    if reference_utc.tzinfo is None:
+        reference_utc = reference_utc.replace(tzinfo=UTC)
+    else:
+        reference_utc = reference_utc.astimezone(UTC)
+    try:
+        event_time = event_time.astimezone(UTC) if event_time.tzinfo else event_time.replace(tzinfo=UTC)
+        if abs((reference_utc - event_time).total_seconds()) <= 12 * 60 * 60:
+            return event_time
+    except Exception:
+        return event_time
+
+    parts = adm_line_time_parts(line)
+    if not parts:
+        return event_time
+    hh, mm, ss = parts
+    candidate_timezones = []
+    for tz in (adm_timezone_for_config(config), UTC):
+        if all(str(tz) != str(existing) for existing in candidate_timezones):
+            candidate_timezones.append(tz)
+    try:
+        dublin = ZoneInfo("Europe/Dublin")
+        if all(str(dublin) != str(existing) for existing in candidate_timezones):
+            candidate_timezones.append(dublin)
+    except Exception:
+        pass
+
+    best = event_time
+    best_delta = abs((reference_utc - event_time).total_seconds())
+    for tz in candidate_timezones:
+        reference_local = reference_utc.astimezone(tz)
+        for day_offset in (-1, 0, 1):
+            local_day = reference_local + timedelta(days=day_offset)
+            candidate_local = local_day.replace(hour=hh, minute=mm, second=ss, microsecond=0)
+            candidate = candidate_local.astimezone(UTC)
+            delta = abs((reference_utc - candidate).total_seconds())
+            if delta < best_delta:
+                best = candidate
+                best_delta = delta
+    return best
 
 
 # How old (in seconds) an ADM event can be before we refuse to dispatch
@@ -10585,6 +10643,8 @@ def list_adm_logs(config, lookback_hours=None):
                 path = entry.get("path")
                 if path:
                     entry["_adm_datetime"] = entry_time.isoformat() if entry_time else ""
+                    modified_time = parse_nitrado_datetime(entry.get("modified_at"))
+                    entry["_modified_datetime"] = modified_time.isoformat() if modified_time else ""
                     matching_logs[path] = entry
 
         except Exception as error:
@@ -10855,9 +10915,17 @@ def parse_rpt_diagnostics(rpt_text, limit=16):
         if m:
             add("XML error", "XML", m.group(1), i)
             continue
+        m = re.search(r"Failed to open file\s+\"?([^\"\s]+)\"?", line, re.I)
+        if m:
+            add("Missing XML file", m.group(1), "DayZ tried to load this file but it was not present at restart", i)
+            continue
         m = re.search(r"Type '([^']+)'\s+will be ignored\.\s+\((.+)\)", line, re.I)
         if m:
             add("Ignored type", m.group(1), m.group(2), i)
+            continue
+        m = re.search(r"Spawnable type\s+'?([^']+)'?\s+could not load preset item\s+'?([^']+?)'?\s+because it is ignored", line, re.I)
+        if m:
+            add("Ignored preset item", m.group(2), f"spawnabletypes preset `{m.group(1)}` references an ignored item; remove it from cargo/attachments", i)
             continue
         m = re.search(r'PRESET LOAD ERROR:\s+(.+)', line, re.I)
         if m:
@@ -10958,13 +11026,14 @@ def _build_rpt_event_embed(guild_id, state):
             lines = []
             for ev in evs[:max_per_type]:
                 link = _rpt_world_link(ev["x"], ev["z"], guild_id)
-                age_s = int(now_ts - float(ev.get("first_seen_ts", now_ts)))
+                first_seen_ts = int(float(ev.get("first_seen_ts", now_ts)))
+                age_s = int(now_ts - first_seen_ts)
                 lifetime = int(ev.get("lifetime_s", RPT_DEFAULT_EVENT_LIFETIME_SECONDS))
                 remaining = max(0, lifetime - age_s)
                 coord_text = f"({int(ev['x'])}, {int(ev['z'])})"
                 if link:
                     coord_text = f"[{coord_text}]({link})"
-                lines.append(f"- {coord_text} · age {format_duration_seconds(age_s)} · expires in {format_duration_seconds(remaining)}")
+                lines.append(f"- {coord_text} | seen <t:{first_seen_ts}:R> | age {format_duration_seconds(age_s)} | expires in {format_duration_seconds(remaining)}")
             if len(evs) > max_per_type:
                 hidden_events += len(evs) - max_per_type
                 lines.append(f"- +{len(evs) - max_per_type} more {kind} spawn(s)")
@@ -11035,7 +11104,8 @@ async def _post_rpt_restart_report(guild, state, new_events, diagnostics=None):
             ct = f"({int(ev['x'])}, {int(ev['z'])})"
             if link:
                 ct = f"[{ct}]({link})"
-            lines.append(f"• **{ev['type']}** at {ct}")
+            first_seen_ts = int(float(ev.get("first_seen_ts", datetime.now(UTC).timestamp())))
+            lines.append(f"- **{ev['type']}** at {ct} | seen <t:{first_seen_ts}:R>")
         embed.add_field(name="First spawns of the cycle", value="\n".join(lines)[:1024], inline=False)
     if diagnostics:
         lines = []
@@ -11071,17 +11141,21 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
         state["channel_id"] = channel.id
 
     path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
+    now_ts = datetime.now(UTC).timestamp()
+    state["last_rpt_path"] = path or ""
+    state["last_rpt_modified_at"] = modified_at or ""
+    state["last_rpt_checked_ts"] = now_ts
     if not text:
         return "XML uploaded, but the tracker could not pull the latest .RPT yet. If this server recently changed map/platform, confirm `/server setplatform` is correct and restart once so Nitrado creates a fresh log."
 
     new_size = len(text)
     if not force_restart_post and new_size == int(state.get("last_rpt_size") or 0):
-        return "No change in RPT since last pull."
+        save_rpt_event_tracker()
+        return "Latest RPT checked; file unchanged since last tracker pull."
     state["last_rpt_size"] = new_size
 
     restart_markers, events = parse_rpt_for_events(text)
     diagnostics = parse_rpt_diagnostics(text)
-    now_ts = datetime.now(UTC).timestamp()
     state["diagnostics"] = diagnostics
     state["diagnostics_updated_ts"] = now_ts
 
@@ -14481,7 +14555,19 @@ async def parse_adm(guild_id, config):
         # Discord shows "when the event actually happened in-game", not
         # "when the bot got around to processing it". Falls back to "now"
         # if the line has no parseable HH:MM:SS prefix.
-        parsed_event_time = extract_adm_event_time(line, config=config)
+        context = adm_parse_context.get(str(guild_id), {})
+        parse_reference = parse_saved_datetime(
+            context.get("source_modified_datetime")
+            or context.get("source_datetime")
+        ) or datetime.now(UTC)
+        parsed_event_time = extract_adm_event_time(line, now=parse_reference, config=config)
+        if parsed_event_time and not context.get("history_sweep"):
+            parsed_event_time = normalize_live_adm_event_time(
+                line,
+                parsed_event_time,
+                config=config,
+                now=parse_reference,
+            )
         event_time = parsed_event_time or datetime.now(UTC)
         event_type = classify_event(line)
         changed_online, state_event_type, state_player_name = remember_online_state_from_adm_line(
@@ -15952,7 +16038,8 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
                 if ok_dl:
                     adm_parse_context[str(guild_id)] = {
                         "source_path": older.get("path") or "",
-                        "source_datetime": older.get("_adm_datetime") or older.get("mtime") or "",
+                        "source_datetime": older.get("_adm_datetime") or older.get("_modified_datetime") or older.get("modified_at") or older.get("mtime") or "",
+                        "source_modified_datetime": older.get("_modified_datetime") or older.get("modified_at") or "",
                         "history_sweep": True,
                     }
                     try:
@@ -15983,7 +16070,8 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
     adm_parse_context[str(guild_id)] = {
         "source_path": latest_log.get("path") or "",
-        "source_datetime": latest_log.get("_adm_datetime") or latest_log.get("mtime") or "",
+        "source_datetime": latest_log.get("_modified_datetime") or latest_log.get("modified_at") or latest_log.get("_adm_datetime") or latest_log.get("mtime") or "",
+        "source_modified_datetime": latest_log.get("_modified_datetime") or latest_log.get("modified_at") or "",
         "history_sweep": False,
     }
     try:
@@ -28415,7 +28503,11 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         tracker_status = await refresh_rpt_event_tracker(guild_id, config)
     except Exception as tracker_error:
         tracker_status = f"Tracker refresh failed: {tracker_error}"
-    tracker_has_new_rpt = "No change in RPT since last pull." not in str(tracker_status or "")
+    tracker_status_text = str(tracker_status or "")
+    tracker_has_new_rpt = (
+        "No change in RPT since last pull." not in tracker_status_text
+        and "unchanged since last tracker pull" not in tracker_status_text
+    )
     success = bool(notice.get("success"))
     embed = discord.Embed(
         title="🛰️ LIVE EVENT DEPLOYMENT" if success else "⚠️ LIVE EVENT DEPLOYMENT FAILED",
@@ -28442,13 +28534,14 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
             coord = f"({int(ev.get('x', 0))}, {int(ev.get('z', 0))})"
             if link:
                 coord = f"[{coord}]({link})"
-            age_s = int(now_ts - float(ev.get("first_seen_ts", now_ts)))
-            live_lines.append(f"- **{ev.get('type', 'Unknown')}** at {coord} · age {format_duration_seconds(age_s)}")
+            first_seen_ts = int(float(ev.get("first_seen_ts", now_ts)))
+            age_s = int(now_ts - first_seen_ts)
+            live_lines.append(f"- **{ev.get('type', 'Unknown')}** at {coord} | seen <t:{first_seen_ts}:R> | age {format_duration_seconds(age_s)}")
         if len(live_events) > 8:
             live_lines.append(f"- +{len(live_events) - 8} more live tracked spawn(s)")
-        live_title = "Currently visible in latest RPT" if tracker_has_new_rpt else "Cached tracker snapshot"
+        live_title = "Currently visible in latest RPT" if tracker_has_new_rpt else "Latest tracker state"
         if not tracker_has_new_rpt:
-            live_lines.insert(0, "- No new `.RPT` pull yet after this upload; this list is from the previous tracker cache.")
+            live_lines.insert(0, "- Latest `.RPT` file is unchanged since the previous tracker parse; this remains the current tracker state until the next post-restart RPT update.")
         embed.add_field(name=live_title, value="\n".join(live_lines)[:1024], inline=False)
 
     path_lines = []
@@ -28481,7 +28574,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
             message = str(item.get("message") or "Check the latest RPT.")
             warning_lines.append(f"- **{kind}** `{name}`: {message}"[:240])
     elif diagnostics:
-        warning_lines.append("- RPT warnings are waiting for the next server restart / fresh `.RPT` pull before they can be trusted for this upload.")
+        warning_lines.append("- RPT warnings are from the latest parsed `.RPT`; the next post-restart RPT update will confirm this upload.")
     messages = [str(message) for message in (notice.get("messages") or []) if str(message).strip()]
     for message in messages[-6:]:
         warning_lines.append(f"- {message}"[:260])
@@ -28561,8 +28654,18 @@ def dashboard_upload_console_ce_event_files(guild_id):
             event["native_ce_uploaded_at"] = now_text
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
+            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
+            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+            event["native_ce_territory_paths"] = [
+                str(item.get("path") or "")
+                for item in (built.get("animal_territory_files") or [])
+                if isinstance(item, dict) and str(item.get("path") or "").strip()
+            ][:8]
+            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
             event["upload_status"] = "uploaded"
-            event["status"] = "Ready - native CE XML uploaded; restart once to spawn"
+            event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
             event["updated_at"] = now_text
             event.pop("upload_error", None)
             changed = True
@@ -30661,8 +30764,18 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["native_ce_uploaded_at"] = now_text
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
+            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
+            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+            event["native_ce_territory_paths"] = [
+                str(item.get("path") or "")
+                for item in (built.get("animal_territory_files") or [])
+                if isinstance(item, dict) and str(item.get("path") or "").strip()
+            ][:8]
+            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
             event["upload_status"] = "uploaded"
-            event["status"] = "Ready - native CE XML uploaded; restart once to spawn"
+            event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
             event.pop("upload_error", None)
         else:
             event["upload_status"] = "failed"

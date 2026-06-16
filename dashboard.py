@@ -399,6 +399,7 @@ FILES = {
     "removed_guilds": "removed_guilds.json",
     "ai_agent": "ai_agent.json",
     "agent_accounts": "agent_accounts.json",
+    "rpt_event_tracker": "rpt_event_tracker.json",
 }
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
@@ -4742,13 +4743,18 @@ PAGE_TEMPLATE = """
           <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
         </article>
         <article class="admin-panel full" data-pve-panel="events">
+          {% set scenario_summary = server.scenario_summary if server and server.scenario_summary else {} %}
+          {% set scenario_tracker = server.scenario_tracker if server and server.scenario_tracker else {} %}
           <h3>Live Event Manager</h3>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Total</span><strong>{{ server.scenario_events|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Active</span><strong>{{ server.scenario_events|selectattr('enabled')|list|length if server else 0 }}</strong></div>
-            <div class="mini-card"><span class="muted">Permanent</span><strong>{{ server.scenario_events|selectattr('permanent')|list|length if server else 0 }}</strong></div>
-            <div class="mini-card"><span class="muted">Uploads</span><strong>{{ server.scenario_events|selectattr('upload_status', 'equalto', 'uploaded')|list|length if server else 0 }}</strong></div>
+            <div class="mini-card"><span class="muted">Uploaded</span><strong>{{ scenario_summary.uploaded|default(0) }}</strong><span>{% if scenario_summary.last_uploaded_at %}Last {{ scenario_summary.last_uploaded_at[:16]|replace('T', ' ') }}{% else %}No upload yet{% endif %}</span></div>
+            <div class="mini-card"><span class="muted">Pending</span><strong>{{ scenario_summary.pending|default(0) }}</strong><span>{% if scenario_summary.cleanup_pending %}Cleanup queued{% else %}Worker queue{% endif %}</span></div>
+            <div class="mini-card"><span class="muted">Failed</span><strong>{{ scenario_summary.failed|default(0) }}</strong><span>{% if scenario_summary.cleanup_error %}Cleanup needs attention{% else %}Upload failures{% endif %}</span></div>
+            <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} warning(s)</span></div>
           </div>
+          <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Failed means the upload was blocked or rejected.</span></div>
           <div class="shop-toolbar" style="margin-top:.85rem">
             <label>Search events <input data-event-search placeholder="name/type/class/status"></label>
             <label>Status
@@ -4784,6 +4790,9 @@ PAGE_TEMPLATE = """
                     {% endfor %}
                   </div>
                 </td>
+              </tr>
+              <tr class="event-detail-row" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
+                <td colspan="8"><span class="muted">Upload:</span> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}{% if event.native_ce_uploaded_at %} | uploaded {{ event.native_ce_uploaded_at[:16]|replace('T', ' ') }}{% endif %}{% if event.native_ce_events_path %} | events {{ event.native_ce_events_path }}{% endif %}{% if event.native_ce_spawns_path %} | spawns {{ event.native_ce_spawns_path }}{% endif %}{% if event.native_ce_spawnabletypes_path %} | spawnabletypes {{ event.native_ce_spawnabletypes_path }}{% endif %}{% if event.native_ce_cfgenvironment_path %} | environment {{ event.native_ce_cfgenvironment_path }}{% endif %}{% if event.native_ce_territory_paths %} | territories {{ event.native_ce_territory_paths|length }}{% endif %}{% if event.upload_error %}<br><span class="muted">Last error:</span> {{ event.upload_error }}{% endif %}</td>
               </tr>
               {% else %}
               <tr><td colspan="8">No scenario events queued.</td></tr>
@@ -8871,6 +8880,31 @@ PAGE_TEMPLATE = """
       if (combined.includes("pause") || combined.includes("cancel")) return "info";
       return "";
     }
+    function scenarioDetailRowFor(row) {
+      const next = row ? row.nextElementSibling : null;
+      return next && next.classList.contains("event-detail-row") ? next : null;
+    }
+    function removeScenarioRowPair(row) {
+      const detail = scenarioDetailRowFor(row);
+      if (detail) detail.remove();
+      if (row) row.remove();
+    }
+    function setScenarioDetailRow(row, eventData, trackerData) {
+      const detail = scenarioDetailRowFor(row);
+      if (!detail || !eventData) return;
+      const parts = [`Upload: ${String(eventData.upload_status || "queued").replace(/_/g, " ")}`];
+      if (eventData.native_ce_uploaded_at) parts.push(`uploaded ${String(eventData.native_ce_uploaded_at).slice(0, 16).replace("T", " ")}`);
+      if (eventData.native_ce_events_path) parts.push(`events ${eventData.native_ce_events_path}`);
+      if (eventData.native_ce_spawns_path) parts.push(`spawns ${eventData.native_ce_spawns_path}`);
+      if (eventData.native_ce_spawnabletypes_path) parts.push(`spawnabletypes ${eventData.native_ce_spawnabletypes_path}`);
+      if (eventData.native_ce_cfgenvironment_path) parts.push(`environment ${eventData.native_ce_cfgenvironment_path}`);
+      if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) parts.push(`territories ${eventData.native_ce_territory_paths.length}`);
+      if (trackerData) parts.push(`RPT ${trackerData.live_count || 0} live / ${trackerData.diagnostics_count || 0} warning(s)`);
+      if (eventData.upload_error) parts.push(`Last error: ${eventData.upload_error}`);
+      detail.querySelector("td").textContent = parts.join(" | ");
+      detail.dataset.eventUpload = eventData.upload_status || "";
+      detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${eventData.upload_status || ""}`.toLowerCase();
+    }
     function setScenarioRowStatus(row, eventData) {
       if (!row || !eventData) return;
       const statusCell = row.querySelector("[data-scenario-status]");
@@ -8897,6 +8931,7 @@ PAGE_TEMPLATE = """
           statusCell.append(document.createElement("br"), detail);
         }
       }
+      setScenarioDetailRow(row, eventData);
       row.querySelectorAll('[name="action"][value="upload"]').forEach((input) => {
         const retryForm = input.closest("form");
         if (retryForm) retryForm.hidden = uploadStatus !== "failed";
@@ -8923,6 +8958,7 @@ PAGE_TEMPLATE = """
           const body = await response.json().catch(() => ({}));
           if (response.ok && body.event) {
             setScenarioRowStatus(row, body.event);
+            if (body.tracker) setScenarioDetailRow(row, body.event, body.tracker);
             if (!scenarioStatusIsPending(body.event.status, body.event.upload_status)) {
               row.dataset.statusPoll = "done";
               return;
@@ -9887,7 +9923,7 @@ PAGE_TEMPLATE = """
             const row = form.closest("[data-scenario-event-row]");
             const statusCell = row ? row.querySelector("[data-scenario-status]") : null;
             if (action === "delete" || action === "cancel") {
-              if (row) row.remove();
+              if (row) removeScenarioRowPair(row);
               return;
             }
             const status = body.event && body.event.status ? body.event.status : (action === "pause" ? "Paused by dashboard" : "Saved");
@@ -11184,8 +11220,18 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             event["native_ce_uploaded_at"] = now_text
             event["native_ce_events_path"] = built.get("events_path", "")
             event["native_ce_spawns_path"] = built.get("spawns_path", "")
+            event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
+            event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+            event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
+            event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+            event["native_ce_territory_paths"] = [
+                str(item.get("path") or "")
+                for item in (built.get("animal_territory_files") or [])
+                if isinstance(item, dict) and str(item.get("path") or "").strip()
+            ][:8]
+            event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
             event["upload_status"] = "removed" if removed and is_target else "uploaded"
-            event["status"] = "Removed from native CE XML" if removed and is_target else "Ready - native CE XML uploaded; restart once to spawn"
+            event["status"] = "Removed from native CE XML" if removed and is_target else "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
             event.pop("upload_error", None)
         else:
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
@@ -17510,6 +17556,57 @@ def pve_summary(challenges: Any, campaigns: Any, schedules: Any, guild_id: str, 
     }
 
 
+def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = {
+        "uploaded": 0,
+        "pending": 0,
+        "failed": 0,
+        "paused": 0,
+        "removed": 0,
+        "cleanup_pending": bool(config.get("scenario_events_cleanup_pending")) if isinstance(config, dict) else False,
+        "cleanup_error": str(config.get("scenario_events_cleanup_error") or "") if isinstance(config, dict) else "",
+        "last_uploaded_at": "",
+    }
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        upload_status = str(event.get("upload_status") or "").strip().lower()
+        status_text = str(event.get("status") or "").strip().lower()
+        if upload_status == "uploaded":
+            summary["uploaded"] += 1
+            uploaded_at = str(event.get("native_ce_uploaded_at") or "")
+            if uploaded_at > summary["last_uploaded_at"]:
+                summary["last_uploaded_at"] = uploaded_at
+        elif upload_status == "failed" or "failed" in status_text:
+            summary["failed"] += 1
+        elif upload_status == "removed":
+            summary["removed"] += 1
+        elif not event.get("enabled", True) or "pause" in status_text:
+            summary["paused"] += 1
+        elif upload_status in {"waiting_for_bot_upload", "queued", "uploading"} or "upload requested" in status_text or "upload starting" in status_text:
+            summary["pending"] += 1
+    return summary
+
+
+def scenario_tracker_summary(tracker_store: Any, guild_id: str) -> dict[str, Any]:
+    state = tracker_store.get(str(guild_id), {}) if isinstance(tracker_store, dict) else {}
+    if not isinstance(state, dict):
+        state = {}
+    diagnostics = state.get("diagnostics") if isinstance(state.get("diagnostics"), list) else []
+    return {
+        "enabled": bool(state.get("enabled", True)),
+        "live_count": count_records(state.get("events")),
+        "diagnostics_count": len(diagnostics),
+        "last_restart_ts": safe_int(state.get("last_restart_ts"), 0),
+        "restart_marker_count": safe_int(state.get("restart_marker_count"), 0),
+        "diagnostics": diagnostics[:6],
+        "last_rpt_size": safe_int(state.get("last_rpt_size"), 0),
+        "last_rpt_path": str(state.get("last_rpt_path") or ""),
+        "last_rpt_modified_at": str(state.get("last_rpt_modified_at") or ""),
+        "last_rpt_checked_ts": safe_int(state.get("last_rpt_checked_ts"), 0),
+    }
+
+
 def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dashboard_admin: Any) -> list[dict[str, str]]:
     notes = []
     for server in servers:
@@ -17572,6 +17669,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     pve_challenges = (runtime_state.get("pve_challenges") or load_store("pve_challenges", {})) if needs_pve else {}
     pve_ai_campaigns = (runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})) if needs_pve else {}
     pve_workshop_schedules = (runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})) if needs_pve else {}
+    rpt_event_tracker_store = (runtime_state.get("rpt_event_tracker") or load_store("rpt_event_tracker", {})) if needs_pve else {}
     swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
     shop_categories = shop_category_map(shop) if needs_shop else {}
@@ -17624,7 +17722,10 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         if discord_member_count is None:
             discord_member_count = len(discord_members) if discord_members else len(server_members)
         server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
+        scenario_events = visible_scenario_events(config)
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
+        scenario_summary = scenario_upload_summary(config, scenario_events) if needs_pve else {}
+        tracker_summary = scenario_tracker_summary(rpt_event_tracker_store, guild_id) if needs_pve else {}
         totals = {
             "kills": sum(player["kills"] for player in players),
             "deaths": sum(player["deaths"] for player in players),
@@ -17657,7 +17758,9 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "zones": redact(zones),
-                "scenario_events": redact(visible_scenario_events(config)),
+                "scenario_events": redact(scenario_events),
+                "scenario_summary": redact(scenario_summary),
+                "scenario_tracker": redact(tracker_summary),
                 "dashboard_access": access,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
@@ -19576,6 +19679,7 @@ def api_scenario_event_status():
     events = config.get("scenario_events", []) if isinstance(config, dict) else []
     if not isinstance(events, list):
         events = []
+    tracker = scenario_tracker_summary(load_store("rpt_event_tracker", {}), guild_id)
     for event in events:
         if isinstance(event, dict) and safe_int(event.get("id"), 0) == event_id:
             return jsonify({
@@ -19584,6 +19688,13 @@ def api_scenario_event_status():
                 "status": event.get("status") or "",
                 "upload_status": event.get("upload_status") or "",
                 "upload_error": event.get("upload_error") or "",
+                "native_ce_uploaded_at": event.get("native_ce_uploaded_at") or "",
+                "native_ce_events_path": event.get("native_ce_events_path") or "",
+                "native_ce_spawns_path": event.get("native_ce_spawns_path") or "",
+                "native_ce_spawnabletypes_path": event.get("native_ce_spawnabletypes_path") or "",
+                "native_ce_cfgenvironment_path": event.get("native_ce_cfgenvironment_path") or "",
+                "native_ce_territory_paths": event.get("native_ce_territory_paths") if isinstance(event.get("native_ce_territory_paths"), list) else [],
+                "tracker": tracker,
             })
     return jsonify({"ok": False, "error": "event not found"}), 404
 
