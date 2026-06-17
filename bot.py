@@ -25974,9 +25974,9 @@ SCENARIO_AIRDROP_SCENES = {
         "ground_spread": 18,
         "marker": SCENARIO_AIRDROP_MARKER_CLASS,
         "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "0", "y": "-0.829071", "z": "0", "a": "0"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "-5", "z": "1.8", "a": "35"},
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "0", "y": "0.0", "z": "0", "a": "0"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "0.0", "z": "1.8", "a": "35"},
         ],
     },
     "helicopter_crash": {
@@ -25986,10 +25986,9 @@ SCENARIO_AIRDROP_SCENES = {
         "ground_spread": 45,
         "marker": "Wreck_Mi8_Crashed",
         "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "2.4", "y": "-2.22027", "z": "-2.2", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "-4.2", "y": "-0.829071", "z": "3.6", "a": "22"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "16", "y": "-5", "z": "9", "a": "35"},
-            {"type": "M18SmokeGrenade_Red", "x": "-8", "y": "0", "z": "-6", "a": "0"},
+            {"type": "StaticObj_ShellCrater2_Large", "x": "2.4", "y": "0.0", "z": "-2.2", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "-4.2", "y": "0.0", "z": "3.6", "a": "22"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "16", "y": "0.0", "z": "9", "a": "35"},
         ],
     },
     "cargo_plane_wreck": {
@@ -25999,10 +25998,9 @@ SCENARIO_AIRDROP_SCENES = {
         "ground_spread": 60,
         "marker": "Land_Wreck_C130J_Cargo",
         "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "-7", "y": "-0.829071", "z": "6", "a": "15"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "20", "y": "-5", "z": "10", "a": "35"},
-            {"type": "M18SmokeGrenade_Purple", "x": "-12", "y": "0", "z": "-10", "a": "0"},
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
+            {"type": "StaticObj_Dead_pile2", "x": "-7", "y": "0.0", "z": "6", "a": "15"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "20", "y": "0.0", "z": "10", "a": "35"},
         ],
     },
     "convoy_wreck": {
@@ -26014,8 +26012,8 @@ SCENARIO_AIRDROP_SCENES = {
         "props": [
             {"type": "StaticObj_Wreck_Uaz_DE", "x": "-12", "y": "0", "z": "8", "a": "35"},
             {"type": "StaticObj_Wreck_Ural_DE", "x": "12", "y": "0", "z": "10", "a": "305"},
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "-2.22027", "z": "0", "a": "0"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "6", "y": "-5", "z": "-5", "a": "35"},
+            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
+            {"type": "StaticObj_ammoboxes_stacked", "x": "6", "y": "0.0", "z": "-5", "a": "35"},
         ],
     },
 }
@@ -27044,14 +27042,28 @@ def scenario_airdrop_container_loot_allowed(item_name):
 
 
 def scenario_airdrop_container_loot_items(event):
-    compact = scenario_airdrop_ammo_box_items(event)
-    if compact:
-        rng = scenario_event_random(event, "crate-ammo")
-        compact = list(compact)
-        rng.shuffle(compact)
-    ammo_boxes = [item for item in compact if str(item).lower().startswith("ammobox_")]
-    compact.extend(ammo_boxes[:10])
-    return compact[:30]
+    selected = scenario_airdrop_ground_loot_items(event)
+    ammo_boxes = scenario_airdrop_ammo_box_items(event)
+    rng = scenario_event_random(event, "crate-cargo")
+    cargo = []
+    seen = set()
+
+    def add(item_name):
+        name = str(item_name or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            cargo.append(name)
+
+    selected = list(selected)
+    rng.shuffle(selected)
+    ammo_boxes = list(ammo_boxes)
+    rng.shuffle(ammo_boxes)
+    for item in selected:
+        add(item)
+    for item in ammo_boxes:
+        add(item)
+    return cargo[:42]
 
 
 def scenario_spawnabletypes_quantity_attrs(item_name):
@@ -27137,6 +27149,16 @@ def replace_spawnabletypes_group(type_node, tag_name, items):
     return True
 
 
+def remove_spawnabletypes_preset_refs(type_node):
+    removed = 0
+    for group_tag in ("cargo", "attachments"):
+        for group_node in list(type_node.findall(group_tag)):
+            if str(group_node.get("preset") or "").strip():
+                type_node.remove(group_node)
+                removed += 1
+    return removed
+
+
 def sanitize_spawnabletypes_ignored_items(root):
     removed_items = 0
     removed_groups = 0
@@ -27159,6 +27181,7 @@ def sanitize_spawnabletypes_ignored_items(root):
 def merge_airdrop_loot_into_spawnabletypes(root, events):
     changed_classes = set()
     cargo_blocks = 0
+    preset_refs_removed = 0
 
     for event in events:
         if event.get("event_type") not in {"airdrop", "vehicle_spawn"}:
@@ -27172,6 +27195,10 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
         if event.get("event_type") == "airdrop":
             for pristine_class in scenario_airdrop_pristine_classes(event, class_name):
                 pristine_node, _ = find_or_create_spawnable_type(root, pristine_class)
+                removed_refs = remove_spawnabletypes_preset_refs(pristine_node)
+                if removed_refs:
+                    changed_classes.add(pristine_class)
+                    preset_refs_removed += removed_refs
                 if set_spawnable_type_pristine(pristine_node):
                     changed_classes.add(pristine_class)
 
@@ -27181,11 +27208,19 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
             if not attachments:
                 continue
             weapon_node, _ = find_or_create_spawnable_type(root, weapon_name)
+            removed_refs = remove_spawnabletypes_preset_refs(weapon_node)
+            if removed_refs:
+                changed_classes.add(weapon_name)
+                preset_refs_removed += removed_refs
             if replace_spawnabletypes_group(weapon_node, "attachments", attachments):
                 changed_classes.add(weapon_name)
                 cargo_blocks += 1
 
         type_node, _ = find_or_create_spawnable_type(root, class_name)
+        removed_refs = remove_spawnabletypes_preset_refs(type_node)
+        if removed_refs:
+            changed_classes.add(class_name)
+            preset_refs_removed += removed_refs
         loot = scenario_airdrop_container_loot_items(event) if event.get("event_type") == "airdrop" else loot
         if not loot:
             continue
@@ -27202,7 +27237,7 @@ def merge_airdrop_loot_into_spawnabletypes(root, events):
         changed_classes.add(class_name)
         cargo_blocks += 1
 
-    return sorted(changed_classes), cargo_blocks
+    return sorted(changed_classes), cargo_blocks, preset_refs_removed
 
 
 def ce_decimal(value, default=0):
@@ -27347,18 +27382,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "a": "0.0",
         "y": "0.0",
     })
-
-    ground_spread = max(18, float(scene.get("ground_spread") or 18))
-    for index, item_name in enumerate(scenario_airdrop_ground_loot_items(event)):
-        x_offset, z_offset = scenario_airdrop_child_offsets(index, event.get("radius"), ground_spread)
-        children.append({
-            "type": item_name,
-            "spawnsecondary": "false",
-            "x": f"{x_offset:.2f}".rstrip("0").rstrip("."),
-            "z": f"{z_offset:.2f}".rstrip("0").rstrip("."),
-            "a": "0.0",
-            "y": "0.0",
-        })
     return children
 
 
@@ -27870,7 +27893,22 @@ def console_ce_records_for_event(event):
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
     if event_type == "animal_pack":
+        territory_key = stable_console_event_slug(event) or animal_territory_group_key({
+            "class_name": class_name,
+            "name": record_name,
+        })
+        territory_key = ce_file_slug(territory_key)
+        if not territory_key.startswith("animal_"):
+            territory_key = f"animal_{territory_key}"
+        profile = animal_territory_profile(class_name)
         record.update({
+            "animal_territory": True,
+            "empty_spawn": True,
+            "territory_file_key": territory_key,
+            "territory_name": f"WanderingBot_{territory_key}",
+            "animal_behavior": profile.get("behavior") or "DZDeerGroupBeh",
+            "territory_zone": profile.get("zone") or "Graze",
+            "territory_color": profile.get("color") or "4286611584",
             "nominal": count,
             "min_count": count,
             "max_count": count,
@@ -27878,8 +27916,8 @@ def console_ce_records_for_event(event):
             "cleanupradius": 100,
         })
         warnings.append(
-            f"`{event.get('id')}` uses fixed CE spawn coordinates for the animal pack; "
-            "no custom animal territory XML is required."
+            f"`{event.get('id')}` uses animal territory coordinates for the animal pack; "
+            f"the bot will upload `{record['territory_name']}` plus its env file."
         )
     records.append(record)
 
@@ -28373,7 +28411,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if spawnable_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {spawnable_parse_warning}")
         removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
-        changed_classes, cargo_blocks = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
+        changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
         output["spawnabletypes_path"] = resolved_spawnable_path
         output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
         output["messages"].append(spawnable_source)
@@ -28384,6 +28422,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
             + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
         )
+        if preset_refs_removed:
+            output["messages"].append(
+                f"Removed `{preset_refs_removed}` missing-preset cargo/attachment reference(s) from touched airdrop classes."
+            )
         if removed_ignored_items:
             output["messages"].append(
                 f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
