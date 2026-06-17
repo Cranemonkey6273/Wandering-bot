@@ -1413,14 +1413,35 @@ PAGE_TEMPLATE = """
       gap: .75rem;
       margin-bottom: .8rem;
     }
-    .command-logo img {
+    .command-logo-frame {
+      position: relative;
       width: 100%;
       aspect-ratio: 1 / 1;
-      object-fit: contain;
+      overflow: hidden;
       border: 1px solid rgba(255,255,255,.58);
       border-radius: .7rem;
       background: radial-gradient(circle at center, rgba(103,245,231,.08), rgba(3,10,13,.58));
       box-shadow: 0 20px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(103,245,231,.10);
+    }
+    .command-logo-character {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    .command-logo-badge {
+      position: absolute;
+      right: .4rem;
+      bottom: .4rem;
+      width: 35%;
+      min-width: 2.15rem;
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,.72);
+      border-radius: .42rem;
+      background: #061114;
+      box-shadow: 0 .65rem 1.6rem rgba(0,0,0,.58), 0 0 0 1px rgba(103,245,231,.16);
     }
     .command-logo strong { font-size: .98rem; }
     .command-logo small { color: var(--muted); }
@@ -2260,7 +2281,7 @@ PAGE_TEMPLATE = """
         grid-template-columns: 5rem minmax(0, 1fr);
         align-items: center;
       }
-      body[data-theme="command"] .command-logo img { aspect-ratio: 1 / 1; }
+      body[data-theme="command"] .command-logo-frame { aspect-ratio: 1 / 1; }
       body[data-theme="command"] .command-side-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       body[data-theme="command"] .command-quick { margin-top: .65rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .command-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -2785,7 +2806,10 @@ PAGE_TEMPLATE = """
   </header>
   <aside class="command-sidebar" aria-label="Command dashboard navigation">
     <div class="command-logo">
-      <img src="/brand-image" alt="Wandering Bot">
+      <div class="command-logo-frame">
+        <img class="command-logo-character" src="/brand-character" alt="Wandering Bot character">
+        <img class="command-logo-badge" src="/brand-image" alt="Wandering Bot logo">
+      </div>
       <div>
         <strong>Wandering Bot</strong>
         <small>{{ 'AI Development Agent' if auth.kind == 'agent_account' else (server.guild_name if server else view_title) }}</small>
