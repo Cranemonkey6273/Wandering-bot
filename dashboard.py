@@ -15325,7 +15325,7 @@ DASHBOARD_PROTECTED_DAYZ_XML_ROOTS = {
     "events.xml": "events",
     "cfgeventspawns.xml": "eventposdef",
     "cfgeventgroups.xml": "eventgroupdef",
-    "mapgroupproto.xml": "map",
+    "mapgroupproto.xml": "prototype",
     "cfgspawnabletypes.xml": "spawnabletypes",
     "cfgenvironment.xml": "env",
     "cfgareaeffects.xml": "areaeffects",

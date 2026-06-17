@@ -6363,6 +6363,8 @@ async def _translate_via_mymemory(text, target_language, source_language):
     # MyMemory doesn't accept 'auto' literally — use 'autodetect'
     if src.lower() in ("auto", "autodetect", ""):
         src = "autodetect"
+    elif src == target_language:
+        return text
     try:
         response = await asyncio.to_thread(
             requests.get,
@@ -6380,7 +6382,10 @@ async def _translate_via_mymemory(text, target_language, source_language):
         data = response.json()
         status = data.get("responseStatus")
         if status != 200 and status != "200":
-            print(f"[TRANSLATE] MyMemory status={status} msg={data.get('responseDetails')}")
+            details = str(data.get("responseDetails") or "")
+            if "select two distinct languages" in details.lower():
+                return text
+            print(f"[TRANSLATE] MyMemory status={status} msg={details}")
             return None
         return (data.get("responseData") or {}).get("translatedText")
     except Exception as err:
@@ -13370,7 +13375,7 @@ PROTECTED_DAYZ_XML_ROOTS = {
     "events.xml": "events",
     "cfgeventspawns.xml": "eventposdef",
     "cfgeventgroups.xml": "eventgroupdef",
-    "mapgroupproto.xml": "map",
+    "mapgroupproto.xml": "prototype",
     "cfgspawnabletypes.xml": "spawnabletypes",
     "cfgenvironment.xml": "env",
     "cfgareaeffects.xml": "areaeffects",
@@ -13533,28 +13538,9 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
             or "/dayzxb/custom/deliveries.xml"
         )
 
-        api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, xml_text)
-        if api_success:
-            print(api_message)
-            return True
-
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-        if ftp_error:
-            print(ftp_error)
-            return False
-
-        with open(xml_path, "rb") as xml_file:
-
-            ftp.storbinary(
-                f"STOR {target_path}",
-                xml_file
-            )
-
-        ftp.quit()
-
-        print(f"DELIVERY XML UPLOADED TO NITRADO VIA {ftp_host}")
-
-        return True
+        upload_success, upload_message = upload_text_file_to_nitrado(config, target_path, xml_text)
+        print(upload_message)
+        return upload_success
 
     except Exception as error:
 
@@ -27940,8 +27926,8 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
     removed_groups = 0
     removed_values = 0
     changed = False
-    if str(root.tag or "").strip().lower() == "mapgroupproto":
-        root.tag = "map"
+    if str(root.tag or "").strip().lower() in {"mapgroupproto", "map"}:
+        root.tag = "prototype"
         changed = True
     map_key = str(map_key or "").strip().lower()
     bad_values = {"tier4"} if map_key in {"livonia", "enoch", "sakhal"} else set()
@@ -28877,7 +28863,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             ""
         )
         eventgroups_root, eventgroups_parse_warning = parse_xml_root_or_new(eventgroups_text, "eventgroupdef")
-        mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "map")
+        mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "prototype")
         if eventgroups_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgeventgroups.xml: {eventgroups_parse_warning}")
         if mapgroupproto_parse_warning:
@@ -28987,7 +28973,7 @@ def validate_console_ce_xml_bundle(built):
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
-        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<map></map>").encode("utf-8"))
+        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<prototype></prototype>").encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
         cfgareaeffects_root = ET.fromstring(str(built.get("cfgareaeffects_text") or "<areaeffects></areaeffects>").encode("utf-8"))
         if built.get("cfgeffectarea_text"):
