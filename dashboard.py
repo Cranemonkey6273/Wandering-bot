@@ -15,6 +15,7 @@ import secrets
 import hashlib
 import subprocess
 import time
+import traceback
 import zipfile
 import urllib.error
 import urllib.parse
@@ -11436,11 +11437,12 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     try:
         result = uploader(str(guild_id))
     except json.JSONDecodeError as error:
+        stack = traceback.format_exc(limit=8).strip().replace("\n", " | ")
         return {
             "ok": False,
             "messages": [
                 "Nitrado returned an empty/non-JSON response during native CE upload: "
-                f"{type(error).__name__}: {error}"
+                f"{type(error).__name__}: {error}. Stack: {stack[:1000]}"
             ],
         }
     except Exception as error:

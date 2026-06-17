@@ -15,6 +15,7 @@ import requests
 import tempfile
 import shutil
 import secrets
+import traceback
 import urllib.parse
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
@@ -29595,7 +29596,8 @@ def dashboard_upload_console_ce_event_files(guild_id):
     except Exception as error:
         success = False
         built = {}
-        messages = [f"{type(error).__name__}: {error}"]
+        stack = traceback.format_exc(limit=8).strip().replace("\n", " | ")
+        messages = [f"{type(error).__name__}: {error}. Stack: {stack[:1000]}"]
     source_blocked = native_ce_upload_blocked_messages(messages)
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
@@ -29639,7 +29641,10 @@ def dashboard_upload_console_ce_event_files(guild_id):
             event["updated_at"] = now_text
             changed = True
     if changed:
-        queue_scenario_event_discord_notice(config, success, built, messages, affected_events, "Dashboard upload")
+        try:
+            queue_scenario_event_discord_notice(config, success, built, messages, affected_events, "Dashboard upload")
+        except Exception as notice_error:
+            messages.append(f"Discord notice queue skipped after upload state update: {type(notice_error).__name__}: {notice_error}")
         save_guild_configs()
     return {"ok": success, "built": built, "messages": messages}
 
@@ -31748,7 +31753,10 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["upload_status"] = "failed"
             event["upload_error"] = status_text
             event["status"] = "Native CE XML upload failed"
-    queue_scenario_event_discord_notice(config, upload_success, built, messages, pending_events, "Dashboard worker")
+    try:
+        queue_scenario_event_discord_notice(config, upload_success, built, messages, pending_events, "Dashboard worker")
+    except Exception as notice_error:
+        messages.append(f"Discord notice queue skipped after upload state update: {type(notice_error).__name__}: {notice_error}")
     print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
     return True
 
