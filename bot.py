@@ -7019,9 +7019,11 @@ def note_player_alive(guild_id, player_name, event_time=None):
         pass  # same day, no change
     elif gap == 1:
         entry["current_days"] = int(entry.get("current_days", 0) or 0) + 1
+        entry["last_progress_date"] = today
     else:
         entry["streak_start_date"] = today
         entry["current_days"] = 1
+        entry["last_progress_date"] = today
     entry["last_alive_date"] = today
     if int(entry.get("current_days", 0) or 0) > int(entry.get("longest_days", 0) or 0):
         entry["longest_days"] = int(entry["current_days"])
@@ -7062,6 +7064,81 @@ def reset_player_streak(guild_id, player_name, event_time=None):
 def get_streak_milestone(days):
     """If `days` crosses one of the milestones, return it, else None."""
     return days if days in SURVIVAL_STREAK_MILESTONES else None
+
+
+def survival_milestone_settings(config):
+    settings = config.setdefault("survival_milestones", {})
+    if not isinstance(settings, dict):
+        settings = {}
+        config["survival_milestones"] = settings
+    settings.setdefault("enabled", True)
+    settings.setdefault("channel_key", "general_chat")
+    return settings
+
+
+def resolve_survival_milestone_channel(guild_id, config, fallback_channel=None):
+    if not isinstance(config, dict):
+        return fallback_channel
+    settings = survival_milestone_settings(config)
+    if settings.get("enabled") is False:
+        return None
+
+    guild = None
+    try:
+        guild = bot.get_guild(int(guild_id))
+    except Exception:
+        guild = None
+
+    channel_id = _safe_channel_id(settings.get("channel_id") or config.get("survival_milestone_channel_id"))
+    if channel_id:
+        channel = bot.get_channel(channel_id)
+        if channel:
+            return channel
+        if guild:
+            channel = guild.get_channel(channel_id)
+            if channel:
+                return channel
+
+    channel_key = str(settings.get("channel_key") or config.get("survival_milestone_channel_key") or "general_chat").strip() or "general_chat"
+    channel = resolve_feed_channel(guild_id, config, channel_key, required=False)
+    if channel:
+        return channel
+    if channel_key != "general_chat":
+        channel = resolve_feed_channel(guild_id, config, "general_chat", required=False)
+        if channel:
+            return channel
+    return fallback_channel
+
+
+def should_announce_survival_milestone(entry, milestone, event_time=None):
+    if not isinstance(entry, dict) or not milestone:
+        return False
+    today = _today_key(event_time)
+    if str(entry.get("last_progress_date") or "") != today:
+        return False
+    announcements = entry.get("milestone_announcements")
+    if not isinstance(announcements, dict):
+        announcements = {}
+        entry["milestone_announcements"] = announcements
+    return str(announcements.get(str(milestone)) or "") != today
+
+
+def mark_survival_milestone_announced(entry, milestone, event_time=None):
+    if not isinstance(entry, dict) or not milestone:
+        return
+    today = _today_key(event_time)
+    announcements = entry.get("milestone_announcements")
+    if not isinstance(announcements, dict):
+        announcements = {}
+    announcements[str(milestone)] = today
+    entry["milestone_announcements"] = {
+        str(key): str(value)
+        for key, value in announcements.items()
+        if str(key).isdigit()
+    }
+    entry["last_milestone_announced"] = int(milestone)
+    entry["last_milestone_announced_date"] = today
+    save_survival_streaks()
 
 
 # =========================================================
@@ -14941,21 +15018,24 @@ async def parse_adm(guild_id, config):
 
             # Survival-streak: mark player alive today + announce milestones
             streak_entry = note_player_alive(guild_id, player_name, event_time=event_time)
-            if streak_entry and killfeed_channel:
+            if streak_entry:
                 milestone = get_streak_milestone(int(streak_entry.get("current_days", 0) or 0))
-                if milestone:
-                    try:
-                        m_embed = discord.Embed(
-                            title=f"🩸 SURVIVAL MILESTONE — {milestone} DAYS",
-                            description=f"**{player_name}** has stayed alive for **{milestone}** consecutive days. Loot accordingly.",
-                            color=0x16A085,
-                        )
-                        m_embed.set_thumbnail(url=BOT_IMAGE)
-                        m_embed.set_footer(text="Wandering Bot Alpha — Survival Streak")
-                        m_embed.timestamp = event_time or datetime.now(UTC)
-                        await killfeed_channel.send(embed=style_embed(m_embed))
-                    except Exception as milestone_err:
-                        print(f"[STREAK] milestone post failed: {milestone_err}")
+                if milestone and should_announce_survival_milestone(streak_entry, milestone, event_time=event_time):
+                    milestone_channel = resolve_survival_milestone_channel(guild_id, config, fallback_channel=killfeed_channel)
+                    if milestone_channel:
+                        mark_survival_milestone_announced(streak_entry, milestone, event_time=event_time)
+                        try:
+                            m_embed = discord.Embed(
+                                title=f"🩸 SURVIVAL MILESTONE — {milestone} DAYS",
+                                description=f"**{player_name}** has stayed alive for **{milestone}** consecutive days. Loot accordingly.",
+                                color=0x16A085,
+                            )
+                            m_embed.set_thumbnail(url=BOT_IMAGE)
+                            m_embed.set_footer(text="Wandering Bot Alpha — Survival Streak")
+                            m_embed.timestamp = event_time or datetime.now(UTC)
+                            await milestone_channel.send(embed=style_embed(m_embed))
+                        except Exception as milestone_err:
+                            print(f"[STREAK] milestone post failed: {milestone_err}")
 
             embed = discord.Embed(
                 title="🟢🎮 SURVIVOR CONNECTED",
@@ -28273,7 +28353,7 @@ def console_ce_records_for_event(event):
         "child_lootmax": child_lootmax,
         "child_records": child_records,
         "eventgroup_children": eventgroup_children,
-        "empty_event_children": use_eventgroup,
+        "empty_event_children": False,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 0 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
@@ -28945,7 +29025,7 @@ def validate_console_ce_xml_bundle(built):
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
-        if not child_nodes and not name.startswith("Static"):
+        if not child_nodes:
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()

@@ -4050,6 +4050,37 @@ PAGE_TEMPLATE = """
           </div>
         </article>
         <article class="admin-panel">
+          <h3>Survival Milestones</h3>
+          {% set survival_settings = server.survival_milestones if server else {} %}
+          <form id="survival-milestone-settings" class="admin-form" method="post" action="/api/admin/survival-milestones" data-route="/api/admin/survival-milestones">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#survival-milestone-settings">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Milestone embeds
+              <select name="enabled">
+                <option value="true" {% if survival_settings.enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if not survival_settings.enabled %}selected{% endif %}>Off</option>
+              </select>
+            </label>
+            <label>Post to channel
+              <select name="channel_key">
+                <option value="general_chat" {% if survival_settings.channel_value == 'general_chat' %}selected{% endif %}>General chat</option>
+                {% for channel in (server.channels if server else []) %}
+                {% if channel.value != 'general_chat' %}
+                <option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if survival_settings.channel_value and (channel.value == survival_settings.channel_value or channel.id == survival_settings.channel_value or channel.key == survival_settings.channel_value) %}selected{% endif %}>{{ channel.label }}</option>
+                {% endif %}
+                {% endfor %}
+              </select>
+            </label>
+            <div class="full embed-preview">
+              <strong>Current output</strong>
+              <span>{{ 'On' if survival_settings.enabled else 'Off' }} -> {{ survival_settings.channel_label or 'General chat' }}</span>
+              <small>Milestones post once when a player first reaches that streak day.</small>
+            </div>
+            <div class="full modal-actions"><button type="submit">Save Milestones</button><span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
           <h3>Utilities & Server Growth</h3>
           <form id="utility-config-form" class="admin-form {% if edit_record_section == 'utility_configs' and edit_record_id %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/utility-config" data-route="/api/admin/utility-config">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -6944,6 +6975,7 @@ PAGE_TEMPLATE = """
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
       "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
       "/api/admin/welcome-automation": {bodyKey: "automation", message: "Saved welcome automation."},
+      "/api/admin/survival-milestones": {bodyKey: "settings", message: "Saved survival milestone settings."},
       "/api/admin/utility-config": {bodyKey: "utility", message: "Saved utility module."},
       "/api/admin/reaction-role-panel": {bodyKey: "panel", message: "Saved reaction role panel."},
     };
@@ -11032,6 +11064,7 @@ ADMIN_ROUTES = [
     "/api/admin/embed-template-action",
     "/api/admin/dashboard-record-action",
     "/api/admin/welcome-automation",
+    "/api/admin/survival-milestones",
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
     "/api/admin/shop-item",
@@ -11091,6 +11124,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/embed-template-action": "embeds",
     "/api/admin/dashboard-record-action": "embeds",
     "/api/admin/welcome-automation": "embeds",
+    "/api/admin/survival-milestones": "embeds",
     "/api/admin/utility-config": "embeds",
     "/api/admin/reaction-role-panel": "embeds",
     "/api/admin/shop-item": "shop",
@@ -14340,6 +14374,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "scenario-event": "PVE workshop event saved",
         "scenario-event-action": "PVE workshop event updated",
         "server-control": "Server control updated",
+        "survival-milestones": "Survival milestone settings saved",
         "shop-bulk": "Shop bulk update saved",
         "shop-bundle": "Shop bundle saved",
         "shop-item": "Shop item saved",
@@ -14578,6 +14613,19 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def dashboard_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return default
 
 
 def ensure_wallet_accounts(wallet: dict[str, Any]) -> dict[str, Any]:
@@ -16781,6 +16829,28 @@ def channel_label_from_channels(channels: Any, value: Any, default: str = "no ch
     return selection if selection.startswith("#") else f"#{selection}"
 
 
+def dashboard_survival_milestone_settings(config: Any, channels: list[dict[str, str]]) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        config = {}
+    raw_settings = config.get("survival_milestones")
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
+    enabled = dashboard_bool(settings.get("enabled"), True)
+    channel_value = str(
+        settings.get("channel_id")
+        or settings.get("channel_key")
+        or config.get("survival_milestone_channel_id")
+        or config.get("survival_milestone_channel_key")
+        or "general_chat"
+    ).strip() or "general_chat"
+    return {
+        "enabled": enabled,
+        "enabled_value": "true" if enabled else "false",
+        "channel_value": channel_value,
+        "channel_label": channel_label_from_channels(channels, channel_value, "General chat"),
+        "updated_at": str(settings.get("updated_at") or ""),
+    }
+
+
 def enrich_faction_channel_labels(factions: dict[str, Any], channels: list[dict[str, str]]) -> dict[str, Any]:
     if not isinstance(factions, dict):
         return {}
@@ -18397,6 +18467,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "shop_category_options": server_shop_category_options,
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
+                "survival_milestones": redact(dashboard_survival_milestone_settings(config, channels)),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
                 "welcome_automations": redact(dashboard_admin_records(dashboard_admin, "welcome_automations", guild_id)),
                 "utility_configs": redact(dashboard_admin_records(dashboard_admin, "utility_configs", guild_id)),
@@ -19204,6 +19275,56 @@ def api_welcome_automation():
         {"ok": True, "automation": record, "note": "Saved welcome automation."},
         "automations",
         "#welcome-automation-form",
+    )
+
+
+@APP.post("/api/admin/survival-milestones")
+def api_survival_milestones():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {})
+    if not isinstance(config, dict):
+        config = {}
+        guild_configs[guild_id] = config
+
+    settings = config.get("survival_milestones")
+    if not isinstance(settings, dict):
+        settings = {}
+    settings["enabled"] = dashboard_bool(raw_payload.get("enabled"), True)
+    channel_value = str(raw_payload.get("channel_key") or raw_payload.get("channel_id") or "general_chat").strip() or "general_chat"
+    configured_channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    matched_key = ""
+    if channel_value.isdigit():
+        for key, channel_id in configured_channels.items():
+            if str(channel_id).strip() == channel_value:
+                matched_key = str(key)
+                break
+        if matched_key:
+            settings["channel_key"] = matched_key
+            settings.pop("channel_id", None)
+        else:
+            settings["channel_id"] = channel_value
+            settings.pop("channel_key", None)
+    else:
+        settings["channel_key"] = channel_value
+        settings.pop("channel_id", None)
+    settings["updated_at"] = datetime.now(UTC).isoformat()
+    config["survival_milestones"] = settings
+    save_store("guild_configs", guild_configs)
+
+    channels = public_channels(config.get("channels", {}), guild_id)
+    display_settings = dashboard_survival_milestone_settings(config, channels)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "settings": display_settings, "note": "Saved survival milestone settings."},
+        "automations",
+        "#survival-milestone-settings",
     )
 
 
