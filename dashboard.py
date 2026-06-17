@@ -8991,7 +8991,9 @@ PAGE_TEMPLATE = """
         chip.append(strong, document.createTextNode(` ${value}`));
         wrap.append(chip);
       };
-      addPart("Upload", String(eventData.upload_status || "queued").replace(/_/g, " "));
+      const confirmedUpload = !!eventData.native_ce_uploaded_at;
+      const displayUploadStatus = confirmedUpload ? "uploaded" : (eventData.upload_status || "queued");
+      addPart("Upload", String(displayUploadStatus).replace(/_/g, " "));
       if (eventData.native_ce_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at).slice(0, 16).replace("T", " "));
       addPart("Mission", eventData.native_ce_mission_folder || "");
       if (eventData.native_ce_restart_required) addPart("Restart", "one server restart needed");
@@ -9005,17 +9007,20 @@ PAGE_TEMPLATE = """
       addPart("environment", eventData.native_ce_cfgenvironment_path || "");
       if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) addPart("Territories", eventData.native_ce_territory_paths.length);
       if (trackerData) addPart("RPT", `${trackerData.live_count || 0} live / ${trackerData.diagnostics_count || 0} status item(s)`);
-      addPart("Last error", eventData.upload_error || "");
+      if (!confirmedUpload) addPart("Last error", eventData.upload_error || "");
       cell.append(wrap);
-      detail.dataset.eventUpload = eventData.upload_status || "";
-      detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${eventData.upload_status || ""}`.toLowerCase();
+      detail.dataset.eventUpload = displayUploadStatus || "";
+      detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${displayUploadStatus || ""}`.toLowerCase();
     }
     function setScenarioRowStatus(row, eventData) {
       if (!row || !eventData) return;
       const statusCell = row.querySelector("[data-scenario-status]");
-      const status = eventData.status || "";
-      const uploadStatus = eventData.upload_status || "";
-      const uploadError = eventData.upload_error || "";
+      const confirmedUpload = !!eventData.native_ce_uploaded_at;
+      const status = confirmedUpload && String(eventData.status || "").toLowerCase().includes("failed")
+        ? "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+        : (eventData.status || "");
+      const uploadStatus = confirmedUpload ? "uploaded" : (eventData.upload_status || "");
+      const uploadError = confirmedUpload ? "" : (eventData.upload_error || "");
       row.dataset.eventUpload = uploadStatus;
       row.dataset.eventSearch = `${row.dataset.eventSearch || ""} ${status} ${uploadStatus} ${uploadError}`.toLowerCase();
       row.classList.remove("status-ok", "status-warn", "status-bad", "status-info");
@@ -11236,13 +11241,45 @@ def mark_scenario_event_deleted(config: dict[str, Any], event_id: int, action: s
     }
 
 
+def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
+    return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
+
+
+def remember_scenario_upload_warning(event: dict[str, Any], warning: Any, now_text: str | None = None) -> None:
+    warnings = event.get("native_ce_upload_warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    warning_text = str(warning or "").strip()
+    if warning_text:
+        warnings.append({
+            "at": now_text or datetime.now(UTC).isoformat(),
+            "message": warning_text[:500],
+        })
+    event["native_ce_upload_warnings"] = warnings[-5:]
+    event["upload_status"] = "uploaded"
+    event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+    event.pop("upload_error", None)
+
+
+def normalize_confirmed_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
+    if not scenario_event_has_confirmed_native_upload(event):
+        return event
+    upload_status = str(event.get("upload_status") or "").strip().lower()
+    status_text = str(event.get("status") or "").strip().lower()
+    if upload_status != "failed" and "failed" not in status_text and not event.get("upload_error"):
+        return event
+    normalized = dict(event)
+    remember_scenario_upload_warning(normalized, event.get("upload_error") or event.get("status") or "stale failed upload status")
+    return normalized
+
+
 def visible_scenario_events(config: Any) -> list[dict[str, Any]]:
     events = config.get("scenario_events", []) if isinstance(config, dict) else []
     if not isinstance(events, list):
         return []
     tombstones = scenario_event_tombstones(config)
     return [
-        event
+        normalize_confirmed_scenario_upload_for_display(event)
         for event in events
         if isinstance(event, dict) and scenario_event_key(event) not in tombstones
     ]
@@ -11280,7 +11317,7 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     try:
         result = uploader(str(guild_id))
     except Exception as error:
-        return {"ok": False, "messages": [f"Native CE XML upload failed: {error}"]}
+        return {"ok": False, "messages": [f"Native CE XML upload failed: {type(error).__name__}: {error}"]}
     if isinstance(result, dict):
         return result
     if isinstance(result, (list, tuple)) and len(result) >= 3:
@@ -11387,6 +11424,9 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
                 status_text="Removed from native CE XML" if removed and is_target else None,
             )
         else:
+            if scenario_event_has_confirmed_native_upload(event):
+                remember_scenario_upload_warning(event, status_text, now_text)
+                continue
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
             event["upload_status"] = "failed"
             event["upload_error"] = status_text
@@ -11417,7 +11457,7 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
             if not isinstance(guild_configs, dict):
                 return
             config = guild_configs.setdefault(str(guild_id), {"channels": {}})
-            status_text = f"Native CE XML upload failed: {error}"
+            status_text = f"Native CE XML upload failed: {type(error).__name__}: {error}"
             events = config.get("scenario_events", [])
             if isinstance(events, list):
                 for event in events:
@@ -11426,6 +11466,9 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
                     if event_id and safe_int(event.get("id"), 0) != safe_int(event_id, 0):
                         continue
                     event["updated_at"] = datetime.now(UTC).isoformat()
+                    if scenario_event_has_confirmed_native_upload(event):
+                        remember_scenario_upload_warning(event, status_text)
+                        continue
                     event["upload_status"] = "failed"
                     event["upload_error"] = status_text
                     event["status"] = "Native CE XML upload failed"
@@ -17856,9 +17899,9 @@ def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[s
             continue
         upload_status = str(event.get("upload_status") or "").strip().lower()
         status_text = str(event.get("status") or "").strip().lower()
-        if upload_status == "uploaded":
+        uploaded_at = str(event.get("native_ce_uploaded_at") or "")
+        if upload_status == "uploaded" or uploaded_at:
             summary["uploaded"] += 1
-            uploaded_at = str(event.get("native_ce_uploaded_at") or "")
             if uploaded_at > summary["last_uploaded_at"]:
                 summary["last_uploaded_at"] = uploaded_at
         elif upload_status == "failed" or "failed" in status_text:
@@ -19976,6 +20019,7 @@ def api_scenario_event_status():
     tracker = scenario_tracker_summary(load_store("rpt_event_tracker", {}), guild_id)
     for event in events:
         if isinstance(event, dict) and safe_int(event.get("id"), 0) == event_id:
+            event = normalize_confirmed_scenario_upload_for_display(event)
             return jsonify({
                 "ok": True,
                 "event": event,

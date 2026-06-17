@@ -29021,6 +29021,26 @@ def native_ce_upload_metadata_from_built(built):
     return mission_base, mission_folder, managed_names[:24]
 
 
+def scenario_event_has_confirmed_native_upload(event):
+    return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
+
+
+def remember_native_ce_upload_warning(event, warning, now_text=None):
+    warnings = event.get("native_ce_upload_warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    warning_text = str(warning or "").strip()
+    if warning_text:
+        warnings.append({
+            "at": now_text or datetime.now(UTC).isoformat(),
+            "message": warning_text[:500],
+        })
+    event["native_ce_upload_warnings"] = warnings[-5:]
+    event["upload_status"] = "uploaded"
+    event["status"] = "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
+    event.pop("upload_error", None)
+
+
 def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_status="uploaded", status_text=None):
     mission_base, mission_folder, managed_names = native_ce_upload_metadata_from_built(built)
     event["native_ce_uploaded_at"] = now_text
@@ -29063,7 +29083,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
     except Exception as error:
         success = False
         built = {}
-        messages = [str(error)]
+        messages = [f"{type(error).__name__}: {error}"]
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if success
@@ -29087,6 +29107,11 @@ def dashboard_upload_console_ce_event_files(guild_id):
             event["updated_at"] = now_text
             changed = True
         elif str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed"}:
+            if scenario_event_has_confirmed_native_upload(event):
+                remember_native_ce_upload_warning(event, status_text, now_text)
+                event["updated_at"] = now_text
+                changed = True
+                continue
             attempts = int(event.get("upload_attempts") or 0) + 1
             event["upload_attempts"] = attempts
             event["upload_status"] = "failed"
@@ -31174,8 +31199,8 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
     except Exception as ce_error:
         upload_success = False
         built = {}
-        messages = [str(ce_error)]
-        status_text = f"Native CE XML upload failed: {ce_error}"
+        messages = [f"{type(ce_error).__name__}: {ce_error}"]
+        status_text = f"Native CE XML upload failed: {type(ce_error).__name__}: {ce_error}"
 
     now_text = datetime.now(UTC).isoformat()
     if upload_success and cleanup_pending:
@@ -31191,6 +31216,9 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         if upload_success:
             apply_native_ce_upload_metadata(event, built, messages, now_text)
         else:
+            if scenario_event_has_confirmed_native_upload(event):
+                remember_native_ce_upload_warning(event, status_text, now_text)
+                continue
             event["upload_status"] = "failed"
             event["upload_error"] = status_text
             event["status"] = "Native CE XML upload failed"
