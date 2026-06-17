@@ -2870,11 +2870,11 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
 
     if is_alt:
         if not primary_name:
-            return False, "Link your main gamertag first with `/linkgamer`, then add one alt with `/linkaltgamer`."
+            return False, "Link your main gamertag first with `/linkgamer`, then add one alt with `/linkgamer` using the Alt account option."
         if normalize_discord_name(primary_name) == verified_key:
             return False, f"`{verified_name}` is already your primary linked gamertag."
         if existing_alt and normalize_discord_name(existing_alt[0]) != verified_key:
-            return False, f"You already have one alt linked: `{existing_alt[0]}`. Remove it with `/unlinkaltgamer` before linking a different alt."
+            return False, f"You already have one alt linked: `{existing_alt[0]}`. Remove it with `/mylink remove_alt:True` before linking a different alt."
         linked_players[user_id] = {
             **existing,
             "discord_name": str(member),
@@ -12810,8 +12810,8 @@ async def setup_command(
             name="FACTIONS, IDENTITY & SUPPORT",
             value=(
                 "`/linkgamer gamertag` - link Discord to gamertag\n"
-                "`/linkaltgamer gamertag` - link one extra alt gamertag\n"
-                "`/mylink` - view linked account\n"
+                "`/linkgamer gamertag account:Alt` - link one extra alt gamertag\n"
+                "`/mylink` - view linked account or remove your alt\n"
                 "`/playerstats player_name` - lookup player stats\n"
                 "`/factionticket faction_name` - create faction request\n"
                 "`/factionapprove message_id` - approve faction ticket\n"
@@ -17817,7 +17817,7 @@ async def helpme(ctx):
         name="Translation, Factions & Support",
         value=(
             "`/translationconfig` - automatic translation: `same`, `channel`, or `off`\n"
-            "`/linkgamer gamertag`, `/linkaltgamer gamertag`, `/mylink`\n"
+            "`/linkgamer gamertag`, `/linkgamer gamertag account:Alt`, `/mylink`\n"
             "`/factionticket faction_name`, `/factionapprove message_id`\n"
             "`/supportbot issue` - admin ticket to the bot owner"
         ),
@@ -24334,50 +24334,74 @@ async def linkaltgamer(ctx, *, gamertag: str):
     await ctx.send(embed=style_embed(build_linkgamer_confirmation_embed(ctx.author, result, account_label="Alt gamertag")))
 
 
-@bot.command()
-async def unlinkaltgamer(ctx):
-    user_id = str(ctx.author.id)
+def unlink_alt_gamertag_for_member(member):
+    user_id = str(member.id)
     data = linked_players.get(user_id)
     if not isinstance(data, dict):
-        await ctx.send("No linked gamertag found.")
-        return
+        return False, "No linked gamertag found."
     alt_gamertags = linked_player_alt_gamertags(data)
     if not alt_gamertags:
-        await ctx.send("You do not have an alt gamertag linked.")
-        return
+        return False, "You do not have an alt gamertag linked."
     removed = alt_gamertags[0]
     data["alt_gamertags"] = []
     data.pop("alt_verified_by", None)
     data.pop("alt_linked_at", None)
     save_linked_players()
-    await ctx.send(f"Removed linked alt gamertag `{removed}`. You can now link a different alt with `/linkaltgamer`.")
+    return True, removed
+
+
+@bot.command()
+async def unlinkaltgamer(ctx):
+    success, result = unlink_alt_gamertag_for_member(ctx.author)
+    if not success:
+        await ctx.send(result)
+        return
+    await ctx.send(f"Removed linked alt gamertag `{result}`. You can now link a different alt with `/linkgamer` using the Alt account option.")
 
 
 @bot.tree.command(
     name="linkgamer",
     description="Link your Discord account to your Xbox gamertag"
 )
-@app_commands.describe(gamertag="Your Xbox gamertag")
-async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
+@app_commands.describe(
+    gamertag="Your Xbox gamertag",
+    account="Primary or your one allowed alt account"
+)
+@app_commands.choices(account=[
+    app_commands.Choice(name="Primary gamertag", value="primary"),
+    app_commands.Choice(name="Alt gamertag", value="alt"),
+])
+async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, account: str = "primary"):
     await interaction.response.defer(ephemeral=True)
+    is_alt = normalize_discord_name(account) == "alt"
     await interaction.followup.send(
-        "Checking saved ADM stats first. If needed, I will scan recent ADM history for that Xbox gamertag.",
+        (
+            "Checking ADM history for that alt gamertag. Each Discord account can link one alt only."
+            if is_alt
+            else "Checking saved ADM stats first. If needed, I will scan recent ADM history for that Xbox gamertag."
+        ),
         ephemeral=True
     )
 
-    success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag)
+    success, result = await link_verified_gamertag_for_member(
+        interaction.guild,
+        interaction.user,
+        gamertag,
+        is_alt=is_alt,
+    )
     if not success:
         await interaction.followup.send(result, ephemeral=True)
         return
     gamertag = result
+    account_label = "Alt gamertag" if is_alt else "Primary gamertag"
     confirmation = style_embed(
-        build_linkgamer_confirmation_embed(interaction.user, gamertag)
+        build_linkgamer_confirmation_embed(interaction.user, gamertag, account_label=account_label)
     )
 
     if interaction.channel:
         await interaction.channel.send(embed=confirmation)
         await interaction.followup.send(
-            f"Linked `{gamertag}` and posted the confirmation in this channel.",
+            f"Linked `{gamertag}` as your {'alt' if is_alt else 'primary'} and posted the confirmation in this channel.",
             ephemeral=True
         )
     else:
@@ -24390,58 +24414,6 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
         color=0x2ECC71
     )
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
-
-
-@bot.tree.command(
-    name="linkaltgamer",
-    description="Link one extra alt gamertag to your Discord account"
-)
-@app_commands.describe(gamertag="Your alt Xbox gamertag")
-async def slash_linkaltgamer(interaction: discord.Interaction, gamertag: str):
-    await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(
-        "Checking ADM history for that alt gamertag. Each Discord account can link one alt only.",
-        ephemeral=True
-    )
-
-    success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag, is_alt=True)
-    if not success:
-        await interaction.followup.send(result, ephemeral=True)
-        return
-    confirmation = style_embed(
-        build_linkgamer_confirmation_embed(interaction.user, result, account_label="Alt gamertag")
-    )
-
-    if interaction.channel:
-        await interaction.channel.send(embed=confirmation)
-        await interaction.followup.send(
-            f"Linked alt `{result}` and posted the confirmation in this channel.",
-            ephemeral=True
-        )
-    else:
-        await interaction.followup.send(embed=confirmation, ephemeral=True)
-
-
-@bot.tree.command(name="unlinkaltgamer", description="Remove your linked alt gamertag")
-async def slash_unlinkaltgamer(interaction: discord.Interaction):
-    user_id = str(interaction.user.id)
-    data = linked_players.get(user_id)
-    if not isinstance(data, dict):
-        await interaction.response.send_message("No linked gamertag found.", ephemeral=True)
-        return
-    alt_gamertags = linked_player_alt_gamertags(data)
-    if not alt_gamertags:
-        await interaction.response.send_message("You do not have an alt gamertag linked.", ephemeral=True)
-        return
-    removed = alt_gamertags[0]
-    data["alt_gamertags"] = []
-    data.pop("alt_verified_by", None)
-    data.pop("alt_linked_at", None)
-    save_linked_players()
-    await interaction.response.send_message(
-        f"Removed linked alt `{removed}`. You can now link a different alt with `/linkaltgamer`.",
-        ephemeral=True,
-    )
 
 
 async def force_link_gamertag_for_member(guild, admin_member, target_member, gamertag):
@@ -32378,7 +32350,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         name="👥 Player & Community",
         value=(
             "`/linkgamer` — Link your Discord account to your in-game gamertag.\n"
-            "`/linkaltgamer` — Link one extra alt gamertag to the same Discord account.\n"
+            "`/linkgamer account:Alt` — Link one extra alt gamertag to the same Discord account.\n"
             "`/mylink` — Check which gamertag your Discord is linked to.\n"
             "`/forcelinkgamer` — Admin: manually link any member to a gamertag.\n"
             "`/topkills` — Leaderboard of top PvP killers on the server.\n"
@@ -32674,7 +32646,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         name="Optional — Link Your Gamertag",
         value=(
             "Players can run `/linkgamer` to connect their Discord to their in-game name, "
-            "then `/linkaltgamer` if they have one extra alt account. "
+            "then `/linkgamer` with `account:Alt` if they have one extra alt account. "
             "This enables leaderboards, economy rewards, and personalised quest tracking."
         ),
         inline=False
@@ -36814,7 +36786,19 @@ async def slash_topkills(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
 @bot.tree.command(name="mylink", description="Show your linked gamertag")
-async def slash_mylink(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "mylink")
+@app_commands.describe(remove_alt="Remove your linked alt gamertag")
+async def slash_mylink(interaction: discord.Interaction, remove_alt: bool = False):
+    if remove_alt:
+        success, result = unlink_alt_gamertag_for_member(interaction.user)
+        if not success:
+            await interaction.response.send_message(result, ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"Removed linked alt `{result}`. You can now link a different alt with `/linkgamer` using the Alt account option.",
+            ephemeral=True,
+        )
+        return
+    await run_legacy_as_slash(interaction, "mylink")
 @bot.tree.command(name="wallet", description="Show your wallet")
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 
