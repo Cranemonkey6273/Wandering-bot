@@ -1427,24 +1427,27 @@ PAGE_TEMPLATE = """
       display: block;
       width: 100%;
       height: 100%;
-      object-fit: cover;
-      object-position: center;
-    }
-    .command-logo-badge {
-      position: absolute;
-      right: .4rem;
-      bottom: .4rem;
-      width: 35%;
-      min-width: 2.15rem;
-      aspect-ratio: 1 / 1;
-      object-fit: cover;
-      border: 1px solid rgba(255,255,255,.72);
-      border-radius: .42rem;
-      background: #061114;
-      box-shadow: 0 .65rem 1.6rem rgba(0,0,0,.58), 0 0 0 1px rgba(103,245,231,.16);
+      object-fit: contain;
+      object-position: center bottom;
+      padding: .12rem;
     }
     .command-logo strong { font-size: .98rem; }
     .command-logo small { color: var(--muted); }
+    .command-logo-watermark {
+      position: fixed;
+      right: .85rem;
+      bottom: 2rem;
+      z-index: 7;
+      width: clamp(2.7rem, 4vw, 3.6rem);
+      aspect-ratio: 1 / 1;
+      object-fit: cover;
+      border: 1px solid rgba(255,255,255,.45);
+      border-radius: .5rem;
+      background: #061114;
+      box-shadow: 0 .75rem 1.8rem rgba(0,0,0,.44), 0 0 0 1px rgba(255,169,64,.16);
+      opacity: .88;
+      pointer-events: none;
+    }
     .command-status { display: flex; align-items: center; gap: .35rem; color: #8ded63; font-size: .74rem; font-weight: 900; text-transform: uppercase; }
     .command-dot { width: .48rem; height: .48rem; border-radius: 50%; background: #8ded63; box-shadow: 0 0 12px rgba(141,237,99,.65); }
     .command-server-form {
@@ -2808,7 +2811,6 @@ PAGE_TEMPLATE = """
     <div class="command-logo">
       <div class="command-logo-frame">
         <img class="command-logo-character" src="/brand-character" alt="Wandering Bot character">
-        <img class="command-logo-badge" src="/brand-image" alt="Wandering Bot logo">
       </div>
       <div>
         <strong>Wandering Bot</strong>
@@ -2865,6 +2867,7 @@ PAGE_TEMPLATE = """
     </div>
     {% endif %}
   </aside>
+  <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo">
   <main>
     <section class="hero">
       <div>
@@ -11433,6 +11436,28 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
 
 
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
+SCENARIO_UPLOAD_RESET_FIELDS = {
+    "xml_uploaded_at",
+    "bridge_uploaded_at",
+    "bridge_surface_fixed_at",
+    "bridge_delivery_path",
+    "bridge_upload_messages",
+    "native_ce_uploaded_at",
+    "native_ce_events_path",
+    "native_ce_spawns_path",
+    "native_ce_eventgroups_path",
+    "native_ce_mapgroupproto_path",
+    "native_ce_spawnabletypes_path",
+    "native_ce_cfgenvironment_path",
+    "native_ce_mission_base",
+    "native_ce_mission_folder",
+    "native_ce_managed_event_names",
+    "native_ce_restart_required",
+    "native_ce_territory_paths",
+    "native_ce_upload_messages",
+    "native_ce_upload_warnings",
+    "upload_error",
+}
 
 
 def scenario_event_has_confirmed_bridge_upload(event: Any) -> bool:
@@ -11446,8 +11471,16 @@ def scenario_event_has_confirmed_upload(event: Any) -> bool:
 def dashboard_event_uses_delivery_bridge(event: Any) -> bool:
     return (
         isinstance(event, dict)
+        and bool(event.get("use_delivery_bridge"))
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
     )
+
+
+def reset_dashboard_scenario_upload_state(event: dict[str, Any]) -> None:
+    for key in SCENARIO_UPLOAD_RESET_FIELDS:
+        event.pop(key, None)
+    event["upload_status"] = "waiting_for_bot_upload"
+    event["upload_attempts"] = 0
 
 
 def is_dashboard_native_ce_event(event: Any) -> bool:
@@ -20536,6 +20569,7 @@ def api_scenario_event():
             "cleanupradius": cleanupradius,
             "gas_lifetime": gas_lifetime,
             "gas_particle": gas_particle if event_type == "gas_zone" else "server_default",
+            "use_delivery_bridge": safe_bool(payload.get("use_delivery_bridge"), False),
             "permanent": permanent,
             "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
             "enabled": True,
@@ -20545,6 +20579,7 @@ def api_scenario_event():
             "created_at": event.get("created_at") or datetime.now(UTC).isoformat(),
             "updated_at": datetime.now(UTC).isoformat(),
         })
+        reset_dashboard_scenario_upload_state(event)
         if event_type == "vehicle_reset_all":
             event["exclude"] = csv_list(payload.get("excluded_classes", []))
         if existing_index is None:

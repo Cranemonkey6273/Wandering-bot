@@ -29677,6 +29677,7 @@ def scenario_event_has_confirmed_native_upload(event):
 def scenario_event_uses_delivery_bridge(event):
     return (
         isinstance(event, dict)
+        and bool(event.get("use_delivery_bridge"))
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
     )
 
