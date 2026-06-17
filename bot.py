@@ -26636,6 +26636,7 @@ CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
+ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "false")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
     normalize_discord_name("Ammo_Flare"),
@@ -26643,6 +26644,15 @@ INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Ammo_FlareGreen"),
     normalize_discord_name("Ammo_FlareBlue"),
 }
+
+
+def scenario_event_bridge_enabled(event):
+    return (
+        ALLOW_SCENARIO_DELIVERY_BRIDGE
+        and isinstance(event, dict)
+        and bool(event.get("use_delivery_bridge"))
+        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+    )
 
 
 def dayz_reference_path(map_key, *parts):
@@ -26905,7 +26915,7 @@ def native_ce_scenario_events(config):
     return [
         event
         for event in bridge_scenario_events(config)
-        if str(event.get("event_type") or "").strip().lower() not in DELIVERY_BRIDGE_SCENARIO_TYPES
+        if not scenario_event_bridge_enabled(event)
     ]
 
 
@@ -26913,7 +26923,7 @@ def delivery_bridge_scenario_events(config):
     return [
         event
         for event in bridge_scenario_events(config)
-        if str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+        if scenario_event_bridge_enabled(event)
     ]
 
 
@@ -29891,11 +29901,7 @@ def scenario_event_has_confirmed_native_upload(event):
 
 
 def scenario_event_uses_delivery_bridge(event):
-    return (
-        isinstance(event, dict)
-        and bool(event.get("use_delivery_bridge"))
-        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
-    )
+    return scenario_event_bridge_enabled(event)
 
 
 def scenario_event_has_confirmed_bridge_upload(event):
@@ -29903,7 +29909,20 @@ def scenario_event_has_confirmed_bridge_upload(event):
 
 
 def scenario_event_has_confirmed_upload(event):
-    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
+    return scenario_event_has_confirmed_native_upload(event) or (
+        scenario_event_uses_delivery_bridge(event)
+        and scenario_event_has_confirmed_bridge_upload(event)
+    )
+
+
+def scenario_event_needs_native_redeploy_after_bridge(event):
+    return (
+        isinstance(event, dict)
+        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+        and not scenario_event_uses_delivery_bridge(event)
+        and scenario_event_has_confirmed_bridge_upload(event)
+        and not scenario_event_has_confirmed_native_upload(event)
+    )
 
 
 def scenario_event_upload_needs_resolution(event):
@@ -32366,10 +32385,15 @@ def pending_dashboard_scenario_xml_events(config):
             continue
         if scenario_event_has_confirmed_upload(event):
             continue
-        if str(event.get("upload_status") or "waiting_for_bot_upload") != "waiting_for_bot_upload":
+        upload_status = str(event.get("upload_status") or "waiting_for_bot_upload")
+        if upload_status != "waiting_for_bot_upload" and not scenario_event_needs_native_redeploy_after_bridge(event):
             continue
         if int(event.get("upload_attempts") or 0) >= 3:
             continue
+        if scenario_event_needs_native_redeploy_after_bridge(event):
+            event["upload_status"] = "waiting_for_bot_upload"
+            event["status"] = "Native CE XML redeploy requested after bridge route did not run"
+            event["upload_attempts"] = 0
         pending_events.append(event)
     return pending_events
 

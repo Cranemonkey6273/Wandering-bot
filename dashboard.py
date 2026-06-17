@@ -11436,6 +11436,7 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
 
 
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
+ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "false")).strip().lower() in {"1", "true", "yes", "on"}
 SCENARIO_UPLOAD_RESET_FIELDS = {
     "xml_uploaded_at",
     "bridge_uploaded_at",
@@ -11460,20 +11461,28 @@ SCENARIO_UPLOAD_RESET_FIELDS = {
 }
 
 
+def dashboard_event_bridge_enabled(event: Any) -> bool:
+    return (
+        ALLOW_SCENARIO_DELIVERY_BRIDGE
+        and isinstance(event, dict)
+        and bool(event.get("use_delivery_bridge"))
+        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+    )
+
+
 def scenario_event_has_confirmed_bridge_upload(event: Any) -> bool:
     return isinstance(event, dict) and bool(str(event.get("bridge_uploaded_at") or "").strip())
 
 
 def scenario_event_has_confirmed_upload(event: Any) -> bool:
-    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
+    return scenario_event_has_confirmed_native_upload(event) or (
+        dashboard_event_bridge_enabled(event)
+        and scenario_event_has_confirmed_bridge_upload(event)
+    )
 
 
 def dashboard_event_uses_delivery_bridge(event: Any) -> bool:
-    return (
-        isinstance(event, dict)
-        and bool(event.get("use_delivery_bridge"))
-        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
-    )
+    return dashboard_event_bridge_enabled(event)
 
 
 def reset_dashboard_scenario_upload_state(event: dict[str, Any]) -> None:
