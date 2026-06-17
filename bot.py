@@ -11185,16 +11185,20 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     saw_new_restart = force_restart_post
     restart_history_record = None
     last_known = int(state.get("restart_marker_count") or 0)
-    if len(restart_markers) > last_known:
+    new_restart_marker_detected = len(restart_markers) > last_known
+    if new_restart_marker_detected:
         saw_new_restart = True
         state["restart_marker_count"] = len(restart_markers)
         state["last_restart_ts"] = now_ts
+        details = f"Fresh mission marker detected in latest RPT. Total restart markers now {len(restart_markers)}."
+        if last_known > 0 and mark_one_time_scenario_events_uploaded(config, require_native_upload=True):
+            details += " Dashboard native CE event run counters advanced."
         restart_history_record = append_restart_history(
             guild_id,
             config,
             "rpt_detected",
             "detected",
-            f"Fresh mission marker detected in latest RPT. Total restart markers now {len(restart_markers)}.",
+            details,
             "RPT tracker",
         )
 
@@ -28958,9 +28962,11 @@ def restart_count_fields(restarts=1):
     return {"permanent": False, "remaining_restarts": max(1, min(365, restarts))}
 
 
-def mark_one_time_scenario_events_uploaded(config):
+def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
     events = scenario_events_for_config(config)
     kept = []
+    changed = False
+    now_text = datetime.now(UTC).isoformat()
 
     for event in events:
         if not event.get("enabled", True):
@@ -28975,7 +28981,12 @@ def mark_one_time_scenario_events_uploaded(config):
             kept.append(event)
             continue
 
+        if require_native_upload and not event.get("native_ce_uploaded_at"):
+            kept.append(event)
+            continue
+
         if "remaining_restarts" not in event:
+            changed = True
             continue
 
         try:
@@ -28986,9 +28997,13 @@ def mark_one_time_scenario_events_uploaded(config):
         remaining -= 1
         if remaining > 0:
             event["remaining_restarts"] = remaining
+            event["status"] = f"Completed one restart cycle; {remaining} restart(s) left"
+            event["updated_at"] = now_text
             kept.append(event)
+        changed = True
 
     config["scenario_events"] = kept
+    return changed
 
 
 def mark_scenario_event_completed(config, event_id):

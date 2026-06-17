@@ -5009,7 +5009,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "shop" %}
     {% set edit_shop_key = request.args.get('edit_shop', '') %}
-    {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailsBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids='', blocked_user_ids='') %}
+    {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids='', blocked_user_ids='') %}
     {% set category_options = server.shop_category_options if server and server.shop_category_options else shop_category_options %}
     {% set shop_item_options = server.shop_items if server else [] %}
     {% if server and edit_shop_key %}
@@ -5029,8 +5029,9 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Shop Control</h2>
-          <p class="tool-note">Items imported from types.xml appear here already grouped by category. Admins can set prices, enable/disable items, add limits, and restrict items by Discord role or player.</p>
+          <p class="tool-note">Pick from the vanilla/server catalogue instead of typing classnames. Saving an item, bundle, or bulk edit writes it into this server's shop config.</p>
         </div>
+        <span class="pill">{{ shop_item_options|length }} clickable choices</span>
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
@@ -5113,7 +5114,7 @@ PAGE_TEMPLATE = """
                 {% for category in (server.shop_categories.keys() if server else []) %}<option value="{{ category|lower }}">{{ category }}</option>{% endfor %}
               </select>
             </label>
-            <span class="pill"><span data-shop-count>{{ server.shop_items|length if server else 0 }}</span> items</span>
+            <span class="pill"><span data-shop-count>{{ server.shop_items|length if server else 0 }}</span> catalogue items</span>
           </div>
           <form class="admin-form shop-bulk-form" method="post" action="/api/admin/shop-bulk" data-route="/api/admin/shop-bulk" data-html-submit="true">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -5159,14 +5160,14 @@ PAGE_TEMPLATE = """
                 <thead><tr><th>Pick</th><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
                 <tbody>
                   {% for item in (server.shop_items if server else []) %}
-                  <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'on' if item.enabled else 'off' }}">
+                  <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'configured' if item.configured else 'catalog' }} {{ 'on' if item.enabled else 'off' }}">
                     <td><input type="checkbox" name="item_names" value="{{ item.name }}" aria-label="Select {{ item.name }}"></td>
                     <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
                     <td>{{ item.category }}</td>
                     <td>{{ item.price }}</td>
-                    <td>{{ 'On' if item.enabled else 'Off' }}</td>
+                    <td>{{ 'On' if item.enabled else 'Off' }}{% if not item.configured %}<br><small class="muted">catalog</small>{% endif %}</td>
                     <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
-                    <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}">Edit</a></td>
+                    <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a></td>
                   </tr>
                   {% else %}
                   <tr><td colspan="7">No shop items available.</td></tr>
@@ -7090,6 +7091,15 @@ PAGE_TEMPLATE = """
     const itemLookup = new Map((ITEM_LOOKUP || []).map((item) => [String(item.name || "").toLowerCase(), item]));
     function itemInfo(name) {
       return itemLookup.get(String(name || "").trim().toLowerCase()) || {};
+    }
+    function syncShopEditFromSelectedItem(select, forcePrice) {
+      const form = select ? select.closest("#shop-edit-form") : null;
+      if (!form) return;
+      const info = itemInfo(select.value);
+      if (form.elements.category && info.category) form.elements.category.value = info.category;
+      if (form.elements.price && forcePrice && info.price !== undefined) form.elements.price.value = Number(info.price || 100);
+      if (form.elements.enabled && info.enabled !== undefined) form.elements.enabled.value = info.enabled === false ? "false" : "true";
+      form.dataset.selectedShopItem = select.value || "";
     }
     function fallbackThumb(category) {
       return `/item-thumb/${encodeURIComponent(category || "General")}`;
@@ -10147,6 +10157,9 @@ PAGE_TEMPLATE = """
         form.scrollIntoView({behavior: "smooth", block: "center"});
         form.elements.price.focus();
       });
+    });
+    document.querySelectorAll('#shop-edit-form select[name="item_name"]').forEach((select) => {
+      select.addEventListener("change", () => syncShopEditFromSelectedItem(select, true));
     });
     document.querySelectorAll("[data-shop-search]").forEach((input) => {
       const section = input.closest("[data-shop-list]") || input.closest("article") || document;
@@ -16982,6 +16995,28 @@ SHOP_CATEGORY_TERMS = (
     ("Vehicle Parts", ("sparkplug", "radiator", "headlight", "carbattery", "truckbattery")),
 )
 
+SHOP_CATALOG_EXTRA_ITEMS = (
+    "NailBox", "WoodenPlank", "WoodenLog", "MetalPlate", "MetalWire", "BarbedWire", "CamoNet",
+    "TerritoryFlagKit", "FenceKit", "WatchtowerKit", "ShelterKit", "Rope", "CombinationLock",
+    "CombinationLock4", "WoodenCrate", "SeaChest", "SmallProtectorCase", "Barrel_Green",
+    "Barrel_Blue", "Barrel_Red", "Barrel_Yellow", "MediumTent", "LargeTent", "CarTent",
+    "PartyTent", "Hatchet", "Hammer", "Shovel", "Hacksaw", "HandSaw", "Pliers", "Wrench",
+    "Screwdriver", "Lockpick", "SewingKit", "LeatherSewingKit", "DuctTape", "EpoxyPutty",
+    "WeaponCleaningKit", "SharpeningStone", "Pickaxe", "SledgeHammer", "FirefighterAxe",
+    "CarBattery", "TruckBattery", "CarRadiator", "SparkPlug", "HeadlightH7", "Battery9V",
+    "GPSReceiver", "PersonalRadio", "FieldTransceiver", "OrienteeringCompass", "Rangefinder",
+    "Binoculars", "BandageDressing", "TetracyclineAntibiotics", "CharcoalTablets", "VitaminBottle",
+    "Morphine", "Epinephrine", "SalineBagIV", "WaterPurificationTablets", "DisinfectantSpray",
+    "Canteen", "WaterBottle", "TacticalBaconCan", "BakedBeansCan", "PeachesCan", "SardinesCan",
+    "TunaCan", "Rice", "PowderedMilk", "SodaCan_Cola", "SodaCan_Kvass", "SodaCan_Pipsi",
+    "M67Grenade", "RGD5Grenade", "FlashGrenade", "LandMineTrap", "BearTrap", "TripwireTrap",
+    "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd",
+    "AmmoBox_762x54_20Rnd", "AmmoBox_308Win_20Rnd", "AmmoBox_45ACP_25Rnd",
+    "AmmoBox_9x19_25Rnd", "AmmoBox_12gaSlug_10Rnd", "AmmoBox_12gaRubberSlug_10Rnd",
+    "AmmoBox_357_20Rnd", "Ammo_556x45", "Ammo_762x39", "Ammo_545x39", "Ammo_762x54",
+    "Ammo_308Win", "Ammo_45ACP", "Ammo_9x19", "Ammo_12gaSlug", "Ammo_357",
+)
+
 
 def normalize_shop_category(value: Any, fallback: str = "General") -> str:
     text = str(value or "").strip()
@@ -17064,6 +17099,7 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
                 "blocked_user_ids": [str(item) for item in data.get("blocked_user_ids", [])] if isinstance(data.get("blocked_user_ids"), list) else [],
                 "bundle_items": bundle_items,
                 "bundle_summary": ", ".join(f"{row['quantity']}x {row['item']}" for row in bundle_items),
+                "configured": True,
             }
         )
     return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
@@ -17074,6 +17110,98 @@ def flat_shop_items(shop: Any) -> list[dict[str, Any]]:
     for category_items in shop_category_map(shop).values():
         items.extend(category_items)
     return sorted(items, key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
+
+
+def shop_catalog_item_names(shop: Any) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: Any) -> None:
+        name = safe_dayz_class(value)
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            names.append(name)
+
+    for item in flat_shop_items(shop):
+        add(item.get("name"))
+    for fallback_names in VISUAL_LOADOUT_SLOT_FALLBACKS.values():
+        for name in fallback_names:
+            add(name)
+    for name in VISUAL_LOADOUT_GENERAL_FALLBACKS:
+        add(name)
+    for preset in STACK_WATCH_OBJECT_PRESETS:
+        if isinstance(preset, dict):
+            add(preset.get("value"))
+    for name in SHOP_CATALOG_EXTRA_ITEMS:
+        add(name)
+    return names
+
+
+def shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
+    catalog: dict[str, dict[str, Any]] = {}
+    for item in flat_shop_items(shop):
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
+        if str(item.get("type") or "item") != "bundle" and not is_shop_sellable_item(name, category):
+            continue
+        row = dict(item)
+        row["category"] = category
+        row["image_url"] = row.get("image_url") or item_image_url(name)
+        row["fallback_image_url"] = row.get("fallback_image_url") or item_thumb_fallback(category)
+        row["type"] = row.get("type") or "item"
+        row["price"] = safe_int(row.get("price"), 100)
+        row["enabled"] = safe_bool(row.get("enabled"), True)
+        row["daily_limit"] = safe_int(row.get("daily_limit"))
+        row["allowed_role_ids"] = row.get("allowed_role_ids") if isinstance(row.get("allowed_role_ids"), list) else []
+        row["blocked_user_ids"] = row.get("blocked_user_ids") if isinstance(row.get("blocked_user_ids"), list) else []
+        row["configured"] = True
+        catalog[name.lower()] = row
+
+    for name in shop_catalog_item_names(shop):
+        key = name.lower()
+        if key in catalog:
+            continue
+        category = infer_shop_category(name)
+        if not is_shop_sellable_item(name, category):
+            continue
+        catalog[key] = {
+            "name": name,
+            "category": category,
+            "image_url": item_image_url(name),
+            "fallback_image_url": item_thumb_fallback(category),
+            "type": "item",
+            "price": 100,
+            "enabled": True,
+            "daily_limit": 0,
+            "allowed_role_ids": [],
+            "blocked_user_ids": [],
+            "bundle_items": [],
+            "bundle_summary": "",
+            "configured": False,
+        }
+    return sorted(catalog.values(), key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
+
+
+def shop_category_map_from_items(items: Any) -> dict[str, list[dict[str, Any]]]:
+    categories: dict[str, list[dict[str, Any]]] = {}
+    if not isinstance(items, list):
+        return categories
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
+        row = dict(item)
+        row["category"] = category
+        categories.setdefault(category, []).append(row)
+    for category_items in categories.values():
+        category_items.sort(key=lambda item: str(item.get("name", "")).lower())
+    return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
 
 
 def count_shop_items(shop: Any) -> int:
@@ -17828,8 +17956,8 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     rpt_event_tracker_store = (runtime_state.get("rpt_event_tracker") or load_store("rpt_event_tracker", {})) if needs_pve else {}
     swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
-    shop_categories = shop_category_map(shop) if needs_shop else {}
-    shop_items = flat_shop_items(shop) if needs_shop else []
+    shop_items = shop_catalog_items({}) if needs_shop else []
+    shop_categories = shop_category_map_from_items(shop_items) if needs_shop else {}
 
     if not isinstance(guild_configs, dict):
         guild_configs = {}
@@ -17864,9 +17992,9 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         if not isinstance(safe_zones, list):
             safe_zones = []
         server_shop = shop_for_guild(shop, guild_id) if needs_shop or needs_shop_counts else {}
-        server_shop_item_count = count_shop_items(server_shop) if needs_shop or needs_shop_counts else 0
-        server_shop_categories = shop_category_map(server_shop) if needs_shop else {}
-        server_shop_items = flat_shop_items(server_shop) if needs_shop else []
+        server_shop_items = shop_catalog_items(server_shop) if needs_shop else []
+        server_shop_item_count = len(server_shop_items) if needs_shop else (count_shop_items(server_shop) if needs_shop_counts else 0)
+        server_shop_categories = shop_category_map_from_items(server_shop_items) if needs_shop else {}
         server_shop_category_options = shop_category_options(server_shop_categories.keys()) if needs_shop else list(SHOP_CATEGORY_PRESETS)
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
@@ -18881,15 +19009,16 @@ def api_shop_bulk():
     if action not in {"set_category", "set_price", "adjust_price", "enable", "disable", "delete"}:
         return jsonify({"ok": False, "error": "choose a valid bulk action"}), 400
     selected_names = set(csv_list(payload.get("item_names")))
+    catalog_items = {str(item.get("name") or ""): item for item in shop_catalog_items(guild_shop) if isinstance(item, dict)}
     if scope == "category":
         source_category = normalize_shop_category(payload.get("source_category"), "")
         target_names = {
-            name for name, data in guild_shop.items()
-            if isinstance(data, dict)
+            name for name, data in catalog_items.items()
+            if data.get("type") != "bundle"
             and normalize_shop_category(data.get("category") or infer_shop_category(name)) == source_category
         }
     elif scope == "all":
-        target_names = {str(name) for name in guild_shop.keys()}
+        target_names = {str(name) for name in catalog_items.keys()}
     else:
         target_names = selected_names
     if not target_names:
@@ -18901,10 +19030,25 @@ def api_shop_bulk():
     deleted = 0
     skipped = 0
     for item_name in sorted(target_names, key=str.lower):
+        catalog_item = catalog_items.get(item_name) or {}
         data = guild_shop.get(item_name)
         if not isinstance(data, dict):
-            skipped += 1
-            continue
+            if not catalog_item:
+                skipped += 1
+                continue
+            if action == "delete":
+                skipped += 1
+                continue
+            data = {
+                "price": safe_int(catalog_item.get("price"), 100),
+                "category": normalize_shop_category(catalog_item.get("category") or infer_shop_category(item_name)),
+                "enabled": safe_bool(catalog_item.get("enabled"), True),
+                "daily_limit": safe_int(catalog_item.get("daily_limit")),
+                "allowed_role_ids": [],
+                "blocked_user_ids": [],
+                "guild_id": guild_id,
+            }
+            guild_shop[item_name] = data
         is_bundle = str(data.get("type") or "").lower() == "bundle"
         if action == "delete":
             del guild_shop[item_name]
@@ -19766,19 +19910,13 @@ def api_scenario_event():
             event["status"] = "Native CE XML upload requested"
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
-        upload_result = apply_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0)) if CUSTOM_STATE_PROVIDER else None
-        upload_started = upload_result is not None
-        if upload_result is None and CUSTOM_STATE_PROVIDER:
+        if CUSTOM_STATE_PROVIDER:
             upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
-        if upload_result is not None:
-            latest_configs = load_store("guild_configs", {})
-            latest_config = latest_configs.get(guild_id, {}) if isinstance(latest_configs, dict) else {}
-            latest_events = latest_config.get("scenario_events", []) if isinstance(latest_config, dict) else []
-            if isinstance(latest_events, list):
-                wanted_ids = {safe_int(item.get("id"), 0) for item in created_events if isinstance(item, dict)}
-                refreshed_events = [item for item in latest_events if isinstance(item, dict) and safe_int(item.get("id"), 0) in wanted_ids]
-                if refreshed_events:
-                    created_events = refreshed_events
+            if upload_started:
+                for event in created_events:
+                    event["status"] = "Native CE XML upload starting"
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
 
     event = created_events[0] if created_events else {}
     g.dashboard_audit_payload = {
@@ -19800,7 +19938,7 @@ def api_scenario_event():
     if not wants_json_response():
         return redirect(return_to)
     count_text = f"{len(created_events)} events" if len(created_events) != 1 else "1 event"
-    upload_note = "native CE XML uploaded/checked now" if upload_result is not None else ("native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker")
+    upload_note = "native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker"
     return jsonify({
         "ok": True,
         "event": event,
@@ -19922,20 +20060,12 @@ def api_scenario_event_action():
         sync_runtime_store("guild_configs", guild_configs)
 
         if action in {"approve", "upload", "pause"}:
-            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else None
-            upload_started = upload_result is not None
-            if upload_result is None and CUSTOM_STATE_PROVIDER:
-                upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
-                if upload_started:
-                    event["status"] = "Native CE XML removal starting" if action == "pause" else "Native CE XML upload starting"
-                    save_store("guild_configs", guild_configs)
-                    sync_runtime_store("guild_configs", guild_configs)
+            upload_result = None
+            upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else False
             if upload_started:
-                latest_configs = load_store("guild_configs", {})
-                latest_config = latest_configs.get(guild_id, {}) if isinstance(latest_configs, dict) else {}
-                latest_events = latest_config.get("scenario_events", []) if isinstance(latest_config, dict) else []
-                if isinstance(latest_events, list):
-                    event = next((item for item in latest_events if isinstance(item, dict) and safe_int(item.get("id"), 0) == event_id), event)
+                event["status"] = "Native CE XML removal starting" if action == "pause" else "Native CE XML upload starting"
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
                 if not wants_json_response():
                     return redirect(return_to)
                 return jsonify({"ok": True, "event": event, "upload_started": True, "upload": upload_result})
