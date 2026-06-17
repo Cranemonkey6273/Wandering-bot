@@ -21568,20 +21568,22 @@ async def scheduled_restart_loop():
                             continue
 
                         normal_scenario_events = bridge_scenario_events(config)
+                        delivery_scenario_events = delivery_bridge_scenario_events(config)
+                        native_scenario_events = native_ce_scenario_events(config)
                         console_ce_enabled = console_ce_event_config(config).get("enabled")
                         has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
-                        if has_delivery_work or (normal_scenario_events and not console_ce_enabled):
+                        if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
                             upload_success, _ = await asyncio.to_thread(
                                 write_and_upload_delivery_xml,
                                 guild_id,
                                 config,
                                 now,
-                                None,
+                                delivery_scenario_events if console_ce_enabled else None,
                                 not console_ce_enabled,
                             )
                             print(f"PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
 
-                        if normal_scenario_events and console_ce_enabled:
+                        if native_scenario_events and console_ce_enabled:
                             success, _, messages = await asyncio.to_thread(
                                 upload_console_ce_event_files,
                                 guild_id,
@@ -26310,6 +26312,7 @@ dayz_reference_cache = {}
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
     normalize_discord_name("Ammo_Flare"),
@@ -26572,6 +26575,22 @@ def bridge_scenario_events(config):
         event
         for event in active_scenario_events(config)
         if not is_file_vehicle_reset_event(event)
+    ]
+
+
+def native_ce_scenario_events(config):
+    return [
+        event
+        for event in bridge_scenario_events(config)
+        if str(event.get("event_type") or "").strip().lower() not in DELIVERY_BRIDGE_SCENARIO_TYPES
+    ]
+
+
+def delivery_bridge_scenario_events(config):
+    return [
+        event
+        for event in bridge_scenario_events(config)
+        if str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
     ]
 
 
@@ -27179,7 +27198,7 @@ def remove_wandering_ce_nodes(root):
 
 
 def console_ce_needs_spawnabletypes(config):
-    for event in bridge_scenario_events(config):
+    for event in native_ce_scenario_events(config):
         if event.get("event_type") in {"airdrop", "vehicle_spawn"} and event.get("loot"):
             return True
     return False
@@ -27196,7 +27215,7 @@ def normalize_gas_particle_mode(value):
 
 def console_ce_cfgareaeffects_mode(config):
     modes = []
-    for event in bridge_scenario_events(config):
+    for event in native_ce_scenario_events(config):
         if str(event.get("event_type") or "").strip().lower() != "gas_zone":
             continue
         mode = normalize_gas_particle_mode(event.get("gas_particle"))
@@ -28541,7 +28560,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
 
     records = []
-    for event in bridge_scenario_events(config):
+    for event in native_ce_scenario_events(config):
         event_records, event_warnings = console_ce_records_for_event(event)
         records.extend(event_records)
         warnings.extend(event_warnings)
@@ -28804,7 +28823,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if spawnable_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {spawnable_parse_warning}")
         removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
-        changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, bridge_scenario_events(config))
+        changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, native_ce_scenario_events(config))
         output["spawnabletypes_path"] = resolved_spawnable_path
         output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
         output["messages"].append(spawnable_source)
@@ -29286,6 +29305,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
         "cfgareaeffects_path": str((built or {}).get("cfgareaeffects_path") or ""),
         "cfgeffectarea_path": str((built or {}).get("cfgeffectarea_path") or ""),
+        "bridge_delivery_path": str((built or {}).get("bridge_delivery_path") or ""),
         "territory_paths": [
             str(item.get("path") or "")
             for item in ((built or {}).get("animal_territory_files") or [])
@@ -29323,12 +29343,14 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         and "unchanged since last tracker pull" not in tracker_status_text
     )
     success = bool(notice.get("success"))
+    bridge_delivery_path = str(notice.get("bridge_delivery_path") or "").strip()
+    success_status = "Bridge XML uploaded - restart once for new spawns" if bridge_delivery_path else "CE XML uploaded - restart once for new spawns"
     embed = discord.Embed(
         title="🛰️ LIVE EVENT DEPLOYMENT" if success else "⚠️ LIVE EVENT DEPLOYMENT FAILED",
         description=(
             f"Source: **{notice.get('source') or 'Dashboard'}**\n"
             f"Server: **{guild.name}**\n"
-            f"Status: **{'CE XML uploaded - restart once for new spawns' if success else 'needs attention before it can spawn'}**\n"
+            f"Status: **{success_status if success else 'needs attention before it can spawn'}**\n"
             f"Tracker: {tracker_status or 'waiting for next .RPT pull'}"
         ),
         color=0x2ECC71 if success else 0xE74C3C,
@@ -29381,6 +29403,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         ("cfgenvironment.xml", "cfgenvironment_path"),
         ("cfgareaeffects.xml", "cfgareaeffects_path"),
         ("cfgEffectArea.json", "cfgeffectarea_path"),
+        ("deliveries.xml", "bridge_delivery_path"),
     ):
         value = str(notice.get(key) or "").strip()
         if value:
@@ -29460,6 +29483,21 @@ def scenario_event_has_confirmed_native_upload(event):
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
+def scenario_event_uses_delivery_bridge(event):
+    return (
+        isinstance(event, dict)
+        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+    )
+
+
+def scenario_event_has_confirmed_bridge_upload(event):
+    return isinstance(event, dict) and bool(str(event.get("bridge_uploaded_at") or "").strip())
+
+
+def scenario_event_has_confirmed_upload(event):
+    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
+
+
 def scenario_event_upload_needs_resolution(event):
     if not isinstance(event, dict):
         return False
@@ -29513,6 +29551,44 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
     event.pop("upload_error", None)
 
 
+def apply_bridge_upload_metadata(event, delivery_path, messages, now_text, upload_status="uploaded", status_text=None):
+    event["bridge_uploaded_at"] = now_text
+    event["bridge_delivery_path"] = str(delivery_path or "")
+    event["bridge_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
+    event["native_ce_restart_required"] = True
+    event["upload_status"] = upload_status
+    event["status"] = status_text or "Bridge XML uploaded to Nitrado; restart once for the server bridge to spawn it"
+    event.pop("upload_error", None)
+
+
+def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Dashboard"):
+    bridge = config.get("dayz_delivery_bridge") if isinstance(config.get("dayz_delivery_bridge"), dict) else {}
+    delivery_path = bridge.get("delivery_path") or "/dayzxb/custom/deliveries.xml"
+    events = [event for event in (events or []) if scenario_event_uses_delivery_bridge(event)]
+    if not events:
+        return False, delivery_path, ["No bridge-compatible animal/horde events were queued."]
+    try:
+        upload_success, xml_output_path = write_and_upload_delivery_xml(
+            guild_id,
+            config,
+            datetime.now(UTC),
+            scenario_events_override=events,
+            consume_scenario_events=False,
+        )
+    except Exception as error:
+        trace = compact_exception_leaf_trace(error)
+        return False, delivery_path, [
+            f"Bridge delivery XML upload failed: {type(error).__name__}: {error}. Leaf trace: {trace[:800]}"
+        ]
+    event_labels = ", ".join(str(event.get("id") or event.get("name") or event.get("class_name") or "?") for event in events[:8])
+    messages = [
+        f"Bridge delivery XML {'uploaded' if upload_success else 'failed'} for {len(events)} animal/horde event(s): {event_labels}.",
+        f"Delivery XML target `{delivery_path}`; local file `{xml_output_path}`.",
+        "This route uses the installed Wandering Bot deliveries.xml bridge and does not require downloading events.xml.",
+    ]
+    return upload_success, delivery_path, messages
+
+
 def native_ce_source_blocked_messages(messages):
     combined = " | ".join(str(message or "") for message in (messages or []))
     lowered = combined.lower()
@@ -29552,8 +29628,9 @@ def native_ce_source_required_status(messages=None):
             detail = " " + text[:320]
             break
     return (
-        "Native CE source required: the bot could not read the existing server CE XML, so upload is blocked "
-        "to avoid overwriting live events.xml/cfgeventspawns.xml."
+        "Native CE source required: the bot could not download the existing CE XML through Nitrado/API access, "
+        "so upload is blocked to avoid overwriting live events.xml/cfgeventspawns.xml. "
+        "This does not mean the DayZ server cannot read its own events.xml."
         + detail
     )
 
@@ -29618,6 +29695,70 @@ def dashboard_upload_console_ce_event_files(guild_id):
         config = guild_configs.get(guild_id)
         if not isinstance(config, dict):
             return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
+        active_dashboard_events = [
+            event
+            for event in scenario_events_for_config(config)
+            if (
+                isinstance(event, dict)
+                and str(event.get("created_by") or "") == "dashboard"
+                and event.get("enabled", True)
+                and not is_file_vehicle_reset_event(event)
+                and scenario_event_upload_needs_resolution(event)
+            )
+        ]
+        bridge_events = [
+            event
+            for event in active_dashboard_events
+            if scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_bridge_upload(event)
+        ]
+        native_events = [
+            event
+            for event in active_dashboard_events
+            if not scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_native_upload(event)
+        ]
+        if bridge_events:
+            now_text = datetime.now(UTC).isoformat()
+            bridge_success, delivery_path, bridge_messages = upload_delivery_bridge_scenario_events(
+                guild_id,
+                config,
+                bridge_events,
+                "Dashboard upload",
+            )
+            for event in bridge_events:
+                event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
+                event["updated_at"] = now_text
+                if bridge_success:
+                    apply_bridge_upload_metadata(event, delivery_path, bridge_messages, now_text)
+                else:
+                    event["upload_status"] = "failed"
+                    event["upload_error"] = "Bridge delivery XML upload failed: " + (" | ".join(bridge_messages[-4:]) if bridge_messages else "no details")
+                    event["status"] = "Bridge XML upload failed"
+            try:
+                queue_scenario_event_discord_notice(
+                    config,
+                    bridge_success,
+                    {
+                        "bridge_delivery_path": delivery_path,
+                        "bridge_event_ids": [safe_int(event.get("id"), 0) for event in bridge_events],
+                        "restart_required": True,
+                    },
+                    bridge_messages,
+                    bridge_events,
+                    "Dashboard bridge upload",
+                )
+            except Exception as notice_error:
+                bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
+            save_guild_configs()
+            if not native_events:
+                return {
+                    "ok": bridge_success,
+                    "built": {
+                        "bridge_delivery_path": delivery_path,
+                        "bridge_event_ids": [safe_int(event.get("id"), 0) for event in bridge_events],
+                        "restart_required": True,
+                    },
+                    "messages": bridge_messages,
+                }
         success, built, messages = upload_console_ce_event_files(
             guild_id,
             config,
@@ -29864,7 +30005,7 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
             kept.append(event)
             continue
 
-        if require_native_upload and not event.get("native_ce_uploaded_at"):
+        if require_native_upload and not scenario_event_has_confirmed_upload(event):
             kept.append(event)
             continue
 
@@ -31300,7 +31441,7 @@ def build_delivery_xml(items, vehicles, scenario_events=None):
 def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_events_override=None, consume_scenario_events=True):
     generated_at = generated_at or datetime.now(UTC)
     if scenario_events_override is None:
-        scenario_events = [] if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config)
+        scenario_events = delivery_bridge_scenario_events(config) if console_ce_event_config(config).get("enabled") else bridge_scenario_events(config)
     else:
         scenario_events = list(scenario_events_override or [])
     delivery_file = os.path.join(
@@ -31682,15 +31823,21 @@ async def restart_delivery_processor():
                 and ((now.hour - restart_offset) % restart_interval == 0)
             ):
                 normal_scenario_events = bridge_scenario_events(config)
-                if queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id) or (normal_scenario_events and not console_ce_event_config(config).get("enabled")):
+                delivery_scenario_events = delivery_bridge_scenario_events(config)
+                native_scenario_events = native_ce_scenario_events(config)
+                console_ce_enabled = console_ce_event_config(config).get("enabled")
+                has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
+                if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
                     await asyncio.to_thread(
                         write_and_upload_delivery_xml,
                         guild_id,
                         config,
-                        now
+                        now,
+                        delivery_scenario_events if console_ce_enabled else None,
+                        not console_ce_enabled,
                     )
 
-                if normal_scenario_events and console_ce_event_config(config).get("enabled"):
+                if native_scenario_events and console_ce_enabled:
                     success, built, messages = await asyncio.to_thread(
                         upload_console_ce_event_files,
                         guild_id,
@@ -31700,7 +31847,7 @@ async def restart_delivery_processor():
                         "",
                         True
                     )
-                    queue_scenario_event_discord_notice(config, success, built, messages, normal_scenario_events, "Scheduled restart")
+                    queue_scenario_event_discord_notice(config, success, built, messages, native_scenario_events, "Scheduled restart")
                     await process_scenario_event_discord_notices(guild_id, config)
                     if not success:
                         print(f"CONSOLE CE EVENT UPLOAD FAILED {guild_id}: {' | '.join(messages[-4:])}")
@@ -31725,7 +31872,7 @@ def pending_dashboard_scenario_xml_events(config):
             continue
         if is_file_vehicle_reset_event(event):
             continue
-        if event.get("native_ce_uploaded_at"):
+        if scenario_event_has_confirmed_upload(event):
             continue
         if str(event.get("upload_status") or "waiting_for_bot_upload") != "waiting_for_bot_upload":
             continue
@@ -31738,8 +31885,59 @@ def pending_dashboard_scenario_xml_events(config):
 async def process_dashboard_scenario_xml_upload(guild_id, config):
     pending_events = pending_dashboard_scenario_xml_events(config)
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    bridge_events = [
+        event
+        for event in pending_events
+        if scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_bridge_upload(event)
+    ]
+    native_events = [
+        event
+        for event in pending_events
+        if not scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_native_upload(event)
+    ]
     if not pending_events and not cleanup_pending:
         return False
+
+    changed = False
+    if bridge_events:
+        now_text = datetime.now(UTC).isoformat()
+        bridge_success, delivery_path, bridge_messages = await asyncio.to_thread(
+            upload_delivery_bridge_scenario_events,
+            guild_id,
+            config,
+            bridge_events,
+            "Dashboard worker",
+        )
+        for event in bridge_events:
+            event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
+            event["updated_at"] = now_text
+            if bridge_success:
+                apply_bridge_upload_metadata(event, delivery_path, bridge_messages, now_text)
+            else:
+                event["upload_status"] = "failed"
+                event["upload_error"] = "Bridge delivery XML upload failed: " + (" | ".join(bridge_messages[-4:]) if bridge_messages else "no details")
+                event["status"] = "Bridge XML upload failed"
+        try:
+            queue_scenario_event_discord_notice(
+                config,
+                bridge_success,
+                {
+                    "bridge_delivery_path": delivery_path,
+                    "bridge_event_ids": [safe_int(event.get("id"), 0) for event in bridge_events],
+                    "restart_required": True,
+                },
+                bridge_messages,
+                bridge_events,
+                "Dashboard bridge worker",
+            )
+        except Exception as notice_error:
+            bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
+        changed = True
+
+    pending_events = native_events
+    if not pending_events and not cleanup_pending:
+        print(f"DASHBOARD SCENARIO BRIDGE UPLOAD {guild_id}: processed={len(bridge_events)}")
+        return changed
 
     try:
         upload_success, built, messages = await asyncio.to_thread(

@@ -4859,7 +4859,8 @@ PAGE_TEMPLATE = """
                 <td colspan="8">
                   <div class="event-upload-detail">
                     <span><strong>Upload</strong> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}</span>
-                    {% if event.native_ce_uploaded_at %}<span><strong>Uploaded</strong> {{ event.native_ce_uploaded_at[:16]|replace('T', ' ') }}</span>{% endif %}
+                    {% if event.native_ce_uploaded_at or event.bridge_uploaded_at %}<span><strong>Uploaded</strong> {{ (event.native_ce_uploaded_at or event.bridge_uploaded_at)[:16]|replace('T', ' ') }}</span>{% endif %}
+                    {% if event.bridge_delivery_path %}<span><strong>deliveries.xml</strong> {{ event.bridge_delivery_path }}</span>{% endif %}
                     {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
                     {% if event.native_ce_restart_required %}<span><strong>Restart</strong> one server restart needed</span>{% endif %}
                     {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names[:3]|join(', ') }}{% if event.native_ce_managed_event_names|length > 3 %} +{{ event.native_ce_managed_event_names|length - 3 }}{% endif %}</span>{% endif %}
@@ -8993,10 +8994,11 @@ PAGE_TEMPLATE = """
         chip.append(strong, document.createTextNode(` ${value}`));
         wrap.append(chip);
       };
-      const confirmedUpload = !!eventData.native_ce_uploaded_at;
+      const confirmedUpload = !!(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at);
       const displayUploadStatus = confirmedUpload ? "uploaded" : (eventData.upload_status || "queued");
       addPart("Upload", String(displayUploadStatus).replace(/_/g, " "));
-      if (eventData.native_ce_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at).slice(0, 16).replace("T", " "));
+      if (eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at).slice(0, 16).replace("T", " "));
+      addPart("deliveries.xml", eventData.bridge_delivery_path || "");
       addPart("Mission", eventData.native_ce_mission_folder || "");
       if (eventData.native_ce_restart_required) addPart("Restart", "one server restart needed");
       if (Array.isArray(eventData.native_ce_managed_event_names) && eventData.native_ce_managed_event_names.length) {
@@ -9017,7 +9019,7 @@ PAGE_TEMPLATE = """
     function setScenarioRowStatus(row, eventData) {
       if (!row || !eventData) return;
       const statusCell = row.querySelector("[data-scenario-status]");
-      const confirmedUpload = !!eventData.native_ce_uploaded_at;
+      const confirmedUpload = !!(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at);
       const status = confirmedUpload && String(eventData.status || "").toLowerCase().includes("failed")
         ? "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"
         : (eventData.status || "");
@@ -11267,6 +11269,24 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
+
+
+def scenario_event_has_confirmed_bridge_upload(event: Any) -> bool:
+    return isinstance(event, dict) and bool(str(event.get("bridge_uploaded_at") or "").strip())
+
+
+def scenario_event_has_confirmed_upload(event: Any) -> bool:
+    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
+
+
+def dashboard_event_uses_delivery_bridge(event: Any) -> bool:
+    return (
+        isinstance(event, dict)
+        and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+    )
+
+
 def is_dashboard_native_ce_event(event: Any) -> bool:
     if not isinstance(event, dict):
         return False
@@ -11336,8 +11356,9 @@ def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, 
             detail = " " + text[:320]
             break
     return (
-        "Native CE source required: the bot could not read the existing server CE XML, so upload is blocked "
-        "to avoid overwriting live events.xml/cfgeventspawns.xml."
+        "Native CE source required: the bot could not download the existing CE XML through Nitrado/API access, "
+        "so upload is blocked to avoid overwriting live events.xml/cfgeventspawns.xml. "
+        "This does not mean the DayZ server cannot read its own events.xml."
         + detail
     )
 
@@ -11391,7 +11412,7 @@ def mark_dashboard_native_ce_source_required(event: dict[str, Any], messages: li
 
 
 def normalize_confirmed_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
-    if not scenario_event_has_confirmed_native_upload(event):
+    if not scenario_event_has_confirmed_upload(event):
         return event
     upload_status = str(event.get("upload_status") or "").strip().lower()
     status_text = str(event.get("status") or "").strip().lower()
@@ -11403,7 +11424,7 @@ def normalize_confirmed_scenario_upload_for_display(event: dict[str, Any]) -> di
 
 
 def normalize_blocked_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(event, dict) or scenario_event_has_confirmed_native_upload(event):
+    if not isinstance(event, dict) or scenario_event_has_confirmed_upload(event):
         return event
     upload_status = str(event.get("upload_status") or "").strip().lower()
     if upload_status == "blocked":
@@ -11536,6 +11557,16 @@ def apply_dashboard_native_ce_upload_metadata(event: dict[str, Any], built: dict
     event.pop("upload_error", None)
 
 
+def apply_dashboard_bridge_upload_metadata(event: dict[str, Any], built: dict[str, Any], messages: list[Any], now_text: str, upload_status: str = "uploaded", status_text: str | None = None) -> None:
+    event["bridge_uploaded_at"] = now_text
+    event["bridge_delivery_path"] = built.get("bridge_delivery_path", "")
+    event["bridge_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
+    event["native_ce_restart_required"] = bool(built.get("restart_required", True))
+    event["upload_status"] = upload_status
+    event["status"] = status_text or "Bridge XML uploaded to Nitrado; restart once for the server bridge to spawn it"
+    event.pop("upload_error", None)
+
+
 def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> dict[str, Any] | None:
     upload_result = run_runtime_scenario_xml_upload(guild_id)
     if upload_result is None:
@@ -11553,35 +11584,59 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
     messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
     upload_ok = bool(upload_result.get("ok"))
+    bridge_upload = bool(str(built.get("bridge_delivery_path") or "").strip())
+    bridge_event_ids = {
+        safe_int(item, 0)
+        for item in (built.get("bridge_event_ids") if isinstance(built.get("bridge_event_ids"), list) else [])
+    }
+    bridge_event_ids.discard(0)
     source_blocked = dashboard_native_ce_upload_blocked(messages)
     now_text = datetime.now(UTC).isoformat()
-    status_text = (
-        f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
-        if upload_ok
-        else dashboard_native_ce_upload_blocked_status(messages)
-        if source_blocked
-        else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
-    )
+    if bridge_upload:
+        status_text = (
+            f"Bridge XML uploaded to {built.get('bridge_delivery_path')}"
+            if upload_ok
+            else "Bridge XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+        )
+    elif upload_ok:
+        status_text = f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
+    elif source_blocked:
+        status_text = dashboard_native_ce_upload_blocked_status(messages)
+    else:
+        status_text = "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
 
     for event in events:
         if not isinstance(event, dict):
             continue
         is_target = safe_int(event.get("id"), 0) == safe_int(event_id, 0)
         is_dashboard_scenario = is_dashboard_native_ce_event(event)
-        if event_id and not is_target and not is_dashboard_scenario:
+        if bridge_upload:
+            event_in_bridge_batch = safe_int(event.get("id"), 0) in bridge_event_ids if bridge_event_ids else is_target
+            if not event_in_bridge_batch:
+                continue
+        elif event_id and not is_target and not is_dashboard_scenario:
             continue
         event["updated_at"] = now_text
         if upload_ok:
-            apply_dashboard_native_ce_upload_metadata(
-                event,
-                built,
-                messages,
-                now_text,
-                upload_status="removed" if removed and is_target else "uploaded",
-                status_text="Removed from native CE XML" if removed and is_target else None,
-            )
+            if bridge_upload and dashboard_event_uses_delivery_bridge(event):
+                apply_dashboard_bridge_upload_metadata(
+                    event,
+                    built,
+                    messages,
+                    now_text,
+                    upload_status="uploaded",
+                )
+            else:
+                apply_dashboard_native_ce_upload_metadata(
+                    event,
+                    built,
+                    messages,
+                    now_text,
+                    upload_status="removed" if removed and is_target else "uploaded",
+                    status_text="Removed from native CE XML" if removed and is_target else None,
+                )
         else:
-            if scenario_event_has_confirmed_native_upload(event):
+            if scenario_event_has_confirmed_upload(event):
                 remember_scenario_upload_warning(event, status_text, now_text)
                 continue
             if source_blocked:
@@ -11627,7 +11682,7 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
                     if event_id and not is_target and not is_dashboard_native_ce_event(event):
                         continue
                     event["updated_at"] = datetime.now(UTC).isoformat()
-                    if scenario_event_has_confirmed_native_upload(event):
+                    if scenario_event_has_confirmed_upload(event):
                         remember_scenario_upload_warning(event, status_text)
                         continue
                     event["upload_status"] = "failed"
@@ -18060,7 +18115,7 @@ def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[s
             continue
         upload_status = str(event.get("upload_status") or "").strip().lower()
         status_text = str(event.get("status") or "").strip().lower()
-        uploaded_at = str(event.get("native_ce_uploaded_at") or "")
+        uploaded_at = str(event.get("native_ce_uploaded_at") or event.get("bridge_uploaded_at") or "")
         if upload_status == "uploaded" or uploaded_at:
             summary["uploaded"] += 1
             if uploaded_at > summary["last_uploaded_at"]:
@@ -20188,6 +20243,8 @@ def api_scenario_event_status():
                 "upload_status": event.get("upload_status") or "",
                 "upload_error": event.get("upload_error") or "",
                 "native_ce_uploaded_at": event.get("native_ce_uploaded_at") or "",
+                "bridge_uploaded_at": event.get("bridge_uploaded_at") or "",
+                "bridge_delivery_path": event.get("bridge_delivery_path") or "",
                 "native_ce_events_path": event.get("native_ce_events_path") or "",
                 "native_ce_spawns_path": event.get("native_ce_spawns_path") or "",
                 "native_ce_spawnabletypes_path": event.get("native_ce_spawnabletypes_path") or "",
