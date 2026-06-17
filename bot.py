@@ -18729,9 +18729,9 @@ def radar_zone_ignores_player(zone, player_name):
 # existing save_guild_configs() write path. Per-player offense counts live
 # under guild_configs[gid]["safe_zone_offenses"][zone_id][gamertag_lower].
 #
-# Bans actually push to the DayZ server via the Nitrado banlist.txt over
-# the existing FTP_TLS layer (download_text_file_from_nitrado_ftp +
-# upload_text_file_to_nitrado_ftp).
+# Bans push through the Nitrado Web Interface banlist setting first. The
+# mission/file upload path remains only as a compatibility fallback for older
+# setups that expose ban files instead of the web setting.
 # ============================================================================
 
 # ============================================================================
@@ -18919,7 +18919,295 @@ def normalize_nitrado_banlist_name(value):
     return re.sub(r"[\r\n]+", " ", str(value or "")).strip()
 
 
+def nitrado_banlist_entries_from_text(value):
+    if isinstance(value, (list, tuple)):
+        raw_text = "\n".join(str(item or "") for item in value)
+    elif value is None:
+        raw_text = ""
+    else:
+        raw_text = str(value)
+
+    lines = []
+    for raw in raw_text.splitlines():
+        stripped = normalize_nitrado_banlist_name(raw)
+        if stripped and not stripped.startswith("#"):
+            lines.append(stripped)
+    return lines
+
+
+def nitrado_web_settings_url(config):
+    service_id = config.get("service_id")
+    if not service_id:
+        return None
+    return f"https://api.nitrado.net/services/{service_id}/gameservers/settings"
+
+
+def nitrado_banlist_setting_name_matches(value):
+    text = str(value or "").strip().lower()
+    compact = re.sub(r"[^a-z0-9]+", "", text)
+    if compact in {
+        "banlist",
+        "banlistplayers",
+        "bannedplayers",
+        "bannedplayerids",
+        "blockedplayers",
+        "bans",
+    }:
+        return True
+    return "ban" in compact and "list" in compact
+
+
+def nitrado_setting_value_from_node(value):
+    if isinstance(value, dict):
+        for key in (
+            "value",
+            "current",
+            "current_value",
+            "setting_value",
+            "content",
+            "val",
+            "default",
+        ):
+            if key in value:
+                return value.get(key)
+        return None
+    if isinstance(value, (list, tuple)):
+        return "\n".join(str(item or "") for item in value)
+    if value is None:
+        return None
+    return value
+
+
+def nitrado_infer_setting_category(path):
+    skip = {
+        "data",
+        "game",
+        "gameserver",
+        "gameservers",
+        "server",
+        "settings",
+        "setting",
+        "value",
+        "current",
+    }
+    for token in reversed(path[:-1]):
+        clean = str(token or "").strip()
+        if clean and clean.lower() not in skip and not nitrado_banlist_setting_name_matches(clean):
+            return clean
+    return ""
+
+
+def collect_nitrado_banlist_setting_candidates(value, path=(), category=""):
+    candidates = []
+    if isinstance(value, dict):
+        names = [
+            value.get(key)
+            for key in (
+                "key",
+                "name",
+                "id",
+                "setting",
+                "identifier",
+                "variable",
+                "field",
+                "setting_key",
+            )
+        ]
+        labels = [
+            value.get(key)
+            for key in (
+                "label",
+                "title",
+                "display",
+                "display_name",
+                "description",
+            )
+        ]
+        matched_name = next((item for item in names if nitrado_banlist_setting_name_matches(item)), None)
+        matched_label = next((item for item in labels if nitrado_banlist_setting_name_matches(item)), None)
+        if matched_name or matched_label:
+            candidate_value = nitrado_setting_value_from_node(value)
+            if candidate_value is not None:
+                key = (matched_name or value.get("key") or value.get("name") or (path[-1] if path else "banlist"))
+                candidate_category = (
+                    value.get("category")
+                    or value.get("section")
+                    or value.get("group")
+                    or category
+                    or nitrado_infer_setting_category(path)
+                )
+                score = 100 if nitrado_banlist_setting_name_matches(matched_name) else 70
+                candidates.append({
+                    "key": str(key or "banlist"),
+                    "category": str(candidate_category or ""),
+                    "value": candidate_value,
+                    "path": path,
+                    "score": score,
+                })
+
+        for key, item in value.items():
+            next_path = path + (str(key),)
+            key_matches = nitrado_banlist_setting_name_matches(key)
+            if key_matches:
+                candidate_value = nitrado_setting_value_from_node(item)
+                if candidate_value is not None:
+                    candidates.append({
+                        "key": str(key),
+                        "category": str(category or nitrado_infer_setting_category(next_path) or ""),
+                        "value": candidate_value,
+                        "path": next_path,
+                        "score": 95,
+                    })
+            next_category = category
+            if str(key).lower() not in {"data", "settings", "setting", "value"}:
+                next_category = str(key) if not key_matches else category
+            candidates.extend(collect_nitrado_banlist_setting_candidates(item, next_path, next_category))
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            candidates.extend(collect_nitrado_banlist_setting_candidates(item, path + (str(index),), category))
+    return candidates
+
+
+def fetch_nitrado_web_banlist_setting(config):
+    headers = nitrado_api_headers(config)
+    url = nitrado_web_settings_url(config)
+    if not headers or not url:
+        return False, "Missing Nitrado API token or service ID.", None
+
+    try:
+        response = requests.get(url, headers=headers, timeout=20)
+    except Exception as error:
+        return False, f"Nitrado settings request failed: {error}", None
+
+    if response.status_code != 200:
+        return False, f"Nitrado settings request failed ({response.status_code}): {response.text[:240]}", None
+
+    payload, json_error = nitrado_response_json(response, "Nitrado settings")
+    if json_error:
+        return False, json_error, None
+
+    candidates = collect_nitrado_banlist_setting_candidates(payload)
+    if not candidates:
+        return False, "Nitrado settings response did not expose a Banlist setting.", None
+
+    candidates.sort(key=lambda item: item.get("score", 0), reverse=True)
+    candidate = candidates[0]
+    candidate["url"] = url
+    return True, "Read Nitrado Web Interface Banlist setting.", candidate
+
+
+def fetch_nitrado_web_banlist(config):
+    ok, message, candidate = fetch_nitrado_web_banlist_setting(config)
+    if not ok:
+        return False, message, []
+
+    config["_nitrado_banlist_source"] = "web_settings"
+    config["_nitrado_banlist_setting_key"] = candidate.get("key", "banlist")
+    config["_nitrado_banlist_setting_category"] = candidate.get("category", "")
+    save_guild_configs()
+    return True, message, nitrado_banlist_entries_from_text(candidate.get("value"))
+
+
+def nitrado_web_banlist_update_attempts(url, candidate, payload):
+    key = str((candidate or {}).get("key") or "banlist").strip() or "banlist"
+    category = str((candidate or {}).get("category") or "").strip()
+    key_path = urllib.parse.quote(key, safe="")
+    category_path = urllib.parse.quote(category, safe="")
+
+    attempts = [
+        ("POST", url, "data", {"key": key, "value": payload}),
+        ("POST", url, "json", {"key": key, "value": payload}),
+        ("PUT", url, "json", {"key": key, "value": payload}),
+        ("PATCH", url, "json", {"key": key, "value": payload}),
+        ("POST", url, "data", {key: payload}),
+        ("PUT", url, "json", {key: payload}),
+    ]
+    if category:
+        attempts = [
+            ("POST", url, "data", {"category": category, "key": key, "value": payload}),
+            ("POST", url, "json", {"category": category, "key": key, "value": payload}),
+            ("PUT", url, "json", {"category": category, "key": key, "value": payload}),
+            ("PATCH", url, "json", {"category": category, "key": key, "value": payload}),
+            ("POST", url, "data", {"category": category, key: payload}),
+            ("PUT", url, "json", {"category": category, key: payload}),
+        ] + attempts
+        category_url = f"{url}/{category_path}"
+        attempts.extend([
+            ("POST", category_url, "data", {key: payload}),
+            ("PUT", category_url, "json", {key: payload}),
+            ("PATCH", category_url, "json", {key: payload}),
+        ])
+        setting_url = f"{url}/{category_path}/{key_path}"
+        attempts.extend([
+            ("POST", setting_url, "data", {"value": payload}),
+            ("PUT", setting_url, "json", {"value": payload}),
+            ("PATCH", setting_url, "json", {"value": payload}),
+        ])
+    attempts.extend([
+        ("POST", f"{url}/{key_path}", "data", {"value": payload}),
+        ("PUT", f"{url}/{key_path}", "json", {"value": payload}),
+        ("PATCH", f"{url}/{key_path}", "json", {"value": payload}),
+    ])
+    return attempts
+
+
+def push_nitrado_web_banlist(config, entries):
+    ok, message, candidate = fetch_nitrado_web_banlist_setting(config)
+    if not ok:
+        return False, message, False
+
+    clean_entries = []
+    seen_entries = set()
+    for entry in entries or []:
+        clean = normalize_nitrado_banlist_name(entry)
+        key = clean.casefold()
+        if clean and key not in seen_entries:
+            seen_entries.add(key)
+            clean_entries.append(clean)
+    payload = "\n".join(clean_entries) + ("\n" if clean_entries else "")
+
+    headers = nitrado_api_headers(config) or {}
+    errors = []
+    for method, url, body_kind, body in nitrado_web_banlist_update_attempts(candidate.get("url"), candidate, payload):
+        try:
+            if body_kind == "json":
+                response = requests.request(method, url, headers=headers, json=body, timeout=20)
+            else:
+                response = requests.request(method, url, headers=headers, data=body, timeout=20)
+        except Exception as error:
+            errors.append(f"{method} {url}: {error}")
+            continue
+
+        body_snippet = str(getattr(response, "text", "") or "")[:220]
+        if response.status_code in (200, 201, 202, 204):
+            try:
+                response_json = response.json() if body_snippet else {}
+            except Exception:
+                response_json = {}
+            status_text = str(response_json.get("status") or "").strip().lower() if isinstance(response_json, dict) else ""
+            if status_text in {"error", "failed", "failure"}:
+                errors.append(f"{method} {url}: {response.status_code} {body_snippet}")
+                continue
+            config["_nitrado_banlist_source"] = "web_settings"
+            config["_nitrado_banlist_setting_key"] = candidate.get("key", "banlist")
+            config["_nitrado_banlist_setting_category"] = candidate.get("category", "")
+            save_guild_configs()
+            label = candidate.get("key", "banlist")
+            category = candidate.get("category")
+            setting_label = f"{category}/{label}" if category else str(label)
+            return True, f"Updated Nitrado Web Interface Banlist setting `{setting_label}` ({len(clean_entries)} entrie(s)).", True
+
+        errors.append(f"{method} {url}: {response.status_code} {body_snippet}")
+
+    return False, "Nitrado Web Interface Banlist update failed: " + " | ".join(errors[:5]), True
+
+
 def fetch_nitrado_banlist(config):
+    """Return the live Nitrado banlist, preferring the Web Interface setting."""
+    web_ok, _web_message, web_entries = fetch_nitrado_web_banlist(config)
+    if web_ok:
+        return web_entries
+
     """Return the current ban-override.txt as a list of stripped gamertag
     lines. Reads the sticky `_nitrado_banlist_working_path` first if set,
     then probes the same mission-dir candidates push_nitrado_banlist uses.
@@ -18953,13 +19241,10 @@ def fetch_nitrado_banlist(config):
             continue
         if not ok or not content:
             continue
-        lines = []
-        for raw in content.splitlines():
-            stripped = raw.strip()
-            if stripped and not stripped.startswith("#"):
-                lines.append(stripped)
+        lines = nitrado_banlist_entries_from_text(content)
         # Cache this path so future writes go to the same place.
         config["_nitrado_banlist_working_path"] = candidate
+        config["_nitrado_banlist_source"] = "file_fallback"
         save_guild_configs()
         return lines
     return []
@@ -19040,8 +19325,6 @@ def push_nitrado_banlist(config, entries):
     the file there, and remember the working path so subsequent bans
     skip the probe."""
     nitrado_user = str(config.get("nitrado_user") or "").strip()
-    if not nitrado_user:
-        return False, "Nitrado user not configured."
 
     clean_entries = []
     seen_entries = set()
@@ -19052,6 +19335,15 @@ def push_nitrado_banlist(config, entries):
             seen_entries.add(key)
             clean_entries.append(clean)
     payload = "\n".join(clean_entries) + ("\n" if clean_entries else "")
+
+    web_ok, web_message, web_authoritative = push_nitrado_web_banlist(config, clean_entries)
+    if web_ok:
+        return True, web_message
+    if web_authoritative:
+        return False, web_message
+
+    if not nitrado_user:
+        return False, f"{web_message} File fallback also unavailable because Nitrado user is not configured."
 
     candidate_paths = []
     sticky = str(config.get("_nitrado_banlist_working_path") or "").strip()
@@ -19079,14 +19371,14 @@ def push_nitrado_banlist(config, entries):
             ok, msg = False, str(err)
         if ok:
             config["_nitrado_banlist_working_path"] = candidate
+            config["_nitrado_banlist_source"] = "file_fallback"
             save_guild_configs()
-            return True, f"{msg} (path={candidate})"
+            return True, f"{msg} (file fallback path={candidate}; web setting unavailable: {web_message})"
         errors.append(f"`{candidate}` → {msg}")
 
     helpful = (
-        "Couldn't write any DayZ ban-override file. "
-        "DayZ Xbox/PS banlists live inside the mission's "
-        "`ban-override.txt` under `mpmissions/<your active mission>/`. "
+        f"{web_message} File fallback also failed. "
+        "Couldn't write any DayZ ban fallback file. "
         "Open the Nitrado web panel → File Browser → `mpmissions/` and "
         "check which folder your server is actually running (chernarusplus, "
         "enoch, sakhal, or a custom mission). If it's a custom name, run "
@@ -25827,6 +26119,8 @@ INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
     normalize_discord_name("Ammo_Flare"),
     normalize_discord_name("Ammo_FlareRed"),
+    normalize_discord_name("Ammo_FlareGreen"),
+    normalize_discord_name("Ammo_FlareBlue"),
 }
 
 
@@ -38233,7 +38527,7 @@ async def slash_server_listrestarts(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "listrestarts")
 
 
-@server_group.command(name="setmission", description="Pin the active DayZ mission folder name for banlist writes (e.g. dayzOffline.chernarusplus)")
+@server_group.command(name="setmission", description="Pin the active DayZ mission folder for CE XML and fallback file writes")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(name="Folder name inside mpmissions/ (case-sensitive). Leave empty to auto-detect.")
 async def slash_server_setmission(interaction: discord.Interaction, name: str = ""):
@@ -38258,7 +38552,7 @@ async def slash_server_setmission(interaction: discord.Interaction, name: str = 
     save_guild_configs()
     await interaction.response.send_message(
         f"✅ Active mission pinned to `{clean}`. "
-        f"Banlist writes will now target `mpmissions/{clean}/ban-override.txt`.",
+        f"CE XML and fallback ban files will now target `mpmissions/{clean}`.",
         ephemeral=True,
     )
 
@@ -39141,7 +39435,7 @@ async def zone_draw(interaction: discord.Interaction, map_name: str = "chernarus
 
 gameban_group = app_commands.Group(
     name="gameban",
-    description="Manual DayZ-server ban control via Nitrado banlist.txt",
+    description="Manual DayZ-server ban control via the Nitrado Banlist setting",
     parent=server_group,
 )
 
@@ -39333,7 +39627,7 @@ async def gameban_list(interaction: discord.Interaction):
 # /server liveevents … — RPT-based live event tracker
 # ============================================================================
 
-@gameban_group.command(name="live", description="Read the live Nitrado banlist file.")
+@gameban_group.command(name="live", description="Read the live Nitrado Banlist setting.")
 @app_commands.default_permissions(ban_members=True)
 async def gameban_live(interaction: discord.Interaction):
     if not interaction.user.guild_permissions.ban_members:
