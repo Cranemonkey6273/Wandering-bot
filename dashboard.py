@@ -15273,6 +15273,39 @@ def dashboard_nitrado_api_token_payload(data: dict[str, Any]) -> tuple[str | Non
     return token_url, token_value
 
 
+DASHBOARD_PROTECTED_DAYZ_XML_ROOTS = {
+    "events.xml": "events",
+    "cfgeventspawns.xml": "eventposdef",
+    "cfgeventgroups.xml": "eventgroupdef",
+    "mapgroupproto.xml": "map",
+    "cfgspawnabletypes.xml": "spawnabletypes",
+    "cfgenvironment.xml": "env",
+    "cfgareaeffects.xml": "areaeffects",
+    "messages.xml": "messages",
+}
+
+
+def dashboard_protected_dayz_xml_root_for_path(target_path: Any) -> str:
+    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    return DASHBOARD_PROTECTED_DAYZ_XML_ROOTS.get(filename, "")
+
+
+def dashboard_validate_protected_dayz_xml_upload(target_path: Any, text_content: Any) -> tuple[bool, str]:
+    expected_root = dashboard_protected_dayz_xml_root_for_path(target_path)
+    if not expected_root:
+        return True, ""
+    text = str(text_content or "")
+    if not text.strip():
+        return False, f"Refusing to upload empty `{os.path.basename(str(target_path or 'file'))}` to `{target_path}`."
+    try:
+        root = ET.fromstring(text.encode("utf-8"))
+    except Exception as error:
+        return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
+    if root.tag != expected_root:
+        return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
+    return True, ""
+
+
 def dashboard_download_text_file_from_nitrado(config: dict[str, Any], target_path: Any) -> tuple[bool, str, str | None]:
     headers = dashboard_nitrado_api_headers(config)
     url = dashboard_nitrado_api_service_url(config, "download")
@@ -15326,6 +15359,10 @@ def dashboard_ensure_nitrado_api_folder(config: dict[str, Any], folder: Any) -> 
 
 
 def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: Any, text_content: Any) -> tuple[bool, str]:
+    valid_upload, validation_message = dashboard_validate_protected_dayz_xml_upload(target_path, text_content)
+    if not valid_upload:
+        return False, validation_message
+
     headers = dashboard_nitrado_api_headers(config)
     url = dashboard_nitrado_api_service_url(config, "upload")
     if not headers or not url:
@@ -15356,6 +15393,32 @@ def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: A
         return True, "Uploaded successfully via Nitrado API."
     except Exception as error:
         return False, f"Nitrado API upload failed: {error}"
+
+
+def dashboard_verify_protected_dayz_xml_upload(config: dict[str, Any], label: str, target_path: Any) -> tuple[bool, str]:
+    expected_root = dashboard_protected_dayz_xml_root_for_path(target_path)
+    if not expected_root:
+        return True, f"{label} has no protected XML verifier."
+    ok, message, content = dashboard_download_text_file_from_nitrado(config, target_path)
+    if not ok:
+        return False, f"{label} verification failed after upload: {message}"
+    valid, validation_message = dashboard_validate_protected_dayz_xml_upload(target_path, content)
+    if not valid:
+        return False, f"{label} verification failed after upload: {validation_message}"
+    return True, f"{label} verified after upload with <{expected_root}> root."
+
+
+def dashboard_restore_text_after_failed_upload(config: dict[str, Any], label: str, target_path: Any, restore_text: Any) -> str:
+    valid, validation_message = dashboard_validate_protected_dayz_xml_upload(target_path, restore_text)
+    if not valid:
+        return f"restore blocked because previous live content is not valid: {validation_message}"
+    restore_ok, restore_message = dashboard_upload_text_file_to_nitrado(config, target_path, restore_text)
+    if not restore_ok:
+        return f"restore upload failed: {restore_message}"
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, target_path)
+    if not verify_ok:
+        return f"restore verification failed: {verify_message}"
+    return f"restored previous live content. {verify_message}"
 
 
 def validate_live_injection_content(file_kind: Any, text: Any, label: str) -> str:
@@ -15403,7 +15466,17 @@ def guarded_dashboard_file_injection(
 
     upload_ok, upload_message = dashboard_upload_text_file_to_nitrado(config, remote_path, safe_text)
     if not upload_ok:
-        raise ValueError(upload_message)
+        restore_message = ""
+        live_ok, live_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+        if not live_ok and exists and existing_text is not None:
+            restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
+        raise ValueError(upload_message + f" Live verification after failure: {live_message}." + (f" Restore attempted: {restore_message}" if restore_message else ""))
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+    if not verify_ok:
+        restore_message = ""
+        if exists and existing_text is not None:
+            restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
+        raise ValueError(verify_message + (f" Restore attempted: {restore_message}" if restore_message else ""))
     return {
         "path": remote_path,
         "backup_path": backup_path,
@@ -15482,7 +15555,17 @@ def guarded_dashboard_xml_merge(
             raise ValueError(f"Backup failed before merge upload: {backup_message}")
     upload_ok, upload_message = dashboard_upload_text_file_to_nitrado(config, remote_path, merged_text)
     if not upload_ok:
-        raise ValueError(upload_message)
+        restore_message = ""
+        live_ok, live_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+        if not live_ok and exists and existing_text is not None:
+            restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
+        raise ValueError(upload_message + f" Live verification after failure: {live_message}." + (f" Restore attempted: {restore_message}" if restore_message else ""))
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+    if not verify_ok:
+        restore_message = ""
+        if exists and existing_text is not None:
+            restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
+        raise ValueError(verify_message + (f" Restore attempted: {restore_message}" if restore_message else ""))
     return {
         "path": remote_path,
         "backup_path": backup_path,

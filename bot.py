@@ -13289,6 +13289,39 @@ def nitrado_api_token_payload(data):
     return token_url, token_value
 
 
+PROTECTED_DAYZ_XML_ROOTS = {
+    "events.xml": "events",
+    "cfgeventspawns.xml": "eventposdef",
+    "cfgeventgroups.xml": "eventgroupdef",
+    "mapgroupproto.xml": "map",
+    "cfgspawnabletypes.xml": "spawnabletypes",
+    "cfgenvironment.xml": "env",
+    "cfgareaeffects.xml": "areaeffects",
+    "messages.xml": "messages",
+}
+
+
+def protected_dayz_xml_root_for_path(target_path):
+    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    return PROTECTED_DAYZ_XML_ROOTS.get(filename)
+
+
+def validate_protected_dayz_xml_upload(target_path, text_content):
+    expected_root = protected_dayz_xml_root_for_path(target_path)
+    if not expected_root:
+        return True, ""
+    text = str(text_content or "")
+    if not text.strip():
+        return False, f"Refusing to upload empty `{os.path.basename(str(target_path or 'file'))}` to `{target_path}`."
+    try:
+        root = ET.fromstring(text.encode("utf-8"))
+    except Exception as error:
+        return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
+    if root.tag != expected_root:
+        return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
+    return True, ""
+
+
 def download_text_file_from_nitrado_api(config, target_path):
     headers = nitrado_api_headers(config)
     url = nitrado_api_service_url(config, "download")
@@ -13360,6 +13393,10 @@ def ensure_nitrado_api_folder(config, folder):
 
 
 def upload_text_file_to_nitrado_api(config, target_path, text_content):
+    valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
+    if not valid_upload:
+        return False, validation_message
+
     headers = nitrado_api_headers(config)
     url = nitrado_api_service_url(config, "upload")
     if not headers or not url:
@@ -13451,6 +13488,10 @@ def upload_delivery_xml_to_nitrado(config, xml_path):
 def upload_text_file_to_nitrado(config, target_path, text_content):
     temp_path = None
     try:
+        valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
+        if not valid_upload:
+            return False, validation_message
+
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:
             return True, api_message
@@ -29074,6 +29115,52 @@ def backup_remote_ce_sources_before_upload(config, built):
     return True, backup_messages
 
 
+def verify_remote_protected_dayz_xml(config, label, path):
+    expected_root = protected_dayz_xml_root_for_path(path)
+    if not expected_root:
+        return True, f"`{label}` has no protected XML verifier."
+    ok, message, content = download_text_file_from_nitrado(config, path)
+    if not ok:
+        return False, f"`{label}` verification failed after upload: {message}"
+    valid, validation_message = validate_protected_dayz_xml_upload(path, content)
+    if not valid:
+        return False, f"`{label}` verification failed after upload: {validation_message}"
+    return True, f"`{label}` verified after upload with <{expected_root}> root."
+
+
+def restore_remote_ce_file_from_latest_backup(config, label, path):
+    backup_path = f"{path}.wanderingbot-backup-latest"
+    ok, message, backup_text = download_text_file_from_nitrado(config, backup_path)
+    if not ok:
+        return False, f"`{label}` restore failed: could not download `{backup_path}`: {message}"
+    valid, validation_message = validate_protected_dayz_xml_upload(path, backup_text)
+    if not valid:
+        return False, f"`{label}` restore blocked: latest backup is not valid for `{path}`: {validation_message}"
+    restore_ok, restore_message = upload_text_file_to_nitrado(config, path, backup_text)
+    if not restore_ok:
+        return False, f"`{label}` restore upload failed: {restore_message}"
+    verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
+    if not verify_ok:
+        return False, f"`{label}` restore verification failed: {verify_message}"
+    return True, f"`{label}` restored from `{backup_path}`. {verify_message}"
+
+
+def upload_protected_ce_file_to_nitrado(config, label, path, text_content):
+    upload_ok, upload_message = upload_text_file_to_nitrado(config, path, text_content)
+    if not upload_ok:
+        live_ok, live_message = verify_remote_protected_dayz_xml(config, label, path)
+        if live_ok:
+            return False, f"{upload_message} Live `{label}` remained valid after failed upload. {live_message}"
+        restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path)
+        suffix = f" Restore attempted: {restore_message}" if restore_message else ""
+        return False, f"{upload_message} Live verification after failure: {live_message}.{suffix}"
+    verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
+    if verify_ok:
+        return True, f"{upload_message} {verify_message}"
+    restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path)
+    return False, f"{verify_message} Restore attempted: {restore_message}"
+
+
 def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
     built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
     messages = list(built["messages"])
@@ -29087,15 +29174,16 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     if not backup_ok:
         return False, built, messages
 
-    events_ok, events_message = upload_text_file_to_nitrado(config, built["events_path"], built["events_text"])
-    spawns_ok, spawns_message = upload_text_file_to_nitrado(config, built["spawns_path"], built["spawns_text"])
+    events_ok, events_message = upload_protected_ce_file_to_nitrado(config, "events.xml", built["events_path"], built["events_text"])
+    spawns_ok, spawns_message = upload_protected_ce_file_to_nitrado(config, "cfgeventspawns.xml", built["spawns_path"], built["spawns_text"])
     messages.append(f"`events.xml`: {events_message}")
     messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
 
     spawnable_ok = True
     if built.get("spawnabletypes_text"):
-        spawnable_ok, spawnable_message = upload_text_file_to_nitrado(
+        spawnable_ok, spawnable_message = upload_protected_ce_file_to_nitrado(
             config,
+            "cfgspawnabletypes.xml",
             built["spawnabletypes_path"],
             built["spawnabletypes_text"]
         )
@@ -29103,8 +29191,9 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
 
     eventgroups_ok = True
     if built.get("eventgroups_text"):
-        eventgroups_ok, eventgroups_message = upload_text_file_to_nitrado(
+        eventgroups_ok, eventgroups_message = upload_protected_ce_file_to_nitrado(
             config,
+            "cfgeventgroups.xml",
             built["eventgroups_path"],
             built["eventgroups_text"]
         )
@@ -29112,8 +29201,9 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
 
     mapgroupproto_ok = True
     if built.get("mapgroupproto_text"):
-        mapgroupproto_ok, mapgroupproto_message = upload_text_file_to_nitrado(
+        mapgroupproto_ok, mapgroupproto_message = upload_protected_ce_file_to_nitrado(
             config,
+            "mapgroupproto.xml",
             built["mapgroupproto_path"],
             built["mapgroupproto_text"]
         )
@@ -29177,8 +29267,9 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 messages.append(f"`cfgenvironment.xml` cleanup failed after animal territory upload failure: {error}")
 
         if cfgenvironment_ok:
-            cfgenvironment_ok, cfgenvironment_message = upload_text_file_to_nitrado(
+            cfgenvironment_ok, cfgenvironment_message = upload_protected_ce_file_to_nitrado(
                 config,
+                "cfgenvironment.xml",
                 built["cfgenvironment_path"],
                 cfgenvironment_text
             )
@@ -29186,8 +29277,9 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
 
     cfgareaeffects_ok = True
     if built.get("cfgareaeffects_text"):
-        cfgareaeffects_ok, cfgareaeffects_message = upload_text_file_to_nitrado(
+        cfgareaeffects_ok, cfgareaeffects_message = upload_protected_ce_file_to_nitrado(
             config,
+            "cfgareaeffects.xml",
             built["cfgareaeffects_path"],
             built["cfgareaeffects_text"]
         )
