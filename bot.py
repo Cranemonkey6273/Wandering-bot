@@ -29497,6 +29497,24 @@ def native_ce_source_blocked_messages(messages):
     )
 
 
+def native_ce_nitrado_response_blocked_messages(messages):
+    combined = " | ".join(str(message or "") for message in (messages or []))
+    lowered = combined.lower()
+    return (
+        "jsondecodeerror" in lowered
+        or "expecting value: line 1 column 1" in lowered
+        or "returned non-json response" in lowered
+        or "<empty response body>" in lowered
+        or "cloudflare" in lowered
+        or "rate-limit" in lowered
+        or "rate limit" in lowered
+    )
+
+
+def native_ce_upload_blocked_messages(messages):
+    return native_ce_source_blocked_messages(messages) or native_ce_nitrado_response_blocked_messages(messages)
+
+
 def native_ce_source_required_status(messages=None):
     detail = ""
     for message in messages or []:
@@ -29515,12 +29533,41 @@ def native_ce_source_required_status(messages=None):
     )
 
 
+def native_ce_nitrado_response_status(messages=None):
+    detail = ""
+    for message in messages or []:
+        text = str(message or "").strip()
+        lowered = text.lower()
+        if (
+            "jsondecodeerror" in lowered
+            or "expecting value: line 1 column 1" in lowered
+            or "returned non-json response" in lowered
+            or "<empty response body>" in lowered
+            or "cloudflare" in lowered
+            or "rate-limit" in lowered
+            or "rate limit" in lowered
+        ):
+            detail = " " + text[:320]
+            break
+    return (
+        "Native CE upload blocked: Nitrado returned an empty/non-JSON response while the bot was reading or uploading CE XML. "
+        "This is a Nitrado/API response problem, not a valid DayZ XML result, so auto-retry has been stopped."
+        + detail
+    )
+
+
+def native_ce_upload_blocked_status(messages=None):
+    if native_ce_source_blocked_messages(messages):
+        return native_ce_source_required_status(messages)
+    return native_ce_nitrado_response_status(messages)
+
+
 def mark_native_ce_source_required(config, event, messages, now_text):
-    status_text = native_ce_source_required_status(messages)
+    status_text = native_ce_upload_blocked_status(messages)
     event["upload_attempts"] = max(3, int(event.get("upload_attempts") or 0))
     event["upload_status"] = "blocked"
     event["upload_error"] = status_text
-    event["status"] = "Native CE source required"
+    event["status"] = "Native CE source required" if native_ce_source_blocked_messages(messages) else "Nitrado API response blocked"
     event["updated_at"] = now_text
     event["native_ce_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
     settings = console_ce_event_config(config)
@@ -29549,11 +29596,11 @@ def dashboard_upload_console_ce_event_files(guild_id):
         success = False
         built = {}
         messages = [f"{type(error).__name__}: {error}"]
-    source_blocked = native_ce_source_blocked_messages(messages)
+    source_blocked = native_ce_upload_blocked_messages(messages)
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if success
-        else native_ce_source_required_status(messages)
+        else native_ce_upload_blocked_status(messages)
         if source_blocked
         else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
     )
@@ -31663,11 +31710,11 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             "",
             False,
         )
-        source_blocked = native_ce_source_blocked_messages(messages)
+        source_blocked = native_ce_upload_blocked_messages(messages)
         status_text = (
             f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
             if upload_success
-            else native_ce_source_required_status(messages)
+            else native_ce_upload_blocked_status(messages)
             if source_blocked
             else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
         )

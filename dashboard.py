@@ -4816,7 +4816,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Failed</span><strong>{{ scenario_summary.failed|default(0) }}</strong><span>{% if scenario_summary.cleanup_error %}Cleanup needs attention{% else %}Upload failures{% endif %}</span></div>
             <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} status item(s)</span></div>
           </div>
-          <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Blocked means the bot could not read the live CE source and refused to overwrite it.</span></div>
+          <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Blocked means the bot could not safely complete the upload because live CE source or Nitrado's API response was unavailable.</span></div>
           <div class="shop-toolbar" style="margin-top:.85rem">
             <label>Search events <input data-event-search placeholder="name/type/class/status"></label>
             <label>Status
@@ -11288,6 +11288,24 @@ def dashboard_native_ce_source_blocked(messages: list[Any] | tuple[Any, ...] | N
     )
 
 
+def dashboard_native_ce_nitrado_response_blocked(messages: list[Any] | tuple[Any, ...] | None) -> bool:
+    combined = " | ".join(str(message or "") for message in (messages or []))
+    lowered = combined.lower()
+    return (
+        "jsondecodeerror" in lowered
+        or "expecting value: line 1 column 1" in lowered
+        or "returned non-json response" in lowered
+        or "<empty response body>" in lowered
+        or "cloudflare" in lowered
+        or "rate-limit" in lowered
+        or "rate limit" in lowered
+    )
+
+
+def dashboard_native_ce_upload_blocked(messages: list[Any] | tuple[Any, ...] | None) -> bool:
+    return dashboard_native_ce_source_blocked(messages) or dashboard_native_ce_nitrado_response_blocked(messages)
+
+
 def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
     detail = ""
     for message in messages or []:
@@ -11303,12 +11321,41 @@ def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, 
     )
 
 
+def dashboard_native_ce_nitrado_response_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
+    detail = ""
+    for message in messages or []:
+        text = str(message or "").strip()
+        lowered = text.lower()
+        if (
+            "jsondecodeerror" in lowered
+            or "expecting value: line 1 column 1" in lowered
+            or "returned non-json response" in lowered
+            or "<empty response body>" in lowered
+            or "cloudflare" in lowered
+            or "rate-limit" in lowered
+            or "rate limit" in lowered
+        ):
+            detail = " " + text[:320]
+            break
+    return (
+        "Native CE upload blocked: Nitrado returned an empty/non-JSON response while the bot was reading or uploading CE XML. "
+        "This is a Nitrado/API response problem, not a valid DayZ XML result, so auto-retry has been stopped."
+        + detail
+    )
+
+
+def dashboard_native_ce_upload_blocked_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
+    if dashboard_native_ce_source_blocked(messages):
+        return dashboard_native_ce_source_required_status(messages)
+    return dashboard_native_ce_nitrado_response_status(messages)
+
+
 def mark_dashboard_native_ce_source_required(event: dict[str, Any], messages: list[Any] | tuple[Any, ...] | None, now_text: str) -> None:
-    status_text = dashboard_native_ce_source_required_status(messages)
+    status_text = dashboard_native_ce_upload_blocked_status(messages)
     event["upload_attempts"] = max(3, safe_int(event.get("upload_attempts"), 0))
     event["upload_status"] = "blocked"
     event["upload_error"] = status_text
-    event["status"] = "Native CE source required"
+    event["status"] = "Native CE source required" if dashboard_native_ce_source_blocked(messages) else "Nitrado API response blocked"
     event["updated_at"] = now_text
     event["native_ce_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
 
@@ -11325,13 +11372,33 @@ def normalize_confirmed_scenario_upload_for_display(event: dict[str, Any]) -> di
     return normalized
 
 
+def normalize_blocked_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(event, dict) or scenario_event_has_confirmed_native_upload(event):
+        return event
+    upload_status = str(event.get("upload_status") or "").strip().lower()
+    if upload_status == "blocked":
+        return event
+    messages = [event.get("upload_error") or "", event.get("status") or ""]
+    if upload_status != "failed" or not dashboard_native_ce_upload_blocked(messages):
+        return event
+    normalized = dict(event)
+    normalized["upload_status"] = "blocked"
+    normalized["upload_error"] = dashboard_native_ce_upload_blocked_status(messages)
+    normalized["status"] = "Native CE source required" if dashboard_native_ce_source_blocked(messages) else "Nitrado API response blocked"
+    return normalized
+
+
+def normalize_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
+    return normalize_blocked_scenario_upload_for_display(normalize_confirmed_scenario_upload_for_display(event))
+
+
 def visible_scenario_events(config: Any) -> list[dict[str, Any]]:
     events = config.get("scenario_events", []) if isinstance(config, dict) else []
     if not isinstance(events, list):
         return []
     tombstones = scenario_event_tombstones(config)
     return [
-        normalize_confirmed_scenario_upload_for_display(event)
+        normalize_scenario_upload_for_display(event)
         for event in events
         if isinstance(event, dict) and scenario_event_key(event) not in tombstones
     ]
@@ -11368,6 +11435,14 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
         return None
     try:
         result = uploader(str(guild_id))
+    except json.JSONDecodeError as error:
+        return {
+            "ok": False,
+            "messages": [
+                "Nitrado returned an empty/non-JSON response during native CE upload: "
+                f"{type(error).__name__}: {error}"
+            ],
+        }
     except Exception as error:
         return {"ok": False, "messages": [f"Native CE XML upload failed: {type(error).__name__}: {error}"]}
     if isinstance(result, dict):
@@ -11447,12 +11522,12 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
     messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
     upload_ok = bool(upload_result.get("ok"))
-    source_blocked = dashboard_native_ce_source_blocked(messages)
+    source_blocked = dashboard_native_ce_upload_blocked(messages)
     now_text = datetime.now(UTC).isoformat()
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if upload_ok
-        else dashboard_native_ce_source_required_status(messages)
+        else dashboard_native_ce_upload_blocked_status(messages)
         if source_blocked
         else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
     )
@@ -20074,7 +20149,7 @@ def api_scenario_event_status():
     tracker = scenario_tracker_summary(load_store("rpt_event_tracker", {}), guild_id)
     for event in events:
         if isinstance(event, dict) and safe_int(event.get("id"), 0) == event_id:
-            event = normalize_confirmed_scenario_upload_for_display(event)
+            event = normalize_scenario_upload_for_display(event)
             return jsonify({
                 "ok": True,
                 "event": event,
