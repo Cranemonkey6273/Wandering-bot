@@ -13526,14 +13526,14 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
         return False, f"Nitrado API upload failed: {error}"
 
 
-def upload_delivery_xml_to_nitrado(config, xml_path):
+def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
 
     try:
 
         with open(xml_path, "r", encoding="utf-8", errors="ignore") as xml_file:
             xml_text = xml_file.read()
 
-        target_path = (
+        target_path = delivery_bridge_path_for_guild(guild_id, config) if guild_id else (
             config.get("dayz_delivery_bridge", {}).get("delivery_path")
             or "/dayzxb/custom/deliveries.xml"
         )
@@ -14487,7 +14487,7 @@ void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float 
 void SpawnWanderingDeliveries()
 {
     // WANDERING BOT BRIDGE v5 - supports deliveries, vehicle reset, and scenario events.
-    string path = "$profile:custom/deliveries.xml";
+    string path = "$mission:custom/deliveries.xml";
     FileHandle file = OpenFile(path, FileMode.READ);
 
     if (!file)
@@ -26871,6 +26871,31 @@ def console_ce_default_paths(guild_id):
     }
 
 
+def default_delivery_bridge_path(guild_id):
+    mission_folder = console_mission_folder_for_map(server_map_key(guild_id))
+    platform_key = server_platform_key(guild_id)
+    if platform_key == "playstation":
+        root = "/dayzps_missions"
+    elif platform_key == "pc":
+        root = "/mpmissions"
+    else:
+        root = "/dayzxb_missions"
+    return canonical_remote_path(f"{root}/{mission_folder}/custom/deliveries.xml")
+
+
+def delivery_bridge_path_for_guild(guild_id, config):
+    bridge = config.get("dayz_delivery_bridge") if isinstance(config.get("dayz_delivery_bridge"), dict) else {}
+    saved = canonical_remote_path(bridge.get("delivery_path") or "")
+    legacy_defaults = {
+        "/dayzxb/custom/deliveries.xml",
+        "/dayzps/custom/deliveries.xml",
+        "/dayz/custom/deliveries.xml",
+    }
+    if saved and saved.lower() not in legacy_defaults:
+        return saved
+    return default_delivery_bridge_path(guild_id)
+
+
 def console_ce_path_suffix(key):
     if key == "events_path":
         return "db/events.xml"
@@ -29720,8 +29745,7 @@ def apply_bridge_upload_metadata(event, delivery_path, messages, now_text, uploa
 
 
 def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Dashboard"):
-    bridge = config.get("dayz_delivery_bridge") if isinstance(config.get("dayz_delivery_bridge"), dict) else {}
-    delivery_path = bridge.get("delivery_path") or "/dayzxb/custom/deliveries.xml"
+    delivery_path = delivery_bridge_path_for_guild(guild_id, config)
     events = [event for event in (events or []) if scenario_event_uses_delivery_bridge(event)]
     if not events:
         return False, delivery_path, ["No bridge-compatible animal/horde events were queued."]
@@ -31625,7 +31649,7 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_
         xml_file.write(build_delivery_xml(output["items"], output["vehicles"], scenario_events))
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
-    upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path)
+    upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path, guild_id)
 
     if upload_success:
         print(f"DELIVERY XML BRIDGED TO SERVER {guild_id}")
@@ -34999,7 +35023,7 @@ async def installdayzbridge(
     interaction: discord.Interaction,
     install: bool = False,
     init_path: str = "",
-    delivery_path: str = "/dayzxb/custom/deliveries.xml",
+    delivery_path: str = "",
     ftp_host: str = ""
 ):
     if interaction.user.id != interaction.guild.owner_id and not has_interaction_admin_power(interaction):
@@ -35012,6 +35036,7 @@ async def installdayzbridge(
     if not config:
         await interaction.followup.send("This server is not setup yet.", ephemeral=True)
         return
+    delivery_path = canonical_remote_path(delivery_path or delivery_bridge_path_for_guild(guild_id, config))
 
     supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host:
@@ -35100,7 +35125,7 @@ async def installdayzbridge(
                 "1. Paste the bridge functions below above void main() in your mission init.c.\n"
                 "2. Add this single line inside main(), after weather setup or near the end:\n"
                 "   SpawnWanderingDeliveries();\n"
-                "3. Upload deliveries.xml to /dayzxb/custom/deliveries.xml and restart the server.\n\n"
+                f"3. Upload deliveries.xml to {delivery_path} and restart the server.\n\n"
             )
             file = discord.File(
                 io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
@@ -36483,6 +36508,7 @@ async def event_exportxml(interaction: discord.Interaction):
 
     config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
     guild_id = str(interaction.guild.id)
+    delivery_path = delivery_bridge_path_for_guild(guild_id, config)
     xml_text = build_delivery_xml(
         queue_entries_for_guild(delivery_queue, guild_id),
         queue_entries_for_guild(vehicle_rentals_queue, guild_id),
@@ -36493,7 +36519,7 @@ async def event_exportxml(interaction: discord.Interaction):
         filename="deliveries.xml"
     )
     await interaction.response.send_message(
-        "Manual fallback: upload this file to `/dayzxb/custom/deliveries.xml` on Nitrado, then restart the server. "
+        f"Manual fallback: upload this file to `{delivery_path}` on Nitrado, then restart the server. "
         "Use this when the bot host cannot reach Nitrado FTP.",
         file=file,
         ephemeral=True
@@ -36506,6 +36532,9 @@ async def event_bridgecode(interaction: discord.Interaction):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
+    guild_id = str(interaction.guild.id) if interaction.guild else ""
+    config = guild_configs.get(guild_id, {}) if guild_id else {}
+    delivery_path = delivery_bridge_path_for_guild(guild_id, config) if guild_id else "your mission custom/deliveries.xml path"
 
     instructions = (
         "CONSOLE NOTE: Xbox/PlayStation DayZ servers do not expose an official `init.c`, so this bridge snippet is for PC/custom hosts only. "
@@ -36515,7 +36544,7 @@ async def event_bridgecode(interaction: discord.Interaction):
         "Paste the bridge functions below into your mission `init.c` above `void main()`. "
         "Then add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end. "
         "or use `/installdayzbridge install:true` when FTP/DNS works again.\n\n"
-        "After it is installed, upload `deliveries.xml` to `/dayzxb/custom/deliveries.xml` and restart the server.\n\n"
+        f"After it is installed, upload `deliveries.xml` to `{delivery_path}` and restart the server.\n\n"
     )
     file = discord.File(
         io.BytesIO((instructions + WANDERING_DELIVERY_BRIDGE_CODE).encode("utf-8")),
