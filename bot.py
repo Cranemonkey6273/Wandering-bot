@@ -241,6 +241,7 @@ last_showcase_reaction_time = {}  # channel_id -> timestamp
 feed_route_log_time = {}          # (guild_id, channel_key, reason) -> timestamp
 owner_natural_language_cooldowns = {}
 translation_runtime_stats = {}
+translation_cache = OrderedDict()
 
 TRANSLATION_LANGUAGE_ALIASES = {
     "english": "en",
@@ -283,6 +284,18 @@ LONGSHOT_ANNOUNCE_METERS = 300
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AI_IMAGE_MODEL = os.getenv("WANDERING_AI_IMAGE_MODEL", "gpt-image-1")
 AI_IMAGE_DEFAULT_COOLDOWN_SECONDS = int(os.getenv("WANDERING_AI_IMAGE_COOLDOWN_SECONDS", "21600"))
+TRANSLATION_PROVIDER = os.getenv("WANDERING_TRANSLATION_PROVIDER", "auto").strip().lower()
+TRANSLATION_OPENAI_MODEL = os.getenv(
+    "WANDERING_OPENAI_TRANSLATION_MODEL",
+    os.getenv("WANDERING_OPENAI_QUEST_MODEL", "gpt-4o-mini"),
+)
+TRANSLATION_TIMEOUT_SECONDS = float(os.getenv("WANDERING_TRANSLATION_TIMEOUT_SECONDS", "8"))
+TRANSLATION_CACHE_TTL_SECONDS = int(os.getenv("WANDERING_TRANSLATION_CACHE_TTL_SECONDS", "86400"))
+TRANSLATION_CACHE_MAX_ITEMS = int(os.getenv("WANDERING_TRANSLATION_CACHE_MAX_ITEMS", "1000"))
+DEEPL_API_KEY = os.getenv("WANDERING_DEEPL_API_KEY") or os.getenv("DEEPL_API_KEY")
+DEEPL_API_URL = os.getenv("WANDERING_DEEPL_API_URL") or os.getenv("DEEPL_API_URL")
+TRANSLATION_DEEPL_MODEL_TYPE = os.getenv("WANDERING_DEEPL_MODEL_TYPE", "prefer_quality_optimized")
+DEEPL_EN_TARGET = os.getenv("WANDERING_DEEPL_EN_TARGET", "EN-GB").strip().upper()
 
 # ── AI Death Roasts (Emergent Universal LLM Key) ─────────────
 # Roasts are short, one-line bits of flavour text shown in the
@@ -6355,9 +6368,200 @@ def record_translation_runtime_stat(guild_id, key, detail=""):
     return stats
 
 
+def _translation_cache_key(text, target_language, source_language):
+    src = normalize_translation_language(source_language, "auto")
+    target = normalize_translation_language(target_language, "en")
+    digest = hashlib.sha256((text or "").strip().encode("utf-8")).hexdigest()
+    return src, target, digest
+
+
+def _get_cached_translation(cache_key):
+    cached = translation_cache.get(cache_key)
+    if not cached:
+        return None
+    translated, expires_at = cached
+    if expires_at <= time.time():
+        translation_cache.pop(cache_key, None)
+        return None
+    translation_cache.move_to_end(cache_key)
+    return translated
+
+
+def _set_cached_translation(cache_key, translated):
+    if not translated or TRANSLATION_CACHE_MAX_ITEMS <= 0:
+        return
+    translation_cache[cache_key] = (
+        str(translated),
+        time.time() + max(60, TRANSLATION_CACHE_TTL_SECONDS),
+    )
+    translation_cache.move_to_end(cache_key)
+    while len(translation_cache) > TRANSLATION_CACHE_MAX_ITEMS:
+        translation_cache.popitem(last=False)
+
+
+TRANSLATION_LANGUAGE_LABELS = {
+    "ar": "Arabic",
+    "de": "German",
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French",
+    "it": "Italian",
+    "nl": "Dutch",
+    "pl": "Polish",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+}
+
+
+def _translation_language_label(code):
+    code = normalize_translation_language(code, "auto")
+    if code in {"auto", "autodetect"}:
+        return "auto-detected"
+    return TRANSLATION_LANGUAGE_LABELS.get(code, code.upper())
+
+
+def _translation_provider_order():
+    provider = (TRANSLATION_PROVIDER or "auto").strip().lower()
+    if provider in {"openai", "gpt", "chatgpt"}:
+        return ("openai", "deepl", "mymemory", "libretranslate")
+    if provider in {"deepl", "deep-l"}:
+        return ("deepl", "openai", "mymemory", "libretranslate")
+    if provider in {"libre", "libretranslate"}:
+        return ("libretranslate", "openai", "deepl", "mymemory")
+    if provider in {"mymemory", "free"}:
+        return ("mymemory", "openai", "deepl", "libretranslate")
+    return ("openai", "deepl", "mymemory", "libretranslate")
+
+
+async def _translate_via_openai(text, target_language, source_language):
+    if not OPENAI_API_KEY:
+        return None
+    src = normalize_translation_language(source_language, "auto")
+    target = normalize_translation_language(target_language, "en")
+    if src not in {"auto", "autodetect"} and src == target:
+        return text
+
+    system_message = (
+        "You are a careful Discord chat translator for a DayZ gaming community. "
+        "Translate the user's message into the target language using natural chat meaning, "
+        "not stiff dictionary wording. Preserve Discord mentions, URLs, emojis, usernames, "
+        "gamertags, server names, item names, and DayZ terms when they are names. Keep the "
+        "same casual tone and profanity strength. Do not add commentary. Return only the "
+        "translated message. For German slang like 'geil' in a positive chat context, use "
+        "'awesome', 'cool', or 'sick', not the literal sexual meaning."
+    )
+    user_message = (
+        f"Source language: {_translation_language_label(src)}\n"
+        f"Target language: {_translation_language_label(target)}\n"
+        "Message:\n"
+        f"{text[:1600]}"
+    )
+    payload = {
+        "model": TRANSLATION_OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 700,
+    }
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    try:
+        response = await asyncio.to_thread(
+            requests.post,
+            "https://api.openai.com/v1/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=TRANSLATION_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            print(f"[TRANSLATE] OpenAI HTTP {response.status_code}: {response.text[:240]}")
+            return None
+        data = response.json()
+        choices = data.get("choices") or []
+        translated = ((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
+        return translated or None
+    except Exception as err:
+        print(f"[TRANSLATE] OpenAI error: {err}")
+        return None
+
+
+def _deepl_api_url():
+    if DEEPL_API_URL:
+        return DEEPL_API_URL
+    if DEEPL_API_KEY and str(DEEPL_API_KEY).endswith(":fx"):
+        return "https://api-free.deepl.com/v2/translate"
+    return "https://api.deepl.com/v2/translate"
+
+
+def _deepl_language_code(code, *, is_target=False):
+    code = normalize_translation_language(code, "auto")
+    if code in {"auto", "autodetect"}:
+        return ""
+    if is_target and code == "en":
+        return DEEPL_EN_TARGET or "EN-GB"
+    if is_target and code == "pt":
+        return "PT-PT"
+    return code.upper()
+
+
+async def _translate_via_deepl(text, target_language, source_language):
+    if not DEEPL_API_KEY:
+        return None
+    src = normalize_translation_language(source_language, "auto")
+    target = normalize_translation_language(target_language, "en")
+    if src not in {"auto", "autodetect"} and src == target:
+        return text
+
+    payload = {
+        "text": text,
+        "target_lang": _deepl_language_code(target, is_target=True),
+    }
+    source_code = _deepl_language_code(src)
+    if source_code:
+        payload["source_lang"] = source_code
+    if TRANSLATION_DEEPL_MODEL_TYPE:
+        payload["model_type"] = TRANSLATION_DEEPL_MODEL_TYPE
+
+    headers = {"Authorization": f"DeepL-Auth-Key {DEEPL_API_KEY}"}
+    try:
+        response = await asyncio.to_thread(
+            requests.post,
+            _deepl_api_url(),
+            data=payload,
+            headers=headers,
+            timeout=TRANSLATION_TIMEOUT_SECONDS,
+        )
+        if response.status_code == 400 and "model_type" in payload:
+            retry_payload = dict(payload)
+            retry_payload.pop("model_type", None)
+            response = await asyncio.to_thread(
+                requests.post,
+                _deepl_api_url(),
+                data=retry_payload,
+                headers=headers,
+                timeout=TRANSLATION_TIMEOUT_SECONDS,
+            )
+        if response.status_code != 200:
+            print(f"[TRANSLATE] DeepL HTTP {response.status_code}: {response.text[:240]}")
+            return None
+        data = response.json()
+        translations = data.get("translations") or []
+        translated = (translations[0].get("text") or "").strip() if translations else ""
+        return translated or None
+    except Exception as err:
+        print(f"[TRANSLATE] DeepL error: {err}")
+        return None
+
+
 async def _translate_via_mymemory(text, target_language, source_language):
     """Free, no-API-key translation via MyMemory (5000 chars/day per IP).
-    Stable and well-supported — used as the primary backend."""
+    Stable fallback when paid/context-aware providers are not configured."""
     src = normalize_translation_language(source_language, "auto")
     target_language = normalize_translation_language(target_language, "en")
     # MyMemory doesn't accept 'auto' literally — use 'autodetect'
@@ -6374,7 +6578,7 @@ async def _translate_via_mymemory(text, target_language, source_language):
                 "langpair": f"{src}|{target_language or 'en'}",
                 "de": "noreply@wandering-bot.local",  # bumps daily quota a bit
             },
-            timeout=12,
+            timeout=TRANSLATION_TIMEOUT_SECONDS,
         )
         if response.status_code != 200:
             print(f"[TRANSLATE] MyMemory HTTP {response.status_code}: {response.text[:200]}")
@@ -6416,7 +6620,7 @@ async def _translate_via_libretranslate(text, target_language, source_language):
             requests.post,
             TRANSLATE_API_URL,
             json=payload,
-            timeout=12,
+            timeout=TRANSLATION_TIMEOUT_SECONDS,
         )
         if response.status_code != 200:
             print(f"[TRANSLATE] LibreTranslate HTTP {response.status_code}: {response.text[:200]}")
@@ -6429,18 +6633,30 @@ async def _translate_via_libretranslate(text, target_language, source_language):
 
 
 async def translate_text(text, target_language="en", source_language="auto"):
-    """Translate text. Tries MyMemory first (free, no key), then
-    LibreTranslate if the user has configured TRANSLATE_API_KEY.
-    Returns the translated string or None."""
+    """Translate text with cache, then paid/context-aware providers, then free fallback."""
     if not text or not text.strip():
         return None
-    # Primary: MyMemory (free, no key, official, multi-language)
-    result = await _translate_via_mymemory(text, target_language, source_language)
-    if result:
-        return result
-    # Fallback: LibreTranslate if user provided a working key
-    result = await _translate_via_libretranslate(text, target_language, source_language)
-    return result
+
+    cache_key = _translation_cache_key(text, target_language, source_language)
+    cached = _get_cached_translation(cache_key)
+    if cached:
+        return cached
+
+    provider_calls = {
+        "openai": _translate_via_openai,
+        "deepl": _translate_via_deepl,
+        "mymemory": _translate_via_mymemory,
+        "libretranslate": _translate_via_libretranslate,
+    }
+    for provider in _translation_provider_order():
+        translator = provider_calls.get(provider)
+        if not translator:
+            continue
+        result = await translator(text, target_language, source_language)
+        if result:
+            _set_cached_translation(cache_key, result)
+            return result
+    return None
 
 
 def _get_translation_rules(config):
