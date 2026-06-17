@@ -11408,7 +11408,7 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
-DELIVERY_BRIDGE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
 
 
 def scenario_event_has_confirmed_bridge_upload(event: Any) -> bool:

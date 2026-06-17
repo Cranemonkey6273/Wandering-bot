@@ -26419,7 +26419,7 @@ dayz_reference_cache = {}
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
-DELIVERY_BRIDGE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
     normalize_discord_name("Ammo_Flare"),
@@ -27458,9 +27458,17 @@ def scenario_loot_items(event):
     loot = event.get("loot") or []
     if isinstance(loot, str):
         loot = [item.strip() for item in loot.split(",") if item.strip()]
-    return [
+    clean = [
         str(item).strip()
         for item in loot
+        if str(item).strip()
+    ]
+    if clean:
+        return clean
+    preset_key = str(event.get("loot_preset") or "none").strip()
+    return [
+        str(item).strip()
+        for item in SCENARIO_LOOT_PRESETS.get(preset_key, [])
         if str(item).strip()
     ]
 
@@ -29748,7 +29756,7 @@ def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Das
     delivery_path = delivery_bridge_path_for_guild(guild_id, config)
     events = [event for event in (events or []) if scenario_event_uses_delivery_bridge(event)]
     if not events:
-        return False, delivery_path, ["No bridge-compatible animal/horde events were queued."]
+        return False, delivery_path, ["No bridge-compatible live events were queued."]
     try:
         upload_success, xml_output_path = write_and_upload_delivery_xml(
             guild_id,
@@ -29762,11 +29770,13 @@ def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Das
         return False, delivery_path, [
             f"Bridge delivery XML upload failed: {type(error).__name__}: {error}. Leaf trace: {trace[:800]}"
         ]
+    if upload_success and any(str(event.get("event_type") or "").strip().lower() in {"airdrop", "loot_crate"} for event in events):
+        config["scenario_events_cleanup_pending"] = True
     event_labels = ", ".join(str(event.get("id") or event.get("name") or event.get("class_name") or "?") for event in events[:8])
     messages = [
-        f"Bridge delivery XML {'uploaded' if upload_success else 'failed'} for {len(events)} animal/horde event(s): {event_labels}.",
+        f"Bridge delivery XML {'uploaded' if upload_success else 'failed'} for {len(events)} live event(s): {event_labels}.",
         f"Delivery XML target `{delivery_path}`; local file `{xml_output_path}`.",
-        "This route uses the installed Wandering Bot deliveries.xml bridge and does not require downloading events.xml.",
+        "This route uses the installed Wandering Bot deliveries.xml bridge for direct event spawning.",
     ]
     return upload_success, delivery_path, messages
 
@@ -29931,7 +29941,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
             except Exception as notice_error:
                 bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
             save_guild_configs()
-            if not native_events:
+            if not native_events and not bool(config.get("scenario_events_cleanup_pending")):
                 return {
                     "ok": bridge_success,
                     "built": {
@@ -29968,14 +29978,18 @@ def dashboard_upload_console_ce_event_files(guild_id):
     now_text = datetime.now(UTC).isoformat()
     changed = False
     affected_events = []
-    for event in scenario_events_for_config(config):
+    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    if success and cleanup_pending:
+        config["scenario_events_cleanup_pending"] = False
+        config["scenario_events_cleanup_completed_at"] = now_text
+        config.pop("scenario_events_cleanup_error", None)
+        changed = True
+    elif cleanup_pending:
+        config["scenario_events_cleanup_error"] = status_text
+        changed = True
+    native_event_ids = {str(event.get("id") or "") for event in native_events if isinstance(event, dict)}
+    for event in native_events:
         if not isinstance(event, dict):
-            continue
-        if str(event.get("created_by") or "") != "dashboard":
-            continue
-        if not event.get("enabled", True):
-            continue
-        if is_file_vehicle_reset_event(event):
             continue
         affected_events.append(event)
         if success:
@@ -30001,7 +30015,11 @@ def dashboard_upload_console_ce_event_files(guild_id):
             changed = True
     if changed:
         try:
-            queue_scenario_event_discord_notice(config, success, built, messages, affected_events, "Dashboard upload")
+            queue_events = affected_events if affected_events else [
+                event for event in scenario_events_for_config(config)
+                if isinstance(event, dict) and str(event.get("id") or "") in native_event_ids
+            ]
+            queue_scenario_event_discord_notice(config, success, built, messages, queue_events, "Dashboard upload")
         except Exception as notice_error:
             messages.append(f"Discord notice queue skipped after upload state update: {type(notice_error).__name__}: {notice_error}")
         save_guild_configs()
@@ -30071,7 +30089,82 @@ def build_scenario_event_xml(event):
     loot = event.get("loot") or []
     if isinstance(loot, str):
         loot = [item.strip() for item in loot.split(",") if item.strip()]
-    loot_attr = "|".join(str(item).strip() for item in loot if str(item).strip())
+    resolved_loot = scenario_loot_items(event)
+    loot_attr = "|".join(str(item).strip() for item in resolved_loot if str(item).strip())
+
+    if event_type in {"airdrop", "loot_crate"}:
+        lines = []
+
+        def fmt_pos(px, py, pz):
+            return f"{ce_decimal(px)} {ce_decimal(py)} {ce_decimal(pz)}"
+
+        def add_spawn_line(action, name, px, py, pz, extra_attrs=""):
+            name = str(name or "").strip()
+            if not name:
+                return
+            suffix = f" {extra_attrs.strip()}" if str(extra_attrs or "").strip() else ""
+            lines.append(
+                f'<object action="{safe_xml_attr(action)}" name="{safe_xml_attr(name)}" '
+                f'pos="{fmt_pos(px, py, pz)}"{suffix} />'
+            )
+
+        scene = scenario_airdrop_scene_config(event)
+        base_y = y or 0
+        crate_x = x
+        crate_z = z
+        if event.get("visual_marker"):
+            marker_class = str(scene.get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+            add_spawn_line("spawn_item", marker_class, x, base_y, z)
+            for scene_prop in scene.get("props") or SCENARIO_AIRDROP_SCENE_PROPS:
+                offset_x = parse_dayz_map_number(scene_prop.get("x")) or 0
+                offset_y = parse_dayz_map_number(scene_prop.get("y")) or 0
+                offset_z = parse_dayz_map_number(scene_prop.get("z")) or 0
+                add_spawn_line("spawn_item", scene_prop.get("type"), x + offset_x, base_y + offset_y, z + offset_z)
+            crate_offset = scene.get("crate_offset") or ("0", "0")
+            crate_x += parse_dayz_map_number(crate_offset[0]) or 0
+            crate_z += parse_dayz_map_number(crate_offset[1]) or 0
+
+        ground_loot = scenario_airdrop_ground_loot_items(event) if event_type == "airdrop" else []
+        ground_spread = int(scene.get("ground_spread") or max(12, min(35, radius or 18)))
+        for index, item_name in enumerate(ground_loot[:36]):
+            offset_x, offset_z = scenario_airdrop_child_offsets(index, ground_spread, max_spread=ground_spread)
+            add_spawn_line("spawn_item", item_name, x + offset_x, base_y, z + offset_z)
+
+        crate_loot = list(scenario_airdrop_ammo_box_items(event)) if event_type == "airdrop" else list(resolved_loot)
+        seen_crate_loot = {str(item).lower() for item in crate_loot}
+        for weapon_name in ground_loot:
+            recipe = SCENARIO_AIRDROP_WEAPON_RECIPES.get(weapon_name, {})
+            for child_name in list(recipe.get("attachments", [])) + list(recipe.get("supplies", [])):
+                child_key = str(child_name).lower()
+                if child_name and child_key not in seen_crate_loot:
+                    seen_crate_loot.add(child_key)
+                    crate_loot.append(child_name)
+        if not crate_loot and resolved_loot:
+            crate_loot = list(resolved_loot[:20])
+        crate_loot_attr = "|".join(str(item).strip() for item in crate_loot[:48] if str(item).strip())
+        crate_radius = 0 if count <= 1 else max(1, min(12, radius))
+
+        extra_attrs = {
+            "event_type": event.get("event_type", ""),
+            "loot_preset": event.get("loot_preset", ""),
+            "guard_class": event.get("guard_class", ""),
+            "guard_count": event.get("guard_count", ""),
+            "guard_radius": event.get("guard_radius", ""),
+            "visual_marker": "1" if event.get("visual_marker") else "",
+        }
+        extra_text = " ".join(
+            f'{key}="{safe_xml_attr(value)}"'
+            for key, value in extra_attrs.items()
+            if str(value or "").strip()
+        )
+        if extra_text:
+            extra_text = " " + extra_text
+        lines.append(
+            f'<object action="spawn_event" name="{safe_xml_attr(class_name)}" '
+            f'pos="{fmt_pos(crate_x, base_y, crate_z)}" count="{count}" radius="{crate_radius}" '
+            f'loot="{safe_xml_attr(crate_loot_attr)}" event_id="{safe_xml_attr(event.get("id", ""))}"{extra_text} />'
+        )
+        return "\n".join(lines)
 
     extra_attrs = {
         "event_type": event.get("event_type", ""),
@@ -32115,6 +32208,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         except Exception as notice_error:
             bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
         changed = True
+        cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
 
     pending_events = native_events
     if not pending_events and not cleanup_pending:
