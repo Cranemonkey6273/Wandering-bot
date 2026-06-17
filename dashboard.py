@@ -11245,6 +11245,23 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
+def is_dashboard_native_ce_event(event: Any) -> bool:
+    if not isinstance(event, dict):
+        return False
+    upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
+    status_text = str(event.get("status") or "").strip().lower()
+    return (
+        str(event.get("created_by") or "") == "dashboard"
+        and str(event.get("event_type") or "") != "vehicle_reset_all"
+        and (
+            upload_status in {"", "waiting_for_bot_upload", "failed", "uploaded", "queued", "uploading", "starting"}
+            or "upload requested" in status_text
+            or "upload starting" in status_text
+            or "waiting for bot upload" in status_text
+        )
+    )
+
+
 def remember_scenario_upload_warning(event: dict[str, Any], warning: Any, now_text: str | None = None) -> None:
     warnings = event.get("native_ce_upload_warnings")
     if not isinstance(warnings, list):
@@ -11406,12 +11423,8 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
         if not isinstance(event, dict):
             continue
         is_target = safe_int(event.get("id"), 0) == safe_int(event_id, 0)
-        is_dashboard_scenario = (
-            str(event.get("created_by") or "") == "dashboard"
-            and str(event.get("event_type") or "") != "vehicle_reset_all"
-            and str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed", "uploaded"}
-        )
-        if event_id and not is_target and not (upload_ok and is_dashboard_scenario):
+        is_dashboard_scenario = is_dashboard_native_ce_event(event)
+        if event_id and not is_target and not is_dashboard_scenario:
             continue
         event["updated_at"] = now_text
         if upload_ok:
@@ -11463,7 +11476,8 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
                 for event in events:
                     if not isinstance(event, dict):
                         continue
-                    if event_id and safe_int(event.get("id"), 0) != safe_int(event_id, 0):
+                    is_target = safe_int(event.get("id"), 0) == safe_int(event_id, 0)
+                    if event_id and not is_target and not is_dashboard_native_ce_event(event):
                         continue
                     event["updated_at"] = datetime.now(UTC).isoformat()
                     if scenario_event_has_confirmed_native_upload(event):

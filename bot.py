@@ -2708,17 +2708,67 @@ def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
     return player_name, None
 
 
+def linked_player_gamertags(data):
+    names = []
+    seen = set()
+
+    def add(value):
+        name = str(value or "").strip()
+        key = normalize_discord_name(name)
+        if name and key and key not in seen:
+            seen.add(key)
+            names.append(name)
+
+    if isinstance(data, dict):
+        add(data.get("gamertag") or data.get("player_name"))
+        alt_values = data.get("alt_gamertags")
+        if alt_values is None:
+            alt_values = data.get("alts") or data.get("alt_gamertag")
+        if isinstance(alt_values, (list, tuple, set)):
+            for value in alt_values:
+                add(value)
+        else:
+            add(alt_values)
+    return names[:2]
+
+
+def linked_player_alt_gamertags(data):
+    return linked_player_gamertags(data)[1:2]
+
+
+def linked_player_matches_gamertag(data, gamertag):
+    wanted = normalize_discord_name(gamertag)
+    if not wanted:
+        return False
+    return any(normalize_discord_name(name) == wanted for name in linked_player_gamertags(data))
+
+
+def linked_player_primary_gamertag(data):
+    names = linked_player_gamertags(data)
+    return names[0] if names else ""
+
+
+def linked_player_gamertag_summary(data):
+    names = linked_player_gamertags(data)
+    if not names:
+        return "`Not linked`"
+    lines = [f"Primary: `{names[0]}`"]
+    if len(names) > 1:
+        lines.append(f"Alt: `{names[1]}`")
+    return "\n".join(lines)
+
+
 def gamertag_linked_to_other_user(gamertag, user_id):
     wanted = normalize_discord_name(gamertag)
     for linked_user_id, data in linked_players.items():
         if str(linked_user_id) == str(user_id):
             continue
-        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+        if linked_player_matches_gamertag(data, wanted):
             return linked_user_id, data
     return None, None
 
 
-async def announce_verified_gamer_link(guild, config, member, gamertag):
+async def announce_verified_gamer_link(guild, config, member, gamertag, account_label="Primary gamertag"):
     channel = await get_or_create_feed_channel(
         guild,
         config,
@@ -2733,6 +2783,7 @@ async def announce_verified_gamer_link(guild, config, member, gamertag):
         color=0x2ECC71
     )
     embed.add_field(name="Discord", value=str(member), inline=True)
+    embed.add_field(name="Account", value=account_label, inline=True)
     embed.add_field(name="ADM Verified Gamertag", value=gamertag, inline=True)
     embed.add_field(name="Recognition", value="Identity confirmed from ADM history and ready for economy rewards.", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -2754,6 +2805,7 @@ async def announce_verified_gamer_link(guild, config, member, gamertag):
         )
         audit.add_field(name="Discord", value=f"{member.mention}\n`{member}`", inline=False)
         audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+        audit.add_field(name="Account", value=account_label, inline=True)
         audit.add_field(name="Gamertag", value=f"`{gamertag}`", inline=True)
         audit.add_field(name="Guild", value=f"{guild.name}\n`{guild.id}`", inline=False)
         audit.set_thumbnail(url=BOT_IMAGE)
@@ -2761,20 +2813,21 @@ async def announce_verified_gamer_link(guild, config, member, gamertag):
         await audit_channel.send(embed=style_embed(audit))
 
 
-def build_linkgamer_confirmation_embed(member, gamertag):
+def build_linkgamer_confirmation_embed(member, gamertag, account_label="Primary gamertag"):
     embed = discord.Embed(
         title="VERIFIED GAMERTAG LINKED",
         description=f"{member.mention} has linked an ADM verified survivor name.",
         color=0x2ECC71
     )
     embed.add_field(name="Discord User", value=f"{member.mention}\n`{member}`", inline=False)
+    embed.add_field(name="Account", value=account_label, inline=False)
     embed.add_field(name="ADM Verified Gamertag", value=f"`{gamertag}`", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - Identity System")
     return embed
 
 
-async def link_verified_gamertag_for_member(guild, member, gamertag):
+async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=False):
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
     verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
@@ -2810,23 +2863,54 @@ async def link_verified_gamertag_for_member(guild, member, gamertag):
         return False, f"`{verified_name}` is already linked to `{linked_data.get('discord_name', linked_user_id)}`. Ask staff if this needs correcting."
 
     user_id = str(member.id)
-    linked_players[user_id] = {
-        "discord_name": str(member),
-        "discord_id": user_id,
-        "guild_id": guild_id,
-        "gamertag": verified_name,
-        "verified_by": "ADM",
-        "linked_at": str(datetime.now(UTC))
-    }
+    existing = linked_players.get(user_id, {}) if isinstance(linked_players.get(user_id), dict) else {}
+    primary_name = linked_player_primary_gamertag(existing)
+    existing_alt = linked_player_alt_gamertags(existing)
+    verified_key = normalize_discord_name(verified_name)
+
+    if is_alt:
+        if not primary_name:
+            return False, "Link your main gamertag first with `/linkgamer`, then add one alt with `/linkaltgamer`."
+        if normalize_discord_name(primary_name) == verified_key:
+            return False, f"`{verified_name}` is already your primary linked gamertag."
+        if existing_alt and normalize_discord_name(existing_alt[0]) != verified_key:
+            return False, f"You already have one alt linked: `{existing_alt[0]}`. Remove it with `/unlinkaltgamer` before linking a different alt."
+        linked_players[user_id] = {
+            **existing,
+            "discord_name": str(member),
+            "discord_id": user_id,
+            "guild_id": guild_id,
+            "gamertag": primary_name,
+            "alt_gamertags": [verified_name],
+            "alt_verified_by": "ADM",
+            "alt_linked_at": str(datetime.now(UTC)),
+        }
+        account_label = "Alt gamertag"
+    else:
+        alt_gamertags = [
+            alt for alt in existing_alt
+            if normalize_discord_name(alt) != verified_key
+        ][:1]
+        linked_players[user_id] = {
+            **existing,
+            "discord_name": str(member),
+            "discord_id": user_id,
+            "guild_id": guild_id,
+            "gamertag": verified_name,
+            "alt_gamertags": alt_gamertags,
+            "verified_by": "ADM",
+            "linked_at": str(datetime.now(UTC))
+        }
+        account_label = "Primary gamertag"
 
     save_linked_players()
     await cleanup_link_enforcement_after_link(
         guild_id,
         config,
         verified_name,
-        source="linkgamer",
+        source="linkaltgamer" if is_alt else "linkgamer",
     )
-    await announce_verified_gamer_link(guild, config, member, verified_name)
+    await announce_verified_gamer_link(guild, config, member, verified_name, account_label=account_label)
     return True, verified_name
 
 # =========================================================
@@ -9740,7 +9824,10 @@ def member_faction_names(guild_id, member):
     user_id = str(getattr(member, "id", "") or "")
     role_ids = {str(getattr(role, "id", "")) for role in getattr(member, "roles", []) or []}
     link = linked_players.get(user_id, {}) if isinstance(linked_players, dict) else {}
-    gamertag = str(link.get("gamertag") or link.get("player_name") or "").strip().lower()
+    gamertags = {
+        normalize_discord_name(name)
+        for name in linked_player_gamertags(link)
+    }
     names = []
     for name, faction in all_guild_factions(guild_id).items():
         if str(faction.get("leader_id") or "").strip() == user_id:
@@ -9760,7 +9847,7 @@ def member_faction_names(guild_id, member):
             else:
                 member_id = str(member_record).strip()
                 member_name = str(member_record).strip().lower()
-            if member_id == user_id or (gamertag and member_name == gamertag):
+            if member_id == user_id or (member_name and normalize_discord_name(member_name) in gamertags):
                 names.append(name)
                 break
     return names
@@ -12723,6 +12810,7 @@ async def setup_command(
             name="FACTIONS, IDENTITY & SUPPORT",
             value=(
                 "`/linkgamer gamertag` - link Discord to gamertag\n"
+                "`/linkaltgamer gamertag` - link one extra alt gamertag\n"
                 "`/mylink` - view linked account\n"
                 "`/playerstats player_name` - lookup player stats\n"
                 "`/factionticket faction_name` - create faction request\n"
@@ -17729,7 +17817,7 @@ async def helpme(ctx):
         name="Translation, Factions & Support",
         value=(
             "`/translationconfig` - automatic translation: `same`, `channel`, or `off`\n"
-            "`/linkgamer gamertag`, `/mylink`\n"
+            "`/linkgamer gamertag`, `/linkaltgamer gamertag`, `/mylink`\n"
             "`/factionticket faction_name`, `/factionapprove message_id`\n"
             "`/supportbot issue` - admin ticket to the bot owner"
         ),
@@ -18087,10 +18175,7 @@ async def factionticket(ctx, *, faction_name: str):
         {}
     )
 
-    gamertag = linked_data.get(
-        "gamertag",
-        "Not Linked"
-    )
+    gamertag = linked_player_gamertag_summary(linked_data)
 
     embed = discord.Embed(
         title="🎫 NEW FACTION REQUEST",
@@ -19747,7 +19832,7 @@ def linked_discord_member_for_gamertag(guild, guild_id, gamertag):
     for user_id, data in linked_players.items():
         if str(data.get("guild_id") or guild_id) != str(guild_id):
             continue
-        if normalize_discord_name(data.get("gamertag", "")) != wanted:
+        if not linked_player_matches_gamertag(data, wanted):
             continue
         member = guild.get_member(int(user_id)) if guild else None
         if member:
@@ -19762,7 +19847,7 @@ async def has_linked_discord_member_for_gamertag(guild, guild_id, gamertag):
     for user_id, data in linked_players.items():
         if str(data.get("guild_id") or guild_id) != str(guild_id):
             continue
-        if normalize_discord_name(data.get("gamertag", "")) != wanted:
+        if not linked_player_matches_gamertag(data, wanted):
             continue
         if not guild:
             return True
@@ -19783,7 +19868,7 @@ def has_known_linked_gamertag(guild_id, gamertag):
     for _user_id, data in linked_players.items():
         if str(data.get("guild_id") or guild_id) != str(guild_id):
             continue
-        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+        if linked_player_matches_gamertag(data, wanted):
             return True
     return False
 
@@ -22612,7 +22697,7 @@ def linked_user_id_for_player(player_name):
     for user_id, data in linked_players.items():
         if data.get("verified_by") != "ADM":
             continue
-        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+        if linked_player_matches_gamertag(data, wanted):
             return str(user_id)
     return None
 
@@ -24240,6 +24325,34 @@ async def linkgamer(ctx, *, gamertag: str):
     await ctx.send(embed=style_embed(embed))
 
 
+@bot.command()
+async def linkaltgamer(ctx, *, gamertag: str):
+    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag, is_alt=True)
+    if not success:
+        await ctx.send(result)
+        return
+    await ctx.send(embed=style_embed(build_linkgamer_confirmation_embed(ctx.author, result, account_label="Alt gamertag")))
+
+
+@bot.command()
+async def unlinkaltgamer(ctx):
+    user_id = str(ctx.author.id)
+    data = linked_players.get(user_id)
+    if not isinstance(data, dict):
+        await ctx.send("No linked gamertag found.")
+        return
+    alt_gamertags = linked_player_alt_gamertags(data)
+    if not alt_gamertags:
+        await ctx.send("You do not have an alt gamertag linked.")
+        return
+    removed = alt_gamertags[0]
+    data["alt_gamertags"] = []
+    data.pop("alt_verified_by", None)
+    data.pop("alt_linked_at", None)
+    save_linked_players()
+    await ctx.send(f"Removed linked alt gamertag `{removed}`. You can now link a different alt with `/linkaltgamer`.")
+
+
 @bot.tree.command(
     name="linkgamer",
     description="Link your Discord account to your Xbox gamertag"
@@ -24279,6 +24392,58 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str):
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
+@bot.tree.command(
+    name="linkaltgamer",
+    description="Link one extra alt gamertag to your Discord account"
+)
+@app_commands.describe(gamertag="Your alt Xbox gamertag")
+async def slash_linkaltgamer(interaction: discord.Interaction, gamertag: str):
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(
+        "Checking ADM history for that alt gamertag. Each Discord account can link one alt only.",
+        ephemeral=True
+    )
+
+    success, result = await link_verified_gamertag_for_member(interaction.guild, interaction.user, gamertag, is_alt=True)
+    if not success:
+        await interaction.followup.send(result, ephemeral=True)
+        return
+    confirmation = style_embed(
+        build_linkgamer_confirmation_embed(interaction.user, result, account_label="Alt gamertag")
+    )
+
+    if interaction.channel:
+        await interaction.channel.send(embed=confirmation)
+        await interaction.followup.send(
+            f"Linked alt `{result}` and posted the confirmation in this channel.",
+            ephemeral=True
+        )
+    else:
+        await interaction.followup.send(embed=confirmation, ephemeral=True)
+
+
+@bot.tree.command(name="unlinkaltgamer", description="Remove your linked alt gamertag")
+async def slash_unlinkaltgamer(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
+    data = linked_players.get(user_id)
+    if not isinstance(data, dict):
+        await interaction.response.send_message("No linked gamertag found.", ephemeral=True)
+        return
+    alt_gamertags = linked_player_alt_gamertags(data)
+    if not alt_gamertags:
+        await interaction.response.send_message("You do not have an alt gamertag linked.", ephemeral=True)
+        return
+    removed = alt_gamertags[0]
+    data["alt_gamertags"] = []
+    data.pop("alt_verified_by", None)
+    data.pop("alt_linked_at", None)
+    save_linked_players()
+    await interaction.response.send_message(
+        f"Removed linked alt `{removed}`. You can now link a different alt with `/linkaltgamer`.",
+        ephemeral=True,
+    )
+
+
 async def force_link_gamertag_for_member(guild, admin_member, target_member, gamertag):
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
@@ -24288,14 +24453,34 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
 
     wanted = normalize_discord_name(verified_name)
     for linked_user_id, data in list(linked_players.items()):
-        if str(linked_user_id) != str(target_member.id) and normalize_discord_name(data.get("gamertag", "")) == wanted:
+        if str(linked_user_id) == str(target_member.id) or not linked_player_matches_gamertag(data, wanted):
+            continue
+        if normalize_discord_name(data.get("gamertag", "")) == wanted:
             linked_players.pop(linked_user_id, None)
+            continue
+        if isinstance(data, dict):
+            remaining_alts = [
+                alt for alt in linked_player_alt_gamertags(data)
+                if normalize_discord_name(alt) != wanted
+            ]
+            data["alt_gamertags"] = remaining_alts
+            if not remaining_alts:
+                data.pop("alt_verified_by", None)
+                data.pop("alt_linked_at", None)
+
+    existing = linked_players.get(str(target_member.id), {}) if isinstance(linked_players.get(str(target_member.id)), dict) else {}
+    alt_gamertags = [
+        alt for alt in linked_player_alt_gamertags(existing)
+        if normalize_discord_name(alt) != wanted
+    ][:1]
 
     linked_players[str(target_member.id)] = {
+        **existing,
         "discord_name": str(target_member),
         "discord_id": str(target_member.id),
         "guild_id": guild_id,
         "gamertag": verified_name,
+        "alt_gamertags": alt_gamertags,
         "verified_by": f"FORCED_BY_ADMIN:{admin_member.id}",
         "linked_at": str(datetime.now(UTC))
     }
@@ -24443,8 +24628,8 @@ async def mylink(ctx):
     )
 
     embed.add_field(
-        name="Gamertag",
-        value=data['gamertag'],
+        name="Linked Gamertags",
+        value=linked_player_gamertag_summary(data),
         inline=False
     )
 
@@ -26566,29 +26751,150 @@ def console_ce_path_suffix(key):
     return "cfgeventspawns.xml"
 
 
-def console_ce_path_candidates(config, guild_id, key, requested_path="", configured_path=""):
-    candidates = []
+def console_ce_allowed_mission_folders(guild_id):
     map_key = server_map_key(guild_id)
-    allowed_missions = [console_mission_folder_for_map(map_key)]
+    missions = [console_mission_folder_for_map(map_key)]
     if map_key == "sakhal":
-        allowed_missions.append("dayzOffline.sakhalplus")
-    allowed_mission_keys = {normalize_discord_name(mission) for mission in allowed_missions if mission}
+        missions.append("dayzOffline.sakhalplus")
+    return [mission for mission in missions if mission]
 
-    def path_matches_selected_map(path):
+
+def console_ce_path_matches_selected_map(guild_id, path):
+    clean = canonical_remote_path(path)
+    if not clean:
+        return False
+    normalized = normalize_discord_name(clean)
+    known_missions = [mission for mission in DAYZ_REFERENCE_MAP_FOLDERS.values()]
+    known_missions.extend(["dayzOffline.sakhalplus", "dayzOffline.namalsk"])
+    mentioned = [mission for mission in known_missions if normalize_discord_name(mission) in normalized]
+    if not mentioned:
+        return True
+    allowed_mission_keys = {
+        normalize_discord_name(mission)
+        for mission in console_ce_allowed_mission_folders(guild_id)
+    }
+    return any(normalize_discord_name(mission) in allowed_mission_keys for mission in mentioned)
+
+
+def strip_nitrado_noftp_prefix(config, path):
+    clean = canonical_remote_path(path)
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if nitrado_user:
+        for prefix in (f"/games/{nitrado_user}/noftp", f"/games/{nitrado_user}/ftproot"):
+            if clean.startswith(prefix + "/"):
+                return canonical_remote_path(clean[len(prefix):])
+    return clean
+
+
+def console_ce_mission_base_from_path(config, guild_id, path):
+    clean = strip_nitrado_noftp_prefix(config, path)
+    if not console_ce_path_matches_selected_map(guild_id, clean):
+        return ""
+    normalized = normalize_discord_name(clean)
+    for mission in console_ce_allowed_mission_folders(guild_id):
+        mission_key = normalize_discord_name(mission)
+        marker = f"/{mission.lower()}"
+        if mission_key not in normalized:
+            continue
+        lower_clean = clean.lower()
+        index = lower_clean.find(marker)
+        if index < 0:
+            continue
+        return canonical_remote_path(clean[:index + len(marker)])
+    return ""
+
+
+def remember_console_ce_mission_base(config, guild_id, path):
+    base = console_ce_mission_base_from_path(config, guild_id, path)
+    if not base:
+        return
+    bases = config.get("_console_ce_mission_bases")
+    if not isinstance(bases, list):
+        bases = []
+    bases = [str(item) for item in bases if console_ce_path_matches_selected_map(guild_id, item)]
+    if base not in bases:
+        bases.insert(0, base)
+    config["_console_ce_mission_bases"] = bases[:6]
+
+
+def discover_console_ce_mission_bases(config, guild_id):
+    bases = []
+
+    def add_base(path):
+        base = console_ce_mission_base_from_path(config, guild_id, path)
+        if base and base not in bases:
+            bases.append(base)
+
+    cached = config.get("_console_ce_mission_bases")
+    if isinstance(cached, list):
+        for path in cached:
+            add_base(path)
+
+    settings = console_ce_event_config(config)
+    for value in settings.values():
+        if isinstance(value, str):
+            add_base(value)
+
+    active_mission = str(config.get("active_mission_dir") or "").strip().strip("/")
+    if active_mission:
+        if "/" in active_mission:
+            add_base(active_mission)
+        else:
+            for root in mission_root_candidates_for_platform(server_platform_key(guild_id)):
+                add_base(f"{root}/{active_mission}")
+
+    if bases:
+        return bases
+
+    try:
+        for init_path in discover_init_c_paths(config, max_dirs=36, timeout_seconds=5):
+            add_base(init_path)
+            if len(bases) >= 4:
+                break
+    except Exception:
+        pass
+
+    return bases
+
+
+def compact_ce_download_message(message, limit=280):
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    if "Just a moment" in text or "<!DOCTYPE html" in text:
+        text = "Nitrado/Cloudflare returned an HTML rate-limit page while probing that path."
+    return text[:limit]
+
+
+def console_ce_download_failure_message(guild_id, key, attempted):
+    attempted = attempted if isinstance(attempted, list) else []
+    file_name = os.path.basename(console_ce_path_suffix(key))
+    mission = console_mission_folder_for_map(server_map_key(guild_id))
+    platform = server_platform_key(guild_id)
+    tried_paths = []
+    last_message = ""
+    for path, message in attempted:
         clean = canonical_remote_path(path)
-        if not clean:
-            return False
-        normalized = normalize_discord_name(clean)
-        known_missions = [mission for mission in DAYZ_REFERENCE_MAP_FOLDERS.values()]
-        known_missions.extend(["dayzOffline.sakhalplus", "dayzOffline.namalsk"])
-        mentioned = [mission for mission in known_missions if normalize_discord_name(mission) in normalized]
-        if not mentioned:
-            return True
-        return any(normalize_discord_name(mission) in allowed_mission_keys for mission in mentioned)
+        if clean and clean not in tried_paths:
+            tried_paths.append(clean)
+        if message:
+            last_message = compact_ce_download_message(message)
+    sample = ", ".join(f"`{path}`" for path in tried_paths[:6])
+    if len(tried_paths) > 6:
+        sample += f", +{len(tried_paths) - 6} more"
+    return (
+        f"Could not download existing `{file_name}` for mission `{mission}` "
+        f"while probing `{platform}` CE roots. Tried {len(tried_paths)} path(s)"
+        + (f": {sample}." if sample else ".")
+        + (f" Last response: {last_message}" if last_message else "")
+    )
+
+
+def console_ce_path_candidates(config, guild_id, key, requested_path="", configured_path="", include_discovery=False):
+    candidates = []
+    allowed_missions = console_ce_allowed_mission_folders(guild_id)
 
     def add(path):
         clean = canonical_remote_path(path)
-        if clean and not path_matches_selected_map(clean):
+        if clean and not console_ce_path_matches_selected_map(guild_id, clean):
             return
         if clean and clean not in candidates:
             candidates.append(clean)
@@ -26599,12 +26905,16 @@ def console_ce_path_candidates(config, guild_id, key, requested_path="", configu
 
     mission_names = []
     configured_mission = str(config.get("active_mission_dir") or "").strip().strip("/")
-    if configured_mission and path_matches_selected_map(configured_mission):
+    if "/" not in configured_mission and configured_mission and console_ce_path_matches_selected_map(guild_id, configured_mission):
         mission_names.append(configured_mission)
     mission_names.extend(allowed_missions)
 
-    mission_bases = mission_root_candidates_for_platform(server_platform_key(guild_id))
     suffix = console_ce_path_suffix(key)
+    if include_discovery:
+        for base in discover_console_ce_mission_bases(config, guild_id):
+            add(f"{base}/{suffix}")
+
+    mission_bases = mission_root_candidates_for_platform(server_platform_key(guild_id))
     seen_missions = []
     for mission in mission_names:
         mission = str(mission or "").strip().strip("/")
@@ -26628,6 +26938,24 @@ def console_ce_event_config(config):
     settings.setdefault("cfgareaeffects_path", "")
     settings.setdefault("cfgeffectarea_path", "")
     return settings
+
+
+def clear_console_ce_path_cache(config):
+    config.pop("_console_ce_mission_bases", None)
+    settings = config.get("console_ce_events")
+    if not isinstance(settings, dict):
+        return
+    for key in (
+        "events_path",
+        "spawns_path",
+        "eventgroups_path",
+        "mapgroupproto_path",
+        "spawnabletypes_path",
+        "cfgenvironment_path",
+        "cfgareaeffects_path",
+        "cfgeffectarea_path",
+    ):
+        settings.pop(key, None)
 
 
 def stack_watch_action(settings):
@@ -28033,14 +28361,31 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     defaults = console_ce_default_paths(guild_id)
     settings = console_ce_event_config(config)
     target_path = requested_path or settings.get(key) or defaults[key]
-    messages = []
+    attempted = []
+    tried = set()
     for candidate_path in console_ce_path_candidates(config, guild_id, key, requested_path, settings.get(key)):
+        tried.add(candidate_path)
         ok, message, text = download_text_file_from_nitrado(config, candidate_path)
-        messages.append(f"{candidate_path}: {message}")
+        attempted.append((candidate_path, message))
         if ok and text:
+            remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
 
-    message = " | ".join(messages[-4:]) if messages else f"{target_path}: no path candidates were available"
+    for candidate_path in console_ce_path_candidates(config, guild_id, key, requested_path, settings.get(key), include_discovery=True):
+        if candidate_path in tried:
+            continue
+        tried.add(candidate_path)
+        ok, message, text = download_text_file_from_nitrado(config, candidate_path)
+        attempted.append((candidate_path, message))
+        if ok and text:
+            remember_console_ce_mission_base(config, guild_id, candidate_path)
+            return text, candidate_path, message
+
+    message = (
+        console_ce_download_failure_message(guild_id, key, attempted)
+        if attempted
+        else f"{target_path}: no path candidates were available"
+    )
 
     map_key = server_map_key(guild_id)
     if key == "events_path":
@@ -28076,13 +28421,29 @@ def download_console_effect_area_source(config, guild_id, requested_path=""):
     settings = console_ce_event_config(config)
     defaults = console_ce_default_paths(guild_id)
     target_path = requested_path or settings.get("cfgeffectarea_path") or defaults["cfgeffectarea_path"]
-    messages = []
+    attempted = []
+    tried = set()
     for candidate_path in console_ce_path_candidates(config, guild_id, "cfgeffectarea_path", target_path, settings.get("cfgeffectarea_path")):
+        tried.add(candidate_path)
         ok, message, text = download_text_file_from_nitrado(config, candidate_path)
-        messages.append(f"{candidate_path}: {message}")
+        attempted.append((candidate_path, message))
         if ok and text:
+            remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
-    return "", target_path, " | ".join(messages[-4:]) if messages else f"{target_path}: no path candidates were available"
+    for candidate_path in console_ce_path_candidates(config, guild_id, "cfgeffectarea_path", target_path, settings.get("cfgeffectarea_path"), include_discovery=True):
+        if candidate_path in tried:
+            continue
+        tried.add(candidate_path)
+        ok, message, text = download_text_file_from_nitrado(config, candidate_path)
+        attempted.append((candidate_path, message))
+        if ok and text:
+            remember_console_ce_mission_base(config, guild_id, candidate_path)
+            return text, candidate_path, message
+    return "", target_path, (
+        console_ce_download_failure_message(guild_id, "cfgeffectarea_path", attempted)
+        if attempted
+        else f"{target_path}: no path candidates were available"
+    )
 
 
 def patch_cfgeffectarea_gas_particle(value, mode):
@@ -29067,6 +29428,19 @@ def scenario_event_has_confirmed_native_upload(event):
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
+def scenario_event_upload_needs_resolution(event):
+    if not isinstance(event, dict):
+        return False
+    upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
+    status_text = str(event.get("status") or "").strip().lower()
+    return (
+        upload_status in {"", "waiting_for_bot_upload", "failed", "queued", "uploading", "starting"}
+        or "upload requested" in status_text
+        or "upload starting" in status_text
+        or "waiting for bot upload" in status_text
+    )
+
+
 def remember_native_ce_upload_warning(event, warning, now_text=None):
     warnings = event.get("native_ce_upload_warnings")
     if not isinstance(warnings, list):
@@ -29148,7 +29522,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
             apply_native_ce_upload_metadata(event, built, messages, now_text)
             event["updated_at"] = now_text
             changed = True
-        elif str(event.get("upload_status") or "waiting_for_bot_upload") in {"waiting_for_bot_upload", "failed"}:
+        elif scenario_event_upload_needs_resolution(event):
             if scenario_event_has_confirmed_native_upload(event):
                 remember_native_ce_upload_warning(event, status_text, now_text)
                 event["updated_at"] = now_text
@@ -32004,6 +32378,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         name="👥 Player & Community",
         value=(
             "`/linkgamer` — Link your Discord account to your in-game gamertag.\n"
+            "`/linkaltgamer` — Link one extra alt gamertag to the same Discord account.\n"
             "`/mylink` — Check which gamertag your Discord is linked to.\n"
             "`/forcelinkgamer` — Admin: manually link any member to a gamertag.\n"
             "`/topkills` — Leaderboard of top PvP killers on the server.\n"
@@ -32298,7 +32673,8 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="Optional — Link Your Gamertag",
         value=(
-            "Players can run `/linkgamer` to connect their Discord to their in-game name. "
+            "Players can run `/linkgamer` to connect their Discord to their in-game name, "
+            "then `/linkaltgamer` if they have one extra alt account. "
             "This enables leaderboards, economy rewards, and personalised quest tracking."
         ),
         inline=False
@@ -37402,17 +37778,13 @@ async def slash_whoami(interaction: discord.Interaction):
 
     # Linked gamertag + stats
     discord_id = str(member.id)
-    linked_player = None
-    for player_name, info in linked_players.items():
-        if str(info.get("discord_id", "")) == discord_id:
-            linked_player = (player_name, info)
-            break
-    if linked_player:
-        player_name, info = linked_player
+    info = linked_players.get(discord_id, {})
+    player_name = linked_player_primary_gamertag(info)
+    if player_name:
         stats = player_stats.get(player_name, {})
         embed.add_field(
             name="🎮 Linked gamertag",
-            value=f"**`{player_name}`** — linked since <t:{int(info.get('linked_at', 0))}:R>" if info.get("linked_at") else f"**`{player_name}`**",
+            value=linked_player_gamertag_summary(info),
             inline=False,
         )
         kills = stat_int(stats, "kills") if stats else 0
@@ -37562,10 +37934,7 @@ async def slash_playercard(interaction: discord.Interaction, player_name: str = 
     if not player_name:
         # Try to resolve via linked_players
         discord_id = str(interaction.user.id)
-        for linked_name, info in linked_players.items():
-            if str(info.get("discord_id", "")) == discord_id:
-                player_name = linked_name
-                break
+        player_name = linked_player_primary_gamertag(linked_players.get(discord_id, {}))
         if not player_name:
             await interaction.response.send_message(
                 "❌ You haven't linked a gamertag yet. Run `/linkgamer <your in-game name>` first, "
@@ -38610,6 +38979,7 @@ async def slash_server_setmission(interaction: discord.Interaction, name: str = 
     if not clean:
         config.pop("active_mission_dir", None)
         config.pop("_nitrado_banlist_working_path", None)
+        clear_console_ce_path_cache(config)
         save_guild_configs()
         await interaction.response.send_message(
             "✅ Active mission cleared — bot will auto-detect next ban write.",
@@ -38619,6 +38989,7 @@ async def slash_server_setmission(interaction: discord.Interaction, name: str = 
     config["active_mission_dir"] = clean
     # Reset the sticky path so the next write re-probes with the new mission.
     config.pop("_nitrado_banlist_working_path", None)
+    clear_console_ce_path_cache(config)
     save_guild_configs()
     await interaction.response.send_message(
         f"✅ Active mission pinned to `{clean}`. "
@@ -38644,10 +39015,7 @@ async def slash_server_setplatform(interaction: discord.Interaction, platform: s
     selected = normalize_server_platform(platform)
     config["server_platform"] = selected
     config.pop("_nitrado_banlist_working_path", None)
-    ce_settings = config.get("console_ce_events")
-    if isinstance(ce_settings, dict):
-        for key in ("events_path", "spawns_path", "spawnabletypes_path", "eventgroups_path", "mapgroupproto_path", "cfgenvironment_path"):
-            ce_settings.pop(key, None)
+    clear_console_ce_path_cache(config)
     save_guild_configs()
     label = {"xbox": "Xbox / DayZXB", "playstation": "PlayStation / DayZPS", "pc": "PC / DayZPC"}[selected]
     await interaction.response.send_message(
@@ -40372,8 +40740,8 @@ async def on_member_remove(member):
             f"`{member.display_name}` has departed. Someone check they did not take the good beans.",
         ])
         embed = discord.Embed(title=title, description=description, color=0x95A5A6)
-        if linked.get("gamertag"):
-            embed.add_field(name="Linked Gamertag", value=f"`{linked.get('gamertag')}`", inline=True)
+        if linked_player_gamertags(linked):
+            embed.add_field(name="Linked Gamertags", value=linked_player_gamertag_summary(linked), inline=True)
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Fare Thee Well")
         await public_channel.send(embed=style_embed(embed))
@@ -40394,7 +40762,7 @@ async def on_member_remove(member):
         )
         audit.add_field(name="Discord", value=f"`{member}`", inline=False)
         audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
-        audit.add_field(name="Linked Gamertag", value=f"`{linked.get('gamertag', 'Not linked')}`", inline=True)
+        audit.add_field(name="Linked Gamertags", value=linked_player_gamertag_summary(linked), inline=True)
         audit.add_field(name="Joined Discord", value=str(getattr(member, "joined_at", None) or "Unknown"), inline=False)
         audit.add_field(name="Roles", value=", ".join(role_names[:30]) or "None", inline=False)
         audit.set_thumbnail(url=BOT_IMAGE)
