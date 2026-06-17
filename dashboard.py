@@ -4816,7 +4816,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Failed</span><strong>{{ scenario_summary.failed|default(0) }}</strong><span>{% if scenario_summary.cleanup_error %}Cleanup needs attention{% else %}Upload failures{% endif %}</span></div>
             <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} status item(s)</span></div>
           </div>
-          <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Failed means the upload was blocked or rejected.</span></div>
+          <div class="embed-preview" style="margin-top:.85rem"><strong>Upload state</strong><span>Uploaded means Nitrado has the XML. DayZ still needs one restart and a fresh .RPT pull before the tracker can prove what spawned. Pending means the bot worker has not finished. Blocked means the bot could not read the live CE source and refused to overwrite it.</span></div>
           <div class="shop-toolbar" style="margin-top:.85rem">
             <label>Search events <input data-event-search placeholder="name/type/class/status"></label>
             <label>Status
@@ -4825,7 +4825,7 @@ PAGE_TEMPLATE = """
                 <option value="active">Active only</option>
                 <option value="paused">Paused only</option>
                 <option value="permanent">Permanent</option>
-                <option value="failed">Upload failed</option>
+                <option value="failed">Upload failed / blocked</option>
               </select>
             </label>
             <span class="pill">Guild scoped</span>
@@ -4840,7 +4840,7 @@ PAGE_TEMPLATE = """
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
-                    {% if action != 'upload' or event.upload_status == 'failed' %}
+                    {% if action != 'upload' or event.upload_status in ['failed', 'blocked'] %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="event_id" value="{{ event.id }}">
@@ -9044,7 +9044,7 @@ PAGE_TEMPLATE = """
       setScenarioDetailRow(row, eventData);
       row.querySelectorAll('[name="action"][value="upload"]').forEach((input) => {
         const retryForm = input.closest("form");
-        if (retryForm) retryForm.hidden = uploadStatus !== "failed";
+        if (retryForm) retryForm.hidden = uploadStatus !== "failed" && uploadStatus !== "blocked";
       });
     }
     function pollScenarioStatusRow(row) {
@@ -10201,7 +10201,7 @@ PAGE_TEMPLATE = """
           if (statusValue === "active") matchesStatus = row.dataset.eventEnabled === "true";
           if (statusValue === "paused") matchesStatus = row.dataset.eventEnabled !== "true";
           if (statusValue === "permanent") matchesStatus = row.dataset.eventPermanent === "true";
-          if (statusValue === "failed") matchesStatus = row.dataset.eventUpload === "failed";
+          if (statusValue === "failed") matchesStatus = row.dataset.eventUpload === "failed" || row.dataset.eventUpload === "blocked";
           row.style.display = matchesText && matchesStatus ? "" : "none";
         });
       }
@@ -11278,6 +11278,41 @@ def remember_scenario_upload_warning(event: dict[str, Any], warning: Any, now_te
     event.pop("upload_error", None)
 
 
+def dashboard_native_ce_source_blocked(messages: list[Any] | tuple[Any, ...] | None) -> bool:
+    combined = " | ".join(str(message or "") for message in (messages or []))
+    lowered = combined.lower()
+    return (
+        "native ce xml upload blocked because the bot could not download" in lowered
+        or "no bundled reference was found, so a minimal template was used" in lowered
+        or "refusing to upload a fallback/minimal template" in lowered
+    )
+
+
+def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
+    detail = ""
+    for message in messages or []:
+        text = str(message or "").strip()
+        lowered = text.lower()
+        if "could not download existing" in lowered or "rate-limit" in lowered or "cloudflare" in lowered:
+            detail = " " + text[:320]
+            break
+    return (
+        "Native CE source required: the bot could not read the existing server CE XML, so upload is blocked "
+        "to avoid overwriting live events.xml/cfgeventspawns.xml."
+        + detail
+    )
+
+
+def mark_dashboard_native_ce_source_required(event: dict[str, Any], messages: list[Any] | tuple[Any, ...] | None, now_text: str) -> None:
+    status_text = dashboard_native_ce_source_required_status(messages)
+    event["upload_attempts"] = max(3, safe_int(event.get("upload_attempts"), 0))
+    event["upload_status"] = "blocked"
+    event["upload_error"] = status_text
+    event["status"] = "Native CE source required"
+    event["updated_at"] = now_text
+    event["native_ce_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
+
+
 def normalize_confirmed_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, Any]:
     if not scenario_event_has_confirmed_native_upload(event):
         return event
@@ -11412,10 +11447,13 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     built = upload_result.get("built") if isinstance(upload_result.get("built"), dict) else {}
     messages = upload_result.get("messages") if isinstance(upload_result.get("messages"), list) else []
     upload_ok = bool(upload_result.get("ok"))
+    source_blocked = dashboard_native_ce_source_blocked(messages)
     now_text = datetime.now(UTC).isoformat()
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if upload_ok
+        else dashboard_native_ce_source_required_status(messages)
+        if source_blocked
         else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
     )
 
@@ -11439,6 +11477,9 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
         else:
             if scenario_event_has_confirmed_native_upload(event):
                 remember_scenario_upload_warning(event, status_text, now_text)
+                continue
+            if source_blocked:
+                mark_dashboard_native_ce_source_required(event, messages, now_text)
                 continue
             event["upload_attempts"] = int(event.get("upload_attempts") or 0) + 1
             event["upload_status"] = "failed"
@@ -17918,7 +17959,7 @@ def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[s
             summary["uploaded"] += 1
             if uploaded_at > summary["last_uploaded_at"]:
                 summary["last_uploaded_at"] = uploaded_at
-        elif upload_status == "failed" or "failed" in status_text:
+        elif upload_status in {"failed", "blocked"} or "failed" in status_text or "source required" in status_text:
             summary["failed"] += 1
         elif upload_status == "removed":
             summary["removed"] += 1

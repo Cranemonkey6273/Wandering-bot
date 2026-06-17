@@ -817,7 +817,7 @@ def server_platform_key(guild_id):
     return normalize_server_platform(config.get("server_platform") or config.get("platform"))
 
 
-def mission_root_candidates_for_platform(platform_key):
+def mission_root_candidates_for_platform(platform_key, include_fallback=True):
     platform_key = normalize_server_platform(platform_key)
     if platform_key == "playstation":
         preferred = [
@@ -855,10 +855,24 @@ def mission_root_candidates_for_platform(platform_key):
         "/mpmissions",
     ]
     out = []
-    for root in [*preferred, *fallback]:
+    roots = [*preferred, *fallback] if include_fallback else preferred
+    for root in roots:
         if root not in out:
             out.append(root)
     return out
+
+
+def config_has_explicit_server_platform(config):
+    if not isinstance(config, dict):
+        return False
+    return bool(str(config.get("server_platform") or config.get("platform") or "").strip())
+
+
+def mission_root_candidates_for_config(config, guild_id):
+    return mission_root_candidates_for_platform(
+        server_platform_key(guild_id),
+        include_fallback=not config_has_explicit_server_platform(config),
+    )
 
 
 def server_map_size(guild_id):
@@ -26812,7 +26826,7 @@ def discover_console_ce_mission_bases(config, guild_id):
         if "/" in active_mission:
             add_base(active_mission)
         else:
-            for root in mission_root_candidates_for_platform(server_platform_key(guild_id)):
+            for root in mission_root_candidates_for_config(config, guild_id):
                 add_base(f"{root}/{active_mission}")
 
     if bases:
@@ -26834,6 +26848,18 @@ def compact_ce_download_message(message, limit=280):
     if "Just a moment" in text or "<!DOCTYPE html" in text:
         text = "Nitrado/Cloudflare returned an HTML rate-limit page while probing that path."
     return text[:limit]
+
+
+def console_ce_download_message_is_rate_limited(message):
+    text = str(message or "")
+    lowered = text.lower()
+    return (
+        "just a moment" in lowered
+        or "<!doctype html" in lowered
+        or "cloudflare" in lowered
+        or "rate-limit" in lowered
+        or "rate limit" in lowered
+    )
 
 
 def console_ce_download_failure_message(guild_id, key, attempted):
@@ -26886,7 +26912,7 @@ def console_ce_path_candidates(config, guild_id, key, requested_path="", configu
         for base in discover_console_ce_mission_bases(config, guild_id):
             add(f"{base}/{suffix}")
 
-    mission_bases = mission_root_candidates_for_platform(server_platform_key(guild_id))
+    mission_bases = mission_root_candidates_for_config(config, guild_id)
     seen_missions = []
     for mission in mission_names:
         mission = str(mission or "").strip().strip("/")
@@ -28342,6 +28368,8 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
         if ok and text:
             remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
+        if console_ce_download_message_is_rate_limited(message):
+            break
 
     for candidate_path in console_ce_path_candidates(config, guild_id, key, requested_path, settings.get(key), include_discovery=True):
         if candidate_path in tried:
@@ -28352,6 +28380,8 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
         if ok and text:
             remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
+        if console_ce_download_message_is_rate_limited(message):
+            break
 
     message = (
         console_ce_download_failure_message(guild_id, key, attempted)
@@ -28402,6 +28432,8 @@ def download_console_effect_area_source(config, guild_id, requested_path=""):
         if ok and text:
             remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
+        if console_ce_download_message_is_rate_limited(message):
+            break
     for candidate_path in console_ce_path_candidates(config, guild_id, "cfgeffectarea_path", target_path, settings.get("cfgeffectarea_path"), include_discovery=True):
         if candidate_path in tried:
             continue
@@ -28411,6 +28443,8 @@ def download_console_effect_area_source(config, guild_id, requested_path=""):
         if ok and text:
             remember_console_ce_mission_base(config, guild_id, candidate_path)
             return text, candidate_path, message
+        if console_ce_download_message_is_rate_limited(message):
+            break
     return "", target_path, (
         console_ce_download_failure_message(guild_id, "cfgeffectarea_path", attempted)
         if attempted
@@ -29453,6 +29487,49 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
     event.pop("upload_error", None)
 
 
+def native_ce_source_blocked_messages(messages):
+    combined = " | ".join(str(message or "") for message in (messages or []))
+    lowered = combined.lower()
+    return (
+        "native ce xml upload blocked because the bot could not download" in lowered
+        or "no bundled reference was found, so a minimal template was used" in lowered
+        or "refusing to upload a fallback/minimal template" in lowered
+    )
+
+
+def native_ce_source_required_status(messages=None):
+    detail = ""
+    for message in messages or []:
+        text = str(message or "").strip()
+        lowered = text.lower()
+        if "could not download existing" in lowered:
+            detail = " " + text[:320]
+            break
+        if "rate-limit" in lowered or "cloudflare" in lowered:
+            detail = " " + text[:320]
+            break
+    return (
+        "Native CE source required: the bot could not read the existing server CE XML, so upload is blocked "
+        "to avoid overwriting live events.xml/cfgeventspawns.xml."
+        + detail
+    )
+
+
+def mark_native_ce_source_required(config, event, messages, now_text):
+    status_text = native_ce_source_required_status(messages)
+    event["upload_attempts"] = max(3, int(event.get("upload_attempts") or 0))
+    event["upload_status"] = "blocked"
+    event["upload_error"] = status_text
+    event["status"] = "Native CE source required"
+    event["updated_at"] = now_text
+    event["native_ce_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
+    settings = console_ce_event_config(config)
+    settings["source_blocked_at"] = now_text
+    settings["source_blocked_reason"] = status_text[:1000]
+    settings["source_blocked_platform"] = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    settings["source_blocked_map"] = str(config.get("server_map") or config.get("map") or "")
+
+
 def dashboard_upload_console_ce_event_files(guild_id):
     guild_id = str(guild_id)
     load_guild_configs()
@@ -29472,9 +29549,12 @@ def dashboard_upload_console_ce_event_files(guild_id):
         success = False
         built = {}
         messages = [f"{type(error).__name__}: {error}"]
+    source_blocked = native_ce_source_blocked_messages(messages)
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
         if success
+        else native_ce_source_required_status(messages)
+        if source_blocked
         else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
     )
     now_text = datetime.now(UTC).isoformat()
@@ -29498,6 +29578,10 @@ def dashboard_upload_console_ce_event_files(guild_id):
             if scenario_event_has_confirmed_native_upload(event):
                 remember_native_ce_upload_warning(event, status_text, now_text)
                 event["updated_at"] = now_text
+                changed = True
+                continue
+            if source_blocked:
+                mark_native_ce_source_required(config, event, messages, now_text)
                 changed = True
                 continue
             attempts = int(event.get("upload_attempts") or 0) + 1
@@ -31579,15 +31663,19 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             "",
             False,
         )
+        source_blocked = native_ce_source_blocked_messages(messages)
         status_text = (
             f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
             if upload_success
+            else native_ce_source_required_status(messages)
+            if source_blocked
             else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
         )
     except Exception as ce_error:
         upload_success = False
         built = {}
         messages = [f"{type(ce_error).__name__}: {ce_error}"]
+        source_blocked = False
         status_text = f"Native CE XML upload failed: {type(ce_error).__name__}: {ce_error}"
 
     now_text = datetime.now(UTC).isoformat()
@@ -31606,6 +31694,9 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         else:
             if scenario_event_has_confirmed_native_upload(event):
                 remember_native_ce_upload_warning(event, status_text, now_text)
+                continue
+            if source_blocked:
+                mark_native_ce_source_required(config, event, messages, now_text)
                 continue
             event["upload_status"] = "failed"
             event["upload_error"] = status_text
