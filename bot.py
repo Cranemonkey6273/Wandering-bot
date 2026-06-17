@@ -26477,6 +26477,15 @@ def parse_xml_root_or_new(text, fallback_root):
     try:
         return ET.fromstring(text.encode("utf-8")), None
     except Exception as error:
+        close_tag = f"</{str(fallback_root or '').strip().lower()}>"
+        lower_text = text.lower()
+        close_index = lower_text.rfind(close_tag) if close_tag != "</>" else -1
+        if close_index >= 0:
+            recovered_text = text[:close_index + len(close_tag)].strip()
+            try:
+                return ET.fromstring(recovered_text.encode("utf-8")), None
+            except Exception:
+                pass
         detail = str(error)
         line_text = ""
         position = getattr(error, "position", None)
@@ -27567,22 +27576,17 @@ def console_ce_records_for_event(event):
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
     if event_type == "animal_pack":
-        territory = animal_territory_profile(class_name)
-        territory_key = stable_console_event_slug(event) or normalize_discord_name(record_name)
-        territory_name = f"WanderingBot_{territory_key}"
         record.update({
             "nominal": count,
             "min_count": count,
             "max_count": count,
             "saferadius": 2,
             "cleanupradius": 100,
-            "animal_territory": True,
-            "territory_file_key": territory_key,
-            "territory_name": territory_name,
-            "territory_zone": territory.get("zone"),
-            "territory_color": territory.get("color"),
-            "animal_behavior": territory.get("behavior"),
         })
+        warnings.append(
+            f"`{event.get('id')}` uses fixed CE spawn coordinates for the animal pack; "
+            "no custom animal territory XML is required."
+        )
     records.append(record)
 
     if event_type == "airdrop":
