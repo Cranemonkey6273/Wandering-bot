@@ -1131,7 +1131,7 @@ PAGE_TEMPLATE = """
     html[data-theme="toxic"], body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
     html[data-theme="violet"], body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
     html[data-theme="rose"], body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
-    html[data-theme="command"], body[data-theme="command"] { --bg: #03070a; --panel: #091014; --panel-2: #132127; --panel-3: #071114; --line: rgba(103, 245, 231, .30); --text: #effcff; --muted: #a8bec3; --dim: #6f858b; --olive: #94ff64; --gold: #67f5e7; --accent: #67f5e7; }
+    html[data-theme="command"], body[data-theme="command"] { --bg: #03070a; --panel: #091014; --panel-2: #132127; --panel-3: #071114; --line: rgba(103, 245, 231, .30); --text: #effcff; --muted: #a8bec3; --dim: #6f858b; --olive: #94ff64; --gold: #ffb454; --accent: #67f5e7; --orange: #ff9f43; --warn: #ffb454; }
     html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
@@ -1181,7 +1181,7 @@ PAGE_TEMPLATE = """
     .theme-picker button[data-theme-choice="toxic"] { background: linear-gradient(135deg, #1b2109 0 50%, #e1f25a 50%); }
     .theme-picker button[data-theme-choice="violet"] { background: linear-gradient(135deg, #1c1228 0 50%, #d6a2ff 50%); }
     .theme-picker button[data-theme-choice="rose"] { background: linear-gradient(135deg, #26111a 0 50%, #ff9abc 50%); }
-    .theme-picker button[data-theme-choice="command"] { background: linear-gradient(135deg, #071114 0 50%, #67f5e7 50%); }
+    .theme-picker button[data-theme-choice="command"] { background: linear-gradient(135deg, #071114 0 42%, #67f5e7 42% 70%, #ff9f43 70%); }
     .theme-picker button.active { box-shadow: 0 0 0 2px var(--text); }
     nav { display: flex; flex-wrap: wrap; gap: .45rem; }
     nav a, button, .button, .tab-link {
@@ -2154,7 +2154,8 @@ PAGE_TEMPLATE = """
       background: rgba(97,184,94,.06);
     }
     body[data-theme="command"] tr.status-warn td {
-      background: rgba(204,159,59,.07);
+      background: color-mix(in srgb, var(--orange, #ff9f43) 8%, transparent);
+      border-bottom-color: color-mix(in srgb, var(--orange, #ff9f43) 28%, rgba(103,245,231,.09));
     }
     body[data-theme="command"] tr.status-bad td {
       background: rgba(194,72,72,.08);
@@ -2406,6 +2407,18 @@ PAGE_TEMPLATE = """
     .event-upload-detail { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 0; }
     .event-upload-detail span { display: inline-flex; flex-wrap: wrap; gap: .25rem; align-items: baseline; max-width: 100%; border: 1px solid var(--line); border-radius: .4rem; padding: .24rem .45rem; background: #070b08; color: var(--muted); overflow-wrap: anywhere; }
     .event-upload-detail strong { color: var(--text); font-size: .76rem; text-transform: uppercase; }
+    .event-upload-detail .event-chip-ok { border-color: color-mix(in srgb, var(--green, #8ee85f) 60%, var(--line)); color: color-mix(in srgb, var(--text) 84%, var(--green, #8ee85f)); }
+    .event-upload-detail .event-chip-warn { border-color: color-mix(in srgb, var(--warn, #ffb454) 78%, var(--line)); background: color-mix(in srgb, var(--warn, #ffb454) 10%, #070b08); color: color-mix(in srgb, var(--text) 88%, var(--warn, #ffb454)); }
+    .event-upload-detail .event-chip-bad { border-color: rgba(255,122,138,.65); background: rgba(255,122,138,.08); color: #ffd7dc; }
+    .event-upload-detail .event-chip-info { border-color: rgba(111,211,255,.45); background: rgba(111,211,255,.06); color: #d4f2ff; }
+    .event-upload-detail .event-chip-path { color: var(--muted); opacity: .9; }
+    .item-table td[data-scenario-status] { min-width: 15rem; max-width: 28rem; white-space: normal; }
+    .scenario-status-title { display: block; color: var(--text); font-weight: 900; line-height: 1.25; max-width: 24rem; overflow-wrap: anywhere; }
+    .scenario-status-brief { display: block; margin-top: .16rem; color: var(--muted); font-size: .78rem; line-height: 1.35; max-width: 24rem; overflow-wrap: anywhere; }
+    .scenario-error-details, .event-upload-technical { margin-top: .35rem; max-width: 100%; }
+    .event-upload-technical { flex-basis: 100%; width: 100%; }
+    .scenario-error-details summary, .event-upload-technical summary { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; color: var(--warn, #ffb454); border: 1px solid color-mix(in srgb, var(--warn, #ffb454) 60%, var(--line)); border-radius: .35rem; padding: .2rem .45rem; background: color-mix(in srgb, var(--warn, #ffb454) 8%, #070b08); font-size: .76rem; font-weight: 900; }
+    .scenario-error-details pre, .event-upload-technical pre { max-height: 8.5rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid color-mix(in srgb, var(--warn, #ffb454) 45%, var(--line)); border-radius: .45rem; padding: .55rem; margin: .35rem 0 0; background: #050806; color: var(--muted); font-size: .74rem; line-height: 1.35; }
     .inline-action { display: grid; grid-template-columns: minmax(7rem, 1fr) auto; gap: .35rem; align-items: center; margin: 0; }
     .inline-action .result { grid-column: 1 / -1; font-size: .78rem; }
     .inline-action .compact-number { min-width: 5rem; max-width: 6.5rem; }
@@ -4867,8 +4880,9 @@ PAGE_TEMPLATE = """
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {% for event in (server.scenario_events if server else []) %}
-              <tr data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status>{{ event.status or 'Queued ✅' }}{% if event.upload_error %}<br><small class="muted">⚠️ {{ event.upload_error }}</small>{% endif %}</td>
+              {% set status_display = event.status_display or {} %}
+              <tr class="{% if status_display.state %}status-{{ status_display.state }}{% endif %}" data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
@@ -4889,18 +4903,27 @@ PAGE_TEMPLATE = """
               <tr class="event-detail-row" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
                 <td colspan="8">
                   <div class="event-upload-detail">
-                    <span><strong>Upload</strong> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}</span>
-                    {% if event.native_ce_uploaded_at or event.bridge_uploaded_at %}<span><strong>Uploaded</strong> {{ (event.native_ce_uploaded_at or event.bridge_uploaded_at)[:16]|replace('T', ' ') }}</span>{% endif %}
-                    {% if event.bridge_delivery_path %}<span><strong>deliveries.xml</strong> {{ event.bridge_delivery_path }}</span>{% endif %}
+                    <span class="event-chip-{{ status_display.state or 'path' }}"><strong>Upload</strong> {{ event.upload_status|default('queued', true)|replace('_', ' ') }}</span>
+                    {% if event.native_ce_uploaded_at or event.bridge_uploaded_at %}<span class="event-chip-ok"><strong>Uploaded</strong> {{ (event.native_ce_uploaded_at or event.bridge_uploaded_at)[:16]|replace('T', ' ') }}</span>{% endif %}
                     {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
-                    {% if event.native_ce_restart_required %}<span><strong>Restart</strong> one server restart needed</span>{% endif %}
-                    {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names[:3]|join(', ') }}{% if event.native_ce_managed_event_names|length > 3 %} +{{ event.native_ce_managed_event_names|length - 3 }}{% endif %}</span>{% endif %}
-                    {% if event.native_ce_events_path %}<span><strong>events.xml</strong> {{ event.native_ce_events_path }}</span>{% endif %}
-                    {% if event.native_ce_spawns_path %}<span><strong>cfgeventspawns</strong> {{ event.native_ce_spawns_path }}</span>{% endif %}
-                    {% if event.native_ce_spawnabletypes_path %}<span><strong>spawnabletypes</strong> {{ event.native_ce_spawnabletypes_path }}</span>{% endif %}
-                    {% if event.native_ce_cfgenvironment_path %}<span><strong>environment</strong> {{ event.native_ce_cfgenvironment_path }}</span>{% endif %}
-                    {% if event.native_ce_territory_paths %}<span><strong>Territories</strong> {{ event.native_ce_territory_paths|length }}</span>{% endif %}
-                    {% if event.upload_error %}<span><strong>Last error</strong> {{ event.upload_error }}</span>{% endif %}
+                    {% if event.native_ce_restart_required %}<span class="event-chip-warn"><strong>Restart</strong> one server restart needed</span>{% endif %}
+                    {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names|length }} managed</span>{% endif %}
+                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths %}<span class="event-chip-path"><strong>Files</strong> open details</span>{% endif %}
+                    {% if event.upload_error %}<span class="event-chip-bad"><strong>Error</strong> open details</span>{% endif %}
+                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths or event.upload_error %}
+                    <details class="event-upload-technical">
+                      <summary>File paths and technical details</summary>
+                      <pre>{% if event.bridge_delivery_path %}deliveries.xml: {{ event.bridge_delivery_path }}
+{% endif %}{% if event.native_ce_events_path %}events.xml: {{ event.native_ce_events_path }}
+{% endif %}{% if event.native_ce_spawns_path %}cfgeventspawns.xml: {{ event.native_ce_spawns_path }}
+{% endif %}{% if event.native_ce_spawnabletypes_path %}cfgspawnabletypes.xml: {{ event.native_ce_spawnabletypes_path }}
+{% endif %}{% if event.native_ce_cfgenvironment_path %}cfgenvironment.xml: {{ event.native_ce_cfgenvironment_path }}
+{% endif %}{% if event.native_ce_territory_paths %}territory files: {{ event.native_ce_territory_paths|length }}
+{% endif %}{% if event.native_ce_managed_event_names %}definitions: {{ event.native_ce_managed_event_names|join(', ') }}
+{% endif %}{% if event.upload_error %}last error: {{ status_display.details or event.upload_error }}
+{% endif %}</pre>
+                    </details>
+                    {% endif %}
                   </div>
                 </td>
               </tr>
@@ -9001,6 +9024,66 @@ PAGE_TEMPLATE = """
       if (combined.includes("pause") || combined.includes("cancel")) return "info";
       return "";
     }
+    function compactScenarioText(value, limit = 120) {
+      const text = String(value || "").replace(/`/g, "").replace(/\\s+/g, " ").trim();
+      if (text.length <= limit) return text;
+      return `${text.slice(0, Math.max(0, limit - 1)).replace(/[ ,;|]+$/g, "")}...`;
+    }
+    function scenarioStatusDisplay(eventData = {}) {
+      const uploadStatus = String(eventData.upload_status || "").trim().toLowerCase();
+      const status = String(eventData.status || "").trim();
+      const error = String(eventData.upload_error || "").trim();
+      const uploadedAt = String(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at || "").trim();
+      const combined = `${status} ${error} ${uploadStatus}`.toLowerCase();
+      let title = status || "Queued";
+      let brief = "";
+      let state = "info";
+      if (uploadedAt || uploadStatus === "uploaded") {
+        title = "Uploaded - restart once";
+        brief = "Waiting for the next RPT tracker pull.";
+        state = "ok";
+      } else if (uploadStatus === "blocked" || combined.includes("source required")) {
+        title = "Needs live XML source";
+        brief = "The bot could not read the current server XML, so it did not upload.";
+        state = "bad";
+      } else if (combined.includes("nitrado api response blocked") || combined.includes("non-json") || combined.includes("cloudflare") || combined.includes("rate-limit")) {
+        title = "Nitrado response blocked";
+        brief = "Nitrado returned an empty or rate-limited response.";
+        state = "bad";
+      } else if (uploadStatus === "failed" || combined.includes("failed")) {
+        title = "Upload failed";
+        brief = "Open details for the technical reason.";
+        state = "bad";
+      } else if (["waiting_for_bot_upload", "queued", "uploading", "starting"].includes(uploadStatus) || combined.includes("upload starting") || combined.includes("upload requested")) {
+        title = "Upload queued";
+        brief = "The bot worker is processing it.";
+        state = "warn";
+      } else if (uploadStatus === "removed") {
+        title = "Removed";
+        brief = "The event will be removed from generated XML.";
+      } else if (eventData.enabled === false || combined.includes("pause")) {
+        title = "Paused";
+        brief = "This event is not active.";
+      }
+      return {
+        title: compactScenarioText(title, 70),
+        brief: compactScenarioText(brief, 120),
+        details: compactScenarioText(error || status, 1200),
+        state,
+      };
+    }
+    function appendScenarioDetails(parent, detailsText, className = "scenario-error-details", summaryText = "Technical details") {
+      const text = String(detailsText || "").trim();
+      if (!parent || !text) return;
+      const details = document.createElement("details");
+      details.className = className;
+      const summary = document.createElement("summary");
+      summary.textContent = summaryText;
+      const pre = document.createElement("pre");
+      pre.textContent = text;
+      details.append(summary, pre);
+      parent.append(details);
+    }
     function scenarioDetailRowFor(row) {
       const next = row ? row.nextElementSibling : null;
       return next && next.classList.contains("event-detail-row") ? next : null;
@@ -9018,9 +9101,11 @@ PAGE_TEMPLATE = """
       cell.textContent = "";
       const wrap = document.createElement("div");
       wrap.className = "event-upload-detail";
-      const addPart = (label, value) => {
+      const display = scenarioStatusDisplay(eventData);
+      const addPart = (label, value, className = "") => {
         if (value === undefined || value === null || String(value).trim() === "") return;
         const chip = document.createElement("span");
+        if (className) chip.className = className;
         const strong = document.createElement("strong");
         strong.textContent = label;
         chip.append(strong, document.createTextNode(` ${value}`));
@@ -9028,22 +9113,28 @@ PAGE_TEMPLATE = """
       };
       const confirmedUpload = !!(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at);
       const displayUploadStatus = confirmedUpload ? "uploaded" : (eventData.upload_status || "queued");
-      addPart("Upload", String(displayUploadStatus).replace(/_/g, " "));
-      if (eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at).slice(0, 16).replace("T", " "));
-      addPart("deliveries.xml", eventData.bridge_delivery_path || "");
+      addPart("Upload", String(displayUploadStatus).replace(/_/g, " "), `event-chip-${display.state || "info"}`);
+      if (eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at) addPart("Uploaded", String(eventData.native_ce_uploaded_at || eventData.bridge_uploaded_at).slice(0, 16).replace("T", " "), "event-chip-ok");
       addPart("Mission", eventData.native_ce_mission_folder || "");
-      if (eventData.native_ce_restart_required) addPart("Restart", "one server restart needed");
+      if (eventData.native_ce_restart_required) addPart("Restart", "one server restart needed", "event-chip-warn");
       if (Array.isArray(eventData.native_ce_managed_event_names) && eventData.native_ce_managed_event_names.length) {
-        const names = eventData.native_ce_managed_event_names.slice(0, 3).join(", ");
-        addPart("Definitions", `${names}${eventData.native_ce_managed_event_names.length > 3 ? ` +${eventData.native_ce_managed_event_names.length - 3}` : ""}`);
+        addPart("Definitions", `${eventData.native_ce_managed_event_names.length} managed`);
       }
-      addPart("events.xml", eventData.native_ce_events_path || "");
-      addPart("cfgeventspawns", eventData.native_ce_spawns_path || "");
-      addPart("spawnabletypes", eventData.native_ce_spawnabletypes_path || "");
-      addPart("environment", eventData.native_ce_cfgenvironment_path || "");
-      if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) addPart("Territories", eventData.native_ce_territory_paths.length);
+      const fileLines = [];
+      if (eventData.bridge_delivery_path) fileLines.push(`deliveries.xml: ${eventData.bridge_delivery_path}`);
+      if (eventData.native_ce_events_path) fileLines.push(`events.xml: ${eventData.native_ce_events_path}`);
+      if (eventData.native_ce_spawns_path) fileLines.push(`cfgeventspawns.xml: ${eventData.native_ce_spawns_path}`);
+      if (eventData.native_ce_spawnabletypes_path) fileLines.push(`cfgspawnabletypes.xml: ${eventData.native_ce_spawnabletypes_path}`);
+      if (eventData.native_ce_cfgenvironment_path) fileLines.push(`cfgenvironment.xml: ${eventData.native_ce_cfgenvironment_path}`);
+      if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) fileLines.push(`territory files: ${eventData.native_ce_territory_paths.length}`);
+      if (Array.isArray(eventData.native_ce_managed_event_names) && eventData.native_ce_managed_event_names.length) fileLines.push(`definitions: ${eventData.native_ce_managed_event_names.join(", ")}`);
+      if (fileLines.length) addPart("Files", "open details", "event-chip-path");
       if (trackerData) addPart("RPT", `${trackerData.live_count || 0} live / ${trackerData.diagnostics_count || 0} status item(s)`);
-      if (!confirmedUpload) addPart("Last error", eventData.upload_error || "");
+      if (eventData.upload_error) {
+        addPart("Error", "open details", "event-chip-bad");
+        fileLines.push(`last error: ${display.details || eventData.upload_error}`);
+      }
+      if (fileLines.length) appendScenarioDetails(wrap, fileLines.join("\n"), "event-upload-technical", "File paths and technical details");
       cell.append(wrap);
       detail.dataset.eventUpload = displayUploadStatus || "";
       detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${displayUploadStatus || ""}`.toLowerCase();
@@ -9057,24 +9148,26 @@ PAGE_TEMPLATE = """
         : (eventData.status || "");
       const uploadStatus = confirmedUpload ? "uploaded" : (eventData.upload_status || "");
       const uploadError = confirmedUpload ? "" : (eventData.upload_error || "");
+      const display = scenarioStatusDisplay({...eventData, status, upload_status: uploadStatus, upload_error: uploadError});
       row.dataset.eventUpload = uploadStatus;
       row.dataset.eventSearch = `${row.dataset.eventSearch || ""} ${status} ${uploadStatus} ${uploadError}`.toLowerCase();
       row.classList.remove("status-ok", "status-warn", "status-bad", "status-info");
-      const stateClass = scenarioStatusClass(status, uploadStatus);
+      const stateClass = display.state || scenarioStatusClass(status, uploadStatus);
       if (stateClass) row.classList.add(`status-${stateClass}`);
       if (statusCell) {
-        statusCell.textContent = status || "Saved";
-        if (scenarioStatusIsPending(status, uploadStatus)) {
-          const checking = document.createElement("small");
-          checking.className = "muted";
-          checking.textContent = "Checking upload status automatically...";
-          statusCell.append(document.createElement("br"), checking);
+        statusCell.textContent = "";
+        const title = document.createElement("span");
+        title.className = "scenario-status-title";
+        title.textContent = display.title || "Saved";
+        statusCell.append(title);
+        if (display.brief) {
+          const brief = document.createElement("small");
+          brief.className = "scenario-status-brief";
+          brief.textContent = display.brief;
+          statusCell.append(brief);
         }
         if (uploadError) {
-          const detail = document.createElement("small");
-          detail.className = "muted";
-          detail.textContent = uploadError;
-          statusCell.append(document.createElement("br"), detail);
+          appendScenarioDetails(statusCell, display.details || uploadError);
         }
       }
       setScenarioDetailRow(row, eventData);
@@ -10072,11 +10165,23 @@ PAGE_TEMPLATE = """
               if (row) removeScenarioRowPair(row);
               return;
             }
-            const status = body.event && body.event.status ? body.event.status : (action === "pause" ? "Paused by dashboard" : "Saved");
-            if (statusCell) statusCell.textContent = status;
-            if (action === "upload" && body.upload && body.upload.ok === false && statusCell) {
+            if (row && body.event) {
+              setScenarioRowStatus(row, body.event);
+            } else {
+              const fallbackEvent = {
+                status: action === "pause" ? "Paused by dashboard" : "Saved",
+                upload_status: action === "pause" ? "paused" : "",
+              };
+              if (row) setScenarioRowStatus(row, fallbackEvent);
+              else if (statusCell) statusCell.textContent = fallbackEvent.status;
+            }
+            if (action === "upload" && body.upload && body.upload.ok === false && row) {
               const messages = Array.isArray(body.upload.messages) ? body.upload.messages.slice(-2).join(" | ") : "";
-              statusCell.textContent = messages ? `Native CE XML upload failed: ${messages}` : "Native CE XML upload failed";
+              setScenarioRowStatus(row, {
+                status: "Native CE XML upload failed",
+                upload_status: "failed",
+                upload_error: messages || "Native CE XML upload failed",
+              });
             }
             if (body.upload_started && row) pollScenarioStatusRow(row);
             return;
@@ -11477,16 +11582,76 @@ def normalize_scenario_upload_for_display(event: dict[str, Any]) -> dict[str, An
     return normalize_blocked_scenario_upload_for_display(normalize_confirmed_scenario_upload_for_display(event))
 
 
+def compact_scenario_text(value: Any, limit: int = 120) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").replace("`", "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip(" ,;|") + "..."
+
+
+def scenario_status_display(event: Any) -> dict[str, str]:
+    event = event if isinstance(event, dict) else {}
+    upload_status = str(event.get("upload_status") or "").strip().lower()
+    status = str(event.get("status") or "").strip()
+    error = str(event.get("upload_error") or "").strip()
+    uploaded_at = str(event.get("native_ce_uploaded_at") or event.get("bridge_uploaded_at") or "").strip()
+    combined = f"{status} {error} {upload_status}".lower()
+
+    if uploaded_at or upload_status == "uploaded":
+        title = "Uploaded - restart once"
+        brief = "Waiting for the next RPT tracker pull."
+        state = "ok"
+    elif upload_status == "blocked" or "source required" in combined:
+        title = "Needs live XML source"
+        brief = "The bot could not read the current server XML, so it did not upload."
+        state = "bad"
+    elif "nitrado api response blocked" in combined or "non-json" in combined or "cloudflare" in combined or "rate-limit" in combined:
+        title = "Nitrado response blocked"
+        brief = "Nitrado returned an empty or rate-limited response."
+        state = "bad"
+    elif upload_status == "failed" or "failed" in combined:
+        title = "Upload failed"
+        brief = "Open details for the technical reason."
+        state = "bad"
+    elif upload_status in {"waiting_for_bot_upload", "queued", "uploading", "starting"} or "upload starting" in combined or "upload requested" in combined:
+        title = "Upload queued"
+        brief = "The bot worker is processing it."
+        state = "warn"
+    elif upload_status == "removed":
+        title = "Removed"
+        brief = "The event will be removed from generated XML."
+        state = "info"
+    elif not event.get("enabled", True) or "pause" in combined:
+        title = "Paused"
+        brief = "This event is not active."
+        state = "info"
+    else:
+        title = status or "Queued"
+        brief = ""
+        state = "info"
+
+    details = error or status
+    return {
+        "title": compact_scenario_text(title, 70),
+        "brief": compact_scenario_text(brief, 120),
+        "details": compact_scenario_text(details, 1200),
+        "state": state,
+    }
+
+
 def visible_scenario_events(config: Any) -> list[dict[str, Any]]:
     events = config.get("scenario_events", []) if isinstance(config, dict) else []
     if not isinstance(events, list):
         return []
     tombstones = scenario_event_tombstones(config)
-    return [
-        normalize_scenario_upload_for_display(event)
-        for event in events
-        if isinstance(event, dict) and scenario_event_key(event) not in tombstones
-    ]
+    visible = []
+    for event in events:
+        if not isinstance(event, dict) or scenario_event_key(event) in tombstones:
+            continue
+        normalized = normalize_scenario_upload_for_display(event)
+        normalized["status_display"] = scenario_status_display(normalized)
+        visible.append(normalized)
+    return visible
 
 
 def sync_runtime_store(store_name: str, data: Any) -> None:
