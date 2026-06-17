@@ -16,6 +16,7 @@ import tempfile
 import shutil
 import secrets
 import traceback
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
@@ -4935,14 +4936,38 @@ def save_json(path, data):
     if folder:
         ensure_folder(folder)
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    temp_path = ""
+    try:
+        temp_dir = folder or "."
+        fd, temp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=temp_dir)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
 
 def load_json(path):
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        last_error = None
+        for attempt in range(3):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except json.JSONDecodeError as error:
+                last_error = error
+                if attempt < 2:
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
+                raise ValueError(f"Local JSON state file `{path}` is not valid JSON: {error}") from error
+        if last_error:
+            raise ValueError(f"Local JSON state file `{path}` is not valid JSON: {last_error}") from last_error
     return {}
 
 
@@ -29502,10 +29527,9 @@ def native_ce_nitrado_response_blocked_messages(messages):
     combined = " | ".join(str(message or "") for message in (messages or []))
     lowered = combined.lower()
     return (
-        "jsondecodeerror" in lowered
-        or "expecting value: line 1 column 1" in lowered
-        or "returned non-json response" in lowered
+        "returned non-json response" in lowered
         or "<empty response body>" in lowered
+        or "empty/non-json response" in lowered
         or "cloudflare" in lowered
         or "rate-limit" in lowered
         or "rate limit" in lowered
@@ -29540,10 +29564,9 @@ def native_ce_nitrado_response_status(messages=None):
         text = str(message or "").strip()
         lowered = text.lower()
         if (
-            "jsondecodeerror" in lowered
-            or "expecting value: line 1 column 1" in lowered
-            or "returned non-json response" in lowered
+            "returned non-json response" in lowered
             or "<empty response body>" in lowered
+            or "empty/non-json response" in lowered
             or "cloudflare" in lowered
             or "rate-limit" in lowered
             or "rate limit" in lowered
@@ -29555,6 +29578,16 @@ def native_ce_nitrado_response_status(messages=None):
         "This is a Nitrado/API response problem, not a valid DayZ XML result, so auto-retry has been stopped."
         + detail
     )
+
+
+def compact_exception_leaf_trace(error, limit=8):
+    frames = traceback.extract_tb(getattr(error, "__traceback__", None))[-limit:]
+    parts = []
+    for frame in frames:
+        file_name = os.path.basename(frame.filename)
+        line = (frame.line or "").strip()
+        parts.append(f"{file_name}:{frame.lineno} in {frame.name}" + (f": {line}" if line else ""))
+    return " | ".join(parts)
 
 
 def native_ce_upload_blocked_status(messages=None):
@@ -29580,11 +29613,11 @@ def mark_native_ce_source_required(config, event, messages, now_text):
 
 def dashboard_upload_console_ce_event_files(guild_id):
     guild_id = str(guild_id)
-    load_guild_configs()
-    config = guild_configs.get(guild_id)
-    if not isinstance(config, dict):
-        return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
     try:
+        load_guild_configs()
+        config = guild_configs.get(guild_id)
+        if not isinstance(config, dict):
+            return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
         success, built, messages = upload_console_ce_event_files(
             guild_id,
             config,
@@ -29596,8 +29629,11 @@ def dashboard_upload_console_ce_event_files(guild_id):
     except Exception as error:
         success = False
         built = {}
-        stack = traceback.format_exc(limit=8).strip().replace("\n", " | ")
-        messages = [f"{type(error).__name__}: {error}. Stack: {stack[:1000]}"]
+        trace = compact_exception_leaf_trace(error)
+        messages = [f"Native CE upload exception: {type(error).__name__}: {error}. Leaf trace: {trace[:1000]}"]
+        config = guild_configs.get(guild_id)
+        if not isinstance(config, dict):
+            return {"ok": False, "built": built, "messages": messages}
     source_blocked = native_ce_upload_blocked_messages(messages)
     status_text = (
         f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"

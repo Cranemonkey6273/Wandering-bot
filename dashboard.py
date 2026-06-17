@@ -14,6 +14,7 @@ import re
 import secrets
 import hashlib
 import subprocess
+import tempfile
 import time
 import traceback
 import zipfile
@@ -11130,19 +11131,39 @@ def read_json_file(filename: str, default: Any) -> Any:
     path = data_path(filename)
     if not os.path.exists(path):
         return default
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return default
-    return default if data is None else data
+    for attempt in range(3):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return default if data is None else data
+        except OSError:
+            return default
+        except json.JSONDecodeError:
+            if attempt < 2:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            return default
+    return default
 
 
 def write_json_file(filename: str, data: Any) -> None:
     path = data_path(filename)
     os.makedirs(os.path.dirname(path) or DATA_ROOT, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, sort_keys=True)
+    temp_path = ""
+    try:
+        folder = os.path.dirname(path) or DATA_ROOT
+        fd, temp_path = tempfile.mkstemp(prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=folder)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def write_split_guild_configs(data: Any) -> None:
@@ -11293,10 +11314,9 @@ def dashboard_native_ce_nitrado_response_blocked(messages: list[Any] | tuple[Any
     combined = " | ".join(str(message or "") for message in (messages or []))
     lowered = combined.lower()
     return (
-        "jsondecodeerror" in lowered
-        or "expecting value: line 1 column 1" in lowered
-        or "returned non-json response" in lowered
+        "returned non-json response" in lowered
         or "<empty response body>" in lowered
+        or "empty/non-json response" in lowered
         or "cloudflare" in lowered
         or "rate-limit" in lowered
         or "rate limit" in lowered
@@ -11328,10 +11348,9 @@ def dashboard_native_ce_nitrado_response_status(messages: list[Any] | tuple[Any,
         text = str(message or "").strip()
         lowered = text.lower()
         if (
-            "jsondecodeerror" in lowered
-            or "expecting value: line 1 column 1" in lowered
-            or "returned non-json response" in lowered
+            "returned non-json response" in lowered
             or "<empty response body>" in lowered
+            or "empty/non-json response" in lowered
             or "cloudflare" in lowered
             or "rate-limit" in lowered
             or "rate limit" in lowered
@@ -11343,6 +11362,16 @@ def dashboard_native_ce_nitrado_response_status(messages: list[Any] | tuple[Any,
         "This is a Nitrado/API response problem, not a valid DayZ XML result, so auto-retry has been stopped."
         + detail
     )
+
+
+def compact_exception_leaf_trace(error: BaseException, limit: int = 8) -> str:
+    frames = traceback.extract_tb(getattr(error, "__traceback__", None))[-limit:]
+    parts: list[str] = []
+    for frame in frames:
+        file_name = os.path.basename(frame.filename)
+        line = (frame.line or "").strip()
+        parts.append(f"{file_name}:{frame.lineno} in {frame.name}" + (f": {line}" if line else ""))
+    return " | ".join(parts)
 
 
 def dashboard_native_ce_upload_blocked_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
@@ -11437,12 +11466,12 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     try:
         result = uploader(str(guild_id))
     except json.JSONDecodeError as error:
-        stack = traceback.format_exc(limit=8).strip().replace("\n", " | ")
+        trace = compact_exception_leaf_trace(error)
         return {
             "ok": False,
             "messages": [
-                "Nitrado returned an empty/non-JSON response during native CE upload: "
-                f"{type(error).__name__}: {error}. Stack: {stack[:1000]}"
+                "Native CE upload JSON decode exception escaped the uploader: "
+                f"{type(error).__name__}: {error}. Leaf trace: {trace[:1000]}"
             ],
         }
     except Exception as error:
