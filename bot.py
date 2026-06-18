@@ -29299,6 +29299,11 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     return f"<{fallback_root}></{fallback_root}>\n", target_path, f"{message} No bundled reference was found, so a minimal template was used."
 
 
+def console_ce_source_is_fallback(source):
+    source_text = str(source or "")
+    return "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text
+
+
 def download_console_effect_area_source(config, guild_id, requested_path=""):
     settings = console_ce_event_config(config)
     defaults = console_ce_default_paths(guild_id)
@@ -29363,9 +29368,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     spawns_text, resolved_spawns_path, spawns_source = download_console_ce_source(config, guild_id, "spawns_path", spawns_path)
     source_fallbacks = []
     for label, source in (("events.xml", events_source), ("cfgeventspawns.xml", spawns_source)):
-        source_text = str(source or "")
-        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
-            source_fallbacks.append(f"{label}: {source_text}")
+        if console_ce_source_is_fallback(source):
+            source_fallbacks.append(f"{label}: {source}")
 
     warnings = []
     events_root, events_parse_warning, events_parse_blocker = parse_console_ce_xml_source(
@@ -29666,36 +29670,42 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             "spawnabletypes_path",
             spawnabletypes_path
         )
-        spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
-        if spawnable_parse_warning:
-            output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {spawnable_parse_warning}")
-        removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
-        changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, native_ce_scenario_events(config))
-        output["spawnabletypes_path"] = resolved_spawnable_path
-        output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
-        output["messages"].append(spawnable_source)
-        source_text = str(spawnable_source or "")
-        if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
-            output.setdefault("source_fallbacks", []).append(f"cfgspawnabletypes.xml: {source_text}")
-        output["messages"].append(
-            f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
-            + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
-        )
-        if preset_refs_removed:
+        if console_ce_source_is_fallback(spawnable_source):
             output["messages"].append(
-                f"Removed `{preset_refs_removed}` missing-preset cargo/attachment reference(s) from touched airdrop classes."
+                "`cfgspawnabletypes.xml` cargo tuning skipped: live source was unavailable through Nitrado/API. "
+                "The airdrop event/spawn XML can still upload safely; crate cargo will use the server's existing config until this file can be read."
             )
-        if removed_ignored_items:
-            output["messages"].append(
-                f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
-                f"and cleaned `{removed_empty_groups}` empty cargo/attachment group(s)."
-            )
-        if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
-            output["messages"].append(
-                "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
-            )
-        if spawnable_parse_warning:
-            output["messages"].append(spawnable_parse_warning)
+        else:
+            spawnable_root, spawnable_parse_warning = parse_xml_root_or_new(spawnable_text, "spawnabletypes")
+            if spawnable_parse_warning:
+                output["messages"].append(
+                    "`cfgspawnabletypes.xml` cargo tuning skipped: the live source was returned but could not be parsed safely. "
+                    "The airdrop event/spawn XML can still upload; no cargo overwrite was attempted."
+                )
+                output["messages"].append(spawnable_parse_warning)
+            else:
+                removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
+                changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, native_ce_scenario_events(config))
+                output["spawnabletypes_path"] = resolved_spawnable_path
+                output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
+                output["messages"].append(spawnable_source)
+                output["messages"].append(
+                    f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
+                    + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
+                )
+                if preset_refs_removed:
+                    output["messages"].append(
+                        f"Removed `{preset_refs_removed}` missing-preset cargo/attachment reference(s) from touched airdrop classes."
+                    )
+                if removed_ignored_items:
+                    output["messages"].append(
+                        f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
+                        f"and cleaned `{removed_empty_groups}` empty cargo/attachment group(s)."
+                    )
+                if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
+                    output["messages"].append(
+                        "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
+                    )
 
     return output
 
