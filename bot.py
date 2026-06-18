@@ -2797,6 +2797,172 @@ def gamertag_linked_to_other_user(gamertag, user_id):
     return None, None
 
 
+ONBOARDING_REACTION_OPTIONS = {"✅", "👍", "🟢", "🛡️", "📜"}
+
+
+def member_onboarding_settings(config):
+    saved = config.get("member_onboarding") if isinstance(config, dict) else {}
+    saved = saved if isinstance(saved, dict) else {}
+    reaction = str(saved.get("reaction_emoji") or "✅").strip() or "✅"
+    if reaction not in ONBOARDING_REACTION_OPTIONS:
+        reaction = "✅"
+    return {
+        "enabled": bool(saved.get("enabled")),
+        "rules_channel_key": str(saved.get("rules_channel_key") or "").strip(),
+        "rules_channel_id": str(saved.get("rules_channel_id") or "").strip(),
+        "next_channel_key": str(saved.get("next_channel_key") or "").strip(),
+        "next_channel_id": str(saved.get("next_channel_id") or "").strip(),
+        "rules_role_id": str(saved.get("rules_role_id") or "").strip(),
+        "linked_role_id": str(saved.get("linked_role_id") or "").strip(),
+        "pending_role_id": str(saved.get("pending_role_id") or "").strip(),
+        "reaction_emoji": reaction,
+        "rules_message_id": str(saved.get("rules_message_id") or "").strip(),
+        "require_rules_before_linked_role": bool(saved.get("require_rules_before_linked_role", True)),
+        "welcome_message": str(saved.get("welcome_message") or "Read the rules, react to accept them, then link your gamertag with /linkgamer.").strip(),
+        "accepted_message": str(saved.get("accepted_message") or "Rules accepted. Next step: link your gamertag with /linkgamer.").strip(),
+        "linked_message": str(saved.get("linked_message") or "Gamertag linked. Your linked-player role has been applied.").strip(),
+    }
+
+
+def resolve_onboarding_channel(guild, config, settings, prefix, fallback_key="welcome"):
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel_id = str(settings.get(f"{prefix}_channel_id") or "").strip()
+    channel_key = str(settings.get(f"{prefix}_channel_key") or "").strip()
+    if channel_id.isdigit():
+        channel = guild.get_channel(int(channel_id))
+        if channel:
+            return channel
+    if channel_key:
+        configured_id = channels.get(channel_key)
+        if configured_id:
+            channel = guild.get_channel(int(configured_id))
+            if channel:
+                return channel
+        for channel in getattr(guild, "text_channels", []) or []:
+            if normalize_discord_name(getattr(channel, "name", "")) == normalize_discord_name(channel_key):
+                return channel
+    configured_id = channels.get(fallback_key)
+    if configured_id:
+        return guild.get_channel(int(configured_id))
+    return None
+
+
+def resolve_onboarding_role(guild, role_id):
+    text = str(role_id or "").strip()
+    if not text.isdigit():
+        return None
+    return guild.get_role(int(text))
+
+
+def member_has_role_id(member, role_id):
+    wanted = str(role_id or "").strip()
+    if not wanted:
+        return False
+    return any(str(getattr(role, "id", "")) == wanted for role in getattr(member, "roles", []) or [])
+
+
+async def add_onboarding_role(member, role_id, reason):
+    role = resolve_onboarding_role(member.guild, role_id)
+    if not role or member_has_role_id(member, role_id):
+        return False
+    try:
+        await member.add_roles(role, reason=reason)
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] failed to add role {role_id} to {member}: {error}")
+        return False
+
+
+async def remove_onboarding_role(member, role_id, reason):
+    role = resolve_onboarding_role(member.guild, role_id)
+    if not role or not member_has_role_id(member, role_id):
+        return False
+    try:
+        await member.remove_roles(role, reason=reason)
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] failed to remove role {role_id} from {member}: {error}")
+        return False
+
+
+async def send_member_onboarding_join_prompt(member, config, settings):
+    channel = resolve_onboarding_channel(member.guild, config, settings, "rules", "welcome")
+    if not channel:
+        return False
+    embed = discord.Embed(
+        title="RULES CHECK REQUIRED",
+        description=(
+            f"{member.mention}\n\n"
+            f"{settings['welcome_message']}\n\n"
+            f"React with {settings['reaction_emoji']} when you accept the rules."
+        ),
+        color=0xFF9F43,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+    try:
+        message = await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        if not settings.get("rules_message_id"):
+            try:
+                await message.add_reaction(settings["reaction_emoji"])
+            except Exception:
+                pass
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] failed to send join prompt for {member}: {error}")
+        return False
+
+
+async def apply_member_onboarding_rules_acceptance(guild, config, member):
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return False
+    await add_onboarding_role(member, settings.get("rules_role_id"), "Wandering Bot rules accepted")
+    await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
+    linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
+    if linked_player_primary_gamertag(linked_data):
+        await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag already linked when rules were accepted")
+    channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    if channel:
+        embed = discord.Embed(
+            title="RULES ACCEPTED",
+            description=f"{member.mention}\n\n{settings['accepted_message']}",
+            color=0x2ECC71,
+        )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+        try:
+            await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        except Exception as error:
+            print(f"[ONBOARDING] accepted notice failed for {member}: {error}")
+    return True
+
+
+async def apply_member_onboarding_link_role(guild, config, member):
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"] or not settings.get("linked_role_id"):
+        return False
+    if settings.get("require_rules_before_linked_role") and settings.get("rules_role_id") and not member_has_role_id(member, settings.get("rules_role_id")):
+        return False
+    changed = await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag linked")
+    await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot gamertag linked")
+    if changed:
+        channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+        if channel:
+            embed = discord.Embed(
+                title="GAMERTAG LINK COMPLETE",
+                description=f"{member.mention}\n\n{settings['linked_message']}",
+                color=0x00D1B2,
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+            try:
+                await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            except Exception as error:
+                print(f"[ONBOARDING] linked notice failed for {member}: {error}")
+    return changed
+
+
 async def announce_verified_gamer_link(guild, config, member, gamertag, account_label="Primary gamertag"):
     channel = await get_or_create_feed_channel(
         guild,
@@ -2939,6 +3105,8 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
         verified_name,
         source="linkaltgamer" if is_alt else "linkgamer",
     )
+    if not is_alt:
+        await apply_member_onboarding_link_role(guild, config, member)
     await announce_verified_gamer_link(guild, config, member, verified_name, account_label=account_label)
     return True, verified_name
 
@@ -5154,6 +5322,9 @@ CHANNEL_RESTORE_PACKS = {
         "pve_info",
         "pve_help",
         "pve_heatmap",
+        "pve_rewards_public",
+        "pve_rewards_private",
+        "quest_workshop",
     ],
 }
 CHANNEL_RESTORE_PACKS["all"] = list(DEFAULT_CHANNEL_NAMES.keys())
@@ -5430,6 +5601,9 @@ def discover_existing_guild_channels(guild, config):
     changed = False
 
     for key in DEFAULT_CHANNEL_NAMES:
+        if is_channel_key_disabled(config, key):
+            continue
+
         existing_id = channels.get(key)
 
         existing_channel_id = _safe_channel_id(existing_id)
@@ -5485,6 +5659,9 @@ async def repair_guild_display_names(guild, config):
             continue
 
         key = default_channel_key_for_name(decoded_name)
+        if key and is_channel_key_disabled(config, key):
+            continue
+
         desired_name = DEFAULT_CHANNEL_NAMES.get(key, decoded_name)
         if candidate.name == desired_name:
             continue
@@ -5499,6 +5676,9 @@ async def repair_guild_display_names(guild, config):
             pass
 
     for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
+        if is_channel_key_disabled(config, key):
+            continue
+
         channel = None
         existing_id = channels.get(key)
 
@@ -8895,6 +9075,8 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
     if not target:
         if not server_allows_pve(config):
             return False, "PVE is disabled for this server mode."
+        if is_channel_key_disabled(config, channel_key):
+            return False, f"Target channel `{channel_key}` was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
         # Auto-create the PVE channel set if missing.
         await ensure_pve_channels(guild, config)
         target = guild.get_channel(channels.get(channel_key))
@@ -9386,6 +9568,8 @@ async def deliver_quest_reward(guild, config, challenge, member):
     public_channel = guild.get_channel(channels.get("pve_rewards_public"))
     private_channel = guild.get_channel(channels.get("pve_rewards_private"))
     if not public_channel:
+        if is_channel_key_disabled(config, "pve_rewards_public"):
+            return
         # Auto-create on first use.
         await ensure_pve_channels(guild, config)
         public_channel = guild.get_channel(channels.get("pve_rewards_public"))
@@ -15598,7 +15782,7 @@ async def parse_adm(guild_id, config):
 
             if not hunting_channel:
                 guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
-                if guild:
+                if guild and not is_channel_key_disabled(config, "pve_hunting"):
                     created = await ensure_pve_channels(guild, config)
                     hunting_channel = created.get("pve_hunting")
 
@@ -16996,6 +17180,13 @@ async def on_member_join(member):
         return
     # ── Standard welcome ─────────────────────────────────
 
+    onboarding = member_onboarding_settings(config)
+    if onboarding["enabled"]:
+        await add_onboarding_role(member, onboarding.get("pending_role_id"), "Wandering Bot onboarding pending")
+        sent = await send_member_onboarding_join_prompt(member, config, onboarding)
+        if sent:
+            return
+
     welcome_channel = bot.get_channel(
         channels.get("welcome")
     )
@@ -17022,6 +17213,39 @@ async def on_member_join(member):
     )
 
     await welcome_channel.send(embed=style_embed(embed))
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    if not payload.guild_id or not payload.user_id:
+        return
+    if bot.user and int(payload.user_id) == int(bot.user.id):
+        return
+    guild = bot.get_guild(int(payload.guild_id))
+    if not guild:
+        return
+    guild_id = str(guild.id)
+    config = guild_configs.get(guild_id, {})
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return
+    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    if not rules_channel or int(payload.channel_id) != int(rules_channel.id):
+        return
+    rules_message_id = str(settings.get("rules_message_id") or "").strip()
+    if rules_message_id and str(payload.message_id) != rules_message_id:
+        return
+    if str(payload.emoji) != settings.get("reaction_emoji"):
+        return
+    member = guild.get_member(int(payload.user_id))
+    if not member:
+        try:
+            member = await guild.fetch_member(int(payload.user_id))
+        except Exception:
+            return
+    if getattr(member, "bot", False):
+        return
+    await apply_member_onboarding_rules_acceptance(guild, config, member)
 
 
 WANDERING_MASTER_GUILD_ID = os.environ.get("WANDERING_MASTER_GUILD_ID", "").strip()
@@ -23827,6 +24051,8 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     channels = config.setdefault("channels", {})
     quest_channel = bot.get_channel(channels.get("pve_quests"))
     if not quest_channel:
+        if is_channel_key_disabled(config, "pve_quests"):
+            return False, "PVE quest channel was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
         created = await ensure_pve_channels(guild, config)
         quest_channel = created.get("pve_quests")
 
@@ -23919,6 +24145,8 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     channel_key = pve_channel_for_kind(kind)
     if not channel_key:
         return False, f"No themed PVE channel for {kind}"
+    if is_channel_key_disabled(config, channel_key):
+        return False, f"PVE channel `{channel_key}` was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
 
     difficulty = str(difficulty or random.choice(PVE_SLOT_DIFFICULTIES)).title()
 
@@ -24295,7 +24523,7 @@ async def pve_pvp_advice_loop():
             last_pve_help = float(pve_settings.get("last_help_ts", 0))
             if server_allows_pve(config) and now_ts - last_pve_help >= 24 * 3600:
                 guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
-                if guild and not channels.get("pve_help"):
+                if guild and not channels.get("pve_help") and not is_channel_key_disabled(config, "pve_help"):
                     await ensure_pve_channels(guild, config)
 
                 pve_help_channel = bot.get_channel(channels.get("pve_help"))
@@ -24834,6 +25062,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         verified_name,
         source="forcelinkgamer",
     )
+    await apply_member_onboarding_link_role(guild, config, target_member)
     await announce_verified_gamer_link(guild, config, target_member, verified_name)
     return True, verified_name
 

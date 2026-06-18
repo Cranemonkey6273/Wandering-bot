@@ -4091,6 +4091,70 @@ PAGE_TEMPLATE = """
           </div>
         </article>
         <article class="admin-panel">
+          <h3>Member Onboarding Gate</h3>
+          {% set onboarding = server.member_onboarding if server else {} %}
+          <form id="member-onboarding-form" class="admin-form" method="post" action="/api/admin/member-onboarding" data-route="/api/admin/member-onboarding">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#member-onboarding-form">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Gate enabled
+              <select name="enabled">
+                <option value="true" {% if onboarding.enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if not onboarding.enabled %}selected{% endif %}>Off</option>
+              </select>
+            </label>
+            <label>Rules/start channel
+              <select name="rules_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.rules_channel_value or channel.id == onboarding.rules_channel_value or channel.key == onboarding.rules_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Reaction
+              <select name="reaction_emoji">
+                {% for emoji in onboarding_reaction_options %}<option value="{{ emoji }}" {% if emoji == onboarding.reaction_emoji %}selected{% endif %}>{{ emoji }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Exact rules message ID <input name="rules_message_id" value="{{ onboarding.rules_message_id }}" placeholder="optional - leave blank for any message in rules channel"></label>
+            <label>Give role after rules
+              <select name="rules_role_id">
+                <option value="" {% if not onboarding.rules_role_id %}selected{% endif %}>No rules role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.rules_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Give role after /linkgamer
+              <select name="linked_role_id">
+                <option value="" {% if not onboarding.linked_role_id %}selected{% endif %}>No linked role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.linked_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Optional pending role
+              <select name="pending_role_id">
+                <option value="" {% if not onboarding.pending_role_id %}selected{% endif %}>No pending role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.pending_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Next channel after rules
+              <select name="next_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.next_channel_value or channel.id == onboarding.next_channel_value or channel.key == onboarding.next_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Require rules before linked role
+              <select name="require_rules_before_linked_role">
+                <option value="true" {% if onboarding.require_rules_before_linked_role %}selected{% endif %}>Yes</option>
+                <option value="false" {% if not onboarding.require_rules_before_linked_role %}selected{% endif %}>No</option>
+              </select>
+            </label>
+            <label class="full">Join message <textarea name="welcome_message">{{ onboarding.welcome_message }}</textarea></label>
+            <label class="full">After rules message <textarea name="accepted_message">{{ onboarding.accepted_message }}</textarea></label>
+            <label class="full">After link message <textarea name="linked_message">{{ onboarding.linked_message }}</textarea></label>
+            <div class="full embed-preview">
+              <strong>Current gate</strong>
+              <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }}</span>
+              <small>Use Discord permissions so the rules role and linked role unlock the channels you want players to see.</small>
+            </div>
+            <div class="full modal-actions"><button type="submit">Save Onboarding Gate</button><span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
           <h3>Survival Milestones</h3>
           {% set survival_settings = server.survival_milestones if server else {} %}
           <form id="survival-milestone-settings" class="admin-form" method="post" action="/api/admin/survival-milestones" data-route="/api/admin/survival-milestones">
@@ -7044,6 +7108,7 @@ PAGE_TEMPLATE = """
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
       "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
       "/api/admin/welcome-automation": {bodyKey: "automation", message: "Saved welcome automation."},
+      "/api/admin/member-onboarding": {bodyKey: "settings", message: "Saved onboarding gate."},
       "/api/admin/survival-milestones": {bodyKey: "settings", message: "Saved survival milestone settings."},
       "/api/admin/utility-config": {bodyKey: "utility", message: "Saved utility module."},
       "/api/admin/reaction-role-panel": {bodyKey: "panel", message: "Saved reaction role panel."},
@@ -11233,6 +11298,7 @@ ADMIN_ROUTES = [
     "/api/admin/embed-template-action",
     "/api/admin/dashboard-record-action",
     "/api/admin/welcome-automation",
+    "/api/admin/member-onboarding",
     "/api/admin/survival-milestones",
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
@@ -11293,6 +11359,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/embed-template-action": "embeds",
     "/api/admin/dashboard-record-action": "embeds",
     "/api/admin/welcome-automation": "embeds",
+    "/api/admin/member-onboarding": "embeds",
     "/api/admin/survival-milestones": "embeds",
     "/api/admin/utility-config": "embeds",
     "/api/admin/reaction-role-panel": "embeds",
@@ -11708,6 +11775,16 @@ def scenario_status_display(event: Any) -> dict[str, str]:
     error = str(event.get("upload_error") or "").strip()
     uploaded_at = str(event.get("native_ce_uploaded_at") or event.get("bridge_uploaded_at") or "").strip()
     combined = f"{status} {error} {upload_status}".lower()
+    queued_minutes = 0
+    queued_at = str(event.get("updated_at") or event.get("created_at") or "").strip()
+    if queued_at:
+        try:
+            parsed_at = datetime.fromisoformat(queued_at.replace("Z", "+00:00"))
+            if parsed_at.tzinfo is None:
+                parsed_at = parsed_at.replace(tzinfo=UTC)
+            queued_minutes = max(0, int((datetime.now(UTC) - parsed_at.astimezone(UTC)).total_seconds() // 60))
+        except (TypeError, ValueError):
+            queued_minutes = 0
 
     if uploaded_at or upload_status == "uploaded":
         title = "Uploaded - restart once"
@@ -11726,9 +11803,18 @@ def scenario_status_display(event: Any) -> dict[str, str]:
         brief = "Open details for the technical reason."
         state = "bad"
     elif upload_status in {"waiting_for_bot_upload", "queued", "uploading", "starting"} or "upload starting" in combined or "upload requested" in combined:
-        title = "Upload queued"
-        brief = "The bot worker is processing it."
-        state = "warn"
+        if queued_minutes >= 15:
+            title = "Worker not responding"
+            brief = f"No upload result after {queued_minutes} min. Restart/redeploy the bot worker."
+            state = "bad"
+        elif queued_minutes >= 5:
+            title = "Waiting for bot worker"
+            brief = f"No upload result after {queued_minutes} min. Railway may still be redeploying or the bot worker may be stopped."
+            state = "warn"
+        else:
+            title = "Upload queued"
+            brief = "The bot worker is processing it."
+            state = "warn"
     elif upload_status == "removed":
         title = "Removed"
         brief = "The event will be removed from generated XML."
@@ -14645,6 +14731,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "link-server": "Linked server settings updated",
         "leaderboard": "Leaderboard settings updated",
         "member-action": "Member moderation action queued",
+        "member-onboarding": "Member onboarding gate saved",
         "moderation-guard": "Moderation guard updated",
         "on-screen-message": "On-screen message queued",
         "reaction-role-panel": "Reaction role panel saved",
@@ -17129,6 +17216,77 @@ def dashboard_survival_milestone_settings(config: Any, channels: list[dict[str, 
     }
 
 
+ONBOARDING_REACTION_OPTIONS = ("✅", "👍", "🟢", "🛡️", "📜")
+
+
+def dashboard_channel_value(config: Any, value: Any, *, default: str = "") -> str:
+    selection = str(value or "").strip()
+    if not selection:
+        return default
+    if selection.isdigit() and isinstance(config, dict):
+        channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+        for key, channel_id in channels.items():
+            if str(channel_id).strip() == selection:
+                return str(key)
+    return selection
+
+
+def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, str]], roles: list[dict[str, str]]) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        config = {}
+    raw_settings = config.get("member_onboarding")
+    settings = raw_settings if isinstance(raw_settings, dict) else {}
+    reaction = str(settings.get("reaction_emoji") or "✅").strip() or "✅"
+    if reaction not in ONBOARDING_REACTION_OPTIONS:
+        reaction = "✅"
+    rules_channel_value = dashboard_channel_value(
+        config,
+        settings.get("rules_channel_id") or settings.get("rules_channel_key") or "rules",
+        default="rules",
+    )
+    next_channel_value = dashboard_channel_value(
+        config,
+        settings.get("next_channel_id") or settings.get("next_channel_key") or "general_chat",
+        default="general_chat",
+    )
+    return {
+        "enabled": dashboard_bool(settings.get("enabled"), False),
+        "enabled_value": "true" if dashboard_bool(settings.get("enabled"), False) else "false",
+        "rules_channel_value": rules_channel_value,
+        "rules_channel_label": channel_label_from_channels(channels, rules_channel_value, "Rules channel"),
+        "next_channel_value": next_channel_value,
+        "next_channel_label": channel_label_from_channels(channels, next_channel_value, "Next channel"),
+        "rules_role_id": str(settings.get("rules_role_id") or ""),
+        "rules_role_label": role_label_from_roles(roles, settings.get("rules_role_id"), "No rules role"),
+        "linked_role_id": str(settings.get("linked_role_id") or ""),
+        "linked_role_label": role_label_from_roles(roles, settings.get("linked_role_id"), "No linked role"),
+        "pending_role_id": str(settings.get("pending_role_id") or ""),
+        "pending_role_label": role_label_from_roles(roles, settings.get("pending_role_id"), "No pending role"),
+        "reaction_emoji": reaction,
+        "rules_message_id": str(settings.get("rules_message_id") or ""),
+        "require_rules_before_linked_role": dashboard_bool(settings.get("require_rules_before_linked_role"), True),
+        "require_rules_value": "true" if dashboard_bool(settings.get("require_rules_before_linked_role"), True) else "false",
+        "welcome_message": str(settings.get("welcome_message") or "Read the rules, react to accept them, then link your gamertag with /linkgamer."),
+        "accepted_message": str(settings.get("accepted_message") or "Rules accepted. Next step: link your gamertag with /linkgamer."),
+        "linked_message": str(settings.get("linked_message") or "Gamertag linked. Your linked-player role has been applied."),
+        "updated_at": str(settings.get("updated_at") or ""),
+    }
+
+
+def role_label_from_roles(roles: list[dict[str, str]], value: Any, default: str = "No role") -> str:
+    selection = str(value or "").strip()
+    if not selection:
+        return default
+    if not isinstance(roles, list):
+        roles = []
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        if selection in {str(role.get("id") or ""), str(role.get("name") or ""), str(role.get("label") or "")}:
+            return str(role.get("label") or role.get("name") or selection)
+    return f"Stored role {selection}" if selection.isdigit() else selection
+
+
 def enrich_faction_channel_labels(factions: dict[str, Any], channels: list[dict[str, str]]) -> dict[str, Any]:
     if not isinstance(factions, dict):
         return {}
@@ -18696,7 +18854,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
-    needs_discord_roles = needs_full or active_section in {"factions", "zones", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
+    needs_discord_roles = needs_full or active_section in {"automations", "factions", "zones", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
@@ -18824,6 +18982,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "survival_milestones": redact(dashboard_survival_milestone_settings(config, channels)),
+                "member_onboarding": redact(dashboard_member_onboarding_settings(config, channels, discord_roles)),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
                 "welcome_automations": redact(dashboard_admin_records(dashboard_admin, "welcome_automations", guild_id)),
                 "utility_configs": redact(dashboard_admin_records(dashboard_admin, "utility_configs", guild_id)),
@@ -19022,6 +19181,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_selected_rows=visual_loadout_equipped_rows,
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
         shop_bundle_rows=shop_bundle_rows,
+        onboarding_reaction_options=ONBOARDING_REACTION_OPTIONS,
         restart_status=restart_status,
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
@@ -19631,6 +19791,72 @@ def api_welcome_automation():
         {"ok": True, "automation": record, "note": "Saved welcome automation."},
         "automations",
         "#welcome-automation-form",
+    )
+
+
+@APP.post("/api/admin/member-onboarding")
+def api_member_onboarding():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+    configured_channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+
+    def channel_setting(value: Any, key_name: str, id_name: str, default: str = "") -> dict[str, str]:
+        selected = str(value or "").strip() or default
+        result: dict[str, str] = {}
+        if selected.isdigit():
+            matched_key = ""
+            for channel_key, channel_id in configured_channels.items():
+                if str(channel_id).strip() == selected:
+                    matched_key = str(channel_key)
+                    break
+            if matched_key:
+                result[key_name] = matched_key
+            else:
+                result[id_name] = selected
+        elif selected:
+            result[key_name] = selected
+        return result
+
+    reaction = str(raw_payload.get("reaction_emoji") or "✅").strip() or "✅"
+    if reaction not in ONBOARDING_REACTION_OPTIONS:
+        reaction = "✅"
+    settings: dict[str, Any] = {
+        "enabled": dashboard_bool(raw_payload.get("enabled"), False),
+        "reaction_emoji": reaction,
+        "rules_message_id": str(raw_payload.get("rules_message_id") or "").strip(),
+        "rules_role_id": str(raw_payload.get("rules_role_id") or "").strip(),
+        "linked_role_id": str(raw_payload.get("linked_role_id") or "").strip(),
+        "pending_role_id": str(raw_payload.get("pending_role_id") or "").strip(),
+        "require_rules_before_linked_role": dashboard_bool(raw_payload.get("require_rules_before_linked_role"), True),
+        "welcome_message": str(raw_payload.get("welcome_message") or "").strip() or "Read the rules, react to accept them, then link your gamertag with /linkgamer.",
+        "accepted_message": str(raw_payload.get("accepted_message") or "").strip() or "Rules accepted. Next step: link your gamertag with /linkgamer.",
+        "linked_message": str(raw_payload.get("linked_message") or "").strip() or "Gamertag linked. Your linked-player role has been applied.",
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    settings.update(channel_setting(raw_payload.get("rules_channel_key") or raw_payload.get("rules_channel_id"), "rules_channel_key", "rules_channel_id", "rules"))
+    settings.update(channel_setting(raw_payload.get("next_channel_key") or raw_payload.get("next_channel_id"), "next_channel_key", "next_channel_id", "general_chat"))
+    config["member_onboarding"] = settings
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+
+    channels = public_channels(config.get("channels", {}), guild_id)
+    roles = discord_guild_roles(guild_id)
+    display_settings = dashboard_member_onboarding_settings(config, channels, roles)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "settings": display_settings, "note": "Saved onboarding gate."},
+        "automations",
+        "#member-onboarding-form",
     )
 
 
