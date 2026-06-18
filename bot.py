@@ -26636,7 +26636,7 @@ CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
-ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
     normalize_discord_name("Ammo_Flare"),
@@ -26646,12 +26646,21 @@ INVALID_SPAWNABLETYPE_ITEM_KEYS = {
 }
 
 
-def scenario_event_bridge_enabled(event):
+def delivery_bridge_config_ready(config):
+    bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
+    return bool(
+        bridge.get("installed_at")
+        or bridge.get("starter_delivery_uploaded")
+        or bridge.get("delivery_path")
+    )
+
+
+def scenario_event_bridge_enabled(event, config=None):
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
-        and bool(event.get("use_delivery_bridge"))
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+        and (bool(event.get("use_delivery_bridge")) or delivery_bridge_config_ready(config))
     )
 
 
@@ -26915,7 +26924,7 @@ def native_ce_scenario_events(config):
     return [
         event
         for event in bridge_scenario_events(config)
-        if not scenario_event_bridge_enabled(event)
+        if not scenario_event_bridge_enabled(event, config)
     ]
 
 
@@ -26923,7 +26932,7 @@ def delivery_bridge_scenario_events(config):
     return [
         event
         for event in bridge_scenario_events(config)
-        if scenario_event_bridge_enabled(event)
+        if scenario_event_bridge_enabled(event, config)
     ]
 
 
@@ -29904,8 +29913,8 @@ def scenario_event_has_confirmed_native_upload(event):
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
-def scenario_event_uses_delivery_bridge(event):
-    return scenario_event_bridge_enabled(event)
+def scenario_event_uses_delivery_bridge(event, config=None):
+    return scenario_event_bridge_enabled(event, config)
 
 
 def scenario_event_has_confirmed_bridge_upload(event):
@@ -29983,6 +29992,7 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
 
 
 def apply_bridge_upload_metadata(event, delivery_path, messages, now_text, upload_status="uploaded", status_text=None):
+    event["use_delivery_bridge"] = True
     event["bridge_uploaded_at"] = now_text
     event["bridge_delivery_path"] = str(delivery_path or "")
     event["bridge_upload_messages"] = [str(message)[:320] for message in (messages or [])[-8:]]
@@ -29994,7 +30004,7 @@ def apply_bridge_upload_metadata(event, delivery_path, messages, now_text, uploa
 
 def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Dashboard"):
     delivery_path = delivery_bridge_path_for_guild(guild_id, config)
-    events = [event for event in (events or []) if scenario_event_uses_delivery_bridge(event)]
+    events = [event for event in (events or []) if scenario_event_uses_delivery_bridge(event, config)]
     if not events:
         return False, delivery_path, ["No bridge-compatible live events were queued."]
     try:
@@ -30141,12 +30151,12 @@ def dashboard_upload_console_ce_event_files(guild_id):
         bridge_events = [
             event
             for event in active_dashboard_events
-            if scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_bridge_upload(event)
+            if scenario_event_uses_delivery_bridge(event, config) and not scenario_event_has_confirmed_bridge_upload(event)
         ]
         native_events = [
             event
             for event in active_dashboard_events
-            if not scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_native_upload(event)
+            if not scenario_event_uses_delivery_bridge(event, config) and not scenario_event_has_confirmed_native_upload(event)
         ]
         if bridge_events:
             now_text = datetime.now(UTC).isoformat()
@@ -32581,12 +32591,12 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
     bridge_events = [
         event
         for event in pending_events
-        if scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_bridge_upload(event)
+        if scenario_event_uses_delivery_bridge(event, config) and not scenario_event_has_confirmed_bridge_upload(event)
     ]
     native_events = [
         event
         for event in pending_events
-        if not scenario_event_uses_delivery_bridge(event) and not scenario_event_has_confirmed_native_upload(event)
+        if not scenario_event_uses_delivery_bridge(event, config) and not scenario_event_has_confirmed_native_upload(event)
     ]
     if not pending_events and not cleanup_pending:
         return False

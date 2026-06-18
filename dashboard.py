@@ -4873,10 +4873,10 @@ PAGE_TEMPLATE = """
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
-            <div class="full embed-preview"><strong>Status</strong><span>Save queues native CE XML upload. Max 250 spawns per event.</span></div>
+            <div class="full embed-preview"><strong>Status</strong><span>Save queues direct bridge XML when the DayZ bridge is installed; otherwise it uses guarded native CE XML. Max 250 spawns per event.</span></div>
             <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=events{{ server_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
-          <p class="tool-note" style="margin-top:.75rem">Events save to bot config. Console CE XML applies after restart.</p>
+          <p class="tool-note" style="margin-top:.75rem">Events save to bot config. Bridge deployments and console CE XML both apply after a server restart.</p>
         </article>
         <article class="admin-panel" data-pve-panel="builder">
           <h3>Server Control Moved</h3>
@@ -11472,7 +11472,7 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
 
 
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
-ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 SCENARIO_UPLOAD_RESET_FIELDS = {
     "xml_uploaded_at",
     "bridge_uploaded_at",
@@ -11497,12 +11497,21 @@ SCENARIO_UPLOAD_RESET_FIELDS = {
 }
 
 
-def dashboard_event_bridge_enabled(event: Any) -> bool:
+def dashboard_delivery_bridge_config_ready(config: Any) -> bool:
+    bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
+    return bool(
+        bridge.get("installed_at")
+        or bridge.get("starter_delivery_uploaded")
+        or bridge.get("delivery_path")
+    )
+
+
+def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
-        and bool(event.get("use_delivery_bridge"))
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
+        and (bool(event.get("use_delivery_bridge")) or dashboard_delivery_bridge_config_ready(config))
     )
 
 
@@ -11517,8 +11526,8 @@ def scenario_event_has_confirmed_upload(event: Any) -> bool:
     )
 
 
-def dashboard_event_uses_delivery_bridge(event: Any) -> bool:
-    return dashboard_event_bridge_enabled(event)
+def dashboard_event_uses_delivery_bridge(event: Any, config: Any = None) -> bool:
+    return dashboard_event_bridge_enabled(event, config)
 
 
 def reset_dashboard_scenario_upload_state(event: dict[str, Any]) -> None:
@@ -11859,6 +11868,7 @@ def apply_dashboard_native_ce_upload_metadata(event: dict[str, Any], built: dict
 
 
 def apply_dashboard_bridge_upload_metadata(event: dict[str, Any], built: dict[str, Any], messages: list[Any], now_text: str, upload_status: str = "uploaded", status_text: str | None = None) -> None:
+    event["use_delivery_bridge"] = True
     event["bridge_uploaded_at"] = now_text
     event["bridge_delivery_path"] = built.get("bridge_delivery_path", "")
     event["bridge_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
@@ -11919,7 +11929,7 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             continue
         event["updated_at"] = now_text
         if upload_ok:
-            if bridge_upload and dashboard_event_uses_delivery_bridge(event):
+            if bridge_upload and dashboard_event_uses_delivery_bridge(event, config):
                 apply_dashboard_bridge_upload_metadata(
                     event,
                     built,
@@ -20517,6 +20527,15 @@ def api_scenario_event():
         gas_particle = "normal"
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
+    use_delivery_bridge = (
+        safe_bool(payload.get("use_delivery_bridge"), False)
+        or (
+            ALLOW_SCENARIO_DELIVERY_BRIDGE
+            and event_type in DELIVERY_BRIDGE_SCENARIO_TYPES
+            and dashboard_delivery_bridge_config_ready(config)
+        )
+    )
+    upload_route_label = "Direct bridge XML" if use_delivery_bridge else "Native CE XML"
 
     base_name = str(payload.get("name") or "").strip()
     label_name = str(preset.get("label") or event_type.replace("_", " ").title()).strip()
@@ -20614,11 +20633,11 @@ def api_scenario_event():
             "cleanupradius": cleanupradius,
             "gas_lifetime": gas_lifetime,
             "gas_particle": gas_particle if event_type == "gas_zone" else "server_default",
-            "use_delivery_bridge": safe_bool(payload.get("use_delivery_bridge"), False),
+            "use_delivery_bridge": use_delivery_bridge,
             "permanent": permanent,
             "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
             "enabled": True,
-            "status": "Saved - native CE XML upload requested",
+            "status": f"Saved - {upload_route_label} upload requested",
             "upload_status": "waiting_for_bot_upload",
             "created_by": event.get("created_by") or "dashboard",
             "created_at": event.get("created_at") or datetime.now(UTC).isoformat(),
@@ -20639,14 +20658,14 @@ def api_scenario_event():
     upload_result = None
     if event_type != "vehicle_reset_all":
         for event in created_events:
-            event["status"] = "Native CE XML upload requested"
+            event["status"] = f"{upload_route_label} upload requested"
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
         if CUSTOM_STATE_PROVIDER:
             upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
             if upload_started:
                 for event in created_events:
-                    event["status"] = "Native CE XML upload starting"
+                    event["status"] = f"{upload_route_label} upload starting"
                 save_store("guild_configs", guild_configs)
                 sync_runtime_store("guild_configs", guild_configs)
 
@@ -20670,7 +20689,7 @@ def api_scenario_event():
     if not wants_json_response():
         return redirect(return_to)
     count_text = f"{len(created_events)} events" if len(created_events) != 1 else "1 event"
-    upload_note = "native CE XML upload requested" if upload_started else "native CE XML queued for the bot worker"
+    upload_note = f"{upload_route_label} upload requested" if upload_started else f"{upload_route_label} queued for the bot worker"
     return jsonify({
         "ok": True,
         "event": event,
@@ -20777,12 +20796,15 @@ def api_scenario_event_action():
                 "note": "event removed; native CE XML cleanup is queued in the bot background worker",
             })
         event["enabled"] = action in {"approve", "upload"}
+        route_label = "Direct bridge XML" if dashboard_event_bridge_enabled(event, config) else "Native CE XML"
         event["status"] = {
             "approve": "Accepted / bot auto-upload queued",
-            "upload": "Retry queued for native CE XML upload",
+            "upload": f"Retry queued for {route_label} upload",
             "pause": "Paused by dashboard",
         }[action]
         if action in {"approve", "upload"}:
+            if dashboard_event_bridge_enabled(event, config):
+                event["use_delivery_bridge"] = True
             event["upload_status"] = "waiting_for_bot_upload"
             event["upload_attempts"] = 0
             event.pop("xml_uploaded_at", None)
@@ -20798,7 +20820,7 @@ def api_scenario_event_action():
             upload_result = None
             upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else False
             if upload_started:
-                event["status"] = "Native CE XML removal starting" if action == "pause" else "Native CE XML upload starting"
+                event["status"] = "Native CE XML removal starting" if action == "pause" else f"{route_label} upload starting"
                 save_store("guild_configs", guild_configs)
                 sync_runtime_store("guild_configs", guild_configs)
                 if not wants_json_response():
