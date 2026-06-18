@@ -4853,12 +4853,12 @@ PAGE_TEMPLATE = """
                 <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55">Civilian infected</option>
                 <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60">Military infected</option>
                 <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55">Heavy military infected</option>
-                <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="5" data-loot="vehicle_car">Ada 4x4</option>
-                <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="5" data-loot="vehicle_car">Gunter 2</option>
-                <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="5" data-loot="vehicle_car">Sarka 120</option>
-                <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="5" data-loot="vehicle_car">Olga 24</option>
-                <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="5" data-loot="vehicle_truck">M3S covered truck</option>
-                <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="5" data-loot="vehicle_car">Custom vehicle classname</option>
+                <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="0" data-loot="vehicle_car">Ada 4x4</option>
+                <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="0" data-loot="vehicle_car">Gunter 2</option>
+                <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="0" data-loot="vehicle_car">Sarka 120</option>
+                <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="0" data-loot="vehicle_car">Olga 24</option>
+                <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="0" data-loot="vehicle_truck">M3S covered truck</option>
+                <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="0" data-loot="vehicle_car">Custom vehicle classname</option>
                 <option value="gas_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-permanent="false">Temporary gas zone</option>
                 <option value="gas_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-permanent="true">Permanent gas zone</option>
                 <option value="gas_red_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-gas-particle="debug" data-permanent="false">Temporary red gas zone</option>
@@ -11539,7 +11539,7 @@ def scenario_event_has_confirmed_native_upload(event: Any) -> bool:
     return isinstance(event, dict) and bool(str(event.get("native_ce_uploaded_at") or "").strip())
 
 
-DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde", "vehicle_spawn"}
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 SCENARIO_UPLOAD_RESET_FIELDS = {
     "xml_uploaded_at",
@@ -11567,19 +11567,17 @@ SCENARIO_UPLOAD_RESET_FIELDS = {
 
 def dashboard_delivery_bridge_config_ready(config: Any) -> bool:
     bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
-    return bool(
-        bridge.get("installed_at")
-        or bridge.get("starter_delivery_uploaded")
-        or bridge.get("delivery_path")
-    )
+    return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
 def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
+    bridge_ready = dashboard_delivery_bridge_config_ready(config)
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
-        and (bool(event.get("use_delivery_bridge")) or dashboard_delivery_bridge_config_ready(config))
+        and bridge_ready
+        and (bool(event.get("use_delivery_bridge")) or bridge_ready)
     )
 
 
@@ -20816,7 +20814,7 @@ def api_scenario_event():
         distanceradius_default = max(50, radius)
         cleanupradius_default = max(100, radius + 100)
     elif event_type == "vehicle_spawn":
-        distanceradius_default = 5
+        distanceradius_default = 0
         cleanupradius_default = 100
     else:
         distanceradius_default = max(0, radius)
@@ -20832,13 +20830,12 @@ def api_scenario_event():
         gas_particle = "normal"
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
+    bridge_ready = dashboard_delivery_bridge_config_ready(config)
     use_delivery_bridge = (
-        safe_bool(payload.get("use_delivery_bridge"), False)
-        or (
-            ALLOW_SCENARIO_DELIVERY_BRIDGE
-            and event_type in DELIVERY_BRIDGE_SCENARIO_TYPES
-            and dashboard_delivery_bridge_config_ready(config)
-        )
+        ALLOW_SCENARIO_DELIVERY_BRIDGE
+        and event_type in DELIVERY_BRIDGE_SCENARIO_TYPES
+        and bridge_ready
+        and (safe_bool(payload.get("use_delivery_bridge"), False) or bridge_ready)
     )
     upload_route_label = "Direct bridge XML" if use_delivery_bridge else "Native CE XML"
 

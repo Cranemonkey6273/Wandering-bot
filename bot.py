@@ -26864,7 +26864,14 @@ dayz_reference_cache = {}
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
-DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde"}
+DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde", "vehicle_spawn"}
+CONSOLE_CE_ZONE_SPAWN_FAMILIES = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Trajectory")
+LEGACY_WANDERING_CE_NAMES = {
+    "Event_JINXADA",
+    "Event_JINXTruck",
+    "VehicleJINXADA",
+    "VehicleJINXTruck",
+}
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
@@ -26877,19 +26884,17 @@ INVALID_SPAWNABLETYPE_ITEM_KEYS = {
 
 def delivery_bridge_config_ready(config):
     bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
-    return bool(
-        bridge.get("installed_at")
-        or bridge.get("starter_delivery_uploaded")
-        or bridge.get("delivery_path")
-    )
+    return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
 def scenario_event_bridge_enabled(event, config=None):
+    bridge_ready = delivery_bridge_config_ready(config)
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
-        and (bool(event.get("use_delivery_bridge")) or delivery_bridge_config_ready(config))
+        and bridge_ready
+        and (bool(event.get("use_delivery_bridge")) or bridge_ready)
     )
 
 
@@ -27791,7 +27796,12 @@ def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
         name = str(child.get("name") or "")
-        if CONSOLE_CE_EVENT_MARKER in name or name.startswith(CONSOLE_CE_EVENT_PREFIX) or "wanderingbot" in normalize_discord_name(name):
+        if (
+            name in LEGACY_WANDERING_CE_NAMES
+            or CONSOLE_CE_EVENT_MARKER in name
+            or name.startswith(CONSOLE_CE_EVENT_PREFIX)
+            or "wanderingbot" in normalize_discord_name(name)
+        ):
             root.remove(child)
             removed += 1
     return removed
@@ -28511,12 +28521,17 @@ def find_or_create_named_child(root, tag_name, name):
     return ET.SubElement(root, tag_name, {"name": wanted}), True
 
 
+def console_ce_event_uses_zone_spawn(event_name):
+    name = str(event_name or "").strip()
+    return name.startswith(CONSOLE_CE_ZONE_SPAWN_FAMILIES)
+
+
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
     event_node, _ = find_or_create_named_child(root, "event", event_name)
     if empty:
         return event_node
     count = max(1, int(count or 1))
-    radius = max(1, int(radius or 45))
+    radius = max(0, int(radius or 0))
     if group_name:
         attrs = {
             "x": ce_decimal(x),
@@ -28529,20 +28544,24 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         ET.SubElement(event_node, "pos", attrs)
         return event_node
 
-    ET.SubElement(event_node, "zone", {
-        "smin": "1",
-        "smax": str(count),
-        "dmin": "1",
-        "dmax": str(count),
-        "x": ce_decimal(x),
-        "z": ce_decimal(z),
-        "r": str(radius),
-    })
-    ET.SubElement(event_node, "pos", {
+    if console_ce_event_uses_zone_spawn(event_name):
+        ET.SubElement(event_node, "zone", {
+            "smin": "1",
+            "smax": str(count),
+            "dmin": "1",
+            "dmax": str(count),
+            "x": ce_decimal(x),
+            "z": ce_decimal(z),
+            "r": str(max(1, radius or 45)),
+        })
+    attrs = {
         "x": ce_decimal(x),
         "z": ce_decimal(z),
         "a": ce_decimal(angle),
-    })
+    }
+    if y is not None:
+        attrs["y"] = ce_decimal(y)
+    ET.SubElement(event_node, "pos", attrs)
     return event_node
 
 
@@ -28774,10 +28793,8 @@ def console_ce_records_for_event(event):
         min_scene_radius = scenario_airdrop_scene_min_radius(event) if event.get("visual_marker") else 0
         if min_scene_radius:
             event["radius"] = max(safe_int(event.get("radius"), 35), min_scene_radius)
-    use_eventgroup = event_type in {"airdrop", "loot_crate"}
+    use_eventgroup = False
     eventgroup_children = None
-    if event_type == "airdrop":
-        eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name)
     family = ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
     child_lootmin = 0
@@ -28872,22 +28889,7 @@ def console_ce_records_for_event(event):
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
     if event_type == "animal_pack":
-        territory_key = stable_console_event_slug(event) or animal_territory_group_key({
-            "class_name": class_name,
-            "name": record_name,
-        })
-        territory_key = ce_file_slug(territory_key)
-        if not territory_key.startswith("animal_"):
-            territory_key = f"animal_{territory_key}"
-        profile = animal_territory_profile(class_name)
         record.update({
-            "animal_territory": True,
-            "empty_spawn": True,
-            "territory_file_key": territory_key,
-            "territory_name": f"WanderingBot_{territory_key}",
-            "animal_behavior": profile.get("behavior") or "DZDeerGroupBeh",
-            "territory_zone": profile.get("zone") or "Graze",
-            "territory_color": profile.get("color") or "4286611584",
             "nominal": count,
             "min_count": count,
             "max_count": count,
@@ -28895,8 +28897,8 @@ def console_ce_records_for_event(event):
             "cleanupradius": 100,
         })
         warnings.append(
-            f"`{event.get('id')}` uses animal territory coordinates for the animal pack; "
-            f"the bot will upload `{record['territory_name']}` plus its env file."
+            f"`{event.get('id')}` uses a direct Animal CE zone at the selected coordinates; "
+            "no custom env territory file is generated."
         )
     records.append(record)
 
@@ -28917,7 +28919,10 @@ def console_ce_records_for_event(event):
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
-            warnings.append(f"`{event.get('id')}` includes `{scene_label}` visual object `{marker_class}` in the airdrop event group.")
+            warnings.append(
+                f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
+                "Native CE uses a reliable crate spawn; the full visual scene requires the delivery bridge to be installed."
+            )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
             warnings.append(
@@ -29349,7 +29354,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
-    should_cleanup_group_files = bool(records) or cleanup_pending
+    should_cleanup_group_files = bool(eventgroup_records)
     if eventgroup_records or should_cleanup_group_files:
         eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
             config,
@@ -29554,7 +29559,12 @@ def validate_console_ce_xml_bundle(built):
         if not spawn_node.findall("pos") and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
         has_group_pos = any(str(pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
-        if not spawn_node.findall("zone") and not has_group_pos and not is_animal_territory_event:
+        if (
+            console_ce_event_uses_zone_spawn(name)
+            and not spawn_node.findall("zone")
+            and not has_group_pos
+            and not is_animal_territory_event
+        ):
             messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")
 
     for name in generated_spawns:
