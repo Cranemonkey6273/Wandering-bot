@@ -40,6 +40,7 @@ DATA_ROOT = (
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
+DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
@@ -17675,7 +17676,7 @@ SHOP_CATEGORY_TERMS = (
     ("Backpacks", ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag")),
     ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "shemag")),
     ("Base Storage", ("barrel", "crate", "chest", "case", "container", "sea_chest", "tent", "shelter", "protectorcase")),
-    ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory")),
+    ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory", "gardenplot")),
     ("Tools", ("hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod")),
     ("Lights & Power", ("battery", "generator", "cable", "spotlight", "headtorch", "flashlight")),
     ("Navigation", ("compass", "gps", "map", "rangefinder", "binoculars", "transmitter", "radio")),
@@ -17760,6 +17761,60 @@ def item_image_url(item_name: Any) -> str:
 
 def item_thumb_fallback(category: Any = "General") -> str:
     return f"/item-thumb/{urllib.parse.quote(str(category or 'General'))}"
+
+
+_SHOP_CATALOG_SEED_CACHE: list[dict[str, Any]] | None = None
+
+
+def read_shop_catalog_seed_file(path: Any) -> list[dict[str, str]]:
+    path_text = str(path or "").strip()
+    if not path_text or not os.path.exists(path_text):
+        return []
+    try:
+        with open(path_text, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return []
+    if isinstance(payload, dict):
+        payload = payload.get("items") or payload.get("catalog") or []
+    if not isinstance(payload, list):
+        return []
+    rows: list[dict[str, str]] = []
+    for raw in payload:
+        if isinstance(raw, str):
+            name = safe_dayz_class(raw)
+            category = infer_shop_category(name)
+        elif isinstance(raw, dict):
+            name = safe_dayz_class(raw.get("name") or raw.get("classname") or raw.get("class"))
+            category = normalize_shop_category(raw.get("category") or raw.get("usage") or infer_shop_category(name))
+        else:
+            continue
+        if name and is_shop_sellable_item(name, category):
+            rows.append({"name": name, "category": category})
+    return rows
+
+
+def shop_catalog_seed_items() -> list[dict[str, str]]:
+    global _SHOP_CATALOG_SEED_CACHE
+    if _SHOP_CATALOG_SEED_CACHE is not None:
+        return list(_SHOP_CATALOG_SEED_CACHE)
+    candidates = [
+        DAYZ_ITEM_CATALOG_FILE,
+        os.path.join(DATA_ROOT, "dayz_item_catalog.json"),
+        os.path.join(DATA_ROOT, "shop_catalog.json"),
+    ]
+    seen: set[str] = set()
+    rows: list[dict[str, str]] = []
+    for path in candidates:
+        for item in read_shop_catalog_seed_file(path):
+            key = item["name"].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(item)
+    rows.sort(key=lambda item: (item["category"].lower(), item["name"].lower()))
+    _SHOP_CATALOG_SEED_CACHE = rows
+    return list(rows)
 
 
 def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
@@ -17848,6 +17903,30 @@ def shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
         row["blocked_user_ids"] = row.get("blocked_user_ids") if isinstance(row.get("blocked_user_ids"), list) else []
         row["configured"] = True
         catalog[name.lower()] = row
+
+    for item in shop_catalog_seed_items():
+        name = str(item.get("name") or "").strip()
+        key = name.lower()
+        if not name or key in catalog:
+            continue
+        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
+        if not is_shop_sellable_item(name, category):
+            continue
+        catalog[key] = {
+            "name": name,
+            "category": category,
+            "image_url": item_image_url(name),
+            "fallback_image_url": item_thumb_fallback(category),
+            "type": "item",
+            "price": 100,
+            "enabled": True,
+            "daily_limit": 0,
+            "allowed_role_ids": [],
+            "blocked_user_ids": [],
+            "bundle_items": [],
+            "bundle_summary": "",
+            "configured": False,
+        }
 
     for name in shop_catalog_item_names(shop):
         key = name.lower()

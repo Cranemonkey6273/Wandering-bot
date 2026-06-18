@@ -1,0 +1,5882 @@
+[
+  {
+    "name": "Ammo_12gaPellets",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_12gaRubberSlug",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_12gaSlug",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_22",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_308Win",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_308WinTracer",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_357",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_380",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Chemgas",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Explosive",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Smoke_Black",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Smoke_Green",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Smoke_Red",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_40mm_Smoke_White",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_45ACP",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_545x39",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_545x39Tracer",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_556x45",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_556x45Tracer",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_762x39",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_762x39Tracer",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_762x54",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_762x54Tracer",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_9x19",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_9x39",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_9x39AP",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_CupidsBolt",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_Flare",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_FlareBlue",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_FlareGreen",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_FlareRed",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_HuntingBolt",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_ImprovisedBolt_1",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Ammo_ImprovisedBolt_2",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_00buck_10rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_12gaRubberSlug_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_12gaSlug_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_22_50Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_308Win_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_308WinTracer_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_357_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_380_35rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_45ACP_25rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_545x39_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_545x39Tracer_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_556x45_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_556x45Tracer_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_762x39_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_762x39Tracer_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_762x54_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_762x54Tracer_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_9x19_25rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_9x39_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "AmmoBox_9x39AP_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_1911_7Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AK101_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AK74_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AK74_45Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AKM_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AKM_Drum75Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_AKM_Palm30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Aug_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CMAG_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CMAG_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CMAG_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CMAG_40Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CZ527_5rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CZ550_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CZ61_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_CZ75_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Deagle_9rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_FAL_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_FAMAS_25Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_FNX45_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Glock_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_IJ70_8Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_M14_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_M14_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_MKII_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_MP5_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_MP5_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_P1_8Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_PM73_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_PM73_25Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_PP19_64Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Ruger1022_15Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Ruger1022_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Saiga_5Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Saiga_8Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Saiga_Drum20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Scout_5Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_SSG82_5rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_STANAG_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_STANAG_60Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_SV98_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_SVD_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_UMP_25Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_VAL_20Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_Vikhr_30Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Mag_VSS_10Rnd",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Shemag_Brown",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Shemag_Green",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Shemag_Red",
+    "category": "Ammunition"
+  },
+  {
+    "name": "Shemag_White",
+    "category": "Ammunition"
+  },
+  {
+    "name": "ACOGOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "ACOGOptic_6x",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK74_Hndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK74_WoodBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_Bayonet",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_FoldingBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_FoldingBttstck_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_FoldingBttstck_Green",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_PlasticBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_PlasticBttstck_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_PlasticBttstck_Green",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_PlasticHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_RailHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_RailHndgrd_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_RailHndgrd_Green",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_Suppressor",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodBttstck_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodBttstck_Camo",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodHndgrd_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "AK_WoodHndgrd_Camo",
+    "category": "Attachments"
+  },
+  {
+    "name": "AKS74U_Bttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "BUISOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "Fal_FoldingBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "Fal_OeBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "FNP45_MRDSOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "HuntingOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "ImprovisedSuppressor",
+    "category": "Attachments"
+  },
+  {
+    "name": "KashtanOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "KazuarOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "KobraOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_CarryHandleOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_CQBBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_MPBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_MPHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_OEBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_PlasticHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_RISHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_RISHndgrd_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_RISHndgrd_Green",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_Suppressor",
+    "category": "Attachments"
+  },
+  {
+    "name": "M4_T3NRDSOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "M68Optic",
+    "category": "Attachments"
+  },
+  {
+    "name": "M9A1_Bayonet",
+    "category": "Attachments"
+  },
+  {
+    "name": "MK4Optic_Black",
+    "category": "Attachments"
+  },
+  {
+    "name": "MK4Optic_Green",
+    "category": "Attachments"
+  },
+  {
+    "name": "MK4Optic_Tan",
+    "category": "Attachments"
+  },
+  {
+    "name": "Mosin_Bayonet",
+    "category": "Attachments"
+  },
+  {
+    "name": "MP5_PlasticHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "MP5_RailHndgrd",
+    "category": "Attachments"
+  },
+  {
+    "name": "MP5k_StockBttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "PistolOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "PistolSuppressor",
+    "category": "Attachments"
+  },
+  {
+    "name": "PP19_Bttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "PSO11Optic",
+    "category": "Attachments"
+  },
+  {
+    "name": "PSO1Optic",
+    "category": "Attachments"
+  },
+  {
+    "name": "PSO6Optic",
+    "category": "Attachments"
+  },
+  {
+    "name": "PUScopeOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "ReflexOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "Saiga_Bttstck",
+    "category": "Attachments"
+  },
+  {
+    "name": "SKS_Bayonet",
+    "category": "Attachments"
+  },
+  {
+    "name": "SportingOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "StarlightOptic",
+    "category": "Attachments"
+  },
+  {
+    "name": "AliceBag_Black",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AliceBag_Camo",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AliceBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AssaultBag_Black",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AssaultBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AssaultBag_Ttsko",
+    "category": "Backpacks"
+  },
+  {
+    "name": "AssaultBag_Winter",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Attack2Bag_Black",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Attack2Bag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Attack2Bag_Ttsko",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Attack2Bag_Yeger",
+    "category": "Backpacks"
+  },
+  {
+    "name": "BloodBagEmpty",
+    "category": "Backpacks"
+  },
+  {
+    "name": "BloodBagFull",
+    "category": "Backpacks"
+  },
+  {
+    "name": "BloodBagIV",
+    "category": "Backpacks"
+  },
+  {
+    "name": "BurlapSack",
+    "category": "Backpacks"
+  },
+  {
+    "name": "BurlapSackCover",
+    "category": "Backpacks"
+  },
+  {
+    "name": "ChildBag_Blue",
+    "category": "Backpacks"
+  },
+  {
+    "name": "ChildBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "ChildBag_Red",
+    "category": "Backpacks"
+  },
+  {
+    "name": "CourierBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "CoyoteBag_Brown",
+    "category": "Backpacks"
+  },
+  {
+    "name": "CoyoteBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "CoyoteBag_Winter",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Black",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Blue",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Orange",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Red",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DryBag_Yellow",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DrysackBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DrysackBag_Orange",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DrysackBag_Yellow",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DuffelBagSmall_Camo",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DuffelBagSmall_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "DuffelBagSmall_Medical",
+    "category": "Backpacks"
+  },
+  {
+    "name": "FurCourierBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "FurImprovisedBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "HuntingBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "HuntingBag_Hannah",
+    "category": "Backpacks"
+  },
+  {
+    "name": "ImprovisedBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "MountainBag_Blue",
+    "category": "Backpacks"
+  },
+  {
+    "name": "MountainBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "MountainBag_Orange",
+    "category": "Backpacks"
+  },
+  {
+    "name": "MountainBag_Red",
+    "category": "Backpacks"
+  },
+  {
+    "name": "SalineBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "SalineBagIV",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Slingbag_Black",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Slingbag_Brown",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Slingbag_Gray",
+    "category": "Backpacks"
+  },
+  {
+    "name": "SmershBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TaloonBag_Blue",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TaloonBag_Green",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TaloonBag_Orange",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TaloonBag_Violet",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TortillaBag",
+    "category": "Backpacks"
+  },
+  {
+    "name": "TortillaBag_Winter",
+    "category": "Backpacks"
+  },
+  {
+    "name": "Barrel_Blue",
+    "category": "Base Storage"
+  },
+  {
+    "name": "Barrel_Green",
+    "category": "Base Storage"
+  },
+  {
+    "name": "Barrel_Red",
+    "category": "Base Storage"
+  },
+  {
+    "name": "Barrel_Yellow",
+    "category": "Base Storage"
+  },
+  {
+    "name": "BarrelHoles_Blue",
+    "category": "Base Storage"
+  },
+  {
+    "name": "BarrelHoles_Green",
+    "category": "Base Storage"
+  },
+  {
+    "name": "BarrelHoles_Red",
+    "category": "Base Storage"
+  },
+  {
+    "name": "BarrelHoles_Yellow",
+    "category": "Base Storage"
+  },
+  {
+    "name": "CarTent",
+    "category": "Base Storage"
+  },
+  {
+    "name": "Chestplate",
+    "category": "Base Storage"
+  },
+  {
+    "name": "FireplaceFireBarrel",
+    "category": "Base Storage"
+  },
+  {
+    "name": "LargeTent",
+    "category": "Base Storage"
+  },
+  {
+    "name": "MediumTent",
+    "category": "Base Storage"
+  },
+  {
+    "name": "MediumTent_Green",
+    "category": "Base Storage"
+  },
+  {
+    "name": "MediumTent_Orange",
+    "category": "Base Storage"
+  },
+  {
+    "name": "PartyTent",
+    "category": "Base Storage"
+  },
+  {
+    "name": "PartyTent_Blue",
+    "category": "Base Storage"
+  },
+  {
+    "name": "PartyTent_Brown",
+    "category": "Base Storage"
+  },
+  {
+    "name": "PartyTent_Lunapark",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ScientificBriefcase",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ScientificBriefcaseKeys",
+    "category": "Base Storage"
+  },
+  {
+    "name": "SeaChest",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShelterFabric",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShelterLeather",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShelterSite",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShelterStick",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShippingContainerKeys_Blue",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShippingContainerKeys_Orange",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShippingContainerKeys_Red",
+    "category": "Base Storage"
+  },
+  {
+    "name": "ShippingContainerKeys_Yellow",
+    "category": "Base Storage"
+  },
+  {
+    "name": "SmallProtectorCase",
+    "category": "Base Storage"
+  },
+  {
+    "name": "StaticObj_Train_Wagon_Flat_Industrial_Barrels_DE",
+    "category": "Base Storage"
+  },
+  {
+    "name": "Winchester70",
+    "category": "Base Storage"
+  },
+  {
+    "name": "WoodenCrate",
+    "category": "Base Storage"
+  },
+  {
+    "name": "BarbedWire",
+    "category": "Building"
+  },
+  {
+    "name": "Camonet",
+    "category": "Building"
+  },
+  {
+    "name": "Fence",
+    "category": "Building"
+  },
+  {
+    "name": "FenceKit",
+    "category": "Building"
+  },
+  {
+    "name": "GardenPlot",
+    "category": "Building"
+  },
+  {
+    "name": "MetalPlate",
+    "category": "Building"
+  },
+  {
+    "name": "MetalWire",
+    "category": "Building"
+  },
+  {
+    "name": "Nail",
+    "category": "Building"
+  },
+  {
+    "name": "NailBox",
+    "category": "Building"
+  },
+  {
+    "name": "NailedBaseballBat",
+    "category": "Building"
+  },
+  {
+    "name": "PileOfWoodenPlanks",
+    "category": "Building"
+  },
+  {
+    "name": "ShelterKit",
+    "category": "Building"
+  },
+  {
+    "name": "StaticObj_Train_Wagon_Flat_Industrial_Planks_DE",
+    "category": "Building"
+  },
+  {
+    "name": "TerritoryFlag",
+    "category": "Building"
+  },
+  {
+    "name": "TerritoryFlagKit",
+    "category": "Building"
+  },
+  {
+    "name": "Watchtower",
+    "category": "Building"
+  },
+  {
+    "name": "WatchtowerKit",
+    "category": "Building"
+  },
+  {
+    "name": "WoodenLog",
+    "category": "Building"
+  },
+  {
+    "name": "WoodenPlank",
+    "category": "Building"
+  },
+  {
+    "name": "AirborneMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Altis",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_APA",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_BabyDeer",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Bear",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Bohemia",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_BrainZ",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_CDF",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Chedaki",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_CHEL",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Chernarus",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_CMC",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Crook",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_DayZ",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_HunterZ",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Livonia",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_LivoniaArmy",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_LivoniaPolice",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_NAPA",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_NSahrani",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Pirates",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Refuge",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Rex",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Rooster",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_RSTA",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Sakhal",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Snake",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_SSahrani",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_TEC",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_UEC",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Wolf",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "Armband_Zenit",
+    "category": "Clothing"
+  },
+  {
+    "name": "AthleticShoes_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "AthleticShoes_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "AthleticShoes_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "AthleticShoes_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "AthleticShoes_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "Balaclava3Holes_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "Balaclava3Holes_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "Balaclava3Holes_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Balaclava3Holes_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "Balaclava3Holes_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_BDU",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Blackskull",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Chain",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Pig",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "BalaclavaMask_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_BDU",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Desert",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Navy",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_UN",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "BallisticHelmet_Woodland",
+    "category": "Clothing"
+  },
+  {
+    "name": "BandageDressing",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_CMMG_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_CMMG_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "BaseballCap_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "BDUJacket",
+    "category": "Clothing"
+  },
+  {
+    "name": "BDUPants",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "BeanieHat_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Maroon",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "BomberJacket_SkyBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_DPM",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Dubok",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Flecktran",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_NavyBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Tan",
+    "category": "Clothing"
+  },
+  {
+    "name": "BoonieHat_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "BudenovkaHat_Gray",
+    "category": "Clothing"
+  },
+  {
+    "name": "CargoPants_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "CargoPants_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "CargoPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "CargoPants_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "CargoPants_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "ChernarusSportShirt",
+    "category": "Clothing"
+  },
+  {
+    "name": "ChestHolster",
+    "category": "Clothing"
+  },
+  {
+    "name": "ColdOperationBoots_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "ColdOperationBoots_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "ColdOperationBoots_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "CombatBoots_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "CombatBoots_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "CombatBoots_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "CombatBoots_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "CombatBoots_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_Lime",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "ConstructionHelmet_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "CowboyHat_black",
+    "category": "Clothing"
+  },
+  {
+    "name": "CowboyHat_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "CowboyHat_darkBrown",
+    "category": "Clothing"
+  },
+  {
+    "name": "CowboyHat_green",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Lime",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "DarkMotoHelmet_YellowScarred",
+    "category": "Clothing"
+  },
+  {
+    "name": "DenimJacket",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Chernarus",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Khaki",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Mouthguard",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Police",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "DirtBikeHelmet_Visor",
+    "category": "Clothing"
+  },
+  {
+    "name": "DownJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "DownJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "DownJacket_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "DownJacket_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "DressShoes_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "DressShoes_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "DressShoes_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "DressShoes_Sunburst",
+    "category": "Clothing"
+  },
+  {
+    "name": "DressShoes_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Christmas",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Dead",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_NewYears",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Valentines",
+    "category": "Clothing"
+  },
+  {
+    "name": "EyeMask_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefighterJacket_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefighterJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefightersHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefightersHelmet_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefightersHelmet_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefightersPants_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "FirefightersPants_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_BlackCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_BrownCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_GreyCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "FlatCap_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "GasMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "GasMask_Filter",
+    "category": "Clothing"
+  },
+  {
+    "name": "GasMask_Filter_Improvised",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaEJacket_Autumn",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaEJacket_Flat",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaEJacket_PautRev",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaEJacket_Summer",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaEJacket_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaHelmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaHelmetVisor",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaPants_Autumn",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaPants_Flat",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaPants_PautRev",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaPants_Summer",
+    "category": "Clothing"
+  },
+  {
+    "name": "GorkaPants_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "GP5GasMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "GulagJacket_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hatchet",
+    "category": "Clothing"
+  },
+  {
+    "name": "Headdress_Bear",
+    "category": "Clothing"
+  },
+  {
+    "name": "Headdress_Fox",
+    "category": "Clothing"
+  },
+  {
+    "name": "Headdress_Wolf",
+    "category": "Clothing"
+  },
+  {
+    "name": "HighCapacityVest_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "HighCapacityVest_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBoots_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBoots_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBootsLow_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBootsLow_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBootsLow_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingBootsLow_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "HikingJacket_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "HockeyHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "HockeyHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "HockeyHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "HockeyHelmet_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "HockeyMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "Hoodie_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "HunterPants_Autumn",
+    "category": "Clothing"
+  },
+  {
+    "name": "HunterPants_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "HunterPants_Spring",
+    "category": "Clothing"
+  },
+  {
+    "name": "HunterPants_Summer",
+    "category": "Clothing"
+  },
+  {
+    "name": "HunterPants_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingJacket_Autumn",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingJacket_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingJacket_Spring",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingJacket_Summer",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingJacket_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingVest",
+    "category": "Clothing"
+  },
+  {
+    "name": "HuntingVest_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_BlueDark",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "Jeans_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "JoggingShoes_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "JoggingShoes_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "JoggingShoes_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "JoggingShoes_Violet",
+    "category": "Clothing"
+  },
+  {
+    "name": "JoggingShoes_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitJacket_Gray",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitJacket_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitPants_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitPants_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "JumpsuitPants_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "JungleBoots_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "JungleBoots_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "JungleBoots_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "JungleBoots_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "JungleBoots_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherBelt_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherBelt_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherBelt_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherBelt_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherGloves_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherGloves_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherGloves_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherGloves_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherHat_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherHat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherHat_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherHat_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherJacket_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherJacket_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherJacket_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherPants_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherPants_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherPants_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherPants_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherShirt_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherShoes_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherShoes_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherShoes_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherShoes_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherStorageVest_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherStorageVest_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherStorageVest_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "LeatherStorageVest_Natural",
+    "category": "Clothing"
+  },
+  {
+    "name": "M65Jacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "M65Jacket_Khaki",
+    "category": "Clothing"
+  },
+  {
+    "name": "M65Jacket_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "M65Jacket_Tan",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsHat_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsHat_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsHat_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsPants_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsPants_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsShirt_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsShirt_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedicalScrubsShirt_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "MedievalBoots",
+    "category": "Clothing"
+  },
+  {
+    "name": "Mich2001Helmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBelt",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBoots_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBoots_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBoots_Bluerock",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBoots_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "MilitaryBoots_Redpunk",
+    "category": "Clothing"
+  },
+  {
+    "name": "MimeMask_Female",
+    "category": "Clothing"
+  },
+  {
+    "name": "MimeMask_Male",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_BlueChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_BlueWithDots",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_BrownChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_GreenChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_PinkChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_RedChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MiniDress_WhiteChecker",
+    "category": "Clothing"
+  },
+  {
+    "name": "MorozkoHat",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Lime",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "MotoHelmet_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NavyUniformJacket",
+    "category": "Clothing"
+  },
+  {
+    "name": "NavyUniformPants",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCBootsGray",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCBootsWhite",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCBootsYellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCGlovesGray",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCGlovesYellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCHoodGray",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCHoodWhite",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCHoodYellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCJacketGray",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCJacketWhite",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCJacketYellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCPantsGray",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCPantsWhite",
+    "category": "Clothing"
+  },
+  {
+    "name": "NBCPantsYellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "NioshFaceMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "NurseDress_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "NurseDress_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "OfficerHat",
+    "category": "Clothing"
+  },
+  {
+    "name": "OKZKCap_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "OKZKCap_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "OMKJacket_Navy",
+    "category": "Clothing"
+  },
+  {
+    "name": "OMKPants_Navy",
+    "category": "Clothing"
+  },
+  {
+    "name": "OMNOGloves_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "OMNOGloves_Gray",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaddedGloves_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaddedGloves_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaddedGloves_Threat",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicJacket_Crimson",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicPants_Crimson",
+    "category": "Clothing"
+  },
+  {
+    "name": "ParamedicPants_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaydayMask_Chains",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaydayMask_Dallas",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaydayMask_Hoxton",
+    "category": "Clothing"
+  },
+  {
+    "name": "PaydayMask_Wolf",
+    "category": "Clothing"
+  },
+  {
+    "name": "PetushokHat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "PetushokHat_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "PetushokHat_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "PilotJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "PilotJacket_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "PilotJacket_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "PilotkaCap",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierHolster",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierHolster_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierHolster_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierHolster_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierHolster_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierVest",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierVest_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierVest_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierVest_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "PlateCarrierVest_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "PoliceCap",
+    "category": "Clothing"
+  },
+  {
+    "name": "PoliceJacket",
+    "category": "Clothing"
+  },
+  {
+    "name": "PoliceJacketOrel",
+    "category": "Clothing"
+  },
+  {
+    "name": "PolicePants",
+    "category": "Clothing"
+  },
+  {
+    "name": "PolicePantsOrel",
+    "category": "Clothing"
+  },
+  {
+    "name": "PoliceVest",
+    "category": "Clothing"
+  },
+  {
+    "name": "PressVest_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "PressVest_LightBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "PrisonerCap",
+    "category": "Clothing"
+  },
+  {
+    "name": "PrisonUniformJacket",
+    "category": "Clothing"
+  },
+  {
+    "name": "PrisonUniformPants",
+    "category": "Clothing"
+  },
+  {
+    "name": "PumpkinHelmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Violet",
+    "category": "Clothing"
+  },
+  {
+    "name": "QuiltedJacket_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "RadarCap_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "RadarCap_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "RadarCap_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "RadarCap_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "RadarCap_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Orange",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Pink",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Raincoat_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "ReflexVest",
+    "category": "Clothing"
+  },
+  {
+    "name": "RidersJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "RopeBelt",
+    "category": "Clothing"
+  },
+  {
+    "name": "SantasHat",
+    "category": "Clothing"
+  },
+  {
+    "name": "SherpaHat_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "SherpaHat_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SherpaHat_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_BlueCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_BlueCheckBright",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_GreenCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_PlaneBlack",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_RedCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "Shirt_WhiteCheck",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Darkblue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "ShortJeans_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkateHelmet_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkateHelmet_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkateHelmet_Gray",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkateHelmet_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkateHelmet_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkiGloves_90s",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkiGloves_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SkiGloves_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Skirt_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "Skirt_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "Skirt_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "Skirt_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_DarkGrey",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_Khaki",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_LightGrey",
+    "category": "Clothing"
+  },
+  {
+    "name": "SlacksPants_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "SmershVest",
+    "category": "Clothing"
+  },
+  {
+    "name": "Ssh68Helmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "SurgicalGloves_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SurgicalGloves_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "SurgicalGloves_LightBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "SurgicalGloves_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "SurgicalMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalGloves_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalGloves_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalGloves_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalShirt_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalShirt_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalShirt_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "TacticalShirt_Tan",
+    "category": "Clothing"
+  },
+  {
+    "name": "TankerHelmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "TelnyashkaShirt",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitJacket_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitJacket_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitJacket_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitJacket_LightBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitJacket_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitPants_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitPants_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitPants_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitPants_LightBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "TrackSuitPants_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "TraditionalBoots_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "TraditionalBoots_DarkBrown",
+    "category": "Clothing"
+  },
+  {
+    "name": "Tshirt_10thAnniversary",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_OrangeWhiteStripes",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_RedBlackStripes",
+    "category": "Clothing"
+  },
+  {
+    "name": "TShirt_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "TTSKOBoots",
+    "category": "Clothing"
+  },
+  {
+    "name": "TTsKOJacket_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "TTSKOPants",
+    "category": "Clothing"
+  },
+  {
+    "name": "UKAssVest_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "UKAssVest_Camo",
+    "category": "Clothing"
+  },
+  {
+    "name": "UKAssVest_Khaki",
+    "category": "Clothing"
+  },
+  {
+    "name": "UKAssVest_Olive",
+    "category": "Clothing"
+  },
+  {
+    "name": "UKAssVest_Winter",
+    "category": "Clothing"
+  },
+  {
+    "name": "USMCJacket_Desert",
+    "category": "Clothing"
+  },
+  {
+    "name": "USMCJacket_Woodland",
+    "category": "Clothing"
+  },
+  {
+    "name": "USMCPants_Desert",
+    "category": "Clothing"
+  },
+  {
+    "name": "USMCPants_Woodland",
+    "category": "Clothing"
+  },
+  {
+    "name": "WeldingMask",
+    "category": "Clothing"
+  },
+  {
+    "name": "WitchHat",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_ChristmasBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_ChristmasRed",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_Tan",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGloves_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_ChristmasBlue",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_ChristmasRed",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_Tan",
+    "category": "Clothing"
+  },
+  {
+    "name": "WoolGlovesFingerless_White",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingBoots_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingBoots_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingBoots_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingBoots_Grey",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingBoots_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingGloves_Beige",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingGloves_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingGloves_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "WorkingGloves_Yellow",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZmijovkaCap_Black",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZmijovkaCap_Blue",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZmijovkaCap_Brown",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZmijovkaCap_Green",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZmijovkaCap_Red",
+    "category": "Clothing"
+  },
+  {
+    "name": "ZSh3PilotHelmet",
+    "category": "Clothing"
+  },
+  {
+    "name": "ClaymoreMine",
+    "category": "Explosives"
+  },
+  {
+    "name": "FlashGrenade",
+    "category": "Explosives"
+  },
+  {
+    "name": "Grenade_ChemGas",
+    "category": "Explosives"
+  },
+  {
+    "name": "ImprovisedExplosive",
+    "category": "Explosives"
+  },
+  {
+    "name": "LandMineTrap",
+    "category": "Explosives"
+  },
+  {
+    "name": "M18SmokeGrenade_Green",
+    "category": "Explosives"
+  },
+  {
+    "name": "M18SmokeGrenade_Purple",
+    "category": "Explosives"
+  },
+  {
+    "name": "M18SmokeGrenade_Red",
+    "category": "Explosives"
+  },
+  {
+    "name": "M18SmokeGrenade_White",
+    "category": "Explosives"
+  },
+  {
+    "name": "M18SmokeGrenade_Yellow",
+    "category": "Explosives"
+  },
+  {
+    "name": "M67Grenade",
+    "category": "Explosives"
+  },
+  {
+    "name": "Plastic_Explosive",
+    "category": "Explosives"
+  },
+  {
+    "name": "RDG2SmokeGrenade_Black",
+    "category": "Explosives"
+  },
+  {
+    "name": "RDG2SmokeGrenade_White",
+    "category": "Explosives"
+  },
+  {
+    "name": "RemoteDetonator",
+    "category": "Explosives"
+  },
+  {
+    "name": "RemoteDetonatorReceiver",
+    "category": "Explosives"
+  },
+  {
+    "name": "RemoteDetonatorTrigger",
+    "category": "Explosives"
+  },
+  {
+    "name": "RGD5Grenade",
+    "category": "Explosives"
+  },
+  {
+    "name": "Splint_Applied",
+    "category": "Explosives"
+  },
+  {
+    "name": "AgaricusMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Apple",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Armband_Cannibals",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Armband_Zagorky",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "AuriculariaMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BakedBeansCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BakedBeansCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BearSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BoarSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BoletusMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "BoxCerealCrunchin",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Candycane_Green",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Candycane_Red",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Candycane_RedGreen",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Candycane_Yellow",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CaninaBerry",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanisterGasoline",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanOpener",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Canteen",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasBag_Medical",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasBag_Olive",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPants_Beige",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPants_Blue",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPants_Grey",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPants_Red",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPants_Violet",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPantsMidi_Beige",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPantsMidi_Blue",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPantsMidi_Grey",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPantsMidi_Red",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CanvasPantsMidi_Violet",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CarpFilletMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CatFoodCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CatFoodCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ChickenBreastMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Chips",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CowSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CrabCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CrabCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Crackers",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "CraterellusMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "DeerSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "DogFoodCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "DogFoodCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "FilteringBottle",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Flag_Cannibals",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Flag_Zagorky",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "FoxSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "GlassBottle",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "GoatSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "GreenBellPepper",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Honey",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "HumanSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "LactariusMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "LargeGasCanister",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Lunchmeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Lunchmeat_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "MackerelFilletMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "MacrolepiotaMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "MeatTenderizer",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "MediumGasCanister",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PeachesCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PeachesCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PepperSeeds",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PepperSeedsPack",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PigSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Plant_Pepper",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Plant_Potato",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Plant_Tomato",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Plant_Zucchini",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PleurotusMushroom",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PorkCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PorkCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Potato",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PotatoSeed",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PowderedMilk",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PumpkinSeeds",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "PumpkinSeedsPack",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "RabbitLegMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ReindeerSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Rice",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Sardines",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SardinesCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SardinesCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SheepSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SmallGasCanister",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SodaCan_Cola",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SodaCan_Fronta",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SodaCan_Kvass",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SodaCan_Pipsi",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SodaCan_Spite",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SpaghettiCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SpaghettiCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "SteelheadTroutFilletMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TacticalBaconCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TacticalBaconCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Tomato",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TomatoSeeds",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TomatoSeedsPack",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TunaCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "TunaCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "UnknownFoodCan",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "UnknownFoodCan_Opened",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "VitaminBottle",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WalleyePollockFilletMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WaterBottle",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WaterproofBag_Green",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WaterproofBag_Orange",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WaterproofBag_Yellow",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "WolfSteakMeat",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Zagorky",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ZagorkyChocolate",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ZagorkyPeanuts",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "Zucchini",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ZucchiniSeeds",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "ZucchiniSeedsPack",
+    "category": "Food & Drink"
+  },
+  {
+    "name": "AKS74U",
+    "category": "General"
+  },
+  {
+    "name": "AKS74U_Black",
+    "category": "General"
+  },
+  {
+    "name": "AKS74U_Green",
+    "category": "General"
+  },
+  {
+    "name": "AlarmClock_Blue",
+    "category": "General"
+  },
+  {
+    "name": "AlarmClock_Green",
+    "category": "General"
+  },
+  {
+    "name": "AlarmClock_Red",
+    "category": "General"
+  },
+  {
+    "name": "Anniversary_FireworksLauncher",
+    "category": "General"
+  },
+  {
+    "name": "AnniversaryBox",
+    "category": "General"
+  },
+  {
+    "name": "AntiChemInjector",
+    "category": "General"
+  },
+  {
+    "name": "AntiPestsSpray",
+    "category": "General"
+  },
+  {
+    "name": "ArmyPouch_Beige",
+    "category": "General"
+  },
+  {
+    "name": "ArmyPouch_Black",
+    "category": "General"
+  },
+  {
+    "name": "ArmyPouch_Camo",
+    "category": "General"
+  },
+  {
+    "name": "ArmyPouch_Green",
+    "category": "General"
+  },
+  {
+    "name": "AviatorGlasses",
+    "category": "General"
+  },
+  {
+    "name": "Bait",
+    "category": "General"
+  },
+  {
+    "name": "Bandana_Blackpattern",
+    "category": "General"
+  },
+  {
+    "name": "Bandana_Camopattern",
+    "category": "General"
+  },
+  {
+    "name": "Bandana_Greenpattern",
+    "category": "General"
+  },
+  {
+    "name": "Bandana_Polkapattern",
+    "category": "General"
+  },
+  {
+    "name": "Bandana_Redpattern",
+    "category": "General"
+  },
+  {
+    "name": "BarbedBaseballBat",
+    "category": "General"
+  },
+  {
+    "name": "Bark_Birch",
+    "category": "General"
+  },
+  {
+    "name": "Bark_Oak",
+    "category": "General"
+  },
+  {
+    "name": "BaseballBat",
+    "category": "General"
+  },
+  {
+    "name": "Bear_Beige",
+    "category": "General"
+  },
+  {
+    "name": "Bear_Dark",
+    "category": "General"
+  },
+  {
+    "name": "Bear_Pink",
+    "category": "General"
+  },
+  {
+    "name": "Bear_White",
+    "category": "General"
+  },
+  {
+    "name": "BearPelt",
+    "category": "General"
+  },
+  {
+    "name": "BearTrap",
+    "category": "General"
+  },
+  {
+    "name": "Bitterlings",
+    "category": "General"
+  },
+  {
+    "name": "Blouse_Blue",
+    "category": "General"
+  },
+  {
+    "name": "Blouse_Green",
+    "category": "General"
+  },
+  {
+    "name": "Blouse_Violet",
+    "category": "General"
+  },
+  {
+    "name": "Blouse_White",
+    "category": "General"
+  },
+  {
+    "name": "Bone",
+    "category": "General"
+  },
+  {
+    "name": "BoneBait",
+    "category": "General"
+  },
+  {
+    "name": "BoneHook",
+    "category": "General"
+  },
+  {
+    "name": "Bonfire",
+    "category": "General"
+  },
+  {
+    "name": "BrassKnuckles_Dull",
+    "category": "General"
+  },
+  {
+    "name": "BrassKnuckles_Shiny",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Beetcheck",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Beige",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Black",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Blackcheck",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Blue",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Browncheck",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Green",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Pink",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_Red",
+    "category": "General"
+  },
+  {
+    "name": "Breeches_White",
+    "category": "General"
+  },
+  {
+    "name": "BrisketSpread",
+    "category": "General"
+  },
+  {
+    "name": "BrisketSpread_Opened",
+    "category": "General"
+  },
+  {
+    "name": "Broom_Birch",
+    "category": "General"
+  },
+  {
+    "name": "BurlapStrip",
+    "category": "General"
+  },
+  {
+    "name": "Carp",
+    "category": "General"
+  },
+  {
+    "name": "Cauldron",
+    "category": "General"
+  },
+  {
+    "name": "Chainmail",
+    "category": "General"
+  },
+  {
+    "name": "Chainmail_Coif",
+    "category": "General"
+  },
+  {
+    "name": "Chainmail_Leggings",
+    "category": "General"
+  },
+  {
+    "name": "ChickenFeather",
+    "category": "General"
+  },
+  {
+    "name": "ChristmasHeadband_Antlers",
+    "category": "General"
+  },
+  {
+    "name": "ChristmasHeadband_Gingerbread",
+    "category": "General"
+  },
+  {
+    "name": "ChristmasHeadband_Trees",
+    "category": "General"
+  },
+  {
+    "name": "ChristmasTree",
+    "category": "General"
+  },
+  {
+    "name": "Cleaver",
+    "category": "General"
+  },
+  {
+    "name": "Colt1911",
+    "category": "General"
+  },
+  {
+    "name": "ContaminatedArea_Dynamic",
+    "category": "General"
+  },
+  {
+    "name": "CookingStand",
+    "category": "General"
+  },
+  {
+    "name": "CowPelt",
+    "category": "General"
+  },
+  {
+    "name": "CrookedNose",
+    "category": "General"
+  },
+  {
+    "name": "CZ550",
+    "category": "General"
+  },
+  {
+    "name": "CZ61",
+    "category": "General"
+  },
+  {
+    "name": "CZ75",
+    "category": "General"
+  },
+  {
+    "name": "DeadChicken_Brown",
+    "category": "General"
+  },
+  {
+    "name": "DeadChicken_Spotted",
+    "category": "General"
+  },
+  {
+    "name": "DeadChicken_White",
+    "category": "General"
+  },
+  {
+    "name": "DeadFox",
+    "category": "General"
+  },
+  {
+    "name": "DeadRabbit",
+    "category": "General"
+  },
+  {
+    "name": "DeadRooster",
+    "category": "General"
+  },
+  {
+    "name": "DeerPelt",
+    "category": "General"
+  },
+  {
+    "name": "Derringer_Black",
+    "category": "General"
+  },
+  {
+    "name": "Derringer_Grey",
+    "category": "General"
+  },
+  {
+    "name": "Derringer_Pink",
+    "category": "General"
+  },
+  {
+    "name": "DesignerGlasses",
+    "category": "General"
+  },
+  {
+    "name": "Engraved1911",
+    "category": "General"
+  },
+  {
+    "name": "EyePatch_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "FaceCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "FAMAS",
+    "category": "General"
+  },
+  {
+    "name": "FeetCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "Fireplace",
+    "category": "General"
+  },
+  {
+    "name": "FireplaceIndoor",
+    "category": "General"
+  },
+  {
+    "name": "Firewood",
+    "category": "General"
+  },
+  {
+    "name": "FireworksLauncher",
+    "category": "General"
+  },
+  {
+    "name": "FishNetTrap",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Altis",
+    "category": "General"
+  },
+  {
+    "name": "Flag_APA",
+    "category": "General"
+  },
+  {
+    "name": "Flag_BabyDeer",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Bear",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Bohemia",
+    "category": "General"
+  },
+  {
+    "name": "Flag_BrainZ",
+    "category": "General"
+  },
+  {
+    "name": "Flag_CDF",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Chedaki",
+    "category": "General"
+  },
+  {
+    "name": "Flag_CHEL",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Chernarus",
+    "category": "General"
+  },
+  {
+    "name": "Flag_CMC",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Crook",
+    "category": "General"
+  },
+  {
+    "name": "Flag_DayZ",
+    "category": "General"
+  },
+  {
+    "name": "Flag_HunterZ",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Livonia",
+    "category": "General"
+  },
+  {
+    "name": "Flag_LivoniaArmy",
+    "category": "General"
+  },
+  {
+    "name": "Flag_LivoniaPolice",
+    "category": "General"
+  },
+  {
+    "name": "Flag_NAPA",
+    "category": "General"
+  },
+  {
+    "name": "Flag_NSahrani",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Pirates",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Refuge",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Rex",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Rooster",
+    "category": "General"
+  },
+  {
+    "name": "Flag_RSTA",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Sakhal",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Snake",
+    "category": "General"
+  },
+  {
+    "name": "Flag_SSahrani",
+    "category": "General"
+  },
+  {
+    "name": "Flag_TEC",
+    "category": "General"
+  },
+  {
+    "name": "Flag_UEC",
+    "category": "General"
+  },
+  {
+    "name": "Flag_White",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Wolf",
+    "category": "General"
+  },
+  {
+    "name": "Flag_Zenit",
+    "category": "General"
+  },
+  {
+    "name": "FoxPelt",
+    "category": "General"
+  },
+  {
+    "name": "FryingPan",
+    "category": "General"
+  },
+  {
+    "name": "GardenPlotGreenhouse",
+    "category": "General"
+  },
+  {
+    "name": "GardenPlotPolytunnel",
+    "category": "General"
+  },
+  {
+    "name": "GhillieAtt_Mossy",
+    "category": "General"
+  },
+  {
+    "name": "GhillieAtt_Tan",
+    "category": "General"
+  },
+  {
+    "name": "GhillieAtt_Winter",
+    "category": "General"
+  },
+  {
+    "name": "GhillieAtt_Woodland",
+    "category": "General"
+  },
+  {
+    "name": "GhillieBushrag_Mossy",
+    "category": "General"
+  },
+  {
+    "name": "GhillieBushrag_Tan",
+    "category": "General"
+  },
+  {
+    "name": "GhillieBushrag_Winter",
+    "category": "General"
+  },
+  {
+    "name": "GhillieBushrag_Woodland",
+    "category": "General"
+  },
+  {
+    "name": "GhillieSuit_Mossy",
+    "category": "General"
+  },
+  {
+    "name": "GhillieSuit_Tan",
+    "category": "General"
+  },
+  {
+    "name": "GhillieSuit_Winter",
+    "category": "General"
+  },
+  {
+    "name": "GhillieSuit_Woodland",
+    "category": "General"
+  },
+  {
+    "name": "GhillieTop_Mossy",
+    "category": "General"
+  },
+  {
+    "name": "GhillieTop_Tan",
+    "category": "General"
+  },
+  {
+    "name": "GhillieTop_Winter",
+    "category": "General"
+  },
+  {
+    "name": "GhillieTop_Woodland",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Large_1",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Large_2",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Large_3",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Large_4",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Medium_1",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Medium_2",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Medium_3",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Medium_4",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Small_1",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Small_2",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Small_3",
+    "category": "General"
+  },
+  {
+    "name": "GiftBox_Small_4",
+    "category": "General"
+  },
+  {
+    "name": "GiftWrapPaper",
+    "category": "General"
+  },
+  {
+    "name": "GoatPelt",
+    "category": "General"
+  },
+  {
+    "name": "GreatHelm",
+    "category": "General"
+  },
+  {
+    "name": "Guts",
+    "category": "General"
+  },
+  {
+    "name": "HandcuffKeys",
+    "category": "General"
+  },
+  {
+    "name": "Handcuffs",
+    "category": "General"
+  },
+  {
+    "name": "HandcuffsLocked",
+    "category": "General"
+  },
+  {
+    "name": "HandDrillKit",
+    "category": "General"
+  },
+  {
+    "name": "HandsCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "HeadCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "Heatpack",
+    "category": "General"
+  },
+  {
+    "name": "HipPack_Black",
+    "category": "General"
+  },
+  {
+    "name": "HipPack_Green",
+    "category": "General"
+  },
+  {
+    "name": "HipPack_Party",
+    "category": "General"
+  },
+  {
+    "name": "Hook",
+    "category": "General"
+  },
+  {
+    "name": "Jig",
+    "category": "General"
+  },
+  {
+    "name": "KitchenTimer",
+    "category": "General"
+  },
+  {
+    "name": "Lard",
+    "category": "General"
+  },
+  {
+    "name": "LeafCrown_Autumn",
+    "category": "General"
+  },
+  {
+    "name": "LeafCrown_Spring",
+    "category": "General"
+  },
+  {
+    "name": "LeafCrown_Summer",
+    "category": "General"
+  },
+  {
+    "name": "LeafCrown_Winter",
+    "category": "General"
+  },
+  {
+    "name": "LeatherSack_Beige",
+    "category": "General"
+  },
+  {
+    "name": "LeatherSack_Black",
+    "category": "General"
+  },
+  {
+    "name": "LeatherSack_Brown",
+    "category": "General"
+  },
+  {
+    "name": "LeatherSack_Natural",
+    "category": "General"
+  },
+  {
+    "name": "LegsCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "Longhorn",
+    "category": "General"
+  },
+  {
+    "name": "LongWoodenStick",
+    "category": "General"
+  },
+  {
+    "name": "M14",
+    "category": "General"
+  },
+  {
+    "name": "Mace",
+    "category": "General"
+  },
+  {
+    "name": "Mackerel",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_Beige",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_Black",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_Blue",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_Brown",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_DarkGrey",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_Khaki",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_LightGrey",
+    "category": "General"
+  },
+  {
+    "name": "ManSuit_White",
+    "category": "General"
+  },
+  {
+    "name": "Marmalade",
+    "category": "General"
+  },
+  {
+    "name": "Matchbox",
+    "category": "General"
+  },
+  {
+    "name": "Megaphone",
+    "category": "General"
+  },
+  {
+    "name": "MilitaryBeret_CDF",
+    "category": "General"
+  },
+  {
+    "name": "MilitaryBeret_ChDKZ",
+    "category": "General"
+  },
+  {
+    "name": "MilitaryBeret_NZ",
+    "category": "General"
+  },
+  {
+    "name": "MilitaryBeret_Red",
+    "category": "General"
+  },
+  {
+    "name": "MilitaryBeret_UN",
+    "category": "General"
+  },
+  {
+    "name": "MilitarySweater_Chernarus",
+    "category": "General"
+  },
+  {
+    "name": "MilitarySweater_Livonia",
+    "category": "General"
+  },
+  {
+    "name": "MilitarySweater_NoPatch",
+    "category": "General"
+  },
+  {
+    "name": "MKII",
+    "category": "General"
+  },
+  {
+    "name": "MouthRag",
+    "category": "General"
+  },
+  {
+    "name": "MP5_Compensator",
+    "category": "General"
+  },
+  {
+    "name": "MP5K",
+    "category": "General"
+  },
+  {
+    "name": "NorseHelm",
+    "category": "General"
+  },
+  {
+    "name": "NVGHeadstrap",
+    "category": "General"
+  },
+  {
+    "name": "NVGoggles",
+    "category": "General"
+  },
+  {
+    "name": "Offroad_02",
+    "category": "General"
+  },
+  {
+    "name": "Offroad_02_Hood",
+    "category": "General"
+  },
+  {
+    "name": "Offroad_02_Trunk",
+    "category": "General"
+  },
+  {
+    "name": "OrientalMachete",
+    "category": "General"
+  },
+  {
+    "name": "OvenIndoor",
+    "category": "General"
+  },
+  {
+    "name": "P1",
+    "category": "General"
+  },
+  {
+    "name": "Pajka",
+    "category": "General"
+  },
+  {
+    "name": "Pajka_Opened",
+    "category": "General"
+  },
+  {
+    "name": "Paper",
+    "category": "General"
+  },
+  {
+    "name": "Pate",
+    "category": "General"
+  },
+  {
+    "name": "Pate_Opened",
+    "category": "General"
+  },
+  {
+    "name": "Pear",
+    "category": "General"
+  },
+  {
+    "name": "Pen_Black",
+    "category": "General"
+  },
+  {
+    "name": "Pen_Blue",
+    "category": "General"
+  },
+  {
+    "name": "Pen_Green",
+    "category": "General"
+  },
+  {
+    "name": "Pen_Red",
+    "category": "General"
+  },
+  {
+    "name": "PetrolLighter",
+    "category": "General"
+  },
+  {
+    "name": "PigPelt",
+    "category": "General"
+  },
+  {
+    "name": "Plant_Pumpkin",
+    "category": "General"
+  },
+  {
+    "name": "PlantMaterial",
+    "category": "General"
+  },
+  {
+    "name": "PlateCarrierPouches",
+    "category": "General"
+  },
+  {
+    "name": "PlateCarrierPouches_Black",
+    "category": "General"
+  },
+  {
+    "name": "PlateCarrierPouches_Camo",
+    "category": "General"
+  },
+  {
+    "name": "PlateCarrierPouches_Green",
+    "category": "General"
+  },
+  {
+    "name": "PlateCarrierPouches_Winter",
+    "category": "General"
+  },
+  {
+    "name": "Plum",
+    "category": "General"
+  },
+  {
+    "name": "PM73Rak",
+    "category": "General"
+  },
+  {
+    "name": "PortableGasStove",
+    "category": "General"
+  },
+  {
+    "name": "Pot",
+    "category": "General"
+  },
+  {
+    "name": "PP19",
+    "category": "General"
+  },
+  {
+    "name": "Pumpkin",
+    "category": "General"
+  },
+  {
+    "name": "R12",
+    "category": "General"
+  },
+  {
+    "name": "RabbitPelt",
+    "category": "General"
+  },
+  {
+    "name": "RabbitSnareTrap",
+    "category": "General"
+  },
+  {
+    "name": "Rag",
+    "category": "General"
+  },
+  {
+    "name": "RedCaviar",
+    "category": "General"
+  },
+  {
+    "name": "ReindeerPelt",
+    "category": "General"
+  },
+  {
+    "name": "Roadflare",
+    "category": "General"
+  },
+  {
+    "name": "Ruger1022",
+    "category": "General"
+  },
+  {
+    "name": "SaltySticks",
+    "category": "General"
+  },
+  {
+    "name": "SambucusBerry",
+    "category": "General"
+  },
+  {
+    "name": "SantasBeard",
+    "category": "General"
+  },
+  {
+    "name": "Scout",
+    "category": "General"
+  },
+  {
+    "name": "Scout_Chernarus",
+    "category": "General"
+  },
+  {
+    "name": "Scout_Livonia",
+    "category": "General"
+  },
+  {
+    "name": "SharpWoodenStick",
+    "category": "General"
+  },
+  {
+    "name": "SheepPelt",
+    "category": "General"
+  },
+  {
+    "name": "SkiGoggles_BlackYellow",
+    "category": "General"
+  },
+  {
+    "name": "SkiGoggles_WhiteClear",
+    "category": "General"
+  },
+  {
+    "name": "SkiGoggles_WhiteDark",
+    "category": "General"
+  },
+  {
+    "name": "SlicedPumpkin",
+    "category": "General"
+  },
+  {
+    "name": "SmallFishTrap",
+    "category": "General"
+  },
+  {
+    "name": "SmallGuts",
+    "category": "General"
+  },
+  {
+    "name": "SmallStone",
+    "category": "General"
+  },
+  {
+    "name": "Sneakers_Black",
+    "category": "General"
+  },
+  {
+    "name": "Sneakers_Gray",
+    "category": "General"
+  },
+  {
+    "name": "Sneakers_Green",
+    "category": "General"
+  },
+  {
+    "name": "Sneakers_Red",
+    "category": "General"
+  },
+  {
+    "name": "Sneakers_White",
+    "category": "General"
+  },
+  {
+    "name": "SnowstormUshanka_Brown",
+    "category": "General"
+  },
+  {
+    "name": "SnowstormUshanka_Navy",
+    "category": "General"
+  },
+  {
+    "name": "SnowstormUshanka_Olive",
+    "category": "General"
+  },
+  {
+    "name": "SnowstormUshanka_White",
+    "category": "General"
+  },
+  {
+    "name": "Splint",
+    "category": "General"
+  },
+  {
+    "name": "SSG82",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Decal_damage_long2_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Decal_damage_long3_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Misc_SupplyBox1_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Misc_SupplyBox2_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Misc_SupplyBox3_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_PatrolBoat_Military_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Roadblock_Wood_Long_DE",
+    "category": "General"
+  },
+  {
+    "name": "StaticObj_Roadblock_Wood_Small_DE",
+    "category": "General"
+  },
+  {
+    "name": "SteelheadTrout",
+    "category": "General"
+  },
+  {
+    "name": "Stone",
+    "category": "General"
+  },
+  {
+    "name": "SV98",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_Blue",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_ChristmasBlue",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_ChristmasGreen",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_ChristmasRed",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_Gray",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_Green",
+    "category": "General"
+  },
+  {
+    "name": "Sweater_Red",
+    "category": "General"
+  },
+  {
+    "name": "Sword",
+    "category": "General"
+  },
+  {
+    "name": "TacticalGoggles",
+    "category": "General"
+  },
+  {
+    "name": "TannedLeather",
+    "category": "General"
+  },
+  {
+    "name": "ThickFramesGlasses",
+    "category": "General"
+  },
+  {
+    "name": "ThinFramesGlasses",
+    "category": "General"
+  },
+  {
+    "name": "TLRLight",
+    "category": "General"
+  },
+  {
+    "name": "TorsoCover_Improvised",
+    "category": "General"
+  },
+  {
+    "name": "TripwireTrap",
+    "category": "General"
+  },
+  {
+    "name": "UMP45",
+    "category": "General"
+  },
+  {
+    "name": "UndergroundStash",
+    "category": "General"
+  },
+  {
+    "name": "UndergroundStashSnow",
+    "category": "General"
+  },
+  {
+    "name": "UniversalLight",
+    "category": "General"
+  },
+  {
+    "name": "Ushanka_Black",
+    "category": "General"
+  },
+  {
+    "name": "Ushanka_Blue",
+    "category": "General"
+  },
+  {
+    "name": "Ushanka_Green",
+    "category": "General"
+  },
+  {
+    "name": "Vikhr",
+    "category": "General"
+  },
+  {
+    "name": "WalleyePollock",
+    "category": "General"
+  },
+  {
+    "name": "WeaponCleaningKit",
+    "category": "General"
+  },
+  {
+    "name": "WildboarPelt",
+    "category": "General"
+  },
+  {
+    "name": "WinterCoif_Black",
+    "category": "General"
+  },
+  {
+    "name": "WinterCoif_Blue",
+    "category": "General"
+  },
+  {
+    "name": "WinterCoif_Green",
+    "category": "General"
+  },
+  {
+    "name": "WinterCoif_Skull",
+    "category": "General"
+  },
+  {
+    "name": "WinterMilitaryCoat_Brown",
+    "category": "General"
+  },
+  {
+    "name": "WinterMilitaryCoat_DarkGrey",
+    "category": "General"
+  },
+  {
+    "name": "WinterMilitaryCoat_Grey",
+    "category": "General"
+  },
+  {
+    "name": "WitchHoodCoif_Black",
+    "category": "General"
+  },
+  {
+    "name": "WitchHoodCoif_Brown",
+    "category": "General"
+  },
+  {
+    "name": "WitchHoodCoif_Red",
+    "category": "General"
+  },
+  {
+    "name": "WolfPelt",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_Beige",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_Black",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_Blue",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_Brown",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_DarkGrey",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_Khaki",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_LightGrey",
+    "category": "General"
+  },
+  {
+    "name": "WomanSuit_White",
+    "category": "General"
+  },
+  {
+    "name": "WoodenHook",
+    "category": "General"
+  },
+  {
+    "name": "WoodenStick",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_Beige",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_Black",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_BlackCheck",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_Blue",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_BlueCheck",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_BrownCheck",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_Green",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_GreyCheck",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_Red",
+    "category": "General"
+  },
+  {
+    "name": "WoolCoat_RedCheck",
+    "category": "General"
+  },
+  {
+    "name": "Worm",
+    "category": "General"
+  },
+  {
+    "name": "XmasLights",
+    "category": "General"
+  },
+  {
+    "name": "Battery9V",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "BatteryCharger",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Blowtorch",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "CableReel",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "CarBattery",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Chemlight_Blue",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Chemlight_Green",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Chemlight_Red",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Chemlight_White",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Chemlight_Yellow",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Flashlight",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Headtorch_Black",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Headtorch_Grey",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "LongTorch",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "PowerGenerator",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Spotlight",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "Torch",
+    "category": "Lights & Power"
+  },
+  {
+    "name": "BloodTestKit",
+    "category": "Medical"
+  },
+  {
+    "name": "CharcoalTablets",
+    "category": "Medical"
+  },
+  {
+    "name": "ChelatingTablets",
+    "category": "Medical"
+  },
+  {
+    "name": "DisinfectantAlcohol",
+    "category": "Medical"
+  },
+  {
+    "name": "DisinfectantSpray",
+    "category": "Medical"
+  },
+  {
+    "name": "Epinephrine",
+    "category": "Medical"
+  },
+  {
+    "name": "FirstAidKit",
+    "category": "Medical"
+  },
+  {
+    "name": "Flaregun",
+    "category": "Medical"
+  },
+  {
+    "name": "HipPack_Medical",
+    "category": "Medical"
+  },
+  {
+    "name": "IodineTincture",
+    "category": "Medical"
+  },
+  {
+    "name": "LabCoat",
+    "category": "Medical"
+  },
+  {
+    "name": "Morphine",
+    "category": "Medical"
+  },
+  {
+    "name": "PainkillerTablets",
+    "category": "Medical"
+  },
+  {
+    "name": "PurificationTablets",
+    "category": "Medical"
+  },
+  {
+    "name": "StartKitIV",
+    "category": "Medical"
+  },
+  {
+    "name": "TetracyclineAntibiotics",
+    "category": "Medical"
+  },
+  {
+    "name": "Thermometer",
+    "category": "Medical"
+  },
+  {
+    "name": "BaseRadio",
+    "category": "Navigation"
+  },
+  {
+    "name": "Binoculars",
+    "category": "Navigation"
+  },
+  {
+    "name": "ChernarusMap",
+    "category": "Navigation"
+  },
+  {
+    "name": "ChernarusMap_Open",
+    "category": "Navigation"
+  },
+  {
+    "name": "Compass",
+    "category": "Navigation"
+  },
+  {
+    "name": "GPSReceiver",
+    "category": "Navigation"
+  },
+  {
+    "name": "OrienteeringCompass",
+    "category": "Navigation"
+  },
+  {
+    "name": "PersonalRadio",
+    "category": "Navigation"
+  },
+  {
+    "name": "Rangefinder",
+    "category": "Navigation"
+  },
+  {
+    "name": "Broom",
+    "category": "Tools"
+  },
+  {
+    "name": "CombinationLock",
+    "category": "Tools"
+  },
+  {
+    "name": "CombinationLock4",
+    "category": "Tools"
+  },
+  {
+    "name": "Crowbar",
+    "category": "Tools"
+  },
+  {
+    "name": "CrudeMachete",
+    "category": "Tools"
+  },
+  {
+    "name": "DuctTape",
+    "category": "Tools"
+  },
+  {
+    "name": "EasterEgg",
+    "category": "Tools"
+  },
+  {
+    "name": "ElectronicRepairKit",
+    "category": "Tools"
+  },
+  {
+    "name": "EpoxyPutty",
+    "category": "Tools"
+  },
+  {
+    "name": "Fabric",
+    "category": "Tools"
+  },
+  {
+    "name": "FarmingHoe",
+    "category": "Tools"
+  },
+  {
+    "name": "FieldShovel",
+    "category": "Tools"
+  },
+  {
+    "name": "FirefighterAxe",
+    "category": "Tools"
+  },
+  {
+    "name": "FirefighterAxe_Black",
+    "category": "Tools"
+  },
+  {
+    "name": "FirefighterAxe_Green",
+    "category": "Tools"
+  },
+  {
+    "name": "FishingRod",
+    "category": "Tools"
+  },
+  {
+    "name": "GardenLime",
+    "category": "Tools"
+  },
+  {
+    "name": "GlowPlug",
+    "category": "Tools"
+  },
+  {
+    "name": "Hacksaw",
+    "category": "Tools"
+  },
+  {
+    "name": "Hammer",
+    "category": "Tools"
+  },
+  {
+    "name": "HandSaw",
+    "category": "Tools"
+  },
+  {
+    "name": "Iceaxe",
+    "category": "Tools"
+  },
+  {
+    "name": "ImprovisedFishingRod",
+    "category": "Tools"
+  },
+  {
+    "name": "Izh18",
+    "category": "Tools"
+  },
+  {
+    "name": "LeatherSewingKit",
+    "category": "Tools"
+  },
+  {
+    "name": "Lockpick",
+    "category": "Tools"
+  },
+  {
+    "name": "LugWrench",
+    "category": "Tools"
+  },
+  {
+    "name": "Machete",
+    "category": "Tools"
+  },
+  {
+    "name": "Netting",
+    "category": "Tools"
+  },
+  {
+    "name": "Pickaxe",
+    "category": "Tools"
+  },
+  {
+    "name": "Pipe",
+    "category": "Tools"
+  },
+  {
+    "name": "PipeWrench",
+    "category": "Tools"
+  },
+  {
+    "name": "Pitchfork",
+    "category": "Tools"
+  },
+  {
+    "name": "Pliers",
+    "category": "Tools"
+  },
+  {
+    "name": "PortableGasLamp",
+    "category": "Tools"
+  },
+  {
+    "name": "Rope",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffB95",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffFAMAS",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffIzh18",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffIzh18Shotgun",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffIzh43Shotgun",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffMagnum",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffMosin9130",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffMosin9130_Black",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffMosin9130_Camo",
+    "category": "Tools"
+  },
+  {
+    "name": "SawedoffMosin9130_Green",
+    "category": "Tools"
+  },
+  {
+    "name": "Screwdriver",
+    "category": "Tools"
+  },
+  {
+    "name": "SewingKit",
+    "category": "Tools"
+  },
+  {
+    "name": "Shovel",
+    "category": "Tools"
+  },
+  {
+    "name": "Sickle",
+    "category": "Tools"
+  },
+  {
+    "name": "SledgeHammer",
+    "category": "Tools"
+  },
+  {
+    "name": "SportGlasses_Black",
+    "category": "Tools"
+  },
+  {
+    "name": "SportGlasses_Blue",
+    "category": "Tools"
+  },
+  {
+    "name": "SportGlasses_Green",
+    "category": "Tools"
+  },
+  {
+    "name": "SportGlasses_Orange",
+    "category": "Tools"
+  },
+  {
+    "name": "Tripod",
+    "category": "Tools"
+  },
+  {
+    "name": "Wellies_Black",
+    "category": "Tools"
+  },
+  {
+    "name": "Wellies_Brown",
+    "category": "Tools"
+  },
+  {
+    "name": "Wellies_Green",
+    "category": "Tools"
+  },
+  {
+    "name": "Wellies_Grey",
+    "category": "Tools"
+  },
+  {
+    "name": "Whetstone",
+    "category": "Tools"
+  },
+  {
+    "name": "WoodAxe",
+    "category": "Tools"
+  },
+  {
+    "name": "Wrench",
+    "category": "Tools"
+  },
+  {
+    "name": "CarRadiator",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "HeadlightH7",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "HeadlightH7_Box",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "Offroad_02_Wheel",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "SparkPlug",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "TireRepairKit",
+    "category": "Vehicle Parts"
+  },
+  {
+    "name": "AK101",
+    "category": "Weapons"
+  },
+  {
+    "name": "AK101_Black",
+    "category": "Weapons"
+  },
+  {
+    "name": "AK101_Green",
+    "category": "Weapons"
+  },
+  {
+    "name": "AK74",
+    "category": "Weapons"
+  },
+  {
+    "name": "AK74_Black",
+    "category": "Weapons"
+  },
+  {
+    "name": "AK74_Green",
+    "category": "Weapons"
+  },
+  {
+    "name": "AKM",
+    "category": "Weapons"
+  },
+  {
+    "name": "ASVAL",
+    "category": "Weapons"
+  },
+  {
+    "name": "Aug",
+    "category": "Weapons"
+  },
+  {
+    "name": "AugShort",
+    "category": "Weapons"
+  },
+  {
+    "name": "B95",
+    "category": "Weapons"
+  },
+  {
+    "name": "BoneKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "CombatKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "Crossbow_Autumn",
+    "category": "Weapons"
+  },
+  {
+    "name": "Crossbow_Black",
+    "category": "Weapons"
+  },
+  {
+    "name": "Crossbow_Summer",
+    "category": "Weapons"
+  },
+  {
+    "name": "Crossbow_Wood",
+    "category": "Weapons"
+  },
+  {
+    "name": "CZ527",
+    "category": "Weapons"
+  },
+  {
+    "name": "Deagle",
+    "category": "Weapons"
+  },
+  {
+    "name": "Deagle_Gold",
+    "category": "Weapons"
+  },
+  {
+    "name": "FAL",
+    "category": "Weapons"
+  },
+  {
+    "name": "FangeKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "FNX45",
+    "category": "Weapons"
+  },
+  {
+    "name": "Glock19",
+    "category": "Weapons"
+  },
+  {
+    "name": "HuntingKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "Izh18Shotgun",
+    "category": "Weapons"
+  },
+  {
+    "name": "Izh43Shotgun",
+    "category": "Weapons"
+  },
+  {
+    "name": "KitchenKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "KukriKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "LeatherKnifeSheath",
+    "category": "Weapons"
+  },
+  {
+    "name": "M16A2",
+    "category": "Weapons"
+  },
+  {
+    "name": "M4A1",
+    "category": "Weapons"
+  },
+  {
+    "name": "M4A1_Black",
+    "category": "Weapons"
+  },
+  {
+    "name": "M4A1_Green",
+    "category": "Weapons"
+  },
+  {
+    "name": "M79",
+    "category": "Weapons"
+  },
+  {
+    "name": "Magnum",
+    "category": "Weapons"
+  },
+  {
+    "name": "MakarovIJ70",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mosin9130",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mosin9130_Black",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mosin9130_Camo",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mosin9130_Green",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mosin_Compensator",
+    "category": "Weapons"
+  },
+  {
+    "name": "Mp133Shotgun",
+    "category": "Weapons"
+  },
+  {
+    "name": "NylonKnifeSheath",
+    "category": "Weapons"
+  },
+  {
+    "name": "Repeater",
+    "category": "Weapons"
+  },
+  {
+    "name": "Saiga",
+    "category": "Weapons"
+  },
+  {
+    "name": "SKS",
+    "category": "Weapons"
+  },
+  {
+    "name": "SpearBone",
+    "category": "Weapons"
+  },
+  {
+    "name": "SpearStone",
+    "category": "Weapons"
+  },
+  {
+    "name": "SteakKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "StoneKnife",
+    "category": "Weapons"
+  },
+  {
+    "name": "SVD",
+    "category": "Weapons"
+  },
+  {
+    "name": "SVD_Wooden",
+    "category": "Weapons"
+  },
+  {
+    "name": "VSS",
+    "category": "Weapons"
+  }
+]
