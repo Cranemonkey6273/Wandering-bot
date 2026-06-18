@@ -55,6 +55,7 @@ BUILD_COMMIT = (
     or os.getenv("SOURCE_VERSION")
     or ""
 )
+DASHBOARD_VERSION = os.getenv("WANDERING_DASHBOARD_VERSION", "1.26")
 SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack", "count": 3, "radius": 90},
     "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack", "count": 6, "radius": 120},
@@ -1132,7 +1133,7 @@ PAGE_TEMPLATE = """
     html[data-theme="toxic"], body[data-theme="toxic"] { --bg: #0e0f05; --panel: #1b2109; --panel-2: #2a3210; --panel-3: #111606; --line: rgba(211, 231, 82, .34); --text: #fbffd9; --muted: #d3dca0; --olive: #8fa23b; --gold: #e1f25a; --accent: #c6ef3e; }
     html[data-theme="violet"], body[data-theme="violet"] { --bg: #0c0712; --panel: #1c1228; --panel-2: #2b1b3d; --panel-3: #130c1d; --line: rgba(196, 151, 255, .32); --text: #fbf4ff; --muted: #d5c0e8; --olive: #7951aa; --gold: #d6a2ff; --accent: #b889ff; }
     html[data-theme="rose"], body[data-theme="rose"] { --bg: #13070c; --panel: #26111a; --panel-2: #3a1a27; --panel-3: #1a0b11; --line: rgba(255, 144, 181, .34); --text: #fff2f6; --muted: #e3b8c7; --olive: #9e4c68; --gold: #ff9abc; --accent: #ff719e; }
-    html[data-theme="command"], body[data-theme="command"] { --bg: #03070a; --panel: #091014; --panel-2: #132127; --panel-3: #071114; --line: rgba(103, 245, 231, .30); --text: #effcff; --muted: #a8bec3; --dim: #6f858b; --olive: #94ff64; --gold: #ffb454; --accent: #67f5e7; --orange: #ff9f43; --warn: #ffb454; }
+    html[data-theme="command"], body[data-theme="command"] { --bg: #03070a; --panel: #091014; --panel-2: #132127; --panel-3: #071114; --line: rgba(103, 245, 231, .30); --text: #effcff; --muted: #a8bec3; --dim: #6f858b; --olive: #94ff64; --gold: #ffb454; --accent: #67f5e7; --orange: #ff9f43; --orange-soft: rgba(255,159,67,.16); --orange-line: rgba(255,159,67,.38); --warn: #ffb454; }
     html { scroll-behavior: smooth; }
     * { box-sizing: border-box; }
     body {
@@ -1409,6 +1410,14 @@ PAGE_TEMPLATE = """
       box-shadow: 18px 0 55px rgba(0,0,0,.35);
       overflow-y: auto;
     }
+    body[data-theme="command"] .command-sidebar::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: .18rem;
+      background: linear-gradient(90deg, var(--accent), var(--orange));
+      opacity: .9;
+    }
     .command-logo {
       display: grid;
       gap: .75rem;
@@ -1422,7 +1431,7 @@ PAGE_TEMPLATE = """
       border: 1px solid rgba(255,255,255,.58);
       border-radius: .7rem;
       background: radial-gradient(circle at center, rgba(103,245,231,.08), rgba(3,10,13,.58));
-      box-shadow: 0 20px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(103,245,231,.10);
+      box-shadow: 0 20px 40px rgba(0,0,0,.34), 0 0 0 1px rgba(103,245,231,.10), 0 0 28px rgba(255,159,67,.10);
     }
     .command-logo-character {
       display: block;
@@ -1513,9 +1522,10 @@ PAGE_TEMPLATE = """
     .command-side-nav a.active,
     .command-side-nav a:hover,
     .command-quick a:hover {
-      border-color: rgba(103,245,231,.20);
-      background: linear-gradient(90deg, rgba(21,205,198,.28), rgba(18,32,38,.45));
+      border-color: var(--orange-line);
+      background: linear-gradient(90deg, rgba(255,159,67,.18), rgba(21,205,198,.24), rgba(18,32,38,.45));
       color: #effcff;
+      box-shadow: inset 3px 0 0 var(--orange);
     }
     .command-quick {
       display: grid;
@@ -1548,8 +1558,8 @@ PAGE_TEMPLATE = """
     }
     .command-server-card:hover,
     .command-server-card.active {
-      border-color: rgba(38,239,228,.48);
-      background: linear-gradient(180deg, rgba(17,49,57,.9), rgba(2,12,15,.96));
+      border-color: var(--orange-line);
+      background: linear-gradient(180deg, rgba(17,49,57,.9), rgba(52,30,8,.18), rgba(2,12,15,.96));
     }
     .command-server-card strong {
       color: #effcff;
@@ -1646,8 +1656,9 @@ PAGE_TEMPLATE = """
       border-bottom-color: rgba(103,245,231,.55);
     }
     body[data-theme="command"] .section-nav .tab-link.active {
-      color: #26efe4;
-      border-bottom-color: #26efe4;
+      color: #fff3df;
+      border-bottom-color: var(--orange);
+      text-shadow: 0 0 18px rgba(255,159,67,.18);
     }
     .command-metrics {
       display: grid;
@@ -1662,7 +1673,7 @@ PAGE_TEMPLATE = """
       background: linear-gradient(180deg, rgba(21,35,42,.88), rgba(8,17,21,.98));
     }
     .command-metric span { display: block; color: #94a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
-    .command-metric strong { display: block; margin-top: .25rem; color: #f4fbfc; font-size: 1.9rem; line-height: 1; }
+    .command-metric strong { display: block; margin-top: .25rem; color: var(--orange); font-size: 1.9rem; line-height: 1; text-shadow: 0 0 20px rgba(255,159,67,.12); }
     .command-metric small { display: block; margin-top: .35rem; color: #8ded63; }
     .command-grid {
       display: grid;
@@ -1683,6 +1694,14 @@ PAGE_TEMPLATE = """
       background: linear-gradient(180deg, rgba(19,32,38,.88), rgba(7,15,18,.98));
       overflow: hidden;
     }
+    .command-card::before,
+    body[data-theme="command"] .admin-panel::before {
+      content: "";
+      display: block;
+      height: .12rem;
+      background: linear-gradient(90deg, var(--orange), rgba(103,245,231,.08));
+      opacity: .74;
+    }
     .command-table-scroll {
       width: 100%;
       overflow-x: auto;
@@ -1695,7 +1714,7 @@ PAGE_TEMPLATE = """
       justify-content: space-between;
       gap: .75rem;
       padding: .85rem 1rem;
-      border-bottom: 1px solid rgba(103,245,231,.11);
+      border-bottom: 1px solid color-mix(in srgb, var(--orange) 24%, rgba(103,245,231,.11));
     }
     .command-card-head h2,
     .command-card-head h3 {
@@ -2005,7 +2024,7 @@ PAGE_TEMPLATE = """
       gap: .8rem;
       min-height: 2.1rem;
       padding: .38rem 1rem;
-      border-top: 1px solid rgba(103,245,231,.12);
+      border-top: 1px solid var(--orange-line);
       background: rgba(5,11,14,.92);
       color: #a8bcc1;
       font-size: .72rem;
@@ -2015,7 +2034,7 @@ PAGE_TEMPLATE = """
       min-width: 0;
       overflow-wrap: anywhere;
     }
-    body[data-theme="command"] .command-status-bar strong { color: #effcff; }
+    body[data-theme="command"] .command-status-bar strong { color: var(--orange); }
     body[data-theme="command"] .command-status-bar .ok { color: #8ded63; }
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
       grid-template-columns: minmax(18rem, .7fr) minmax(34rem, 1.5fr) minmax(22rem, .85fr);
@@ -2052,11 +2071,12 @@ PAGE_TEMPLATE = """
       border-radius: .55rem;
       background:
         linear-gradient(120deg, rgba(18,37,44,.90), rgba(6,14,17,.96) 64%),
-        radial-gradient(circle at 92% 0%, rgba(38,239,228,.16), transparent 36%);
+        radial-gradient(circle at 92% 0%, rgba(255,159,67,.16), transparent 30%),
+        radial-gradient(circle at 74% 0%, rgba(38,239,228,.16), transparent 36%);
       box-shadow: 0 18px 42px rgba(0,0,0,.25);
     }
     body[data-theme="command"] .command-page-head span {
-      color: #26efe4;
+      color: var(--orange);
       font-size: .68rem;
       font-weight: 900;
       text-transform: uppercase;
@@ -2103,8 +2123,8 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] .section-panel > .section-head {
       margin: 0;
       padding: .95rem 1rem;
-      border-bottom: 1px solid rgba(103,245,231,.11);
-      background: linear-gradient(90deg, rgba(18,41,48,.72), rgba(5,12,15,.48));
+      border-bottom: 1px solid color-mix(in srgb, var(--orange) 24%, rgba(103,245,231,.11));
+      background: linear-gradient(90deg, rgba(55,33,10,.30), rgba(18,41,48,.62), rgba(5,12,15,.48));
     }
     body[data-theme="command"] .section-panel > .section-head h2,
     body[data-theme="command"] .admin-panel h3 {
@@ -2135,6 +2155,11 @@ PAGE_TEMPLATE = """
       border-color: rgba(103,245,231,.13);
       background: linear-gradient(180deg, rgba(12,25,30,.78), rgba(2,9,11,.88));
       box-shadow: none;
+    }
+    body[data-theme="command"] .admin-panel h3::first-letter,
+    body[data-theme="command"] .command-card-head h2::first-letter,
+    body[data-theme="command"] .command-card-head h3::first-letter {
+      color: var(--orange);
     }
     body[data-theme="command"] .admin-panel:nth-of-type(2n),
     body[data-theme="command"] .admin-panel:nth-of-type(3n) {
@@ -2896,8 +2921,8 @@ PAGE_TEMPLATE = """
 
     <section class="stats">
       <div class="stat"><span>Server</span><strong>{{ server.map|upper if server else summary.guilds }}</strong></div>
-      <div class="stat"><span>Online</span><strong>{{ summary.online }}</strong></div>
-      <div class="stat"><span>Players</span><strong>{{ summary.players }}</strong></div>
+      <div class="stat"><span>DayZ Online</span><strong>{{ (server.online|length) if server else summary.online }}</strong></div>
+      <div class="stat"><span>Discord</span><strong>{{ server.discord_member_count if server else summary.discord_members }}</strong></div>
       <div class="stat"><span>Shop</span><strong>{{ summary.shop_items }}</strong></div>
       <div class="stat"><span>Factions</span><strong>{{ summary.factions }}</strong></div>
     </section>
@@ -3006,7 +3031,7 @@ PAGE_TEMPLATE = """
       {% set active_event_count = (server.scenario_events|selectattr('enabled')|list|length) if server else 0 %}
       {% set zone_count = (server.zones|length) if server else 0 %}
       <div class="command-metrics">
-        <div class="command-metric"><span>Players Online</span><strong>{{ summary.online }} / {{ summary.players }}</strong><small>Live tracker</small></div>
+        <div class="command-metric"><span>DayZ Online</span><strong>{{ (server.online|length) if server else summary.online }} / {{ server.discord_member_count if server else summary.discord_members }}</strong><small>Discord members</small></div>
         <div class="command-metric"><span>Uptime</span><strong>Live</strong><small>{{ generated_at }}</small></div>
         <div class="command-metric"><span>PVE Events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><small>{{ active_event_count }} active</small></div>
         <div class="command-metric"><span>Zones</span><strong>{{ zone_count }}</strong><small>{{ zone_count }} mapped</small></div>
@@ -6810,11 +6835,12 @@ PAGE_TEMPLATE = """
   </main>
   <div class="command-status-bar" aria-label="Command connection status">
     <span>UK Time: <strong>{{ generated_at }}</strong></span>
-    <span>Version: <strong>1.26</strong></span>
+    <span>Dashboard: <strong>{{ dashboard_version }}</strong></span>
     <span>Platform: <strong>{{ server.platform_label if server else 'Xbox' }}</strong></span>
     <span>Map: <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
     <span><span class="ok">Database: Connected</span> | <span class="ok">Nitrado: Connected</span></span>
-    <span>Players: <strong>{{ summary.online }}/{{ summary.players }}</strong></span>
+    <span>DayZ: <strong>{{ (server.online|length) if server else summary.online }}</strong> online</span>
+    <span>Discord: <strong>{{ server.discord_member_count if server else summary.discord_members }}</strong> members</span>
   </div>
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
@@ -19049,7 +19075,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
         discord_members = discord_guild_members(guild_id) if needs_discord_members else []
         server_wages = enriched_wage_records(guild_block(wages, guild_id, []), discord_members, discord_roles, server_factions) if needs_wages else []
-        discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts) if needs_discord_members else None
+        discord_member_count = runtime_discord_member_count(guild_id, discord_guild_counts)
         if discord_member_count is None and needs_discord_members:
             discord_member_count = discord_guild_member_count(guild_id)
         if discord_member_count is None:
@@ -19126,6 +19152,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
             "guilds": len(servers),
             "online": total_online,
             "players": total_players,
+            "discord_members": sum(safe_int(server.get("discord_member_count")) for server in servers),
             "kills": total_kills,
             "dashboard_enabled": dashboard_enabled,
             "shop_items": sum(safe_int(server.get("shop_item_count")) for server in servers),
@@ -19167,6 +19194,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
                 "guilds": len(servers),
                 "online": sum(len(server.get("online", [])) for server in servers),
                 "players": sum(safe_int(server.get("totals", {}).get("players")) for server in servers),
+                "discord_members": sum(safe_int(server.get("discord_member_count")) for server in servers),
                 "kills": sum(safe_int(server.get("totals", {}).get("kills")) for server in servers),
                 "dashboard_enabled": sum(1 for server in servers if server.get("dashboard_access", {}).get("enabled")),
                 "shop_items": sum(safe_int(server.get("shop_item_count")) for server in servers),
@@ -19179,7 +19207,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
             }
         )
     else:
-        summary.update({"guilds": 0, "online": 0, "players": 0, "kills": 0, "dashboard_enabled": 0, "factions": 0, "wages": 0, "heatmap_points": 0, "pve_active": 0, "pve_campaigns": 0})
+        summary.update({"guilds": 0, "online": 0, "players": 0, "discord_members": 0, "kills": 0, "dashboard_enabled": 0, "factions": 0, "wages": 0, "heatmap_points": 0, "pve_active": 0, "pve_campaigns": 0})
     scoped = dict(state)
     scoped["summary"] = summary
     scoped["servers"] = servers
@@ -19277,6 +19305,7 @@ def page(mode: str, auth: dict[str, Any]):
         pve_tool=pve_tool,
         xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
+        dashboard_version=DASHBOARD_VERSION,
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
