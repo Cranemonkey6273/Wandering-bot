@@ -26887,11 +26887,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("4.6", "-3.2"),
         "ground_spread": 18,
         "marker": SCENARIO_AIRDROP_MARKER_CLASS,
-        "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "0", "y": "0.0", "z": "0", "a": "0"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "-2.4", "y": "0.0", "z": "1.8", "a": "35"},
-        ],
+        "props": [],
     },
     "helicopter_crash": {
         "label": "Helicopter crash",
@@ -26899,11 +26895,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("24", "14"),
         "ground_spread": 45,
         "marker": "Wreck_Mi8_Crashed",
-        "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "2.4", "y": "0.0", "z": "-2.2", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "-4.2", "y": "0.0", "z": "3.6", "a": "22"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "16", "y": "0.0", "z": "9", "a": "35"},
-        ],
+        "props": [],
     },
     "cargo_plane_wreck": {
         "label": "Cargo plane wreck",
@@ -26911,11 +26903,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("34", "18"),
         "ground_spread": 60,
         "marker": "Land_Wreck_C130J_Cargo",
-        "props": [
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
-            {"type": "StaticObj_Dead_pile2", "x": "-7", "y": "0.0", "z": "6", "a": "15"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "20", "y": "0.0", "z": "10", "a": "35"},
-        ],
+        "props": [],
     },
     "convoy_wreck": {
         "label": "Convoy wreck",
@@ -26923,12 +26911,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("15", "-8"),
         "ground_spread": 32,
         "marker": "StaticObj_Wreck_HMMWV_DE",
-        "props": [
-            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-12", "y": "0", "z": "8", "a": "35"},
-            {"type": "StaticObj_Wreck_Ural_DE", "x": "12", "y": "0", "z": "10", "a": "305"},
-            {"type": "StaticObj_ShellCrater2_Large", "x": "0", "y": "0.0", "z": "0", "a": "0"},
-            {"type": "StaticObj_ammoboxes_stacked", "x": "6", "y": "0.0", "z": "-5", "a": "35"},
-        ],
+        "props": [],
     },
 }
 
@@ -29161,6 +29144,12 @@ def console_ce_records_for_event(event):
             }]
     else:
         child_records = None
+    if event_type in {"airdrop", "loot_crate"}:
+        family = "Static"
+        use_eventgroup = True
+        eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name)
+        child_records = []
+        count = 1
     if event_type == "animal_pack":
         vanilla_animal_name = vanilla_animal_ce_event_name(class_name)
         if not vanilla_animal_name:
@@ -29197,9 +29186,9 @@ def console_ce_records_for_event(event):
         "child_lootmax": child_lootmax,
         "child_records": child_records,
         "eventgroup_children": eventgroup_children,
-        "empty_event_children": False,
+        "empty_event_children": bool(use_eventgroup),
         "nominal": 1 if use_eventgroup else None,
-        "min_count": 0 if use_eventgroup else None,
+        "min_count": 1 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
         "restock": restock,
         "saferadius": saferadius,
@@ -29262,7 +29251,7 @@ def console_ce_records_for_event(event):
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
             warnings.append(
                 f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
-                "Native CE uses a reliable crate spawn; the full visual scene requires the delivery bridge to be installed."
+                "Native CE will deploy the scene through cfgeventgroups.xml and one fixed Static dynamic event."
             )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
@@ -29887,7 +29876,7 @@ def validate_console_ce_xml_bundle(built):
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
-        if not child_nodes:
+        if not child_nodes and not name.startswith("Static"):
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()
@@ -29929,6 +29918,10 @@ def validate_console_ce_xml_bundle(built):
         if not spawn_node.findall("pos") and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")
         has_group_pos = any(str(pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
+        children = event_node.find("children")
+        child_nodes = list(children.findall("child")) if children is not None else []
+        if name.startswith("Static") and not child_nodes and not has_group_pos:
+            messages.append(f"`{name}` has no `<child>` classname to spawn.")
         if (
             console_ce_event_uses_zone_spawn(name)
             and not spawn_node.findall("zone")

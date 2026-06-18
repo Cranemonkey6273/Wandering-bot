@@ -11,6 +11,7 @@ import json
 import io
 import os
 import re
+import random
 import secrets
 import hashlib
 import subprocess
@@ -40,6 +41,7 @@ DATA_ROOT = (
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
+BOT_3D_VIEWER_FILE = os.getenv("WANDERING_BOT_3D_VIEWER_FILE", os.path.join(APP_ROOT, "wandering_bot_3d_viewer.html"))
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
@@ -134,6 +136,49 @@ SCENARIO_LOOT_PRESETS = {
     "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle"],
     "vehicle_car": ["SparkPlug", "CarBattery", "CarRadiator", "CanisterGasoline", "TireRepairKit", "Blowtorch"],
     "vehicle_truck": ["NailBox", "MetalPlate", "WoodenPlank", "Hammer", "Hatchet", "Handsaw", "CanisterGasoline"],
+}
+SCENARIO_LOOT_COUNT_RANGES = {
+    "default": (0, 0),
+    "1-10": (1, 10),
+    "10-20": (10, 20),
+    "20-30": (20, 30),
+    "30-40": (30, 40),
+    "40-60": (40, 60),
+}
+SCENARIO_LOOT_MIX_FIELDS = (
+    ("weapons", "Weapons"),
+    ("ammo", "Ammo"),
+    ("clothing", "Clothing"),
+    ("bags", "Bags"),
+    ("medical", "Medical"),
+    ("food", "Food"),
+    ("building", "Building"),
+    ("utility", "Tools"),
+    ("vehicle", "Vehicle"),
+)
+SCENARIO_LOOT_CATEGORY_POOLS = {
+    "weapons": ["M4A1", "AKM", "AK74", "SVD", "SKS", "Mosin9130", "FAL", "VSS", "ASVAL", "Saiga"],
+    "ammo": [
+        "Mag_STANAG_30Rnd", "Mag_AKM_30Rnd", "Mag_AK74_30Rnd", "Mag_SVD_10Rnd",
+        "Mag_FAL_20Rnd", "Mag_VSS_10Rnd", "Mag_VAL_20Rnd", "Mag_Saiga_8Rnd",
+        "AmmoBox_556x45_20Rnd", "AmmoBox_762x39_20Rnd", "AmmoBox_545x39_20Rnd",
+        "AmmoBox_762x54_20Rnd", "AmmoBox_9x39_20Rnd", "AmmoBox_12gaSlug_10Rnd",
+    ],
+    "clothing": [
+        "PlateCarrierVest", "PlateCarrierPouches", "PlateCarrierHolster",
+        "BallisticHelmet_Green", "BallisticHelmet_Black", "Mich2001Helmet", "TacticalHelmet_Green",
+        "M65Jacket_Black", "M65Jacket_Khaki", "GorkaEJacket_PautRev", "GorkaEJacket_Summer",
+        "GorkaPants_PautRev", "GorkaPants_Summer", "BDUJacket", "BDUPants",
+        "TacticalGloves_Black", "TacticalGloves_Green", "MilitaryBoots_Black", "MilitaryBoots_Brown",
+        "SmershVest", "SmershBag", "BalaclavaMask_Black", "NVGoggles",
+        "NBCJacketGray", "NBCPantsGray", "NBCBootsGray", "NBCGlovesGray", "GasMask",
+    ],
+    "bags": ["MountainBag_Green", "AssaultBag_Green", "AliceBag_Green", "AliceBag_Black", "CoyoteBag_Green"],
+    "medical": ["BandageDressing", "TetracyclineAntibiotics", "Morphine", "SalineBagIV", "Epinephrine", "BloodBagEmpty", "StartKitIV"],
+    "food": ["BakedBeansCan", "PeachesCan", "SpaghettiCan", "SodaCan_Cola", "WaterBottle", "Canteen", "TacticalBaconCan"],
+    "building": ["NailBox", "Hammer", "Handsaw", "Hatchet", "MetalWire", "MetalPlate", "WoodenPlank"],
+    "utility": ["HuntingKnife", "Matchbox", "Rope", "Battery9V", "TireRepairKit", "Blowtorch"],
+    "vehicle": ["SparkPlug", "CarBattery", "CarRadiator", "CanisterGasoline", "TireRepairKit", "Blowtorch"],
 }
 SCENARIO_VEHICLE_PRESETS = {
     "ada": {"label": "Ada 4x4", "class": "OffroadHatchback", "loot_preset": "vehicle_car"},
@@ -1829,6 +1874,21 @@ PAGE_TEMPLATE = """
       object-position: center bottom;
       filter: drop-shadow(0 24px 32px rgba(0,0,0,.55));
     }
+    .character-3d-embed {
+      overflow: hidden;
+      min-height: clamp(34rem, 72vh, 50rem);
+      border: 1px solid rgba(255,159,67,.28);
+      border-radius: .55rem;
+      background: rgba(2, 9, 11, .84);
+      box-shadow: inset 0 0 0 1px rgba(103,245,231,.10), 0 1.4rem 4rem rgba(0,0,0,.28);
+    }
+    .character-3d-embed iframe {
+      display: block;
+      width: 100%;
+      height: clamp(34rem, 72vh, 50rem);
+      border: 0;
+      background: #03070a;
+    }
     .command-gear-column { display: grid; gap: .45rem; }
     .command-gear-card {
       min-height: 4.45rem;
@@ -2873,6 +2933,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('visual-loadout') %}<a class="{{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'character-3d' else '' }}" href="{{ dashboard_path }}?section=character-3d{{ server_qs }}">3D Character</a>
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
@@ -2962,6 +3023,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
       {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
       {% if section_allowed('visual-loadout') %}<a class="tab-link {{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
+      <a class="tab-link {{ 'active' if active_section == 'character-3d' else '' }}" href="{{ dashboard_path }}?section=character-3d{{ server_qs }}">3D Character</a>
       {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
@@ -2991,6 +3053,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
           {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
           {% if section_allowed('visual-loadout') %}<option value="/admin?section=visual-loadout{{ server_qs }}" {{ 'selected' if active_section == 'visual-loadout' else '' }}>Visual Loadout</option>{% endif %}
+          <option value="{{ dashboard_path }}?section=character-3d{{ server_qs }}" {{ 'selected' if active_section == 'character-3d' else '' }}>3D Character</option>
           {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk Economy</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
@@ -4780,7 +4843,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=3600, saferadius=0, distanceradius=1000, cleanupradius=1500, gas_lifetime=1800, gas_particle='server_default') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=3600, saferadius=0, distanceradius=1000, cleanupradius=1500, gas_lifetime=1800, gas_particle='server_default') %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -4796,6 +4859,8 @@ PAGE_TEMPLATE = """
           {% set edit_event.permanent = 'true' if event.permanent else 'false' %}
           {% set edit_event.restarts = event.remaining_restarts %}
           {% set edit_event.loot_preset = event.loot_preset or 'none' %}
+          {% set edit_event.loot_count_range = event.loot_count_range or 'default' %}
+          {% set edit_event.loot_mix = event.loot_mix or {} %}
           {% set edit_event.visual_marker = 'true' if event.visual_marker else 'false' %}
           {% set edit_event.scene_type = event.scene_type or 'compact_crater' %}
           {% set edit_event.guard_class = event.guard_class or '' %}
@@ -4943,6 +5008,33 @@ PAGE_TEMPLATE = """
               <select name="loot_preset"><option value="none" {% if edit_event.loot_preset == 'none' %}selected{% endif %}>None</option><option value="military_high" {% if edit_event.loot_preset == 'military_high' %}selected{% endif %}>Military high tier</option><option value="military_basic" {% if edit_event.loot_preset == 'military_basic' %}selected{% endif %}>Military basic</option><option value="medical" {% if edit_event.loot_preset == 'medical' %}selected{% endif %}>Medical</option><option value="survival" {% if edit_event.loot_preset == 'survival' %}selected{% endif %}>Survival</option><option value="building" {% if edit_event.loot_preset == 'building' %}selected{% endif %}>Building</option><option value="food" {% if edit_event.loot_preset == 'food' %}selected{% endif %}>Food</option><option value="vehicle_car" {% if edit_event.loot_preset == 'vehicle_car' %}selected{% endif %}>Vehicle kit</option><option value="vehicle_truck" {% if edit_event.loot_preset == 'vehicle_truck' %}selected{% endif %}>Truck build kit</option></select>
               <small class="field-help">✨ Pristine loot. Ammo/medical in crates, big gear around scene.</small>
             </label>
+            <label>Loot amount
+              <select name="loot_count_range">
+                <option value="default" {% if edit_event.loot_count_range in ['', 'default'] %}selected{% endif %}>Use preset amount</option>
+                <option value="1-10" {% if edit_event.loot_count_range == '1-10' %}selected{% endif %}>1 to 10 items</option>
+                <option value="10-20" {% if edit_event.loot_count_range == '10-20' %}selected{% endif %}>10 to 20 items</option>
+                <option value="20-30" {% if edit_event.loot_count_range == '20-30' %}selected{% endif %}>20 to 30 items</option>
+                <option value="30-40" {% if edit_event.loot_count_range == '30-40' %}selected{% endif %}>30 to 40 items</option>
+                <option value="40-60" {% if edit_event.loot_count_range == '40-60' %}selected{% endif %}>40 to 60 items</option>
+              </select>
+              <small class="field-help">Controls how many item types the drop can contain.</small>
+            </label>
+            <div class="full">
+              <h4>Loot category mix</h4>
+              <div class="mini-grid">
+                {% set mix_values = edit_event.loot_mix or {} %}
+                {% for key, label in loot_mix_fields %}
+                <label>{{ label }}
+                  <select name="loot_mix_{{ key }}">
+                    {% for percent in [0, 10, 20, 25, 30, 40, 50, 60, 70, 80, 100] %}
+                    <option value="{{ percent }}" {% if (mix_values.get(key, 0)|int) == percent %}selected{% endif %}>{{ percent }}%</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                {% endfor %}
+              </div>
+              <small class="field-help">All zero means use the preset. If values are set, the bot normalises the mix into the selected amount range.</small>
+            </div>
             <label>Vehicle condition
               <select name="vehicle_condition"><option value="full">Full fuel, fluids, and common parts</option><option value="random_parts">Random common parts</option><option value="no_parts">Body only / missing parts</option></select>
             </label>
@@ -5008,7 +5100,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status in ['failed', 'blocked', 'uploaded', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -6141,6 +6233,20 @@ PAGE_TEMPLATE = """
             <span class="result muted" data-package-result></span>
           </form>
         </aside>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "character-3d" %}
+    <section class="section-panel" id="character-3d">
+      <div class="section-head">
+        <div>
+          <h2>3D Character</h2>
+          <p class="tool-note">Rotate, zoom and inspect the Wandering Bot character inside the dashboard.</p>
+        </div>
+      </div>
+      <div class="character-3d-embed">
+        <iframe src="/bot-3d" title="Rotatable Wandering Bot character"></iframe>
       </div>
     </section>
     {% endif %}
@@ -10522,6 +10628,11 @@ PAGE_TEMPLATE = """
         form.elements.permanent.value = button.dataset.permanent || "false";
         form.elements.restarts.value = button.dataset.restarts || 1;
         form.elements.loot_preset.value = button.dataset.loot || "none";
+        if (form.elements.loot_count_range) form.elements.loot_count_range.value = button.dataset.lootRange || "default";
+        ["weapons", "ammo", "clothing", "bags", "medical", "food", "building", "utility", "vehicle"].forEach((key) => {
+          const field = form.elements[`loot_mix_${key}`];
+          if (field) field.value = button.dataset[`lootMix${key.charAt(0).toUpperCase()}${key.slice(1)}`] || 0;
+        });
         form.elements.visual_marker.value = button.dataset.marker || "true";
         if (form.elements.scene_type) form.elements.scene_type.value = button.dataset.scene || "compact_crater";
         form.elements.guard_class.value = button.dataset.guard || "";
@@ -15199,6 +15310,104 @@ def csv_list(value: Any) -> list[str]:
     return [item.strip() for item in str(value or "").split(",") if item.strip()]
 
 
+def dedupe_dayz_items(items: Any) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items or []:
+        name = str(item or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            result.append(name)
+    return result
+
+
+def normalize_scenario_loot_count_range(value: Any) -> str:
+    text = str(value or "default").strip().lower()
+    return text if text in SCENARIO_LOOT_COUNT_RANGES else "default"
+
+
+def parse_scenario_loot_mix(payload: dict[str, Any]) -> dict[str, int]:
+    raw_mix = payload.get("loot_mix") if isinstance(payload, dict) else {}
+    if not isinstance(raw_mix, dict):
+        raw_mix = {}
+    mix: dict[str, int] = {}
+    for key, _label in SCENARIO_LOOT_MIX_FIELDS:
+        value = payload.get(f"loot_mix_{key}", raw_mix.get(key, 0))
+        percent = max(0, min(100, safe_int(value, 0)))
+        if percent > 0:
+            mix[key] = percent
+    return mix
+
+
+def scenario_loot_rng(seed_text: Any) -> random.Random:
+    seed = int(hashlib.sha256(str(seed_text or "").encode("utf-8", errors="ignore")).hexdigest()[:16], 16)
+    return random.Random(seed)
+
+
+def scenario_loot_sample(seed_text: Any, items: Any, count: int) -> list[str]:
+    clean = dedupe_dayz_items(items)
+    if count <= 0 or len(clean) <= count:
+        return clean
+    rng = scenario_loot_rng(seed_text)
+    rng.shuffle(clean)
+    return clean[:count]
+
+
+def build_scenario_loot_from_controls(
+    loot_preset: str,
+    extra_loot: list[str],
+    count_range: str,
+    loot_mix: dict[str, int],
+    seed_text: Any,
+) -> list[str]:
+    base_loot = dedupe_dayz_items(SCENARIO_LOOT_PRESETS.get(str(loot_preset or "none"), []))
+    extra_loot = dedupe_dayz_items(extra_loot)
+    count_range = normalize_scenario_loot_count_range(count_range)
+    min_count, max_count = SCENARIO_LOOT_COUNT_RANGES[count_range]
+
+    if count_range == "default" and not loot_mix:
+        return dedupe_dayz_items(base_loot + extra_loot)
+
+    rng = scenario_loot_rng(seed_text)
+    if count_range == "default":
+        target_count = min(48, max(12, len(base_loot) or 24))
+    else:
+        target_count = rng.randint(min_count, max(min_count, max_count))
+
+    selected: list[str] = []
+    if loot_mix:
+        total = sum(loot_mix.values())
+        allocations: dict[str, int] = {}
+        remainders: list[tuple[float, str]] = []
+        used = 0
+        for key, percent in loot_mix.items():
+            exact = (target_count * percent) / total if total else 0
+            whole = int(exact)
+            allocations[key] = whole
+            used += whole
+            remainders.append((exact - whole, key))
+        for _fraction, key in sorted(remainders, reverse=True):
+            if used >= target_count:
+                break
+            allocations[key] += 1
+            used += 1
+        for key, amount in allocations.items():
+            pool = SCENARIO_LOOT_CATEGORY_POOLS.get(key, [])
+            selected.extend(scenario_loot_sample(f"{seed_text}:{key}", pool, amount))
+    else:
+        selected.extend(scenario_loot_sample(f"{seed_text}:preset", base_loot, target_count))
+
+    if len(dedupe_dayz_items(selected)) < target_count:
+        all_pools: list[str] = []
+        for pool in SCENARIO_LOOT_CATEGORY_POOLS.values():
+            all_pools.extend(pool)
+        fill_pool = [item for item in dedupe_dayz_items(base_loot + all_pools) if item.lower() not in {entry.lower() for entry in selected}]
+        selected.extend(scenario_loot_sample(f"{seed_text}:fill", fill_pool, target_count - len(dedupe_dayz_items(selected))))
+
+    return dedupe_dayz_items(selected[:target_count] + extra_loot)
+
+
 def parse_shop_bundle_items(value: Any) -> list[dict[str, Any]]:
     rows = []
     if isinstance(value, list):
@@ -17909,6 +18118,7 @@ COMMAND_SECTION_META = {
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
     "loot-engine": {"kicker": "Loot", "title": "Loot Engine", "body": "Build curated loot pools, container cargo and pristine item templates."},
     "visual-loadout": {"kicker": "Spawn Gear", "title": "Visual Loadout", "body": "Assemble player loadouts with body slots, cargo, child attachments and exportable server files."},
+    "character-3d": {"kicker": "Brand", "title": "3D Character", "body": "View the Wandering Bot character as a rotatable dashboard model."},
     "bulk-economy": {"kicker": "Economy", "title": "Bulk Economy", "body": "Run wider economy edits and batch wallet or faction updates."},
     "server-rules": {"kicker": "Rules", "title": "Server Rules", "body": "Publish and maintain server rules for players and Discord panels."},
     "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
@@ -19216,7 +19426,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "character-3d", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if auth.get("kind") != "owner" and active_section == "owner":
@@ -19320,6 +19530,7 @@ def page(mode: str, auth: dict[str, Any]):
         xml_picker_groups=picker_groups,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
+        loot_mix_fields=SCENARIO_LOOT_MIX_FIELDS,
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
         visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
         visual_loadout_categories=VISUAL_LOADOUT_CATEGORY_FILTERS,
@@ -19500,6 +19711,13 @@ def brand_character():
         return send_file(BOT_CHARACTER_FILE)
     if os.path.exists(BOT_IMAGE_FILE):
         return send_file(BOT_IMAGE_FILE)
+    return ("", 404)
+
+
+@APP.get("/bot-3d")
+def bot_3d_viewer():
+    if os.path.exists(BOT_3D_VIEWER_FILE):
+        return send_file(BOT_3D_VIEWER_FILE)
     return ("", 404)
 
 
@@ -20935,11 +21153,9 @@ def api_scenario_event():
     loot_preset = str(payload.get("loot_preset") or preset.get("loot_preset") or "none")
     if event_type == "vehicle_spawn" and vehicle_cargo_mode in {"normal_no_loot", "native_only"}:
         loot_preset = "none"
-    loot = list(SCENARIO_LOOT_PRESETS.get(loot_preset, []))
+    loot_count_range = normalize_scenario_loot_count_range(payload.get("loot_count_range"))
+    loot_mix = parse_scenario_loot_mix(payload)
     extra_loot = csv_list(payload.get("loot_items", []))
-    for item in extra_loot:
-        if item not in loot:
-            loot.append(item)
     zombie_mix = parse_zombie_mix(payload.get("zombie_mix"))
     event_count = max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
     if event_type == "zombie_horde" and zombie_mix:
@@ -21063,6 +21279,13 @@ def api_scenario_event():
             display_name = base_name
         else:
             display_name = f"{loc_name} {label_name}" if loc_name and loc_name != "Dashboard" else f"{label_name} #{current_event_id}"
+        event_loot = build_scenario_loot_from_controls(
+            loot_preset,
+            extra_loot,
+            loot_count_range,
+            loot_mix,
+            f"{guild_id}:{current_event_id}:{event_type}:{spawn_preset}:{loc_name}:{location.get('x')}:{location.get('z')}",
+        )
         event.update({
             "id": current_event_id,
             "name": display_name,
@@ -21077,7 +21300,9 @@ def api_scenario_event():
             "count": event_count,
             "radius": radius,
             "loot_preset": loot_preset,
-            "loot": loot,
+            "loot_count_range": loot_count_range,
+            "loot_mix": loot_mix,
+            "loot": event_loot,
             "zombie_mix": zombie_mix if event_type == "zombie_horde" else [],
             "reset_method": str(payload.get("reset_method") or "bridge"),
             "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),

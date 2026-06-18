@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wandering Bot 3D Character Viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #03070a;
+      --panel: rgba(7, 16, 20, .92);
+      --line: rgba(103, 245, 231, .22);
+      --text: #effcff;
+      --muted: #9fb4ba;
+      --accent: #67f5e7;
+      --orange: #ff9f43;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 75% 12%, rgba(255, 159, 67, .16), transparent 28rem),
+        radial-gradient(circle at 18% 8%, rgba(103, 245, 231, .16), transparent 30rem),
+        linear-gradient(180deg, #071014, var(--bg));
+    }
+
+    main {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    canvas:active { cursor: grabbing; }
+
+    .hud {
+      position: absolute;
+      left: clamp(.8rem, 2vw, 1.5rem);
+      top: clamp(.8rem, 2vw, 1.5rem);
+      width: min(25rem, calc(100vw - 1.6rem));
+      padding: .9rem 1rem;
+      border: 1px solid var(--line);
+      border-top-color: rgba(255,159,67,.45);
+      border-radius: .7rem;
+      background: linear-gradient(180deg, rgba(13, 27, 33, .86), rgba(3, 9, 12, .78));
+      box-shadow: 0 1.25rem 3rem rgba(0,0,0,.32);
+      backdrop-filter: blur(14px);
+      pointer-events: none;
+    }
+
+    .hud strong {
+      display: block;
+      margin-bottom: .18rem;
+      color: var(--orange);
+      font-size: .82rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .hud h1 {
+      margin: 0 0 .28rem;
+      font-size: clamp(1.35rem, 4vw, 2.3rem);
+      letter-spacing: 0;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .hud p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+      font-size: .92rem;
+    }
+
+    .controls {
+      position: absolute;
+      right: clamp(.8rem, 2vw, 1.5rem);
+      bottom: clamp(.8rem, 2vw, 1.5rem);
+      display: flex;
+      flex-wrap: wrap;
+      gap: .45rem;
+      justify-content: flex-end;
+    }
+
+    button {
+      min-height: 2.35rem;
+      border: 1px solid rgba(103,245,231,.24);
+      border-radius: .45rem;
+      padding: .45rem .7rem;
+      background: rgba(8, 20, 25, .82);
+      color: var(--text);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: rgba(255,159,67,.52);
+      box-shadow: inset 0 -2px 0 var(--orange);
+    }
+
+    .status {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      min-height: 1.65rem;
+      padding: .25rem .75rem;
+      border-top: 1px solid rgba(255,159,67,.32);
+      background: rgba(3, 8, 11, .78);
+      color: var(--muted);
+      font-size: .72rem;
+      pointer-events: none;
+    }
+
+    .status span { color: var(--accent); }
+
+    @media (max-width: 680px) {
+      .hud { right: .8rem; }
+      .hud p { display: none; }
+      .controls { bottom: 2.2rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="viewer" aria-label="Rotatable 3D Wandering Bot character"></canvas>
+    <section class="hud">
+      <strong>Prototype 3D Mascot</strong>
+      <h1>Wandering Bot</h1>
+      <p>Drag to rotate. Scroll or pinch to zoom. This is a self-contained WebGL model built from 3D geometry, ready for a later high-detail GLB pass.</p>
+    </section>
+    <div class="controls" aria-hidden="false">
+      <button type="button" data-view="front">Front</button>
+      <button type="button" data-view="side">Side</button>
+      <button type="button" data-view="back">Back</button>
+      <button type="button" data-view="spin">Auto Spin</button>
+    </div>
+    <div class="status">WebGL geometry model | <span>teal/orange command lighting</span> | no external libraries</div>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const canvas = document.getElementById("viewer");
+      const gl = canvas.getContext("webgl", { antialias: true, alpha: false });
+      if (!gl) {
+        document.body.innerHTML = "<main style='display:grid;place-items:center;color:#effcff;background:#03070a;min-height:100vh;font-family:sans-serif'><p>WebGL is not available in this browser.</p></main>";
+        return;
+      }
+
+      const vs = `
+        attribute vec3 aPosition;
+        attribute vec3 aNormal;
+        attribute vec3 aColor;
+        uniform mat4 uProjection;
+        uniform mat4 uView;
+        uniform mat4 uModel;
+        varying vec3 vNormal;
+        varying vec3 vColor;
+        varying vec3 vWorld;
+        void main() {
+          vec4 world = uModel * vec4(aPosition, 1.0);
+          vWorld = world.xyz;
+          vNormal = mat3(uModel) * aNormal;
+          vColor = aColor;
+          gl_Position = uProjection * uView * world;
+        }
+      `;
+      const fs = `
+        precision mediump float;
+        varying vec3 vNormal;
+        varying vec3 vColor;
+        varying vec3 vWorld;
+        uniform vec3 uEye;
+        void main() {
+          vec3 n = normalize(vNormal);
+          vec3 key = normalize(vec3(-0.45, 0.85, 0.35));
+          vec3 fill = normalize(vec3(0.55, 0.25, -0.8));
+          float kd = max(dot(n, key), 0.0);
+          float rim = pow(1.0 - max(dot(n, normalize(uEye - vWorld)), 0.0), 2.0);
+          vec3 teal = vec3(0.16, 0.92, 0.86) * rim * 0.55;
+          vec3 orange = vec3(1.0, 0.52, 0.16) * pow(max(dot(n, fill), 0.0), 1.4) * 0.42;
+          vec3 color = vColor * (0.28 + kd * 0.76) + teal + orange;
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `;
+
+      function shader(type, source) {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, source);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        return sh;
+      }
+
+      const program = gl.createProgram();
+      gl.attachShader(program, shader(gl.VERTEX_SHADER, vs));
+      gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
+      gl.useProgram(program);
+
+      const loc = {
+        position: gl.getAttribLocation(program, "aPosition"),
+        normal: gl.getAttribLocation(program, "aNormal"),
+        color: gl.getAttribLocation(program, "aColor"),
+        projection: gl.getUniformLocation(program, "uProjection"),
+        view: gl.getUniformLocation(program, "uView"),
+        model: gl.getUniformLocation(program, "uModel"),
+        eye: gl.getUniformLocation(program, "uEye")
+      };
+
+      const verts = [];
+      const normals = [];
+      const colors = [];
+      const indices = [];
+
+      const C = {
+        coat: [0.36, 0.38, 0.22],
+        coatDark: [0.20, 0.24, 0.14],
+        tan: [0.62, 0.48, 0.28],
+        scarf: [0.27, 0.24, 0.16],
+        black: [0.03, 0.04, 0.04],
+        glass: [0.04, 0.10, 0.11],
+        metal: [0.55, 0.55, 0.50],
+        boot: [0.07, 0.08, 0.06],
+        orange: [1.0, 0.45, 0.10],
+        teal: [0.22, 0.92, 0.85]
+      };
+
+      function addVertex(p, n, c) {
+        verts.push(p[0], p[1], p[2]);
+        normals.push(n[0], n[1], n[2]);
+        colors.push(c[0], c[1], c[2]);
+        return verts.length / 3 - 1;
+      }
+
+      function addTri(a, b, c) { indices.push(a, b, c); }
+      function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+      function add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+      function mul(a, s) { return [a[0] * s, a[1] * s, a[2] * s]; }
+      function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+      function cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+      function norm(a) {
+        const d = Math.hypot(a[0], a[1], a[2]) || 1;
+        return [a[0] / d, a[1] / d, a[2] / d];
+      }
+
+      function sphere(center, radius, color, rows = 18, cols = 24) {
+        const base = verts.length / 3;
+        for (let y = 0; y <= rows; y++) {
+          const v = y / rows;
+          const theta = v * Math.PI;
+          const st = Math.sin(theta);
+          const ct = Math.cos(theta);
+          for (let x = 0; x <= cols; x++) {
+            const u = x / cols;
+            const phi = u * Math.PI * 2;
+            const cp = Math.cos(phi);
+            const sp = Math.sin(phi);
+            const n = [cp * st, ct, sp * st];
+            addVertex([center[0] + n[0] * radius[0], center[1] + n[1] * radius[1], center[2] + n[2] * radius[2]], norm([n[0] / radius[0], n[1] / radius[1], n[2] / radius[2]]), color);
+          }
+        }
+        for (let y = 0; y < rows; y++) {
+          for (let x = 0; x < cols; x++) {
+            const a = base + y * (cols + 1) + x;
+            const b = a + cols + 1;
+            addTri(a, b, a + 1);
+            addTri(a + 1, b, b + 1);
+          }
+        }
+      }
+
+      function cylinderBetween(a, b, r, color, sides = 20) {
+        const axis = norm(sub(b, a));
+        let right = cross(axis, [0, 1, 0]);
+        if (Math.hypot(right[0], right[1], right[2]) < .01) right = [1, 0, 0];
+        right = norm(right);
+        const forward = norm(cross(right, axis));
+        const base = verts.length / 3;
+        for (let i = 0; i <= sides; i++) {
+          const t = i / sides * Math.PI * 2;
+          const radial = add(mul(right, Math.cos(t)), mul(forward, Math.sin(t)));
+          addVertex(add(a, mul(radial, r)), radial, color);
+          addVertex(add(b, mul(radial, r)), radial, color);
+        }
+        for (let i = 0; i < sides; i++) {
+          const p = base + i * 2;
+          addTri(p, p + 1, p + 2);
+          addTri(p + 2, p + 1, p + 3);
+        }
+        const ca = addVertex(a, mul(axis, -1), color);
+        const cb = addVertex(b, axis, color);
+        for (let i = 0; i < sides; i++) {
+          const p = base + i * 2;
+          addTri(ca, p + 2, p);
+          addTri(cb, p + 1, p + 3);
+        }
+      }
+
+      function box(center, size, color) {
+        const x = size[0] / 2, y = size[1] / 2, z = size[2] / 2;
+        const pts = [
+          [-x,-y,-z],[x,-y,-z],[x,y,-z],[-x,y,-z],
+          [-x,-y,z],[x,-y,z],[x,y,z],[-x,y,z]
+        ].map(p => [p[0] + center[0], p[1] + center[1], p[2] + center[2]]);
+        const faces = [
+          [0,1,2,3,[0,0,-1]],[4,7,6,5,[0,0,1]],[0,4,5,1,[0,-1,0]],
+          [3,2,6,7,[0,1,0]],[1,5,6,2,[1,0,0]],[0,3,7,4,[-1,0,0]]
+        ];
+        for (const f of faces) {
+          const base = verts.length / 3;
+          addVertex(pts[f[0]], f[4], color);
+          addVertex(pts[f[1]], f[4], color);
+          addVertex(pts[f[2]], f[4], color);
+          addVertex(pts[f[3]], f[4], color);
+          addTri(base, base + 1, base + 2);
+          addTri(base, base + 2, base + 3);
+        }
+      }
+
+      function ring(center, rx, rz, y, thickness, color) {
+        const sides = 40;
+        const base = verts.length / 3;
+        for (let i = 0; i <= sides; i++) {
+          const t = i / sides * Math.PI * 2;
+          const co = Math.cos(t), si = Math.sin(t);
+          const n = norm([co, 0, si]);
+          addVertex([center[0] + co * (rx + thickness), y, center[2] + si * (rz + thickness)], n, color);
+          addVertex([center[0] + co * rx, y, center[2] + si * rz], n, color);
+        }
+        for (let i = 0; i < sides; i++) {
+          const p = base + i * 2;
+          addTri(p, p + 1, p + 2);
+          addTri(p + 2, p + 1, p + 3);
+        }
+      }
+
+      // Full-body mascot model.
+      sphere([0, 1.92, 0], [.56, .88, .36], C.coat, 22, 28);          // jacket body
+      sphere([0, 2.55, .06], [.46, .28, .28], C.scarf, 16, 22);       // scarf collar
+      sphere([0, 2.98, .02], [.43, .50, .39], C.coat, 20, 26);        // hood
+      sphere([0, 2.93, .18], [.31, .35, .24], C.scarf, 16, 24);       // covered face
+      ring([0, 0, .20], .31, .18, 3.04, .035, C.black);               // goggle band
+      sphere([-.16, 3.06, .42], [.12, .085, .055], C.glass, 12, 18);  // goggles
+      sphere([ .16, 3.06, .42], [.12, .085, .055], C.glass, 12, 18);
+      sphere([-.16, 3.06, .43], [.145, .105, .025], C.black, 10, 16);
+      sphere([ .16, 3.06, .43], [.145, .105, .025], C.black, 10, 16);
+
+      cylinderBetween([-.28, 1.18, .03], [-.22, .28, .04], .14, C.coatDark, 18);
+      cylinderBetween([ .28, 1.18, .03], [ .22, .28, .04], .14, C.coatDark, 18);
+      box([-.24, .05, .11], [.34, .18, .52], C.boot);
+      box([ .24, .05, .11], [.34, .18, .52], C.boot);
+
+      cylinderBetween([-.48, 2.35, .00], [-.83, 1.40, .08], .12, C.coat, 18);
+      cylinderBetween([ .48, 2.35, .00], [ .83, 1.40, .08], .12, C.coat, 18);
+      sphere([-.86, 1.31, .08], [.13, .11, .13], C.black, 12, 16);
+      sphere([ .86, 1.31, .08], [.13, .11, .13], C.black, 12, 16);
+
+      sphere([0, 2.05, -.46], [.48, .82, .20], C.tan, 18, 22);        // backpack
+      box([-.38, 2.08, -.22], [.08, .9, .08], C.tan);                 // straps
+      box([ .38, 2.08, -.22], [.08, .9, .08], C.tan);
+      box([0, 1.72, .39], [.08, .95, .06], C.black);                  // zipper/coat front
+      box([0, 2.18, .43], [.58, .08, .06], C.tan);                    // chest strap
+      box([-.42, 1.86, .36], [.16, .26, .07], C.tan);                 // pouches
+      box([ .42, 1.86, .36], [.16, .26, .07], C.tan);
+      cylinderBetween([-.54, 2.92, -.05], [-.66, 2.28, -.22], .035, C.metal, 10); // side tool
+      cylinderBetween([ .54, 2.92, -.05], [ .66, 2.28, -.22], .035, C.metal, 10);
+
+      // Command-style floor.
+      for (let i = -6; i <= 6; i++) {
+        cylinderBetween([-3, -0.04, i * .45], [3, -0.04, i * .45], .004, [0.10, 0.32, 0.32], 6);
+        cylinderBetween([i * .45, -0.04, -3], [i * .45, -0.04, 3], .004, [0.10, 0.32, 0.32], 6);
+      }
+
+      const vbo = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      const interleaved = new Float32Array(verts.length + normals.length + colors.length);
+      for (let i = 0, j = 0; i < verts.length / 3; i++) {
+        interleaved[j++] = verts[i * 3]; interleaved[j++] = verts[i * 3 + 1]; interleaved[j++] = verts[i * 3 + 2];
+        interleaved[j++] = normals[i * 3]; interleaved[j++] = normals[i * 3 + 1]; interleaved[j++] = normals[i * 3 + 2];
+        interleaved[j++] = colors[i * 3]; interleaved[j++] = colors[i * 3 + 1]; interleaved[j++] = colors[i * 3 + 2];
+      }
+      gl.bufferData(gl.ARRAY_BUFFER, interleaved, gl.STATIC_DRAW);
+      const ibo = gl.createBuffer();
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+      const stride = 9 * 4;
+      gl.enableVertexAttribArray(loc.position);
+      gl.enableVertexAttribArray(loc.normal);
+      gl.enableVertexAttribArray(loc.color);
+      gl.vertexAttribPointer(loc.position, 3, gl.FLOAT, false, stride, 0);
+      gl.vertexAttribPointer(loc.normal, 3, gl.FLOAT, false, stride, 3 * 4);
+      gl.vertexAttribPointer(loc.color, 3, gl.FLOAT, false, stride, 6 * 4);
+
+      function mat4Identity() { return [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]; }
+      function perspective(fov, aspect, near, far) {
+        const f = 1 / Math.tan(fov / 2);
+        const nf = 1 / (near - far);
+        return [f / aspect,0,0,0, 0,f,0,0, 0,0,(far + near) * nf,-1, 0,0,(2 * far * near) * nf,0];
+      }
+      function lookAt(eye, center, up) {
+        const z = norm(sub(eye, center));
+        const x = norm(cross(up, z));
+        const y = cross(z, x);
+        return [
+          x[0], y[0], z[0], 0,
+          x[1], y[1], z[1], 0,
+          x[2], y[2], z[2], 0,
+          -dot(x, eye), -dot(y, eye), -dot(z, eye), 1
+        ];
+      }
+
+      let yaw = -0.45;
+      let pitch = 0.08;
+      let distance = 5.2;
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      let spin = true;
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+        const h = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
+      }
+
+      canvas.addEventListener("pointerdown", (event) => {
+        dragging = true;
+        spin = false;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        const dx = event.clientX - lastX;
+        const dy = event.clientY - lastY;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        yaw += dx * 0.008;
+        pitch = Math.max(-0.7, Math.min(0.75, pitch + dy * 0.006));
+      });
+      canvas.addEventListener("pointerup", () => { dragging = false; });
+      canvas.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        distance = Math.max(3.4, Math.min(8.2, distance + event.deltaY * 0.004));
+      }, { passive: false });
+
+      document.querySelectorAll("[data-view]").forEach(button => {
+        button.addEventListener("click", () => {
+          const view = button.getAttribute("data-view");
+          if (view === "front") { yaw = 0; pitch = 0.05; spin = false; }
+          if (view === "side") { yaw = Math.PI / 2; pitch = 0.05; spin = false; }
+          if (view === "back") { yaw = Math.PI; pitch = 0.05; spin = false; }
+          if (view === "spin") { spin = !spin; }
+        });
+      });
+
+      function render(time) {
+        resize();
+        if (spin && !dragging) yaw += 0.0035;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.enable(gl.DEPTH_TEST);
+        gl.enable(gl.CULL_FACE);
+        gl.clearColor(0.015, 0.032, 0.042, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        const aspect = canvas.width / Math.max(1, canvas.height);
+        const eye = [
+          Math.sin(yaw) * Math.cos(pitch) * distance,
+          1.85 + Math.sin(pitch) * distance,
+          Math.cos(yaw) * Math.cos(pitch) * distance
+        ];
+        const proj = perspective(Math.PI / 4.8, aspect, 0.1, 100);
+        const view = lookAt(eye, [0, 1.65, 0], [0, 1, 0]);
+        gl.uniformMatrix4fv(loc.projection, false, new Float32Array(proj));
+        gl.uniformMatrix4fv(loc.view, false, new Float32Array(view));
+        gl.uniformMatrix4fv(loc.model, false, new Float32Array(mat4Identity()));
+        gl.uniform3fv(loc.eye, new Float32Array(eye));
+        gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+        requestAnimationFrame(render);
+      }
+
+      requestAnimationFrame(render);
+      window.addEventListener("resize", resize);
+    }());
+  </script>
+</body>
+</html>
