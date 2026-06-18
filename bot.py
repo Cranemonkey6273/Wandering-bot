@@ -27050,6 +27050,15 @@ def delivery_bridge_config_ready(config):
     return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
+def delivery_bridge_runtime_supported(config):
+    if not isinstance(config, dict):
+        return False
+    # The delivery bridge is init.c script code. Console Nitrado servers do not
+    # execute that hook, even if a stale config says it was installed.
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    return platform_key == "pc" and delivery_bridge_config_ready(config)
+
+
 def scenario_event_explicit_bridge_requested(event):
     if not isinstance(event, dict):
         return False
@@ -27074,7 +27083,7 @@ def scenario_event_bridge_disabled(event):
 
 
 def scenario_event_bridge_enabled(event, config=None):
-    bridge_ready = delivery_bridge_config_ready(config)
+    bridge_ready = delivery_bridge_runtime_supported(config)
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
@@ -33198,14 +33207,22 @@ def pending_dashboard_scenario_xml_events(config):
             continue
         if is_file_vehicle_reset_event(event):
             continue
-        if scenario_event_has_confirmed_upload(event):
+        needs_native_redeploy = scenario_event_needs_native_redeploy_after_bridge(event)
+        if scenario_event_has_confirmed_upload(event) and not needs_native_redeploy:
             continue
         upload_status = str(event.get("upload_status") or "waiting_for_bot_upload")
-        if upload_status != "waiting_for_bot_upload" and not scenario_event_needs_native_redeploy_after_bridge(event):
+        if upload_status != "waiting_for_bot_upload" and not needs_native_redeploy:
             continue
-        if int(event.get("upload_attempts") or 0) >= 3:
+        if int(event.get("upload_attempts") or 0) >= 3 and not needs_native_redeploy:
             continue
-        if scenario_event_needs_native_redeploy_after_bridge(event):
+        if needs_native_redeploy:
+            event.pop("bridge_uploaded_at", None)
+            event.pop("bridge_surface_fixed_at", None)
+            event.pop("bridge_delivery_path", None)
+            event.pop("bridge_upload_messages", None)
+            event["use_delivery_bridge"] = False
+            event["delivery_route"] = "native_ce"
+            event["force_native_ce"] = True
             event["upload_status"] = "waiting_for_bot_upload"
             event["status"] = "Native CE XML redeploy requested after bridge route did not run"
             event["upload_attempts"] = 0

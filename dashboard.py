@@ -11570,6 +11570,15 @@ def dashboard_delivery_bridge_config_ready(config: Any) -> bool:
     return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
+def dashboard_delivery_bridge_runtime_supported(config: Any) -> bool:
+    if not isinstance(config, dict):
+        return False
+    # Bridge delivery is mission init.c script code. Console Nitrado servers do
+    # not execute it, so don't let stale bridge config mark console uploads done.
+    platform_key = normalize_dashboard_server_platform(config.get("server_platform") or config.get("platform"))
+    return platform_key == "pc" and dashboard_delivery_bridge_config_ready(config)
+
+
 def dashboard_event_explicit_bridge_requested(event: Any) -> bool:
     if not isinstance(event, dict):
         return False
@@ -11594,7 +11603,7 @@ def dashboard_event_bridge_disabled(event: Any) -> bool:
 
 
 def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
-    bridge_ready = dashboard_delivery_bridge_config_ready(config)
+    bridge_ready = dashboard_delivery_bridge_runtime_supported(config)
     return (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and isinstance(event, dict)
@@ -20946,7 +20955,7 @@ def api_scenario_event():
         gas_particle = "normal"
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
-    bridge_ready = dashboard_delivery_bridge_config_ready(config)
+    bridge_ready = dashboard_delivery_bridge_runtime_supported(config)
     requested_route = str(payload.get("delivery_route") or payload.get("upload_route") or "").strip().lower()
     force_native_ce = (
         safe_bool(payload.get("force_native_ce"), False)
@@ -21231,11 +21240,18 @@ def api_scenario_event_action():
         if action in {"approve", "upload"}:
             if dashboard_event_bridge_enabled(event, config):
                 event["use_delivery_bridge"] = True
+                event["delivery_route"] = "delivery_bridge"
+            else:
+                event["use_delivery_bridge"] = False
+                event["delivery_route"] = "native_ce"
+                event["force_native_ce"] = True
             event["upload_status"] = "waiting_for_bot_upload"
             event["upload_attempts"] = 0
             event.pop("xml_uploaded_at", None)
             event.pop("bridge_uploaded_at", None)
             event.pop("bridge_surface_fixed_at", None)
+            event.pop("bridge_delivery_path", None)
+            event.pop("bridge_upload_messages", None)
             event.pop("native_ce_uploaded_at", None)
             event.pop("upload_error", None)
         event["updated_at"] = datetime.now(UTC).isoformat()
