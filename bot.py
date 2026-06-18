@@ -27733,6 +27733,31 @@ def stable_console_event_slug(event):
     return f"{prefix}_{preset}"[:48]
 
 
+def vanilla_animal_ce_event_name(class_name):
+    text = normalize_discord_name(class_name)
+    if not text:
+        return ""
+    if "ursusarctos" in text or "bear" in text:
+        return "AnimalBear"
+    if "canislupus" in text or "wolf" in text:
+        return "AnimalWolf"
+    if "susscrofa" in text or "wildboar" in text or "boar" in text:
+        return "AnimalWildBoar"
+    if "cervuselaphus" in text or "reddeer" in text:
+        return "AnimalDeer"
+    if "capreolus" in text or "roedeer" in text:
+        return "AnimalRoeDeer"
+    if "bostaurus" in text or "cow" in text:
+        return "AnimalCow"
+    if "caprahircus" in text or "goat" in text:
+        return "AnimalGoat"
+    if "ovisaries" in text or "sheep" in text:
+        return "AnimalSheep"
+    if "gallus" in text or "hen" in text or "chicken" in text:
+        return "AmbientHen"
+    return ""
+
+
 def ce_event_nominal_count(event, override_count=None):
     try:
         count = int(override_count if override_count is not None else event.get("count", 1))
@@ -28307,14 +28332,23 @@ def add_console_ce_event_definition(
     }]
     for child_record in child_records:
         child_count = max(1, int(child_record.get("count") or count or 1))
-        child_max = child_count
-        if use_eventgroup:
+        if "max" in child_record:
+            child_max = max(0, int(child_record.get("max") or 0))
+        elif use_eventgroup:
             child_max = max(1, int(max_count if max_count is not None else child_count))
+        else:
+            child_max = child_count
+        if "min" in child_record:
+            child_min = max(0, int(child_record.get("min") or 0))
+        elif child_max <= 0:
+            child_min = child_count
+        else:
+            child_min = max(0, min(child_count, child_max))
         ET.SubElement(children, "child", {
             "lootmax": str(int(child_record.get("lootmax", child_lootmax) or 0)),
             "lootmin": str(int(child_record.get("lootmin", child_lootmin) or 0)),
             "max": str(child_max),
-            "min": str(max(0, min(child_count, child_max))),
+            "min": str(child_min),
             "type": str(child_record.get("type") or child_type),
         })
     return event_node
@@ -28538,12 +28572,32 @@ def console_ce_event_uses_zone_spawn(event_name):
     return name.startswith(CONSOLE_CE_ZONE_SPAWN_FAMILIES)
 
 
+def remove_matching_console_ce_spawn_children(event_node, x, z, radius=None, group_name=""):
+    target_x = ce_decimal(x)
+    target_z = ce_decimal(z)
+    target_radius = str(max(1, int(radius or 45))) if radius is not None else ""
+    removed = 0
+    for child in list(event_node):
+        if child.tag not in {"pos", "zone"}:
+            continue
+        if ce_decimal(child.get("x")) != target_x or ce_decimal(child.get("z")) != target_z:
+            continue
+        if group_name and str(child.get("group") or "") != str(group_name):
+            continue
+        if child.tag == "zone" and target_radius and str(child.get("r") or "") != target_radius:
+            continue
+        event_node.remove(child)
+        removed += 1
+    return removed
+
+
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
     event_node, _ = find_or_create_named_child(root, "event", event_name)
     if empty:
         return event_node
     count = max(1, int(count or 1))
     radius = max(0, int(radius or 0))
+    remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
     if group_name:
         attrs = {
             "x": ce_decimal(x),
@@ -28813,7 +28867,7 @@ def console_ce_records_for_event(event):
     child_lootmax = 0
     if event_type == "zombie_horde":
         family = "Infected"
-        limit_type = "child"
+        limit_type = "custom"
         child_lootmax = 5
         mix = event.get("zombie_mix")
         if isinstance(mix, list):
@@ -28828,6 +28882,8 @@ def console_ce_records_for_event(event):
                     child_records.append({
                         "type": child_class,
                         "count": child_count,
+                        "min": child_count,
+                        "max": 0,
                         "lootmin": 0,
                         "lootmax": 5,
                     })
@@ -28837,12 +28893,26 @@ def console_ce_records_for_event(event):
             else:
                 child_records = None
         else:
-            child_records = None
+            child_records = [{
+                "type": class_name,
+                "count": count,
+                "min": count,
+                "max": 0,
+                "lootmin": 0,
+                "lootmax": 5,
+            }]
     else:
         child_records = None
     if event_type == "animal_pack":
+        vanilla_animal_name = vanilla_animal_ce_event_name(class_name)
+        if not vanilla_animal_name:
+            warnings.append(
+                f"`{event.get('id')}` animal pack uses `{class_name}`, but no safe vanilla animal CE event was found for that class. "
+                "Skipping it instead of creating a custom AnimalWanderingBot event that DayZ cannot attach to a herd template."
+            )
+            return records, warnings
         family = "Animal"
-        limit_type = "child"
+        limit_type = "custom"
     if event_type == "gas_zone":
         family = "ContaminatedArea"
         limit_type = "child"
@@ -28852,7 +28922,7 @@ def console_ce_records_for_event(event):
     distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), 1000 if use_eventgroup else 0)))
     cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), 1500 if use_eventgroup else 100)))
 
-    record_name = ce_event_name(event, family=family)
+    record_name = vanilla_animal_name if event_type == "animal_pack" else ce_event_name(event, family=family)
     record = {
         "name": record_name,
         "class_name": class_name,
@@ -28878,7 +28948,8 @@ def console_ce_records_for_event(event):
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
         "remove_damaged": event_type in {"airdrop", "loot_crate"},
-        "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
+        "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
+        "use_existing_definition": event_type == "animal_pack",
     }
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
@@ -28909,8 +28980,8 @@ def console_ce_records_for_event(event):
             "cleanupradius": 100,
         })
         warnings.append(
-            f"`{event.get('id')}` uses a direct Animal CE zone at the selected coordinates; "
-            "no custom env territory file is generated."
+            f"`{event.get('id')}` uses vanilla `{record_name}` at the selected coordinates. "
+            "This avoids custom herd-template errors from AnimalWanderingBot event names."
         )
     records.append(record)
 
@@ -28970,6 +29041,8 @@ def console_ce_definition_child_records(record):
         cleaned.append({
             "type": child_type,
             "count": max(1, safe_int(child_record.get("count"), 1)),
+            "min": max(0, safe_int(child_record.get("min"), child_record.get("count", 1))),
+            "max": max(0, safe_int(child_record.get("max"), child_record.get("count", 1))),
             "lootmin": max(0, safe_int(child_record.get("lootmin"), record.get("child_lootmin", 0))),
             "lootmax": max(0, safe_int(child_record.get("lootmax"), record.get("child_lootmax", 0))),
         })
@@ -29007,6 +29080,8 @@ def merge_console_ce_definition_records(records):
                 str(child.get("type") or "").lower(),
                 safe_int(child.get("lootmin"), 0),
                 safe_int(child.get("lootmax"), 0),
+                safe_int(child.get("min"), 0),
+                safe_int(child.get("max"), 0),
             ): dict(child)
             for child in console_ce_definition_child_records(existing)
         }
@@ -29015,9 +29090,12 @@ def merge_console_ce_definition_records(records):
                 str(child.get("type") or "").lower(),
                 safe_int(child.get("lootmin"), 0),
                 safe_int(child.get("lootmax"), 0),
+                safe_int(child.get("min"), 0),
+                safe_int(child.get("max"), 0),
             )
             if key in child_map:
                 child_map[key]["count"] = min(250, safe_int(child_map[key].get("count"), 1) + safe_int(child.get("count"), 1))
+                child_map[key]["min"] = min(250, safe_int(child_map[key].get("min"), 1) + safe_int(child.get("min"), 1))
             else:
                 child_map[key] = dict(child)
         existing["child_records"] = list(child_map.values())
@@ -29190,7 +29268,14 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         records.extend(event_records)
         warnings.extend(event_warnings)
 
-    definition_records = merge_console_ce_definition_records(records)
+    records_reusing_existing_definitions = [
+        record for record in records
+        if record.get("use_existing_definition")
+    ]
+    definition_records = merge_console_ce_definition_records([
+        record for record in records
+        if not record.get("use_existing_definition")
+    ])
     for record in definition_records:
         add_console_ce_event_definition(
             events_root,
@@ -29232,6 +29317,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         f"Removed `{removed_events}` old WanderingBot event definition(s) and `{removed_spawns}` old spawn point block(s).",
         f"Generated `{len(records)}` native CE spawn record(s) across `{len(definition_records)}` managed event definition(s).",
     ]
+    if records_reusing_existing_definitions:
+        messages.append(
+            "Reused vanilla CE definition(s) for: "
+            + ", ".join(f"`{record.get('name')}`" for record in records_reusing_existing_definitions[:8])
+        )
     if events_parse_warning:
         messages.append(events_parse_warning)
     if spawns_parse_warning:
@@ -29265,7 +29355,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     output["mission_folder"] = mission_base.rstrip("/").split("/")[-1] if mission_base else ""
     output["managed_event_names"] = sorted({
         str(record.get("name") or "").strip()
-        for record in definition_records
+        for record in (definition_records + records_reusing_existing_definitions)
         if str(record.get("name") or "").strip()
     })[:24]
     output["managed_spawn_names"] = sorted({
@@ -29543,7 +29633,7 @@ def validate_console_ce_xml_bundle(built):
                 child_max = int(str(child.get("max") or "0"))
             except Exception:
                 child_max = 0
-            if child_max <= 0:
+            if child_max <= 0 and not (name.startswith("Infected") and limit_text == "custom"):
                 messages.append(f"`{name}` has a child with `max` 0, so CE will disable or ignore the event.")
         generated_events[name] = event_node
 
