@@ -13796,6 +13796,14 @@ PROTECTED_DAYZ_XML_ROOTS = {
     "messages.xml": "messages",
 }
 
+PROTECTED_DAYZ_XML_REQUIRED_CHILDREN = {
+    "events.xml": "event",
+    "cfgeventspawns.xml": "event",
+    "cfgspawnabletypes.xml": "type",
+    "cfgeventgroups.xml": "group",
+    "mapgroupproto.xml": "group",
+}
+
 
 def protected_dayz_xml_root_for_path(target_path):
     filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
@@ -13815,6 +13823,10 @@ def validate_protected_dayz_xml_upload(target_path, text_content):
         return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
     if root.tag != expected_root:
         return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
+    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    required_child = PROTECTED_DAYZ_XML_REQUIRED_CHILDREN.get(filename)
+    if required_child and not root.findall(required_child):
+        return False, f"Refusing to upload `{target_path}`: <{expected_root}> has no <{required_child}> records, which looks like an empty/minimal live file."
     return True, ""
 
 
@@ -27909,6 +27921,43 @@ def xml_text_from_root(root):
     return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n" + ET.tostring(root, encoding="unicode")
 
 
+def is_xml_comment_node(node):
+    return getattr(node, "tag", None) is ET.Comment
+
+
+def safe_xml_comment_text(text):
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    clean = clean.replace("--", "-").replace("<", "").replace(">", "")
+    return clean[:180]
+
+
+def wandering_xml_comment(text):
+    label = safe_xml_comment_text(text)
+    if not label.lower().startswith("wandering bot:"):
+        label = f"Wandering Bot: {label}"
+    return ET.Comment(f" {label} ")
+
+
+def append_wandering_xml_comment(parent, text):
+    parent.append(wandering_xml_comment(text))
+
+
+def remove_wandering_xml_comments(parent, contains=""):
+    wanted = str(contains or "").strip().lower()
+    removed = 0
+    for child in list(parent):
+        if not is_xml_comment_node(child):
+            continue
+        text = str(child.text or "").strip().lower()
+        if "wandering bot:" not in text:
+            continue
+        if wanted and wanted not in text:
+            continue
+        parent.remove(child)
+        removed += 1
+    return removed
+
+
 def parse_xml_root_or_new(text, fallback_root):
     text = str(text or "").strip()
     if not text:
@@ -27967,6 +28016,11 @@ def parse_console_ce_xml_source(config, label, text, fallback_root, resolved_pat
 def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
+        if is_xml_comment_node(child):
+            text = str(child.text or "")
+            if "wandering bot:" in text.lower():
+                root.remove(child)
+            continue
         name = str(child.get("name") or "")
         if (
             name in LEGACY_WANDERING_CE_NAMES
@@ -28301,6 +28355,11 @@ def replace_spawnabletypes_group(type_node, tag_name, items):
         if cfgspawnabletypes_item_signature(group_node) == signature:
             type_node.remove(group_node)
 
+    remove_wandering_xml_comments(type_node, f"managed spawnabletypes {tag_name}")
+    append_wandering_xml_comment(
+        type_node,
+        f"managed spawnabletypes {tag_name} for {type_node.get('name') or 'unknown'}",
+    )
     group_node = ET.SubElement(type_node, tag_name, {"chance": "1.00"})
     for item in clean_items:
         add_cfgspawnabletypes_item(group_node, item)
@@ -28426,6 +28485,7 @@ def add_console_ce_event_definition(
     remove_damaged=False,
     empty_children=False,
 ):
+    append_wandering_xml_comment(root, f"managed event definition {event_name}")
     event_node = ET.SubElement(root, "event", {"name": event_name})
     fields = [
         ("nominal", count if nominal is None else nominal),
@@ -28553,6 +28613,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
+    append_wandering_xml_comment(root, f"managed eventgroup {group_name}")
     group_node = ET.SubElement(root, "group", {"name": str(group_name)})
     child_records = child_records if isinstance(child_records, list) and child_records else [{
         "type": child_type,
@@ -28650,6 +28711,7 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
         if str(group_node.get("name") or "").strip().lower() == wanted.lower():
             break
     else:
+        append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
         group_node = ET.SubElement(root, "group", {"name": wanted})
         changed = True
 
@@ -28691,11 +28753,13 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     return group_node, changed
 
 
-def find_or_create_named_child(root, tag_name, name):
+def find_or_create_named_child(root, tag_name, name, comment_text=""):
     wanted = str(name or "").strip()
     for child in root.findall(tag_name):
         if str(child.get("name") or "").strip().lower() == wanted.lower():
             return child, False
+    if comment_text:
+        append_wandering_xml_comment(root, comment_text)
     return ET.SubElement(root, tag_name, {"name": wanted}), True
 
 
@@ -28724,7 +28788,7 @@ def remove_matching_console_ce_spawn_children(event_node, x, z, radius=None, gro
 
 
 def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
-    event_node, _ = find_or_create_named_child(root, "event", event_name)
+    event_node, _ = find_or_create_named_child(root, "event", event_name, f"managed spawn block {event_name}")
     if empty:
         return event_node
     count = max(1, int(count or 1))
@@ -28913,7 +28977,9 @@ def add_animal_environment_entry(root, record):
 
     usable = animal_territory_usable_name(record)
     file_path = f"env/{animal_territory_file_name(record)}"
+    append_wandering_xml_comment(territories, f"managed animal territory file {file_path}")
     ET.SubElement(territories, "file", {"path": file_path})
+    append_wandering_xml_comment(territories, f"managed animal territory {record.get('territory_name') or record.get('name')}")
     territory_node = ET.SubElement(territories, "territory", {
         "type": "Herd",
         "name": str(record.get("territory_name") or record.get("name")),
@@ -28935,6 +29001,7 @@ def add_animal_environment_entry(root, record):
 
 def build_animal_territory_text(record):
     root = ET.Element("territory-type")
+    append_wandering_xml_comment(root, f"managed animal territory zones {record.get('territory_name') or record.get('name')}")
     territory = ET.SubElement(root, "territory", {"color": str(record.get("territory_color") or "4286611584")})
     records = record.get("records") if isinstance(record.get("records"), list) else [record]
     for item in records:
