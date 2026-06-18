@@ -26887,6 +26887,17 @@ def delivery_bridge_config_ready(config):
     return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
+def scenario_event_explicit_bridge_requested(event):
+    if not isinstance(event, dict):
+        return False
+    route = str(event.get("delivery_route") or event.get("upload_route") or "").strip().lower()
+    return bool(
+        event.get("delivery_bridge_explicit")
+        or event.get("use_delivery_bridge_explicit")
+        or route in {"bridge", "delivery_bridge", "direct_bridge"}
+    )
+
+
 def scenario_event_bridge_enabled(event, config=None):
     bridge_ready = delivery_bridge_config_ready(config)
     return (
@@ -26894,7 +26905,8 @@ def scenario_event_bridge_enabled(event, config=None):
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and (bool(event.get("use_delivery_bridge")) or bridge_ready)
+        and bool(event.get("use_delivery_bridge"))
+        and scenario_event_explicit_bridge_requested(event)
     )
 
 

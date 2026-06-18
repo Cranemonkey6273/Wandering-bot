@@ -11570,6 +11570,17 @@ def dashboard_delivery_bridge_config_ready(config: Any) -> bool:
     return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
 
 
+def dashboard_event_explicit_bridge_requested(event: Any) -> bool:
+    if not isinstance(event, dict):
+        return False
+    route = str(event.get("delivery_route") or event.get("upload_route") or "").strip().lower()
+    return bool(
+        event.get("delivery_bridge_explicit")
+        or event.get("use_delivery_bridge_explicit")
+        or route in {"bridge", "delivery_bridge", "direct_bridge"}
+    )
+
+
 def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
     bridge_ready = dashboard_delivery_bridge_config_ready(config)
     return (
@@ -11577,7 +11588,8 @@ def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and (bool(event.get("use_delivery_bridge")) or bridge_ready)
+        and bool(event.get("use_delivery_bridge"))
+        and dashboard_event_explicit_bridge_requested(event)
     )
 
 
@@ -20831,11 +20843,12 @@ def api_scenario_event():
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
     bridge_ready = dashboard_delivery_bridge_config_ready(config)
+    explicit_bridge_requested = safe_bool(payload.get("use_delivery_bridge"), False)
     use_delivery_bridge = (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and event_type in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and (safe_bool(payload.get("use_delivery_bridge"), False) or bridge_ready)
+        and explicit_bridge_requested
     )
     upload_route_label = "Direct bridge XML" if use_delivery_bridge else "Native CE XML"
 
@@ -20936,6 +20949,8 @@ def api_scenario_event():
             "gas_lifetime": gas_lifetime,
             "gas_particle": gas_particle if event_type == "gas_zone" else "server_default",
             "use_delivery_bridge": use_delivery_bridge,
+            "delivery_bridge_explicit": bool(use_delivery_bridge),
+            "delivery_route": "delivery_bridge" if use_delivery_bridge else "native_ce",
             "permanent": permanent,
             "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
             "enabled": True,
