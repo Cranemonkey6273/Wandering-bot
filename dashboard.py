@@ -4985,7 +4985,7 @@ PAGE_TEMPLATE = """
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
-                    {% if action != 'upload' or event.upload_status in ['failed', 'blocked'] %}
+                    {% if action != 'upload' or event.upload_status in ['failed', 'blocked', 'uploaded', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="event_id" value="{{ event.id }}">
@@ -11581,6 +11581,18 @@ def dashboard_event_explicit_bridge_requested(event: Any) -> bool:
     )
 
 
+def dashboard_event_bridge_disabled(event: Any) -> bool:
+    if not isinstance(event, dict):
+        return False
+    route = str(event.get("delivery_route") or event.get("upload_route") or "").strip().lower()
+    return bool(
+        event.get("disable_delivery_bridge")
+        or event.get("force_native_ce")
+        or event.get("native_ce_explicit")
+        or route in {"force_native_ce", "native_only", "native_xml_only"}
+    )
+
+
 def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
     bridge_ready = dashboard_delivery_bridge_config_ready(config)
     return (
@@ -11588,8 +11600,7 @@ def dashboard_event_bridge_enabled(event: Any, config: Any = None) -> bool:
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and bool(event.get("use_delivery_bridge"))
-        and dashboard_event_explicit_bridge_requested(event)
+        and not dashboard_event_bridge_disabled(event)
     )
 
 
@@ -11598,10 +11609,7 @@ def scenario_event_has_confirmed_bridge_upload(event: Any) -> bool:
 
 
 def scenario_event_has_confirmed_upload(event: Any) -> bool:
-    return scenario_event_has_confirmed_native_upload(event) or (
-        dashboard_event_bridge_enabled(event)
-        and scenario_event_has_confirmed_bridge_upload(event)
-    )
+    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
 
 
 def dashboard_event_uses_delivery_bridge(event: Any, config: Any = None) -> bool:
@@ -20939,12 +20947,17 @@ def api_scenario_event():
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
     bridge_ready = dashboard_delivery_bridge_config_ready(config)
-    explicit_bridge_requested = safe_bool(payload.get("use_delivery_bridge"), False)
+    requested_route = str(payload.get("delivery_route") or payload.get("upload_route") or "").strip().lower()
+    force_native_ce = (
+        safe_bool(payload.get("force_native_ce"), False)
+        or safe_bool(payload.get("native_ce_explicit"), False)
+        or requested_route in {"force_native_ce", "native_only", "native_xml_only"}
+    )
     use_delivery_bridge = (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
         and event_type in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and explicit_bridge_requested
+        and not force_native_ce
     )
     upload_route_label = "Direct bridge XML" if use_delivery_bridge else "Native CE XML"
 

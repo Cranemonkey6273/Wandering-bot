@@ -27022,6 +27022,18 @@ def scenario_event_explicit_bridge_requested(event):
     )
 
 
+def scenario_event_bridge_disabled(event):
+    if not isinstance(event, dict):
+        return False
+    route = str(event.get("delivery_route") or event.get("upload_route") or "").strip().lower()
+    return bool(
+        event.get("disable_delivery_bridge")
+        or event.get("force_native_ce")
+        or event.get("native_ce_explicit")
+        or route in {"force_native_ce", "native_only", "native_xml_only"}
+    )
+
+
 def scenario_event_bridge_enabled(event, config=None):
     bridge_ready = delivery_bridge_config_ready(config)
     return (
@@ -27029,8 +27041,7 @@ def scenario_event_bridge_enabled(event, config=None):
         and isinstance(event, dict)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
         and bridge_ready
-        and bool(event.get("use_delivery_bridge"))
-        and scenario_event_explicit_bridge_requested(event)
+        and not scenario_event_bridge_disabled(event)
     )
 
 
@@ -30472,10 +30483,7 @@ def scenario_event_has_confirmed_bridge_upload(event):
 
 
 def scenario_event_has_confirmed_upload(event):
-    return scenario_event_has_confirmed_native_upload(event) or (
-        scenario_event_uses_delivery_bridge(event)
-        and scenario_event_has_confirmed_bridge_upload(event)
-    )
+    return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
 
 
 def scenario_event_needs_native_redeploy_after_bridge(event):
@@ -30570,7 +30578,7 @@ def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Das
         return False, delivery_path, [
             f"Bridge delivery XML upload failed: {type(error).__name__}: {error}. Leaf trace: {trace[:800]}"
         ]
-    if upload_success and any(str(event.get("event_type") or "").strip().lower() in {"airdrop", "loot_crate"} for event in events):
+    if upload_success:
         config["scenario_events_cleanup_pending"] = True
     event_labels = ", ".join(str(event.get("id") or event.get("name") or event.get("class_name") or "?") for event in events[:8])
     messages = [
@@ -31022,6 +31030,35 @@ async def auto_push_scenario_events_xml(guild_id, config):
     the actual server restart.
     """
     try:
+        delivery_events = delivery_bridge_scenario_events(config)
+        if delivery_events:
+            upload_success, delivery_path, upload_messages = await asyncio.to_thread(
+                upload_delivery_bridge_scenario_events,
+                guild_id,
+                config,
+                delivery_events,
+                "Immediate event upload",
+            )
+            now_text = datetime.now(UTC).isoformat()
+            for event in delivery_events:
+                if upload_success:
+                    apply_bridge_upload_metadata(event, delivery_path, upload_messages, now_text)
+                else:
+                    event["upload_status"] = "failed"
+                    event["upload_error"] = "Bridge delivery XML upload failed: " + (" | ".join(upload_messages[-4:]) if upload_messages else "no details")
+                    event["status"] = "Bridge XML upload failed"
+            save_guild_configs()
+            if upload_success and not native_ce_scenario_events(config):
+                return True, "Bridge XML uploaded to Nitrado. Event will spawn through the DayZ bridge after the next server restart."
+
+        native_events = native_ce_scenario_events(config)
+        if not native_events:
+            return bool(delivery_events), (
+                "Bridge XML uploaded to Nitrado. Event will spawn through the DayZ bridge after the next server restart."
+                if delivery_events
+                else "No live event XML upload was needed."
+            )
+
         upload_success, _, upload_messages = await asyncio.to_thread(
             upload_console_ce_event_files,
             guild_id,
