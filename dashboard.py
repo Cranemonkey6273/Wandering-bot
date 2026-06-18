@@ -4461,7 +4461,13 @@ PAGE_TEMPLATE = """
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if (edit_zone.channel_key and (channel.value == edit_zone.channel_key or channel.id == edit_zone.channel_key)) or (not edit_zone.id and not edit_zone.channel_key and (channel.key == 'radar' or channel.key == 'pvp_intel')) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label>Ping role ID <input name="role_id" value="{{ edit_zone.role_id }}" placeholder="optional Discord role id"></label>
+            <label>Ping role
+              <select name="role_id">
+                <option value="" {% if not edit_zone.role_id %}selected{% endif %}>No role ping</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == edit_zone.role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Pick the Discord role to mention when this zone alerts.</small>
+            </label>
             <label>Faction colour source
               <select name="faction_name">
                 <option value="">No faction colour</option>
@@ -5093,7 +5099,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "shop" %}
     {% set edit_shop_key = request.args.get('edit_shop', '') %}
-    {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids='', blocked_user_ids='') %}
+    {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids=[], blocked_user_ids='') %}
     {% set category_options = server.shop_category_options if server and server.shop_category_options else shop_category_options %}
     {% set shop_item_options = server.shop_items if server else [] %}
     {% if server and edit_shop_key %}
@@ -5104,7 +5110,7 @@ PAGE_TEMPLATE = """
           {% set edit_shop.category = item.category %}
           {% set edit_shop.enabled = 'true' if item.enabled else 'false' %}
           {% set edit_shop.daily_limit = item.daily_limit or 0 %}
-          {% set edit_shop.allowed_role_ids = item.allowed_role_ids|join(',') if item.allowed_role_ids else '' %}
+          {% set edit_shop.allowed_role_ids = item.allowed_role_ids if item.allowed_role_ids else [] %}
           {% set edit_shop.blocked_user_ids = item.blocked_user_ids|join(',') if item.blocked_user_ids else '' %}
         {% endif %}
       {% endfor %}
@@ -5140,7 +5146,13 @@ PAGE_TEMPLATE = """
             </label>
             <label>Available <select name="enabled"><option value="true" {% if edit_shop.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_shop.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
             <label>Daily purchase limit <input name="daily_limit" type="number" value="{{ edit_shop.daily_limit }}" placeholder="0 = server default"></label>
-            <label>Role IDs allowed <input name="allowed_role_ids" value="{{ edit_shop.allowed_role_ids }}" placeholder="optional comma-separated role IDs"></label>
+            <label>Roles allowed
+              <input class="hidden-field" name="allowed_role_ids" value="">
+              <select name="allowed_role_ids" multiple size="5">
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id in edit_shop.allowed_role_ids %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Leave empty to let everyone buy this item.</small>
+            </label>
             <label class="full">Blocked player IDs <input name="blocked_user_ids" value="{{ edit_shop.blocked_user_ids }}" placeholder="optional comma-separated Discord user IDs"></label>
             <div class="full modal-actions"><button type="submit">Save Item</button>{% if edit_shop_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}#shop-control">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
@@ -5161,13 +5173,19 @@ PAGE_TEMPLATE = """
             </label>
             <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
             <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
-            <label>Role IDs allowed <input name="allowed_role_ids" placeholder="optional comma-separated role IDs"></label>
+            <label>Roles allowed
+              <input class="hidden-field" name="allowed_role_ids" value="">
+              <select name="allowed_role_ids" multiple size="5">
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}">{{ role.label }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Leave empty to let everyone buy this bundle.</small>
+            </label>
             <div class="full">
               <div class="bundle-row-grid">
                 {% for row_index in range(shop_bundle_rows) %}
                 <div class="bundle-row">
                   <label>Item {{ loop.index }}
-                    <select name="bundle_item">
+                    <select name="bundle_item" data-visual-select data-visual-select-lazy="true">
                       <option value="">Choose item</option>
                       {% for item in shop_item_options if item.type != 'bundle' %}
                       <option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>
@@ -6418,8 +6436,8 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select></label>
-            <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage bases. The bot writes disableBaseDamage=false before restart.</small></label>
+            <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage containers. Off writes disableContainerDamage=true.</small></label>
             <label>Schedule damage changes <select name="damage_schedule_enabled"><option value="false" {% if not dmg_enabled %}selected{% endif %}>Off</option><option value="true" {% if dmg_enabled %}selected{% endif %}>On</option></select></label>
             <label>First change date <input name="damage_first_date" type="date" value="{{ dmg_first_date }}"></label>
             <label>Change time <input name="damage_time" type="time" value="{{ dmg_time }}"></label>
@@ -6440,7 +6458,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_first_date %}: {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}.</span></div>
+            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_first_date %}: stages cfggameplay.json around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}. Restart is required before DayZ applies the staged damage flags.</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -7747,6 +7765,10 @@ PAGE_TEMPLATE = """
           syncLiveOutput(select.closest("form"));
         }
         return;
+      }
+      const visualSelect = event.target.closest("select[data-visual-select]");
+      if (visualSelect) {
+        renderVisualSelect(visualSelect);
       }
       const airdropTab = event.target.closest("[data-airdrop-file]");
       if (airdropTab) {
@@ -10276,7 +10298,7 @@ PAGE_TEMPLATE = """
       }
       renderVisualPicker(picker);
     });
-    document.querySelectorAll("select[data-visual-select]").forEach((select) => renderVisualSelect(select));
+    document.querySelectorAll("select[data-visual-select]:not([data-visual-select-lazy])").forEach((select) => renderVisualSelect(select));
     document.querySelectorAll("[data-live-output]").forEach((preview) => syncLiveOutput(preview.closest("form")));
     document.querySelectorAll("[data-wage-target]").forEach((select) => {
       const form = select.closest("form");
@@ -10314,6 +10336,20 @@ PAGE_TEMPLATE = """
         form.elements.amount.focus();
       });
     });
+    function setMultiSelectValues(control, rawValue) {
+      const target = control && !control.tagName && typeof control.length === "number"
+        ? Array.from(control).find((item) => item && item.tagName === "SELECT")
+        : control;
+      if (!target || !target.multiple) {
+        if (target) target.value = rawValue || "";
+        return;
+      }
+      const wanted = new Set(String(rawValue || "").split(",").map((item) => item.trim()).filter(Boolean));
+      Array.from(target.options || []).forEach((option) => {
+        option.selected = wanted.has(String(option.value));
+      });
+      target.dispatchEvent(new Event("change", {bubbles: true}));
+    }
     document.querySelectorAll("[data-shop-edit]").forEach((button) => {
       button.addEventListener("click", (event) => {
         const form = document.getElementById("shop-edit-form");
@@ -10324,7 +10360,7 @@ PAGE_TEMPLATE = """
         form.elements.category.value = button.dataset.category || "General";
         form.elements.enabled.value = button.dataset.enabled || "true";
         form.elements.daily_limit.value = button.dataset.limit || 0;
-        form.elements.allowed_role_ids.value = button.dataset.roles || "";
+        setMultiSelectValues(form.elements.allowed_role_ids, button.dataset.roles || "");
         form.elements.blocked_user_ids.value = button.dataset.blocked || "";
         form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "center"});
@@ -18571,7 +18607,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
-    needs_discord_roles = needs_full or active_section in {"factions", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
+    needs_discord_roles = needs_full or active_section in {"factions", "zones", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})

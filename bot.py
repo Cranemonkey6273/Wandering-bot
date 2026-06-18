@@ -27094,6 +27094,7 @@ def console_ce_default_paths(guild_id):
         "cfgenvironment_path": f"{root}/{mission_folder}/cfgenvironment.xml",
         "cfgareaeffects_path": f"{root}/{mission_folder}/cfgareaeffects.xml",
         "cfgeffectarea_path": f"{root}/{mission_folder}/cfgEffectArea.json",
+        "cfggameplay_path": f"{root}/{mission_folder}/cfggameplay.json",
     }
 
 
@@ -27137,6 +27138,8 @@ def console_ce_path_suffix(key):
         return "cfgareaeffects.xml"
     if key == "cfgeffectarea_path":
         return "cfgEffectArea.json"
+    if key == "cfggameplay_path":
+        return "cfggameplay.json"
     return "cfgeventspawns.xml"
 
 
@@ -27338,6 +27341,7 @@ def console_ce_event_config(config):
     settings.setdefault("cfgenvironment_path", "")
     settings.setdefault("cfgareaeffects_path", "")
     settings.setdefault("cfgeffectarea_path", "")
+    settings.setdefault("cfggameplay_path", "")
     return settings
 
 
@@ -30692,6 +30696,141 @@ def scheduled_vehicle_reset_preflight_seconds(config):
     return max(2, min(120, minutes)) * 60
 
 
+def scheduled_damage_settings_preflight_seconds(config):
+    try:
+        minutes = int(config.get("damage_preflight_minutes", config.get("vehicle_reset_preflight_minutes", 15)) or 15)
+    except Exception:
+        minutes = 15
+    return max(2, min(120, minutes)) * 60
+
+
+def normalized_damage_state(value):
+    return "off" if str(value or "").strip().lower() == "off" else "on"
+
+
+def damage_state_to_cfggameplay_disabled(value):
+    return normalized_damage_state(value) != "on"
+
+
+def update_cfggameplay_damage_settings(cfggameplay_text, base_state, container_state):
+    data = json.loads(cfggameplay_text or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("cfggameplay.json root must be a JSON object.")
+    general = data.setdefault("GeneralData", {})
+    if not isinstance(general, dict):
+        general = {}
+        data["GeneralData"] = general
+
+    disable_base = damage_state_to_cfggameplay_disabled(base_state)
+    disable_container = damage_state_to_cfggameplay_disabled(container_state)
+    changed = (
+        general.get("disableBaseDamage") is not disable_base
+        or general.get("disableContainerDamage") is not disable_container
+    )
+    general["disableBaseDamage"] = disable_base
+    general["disableContainerDamage"] = disable_container
+    flags = {
+        "disableBaseDamage": disable_base,
+        "disableContainerDamage": disable_container,
+    }
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n", changed, flags
+
+
+def download_live_cfggameplay_source(config, guild_id):
+    settings = console_ce_event_config(config)
+    attempted = []
+    tried = set()
+    for include_discovery in (False, True):
+        for candidate_path in console_ce_path_candidates(
+            config,
+            guild_id,
+            "cfggameplay_path",
+            "",
+            settings.get("cfggameplay_path"),
+            include_discovery=include_discovery,
+        ):
+            if candidate_path in tried:
+                continue
+            tried.add(candidate_path)
+            ok, message, text = download_text_file_from_nitrado(config, candidate_path)
+            attempted.append((candidate_path, message))
+            if ok and str(text or "").strip():
+                remember_console_ce_mission_base(config, guild_id, candidate_path)
+                settings["cfggameplay_path"] = candidate_path
+                return True, message, text, candidate_path
+            if console_ce_download_message_is_rate_limited(message):
+                break
+
+    if attempted:
+        tried_text = "; ".join(
+            f"{path}: {compact_ce_download_message(message, 120)}"
+            for path, message in attempted[-5:]
+        )
+        return False, f"Could not download live cfggameplay.json. Tried {len(attempted)} path(s): {tried_text}", None, ""
+    return False, "Could not download live cfggameplay.json because no path candidates were available.", None, ""
+
+
+def read_cfggameplay_damage_flags(text):
+    data = json.loads(text or "{}")
+    if not isinstance(data, dict):
+        raise ValueError("cfggameplay.json root must be a JSON object.")
+    general = data.get("GeneralData")
+    if not isinstance(general, dict):
+        general = {}
+    return {
+        "disableBaseDamage": bool(general.get("disableBaseDamage", False)),
+        "disableContainerDamage": bool(general.get("disableContainerDamage", False)),
+    }
+
+
+def upload_cfggameplay_damage_settings(guild_id, config, base_state, container_state):
+    ok, message, source_text, path = download_live_cfggameplay_source(config, guild_id)
+    if not ok:
+        return False, message, "", {}
+
+    try:
+        updated_text, changed, wanted_flags = update_cfggameplay_damage_settings(source_text, base_state, container_state)
+    except Exception as error:
+        return False, f"Could not parse live cfggameplay.json from `{path}`: {error}", path, {}
+
+    if not changed:
+        return True, f"`cfggameplay.json` already has raid damage flags staged at `{path}`.", path, wanted_flags
+
+    backup_path = f"{path}.wanderingbot-backup-latest"
+    backup_ok, backup_message = upload_text_file_to_nitrado(config, backup_path, source_text)
+    if not backup_ok:
+        return False, f"Backup blocked before cfggameplay upload: {backup_message}", path, wanted_flags
+
+    upload_ok, upload_message = upload_text_file_to_nitrado(config, path, updated_text)
+    if not upload_ok:
+        verify_ok, verify_message, verify_text = download_text_file_from_nitrado(config, path)
+        restore_note = ""
+        try:
+            if not verify_ok or read_cfggameplay_damage_flags(verify_text) != read_cfggameplay_damage_flags(source_text):
+                restore_ok, restore_message = upload_text_file_to_nitrado(config, path, source_text)
+                restore_note = f" Restore attempted: {restore_message}" if restore_message else ""
+                if not restore_ok:
+                    restore_note = f" Restore failed: {restore_message}"
+        except Exception as error:
+            restore_ok, restore_message = upload_text_file_to_nitrado(config, path, source_text)
+            restore_note = f" Restore after verification error `{error}`: {restore_message}"
+        return False, f"{upload_message} Live verification after failed upload: {verify_message}.{restore_note}", path, wanted_flags
+
+    verify_ok, verify_message, verify_text = download_text_file_from_nitrado(config, path)
+    if not verify_ok:
+        return False, f"{upload_message} Verification download failed after cfggameplay upload: {verify_message}", path, wanted_flags
+    try:
+        live_flags = read_cfggameplay_damage_flags(verify_text)
+    except Exception as error:
+        restore_ok, restore_message = upload_text_file_to_nitrado(config, path, source_text)
+        return False, f"cfggameplay verification parse failed after upload: {error}. Restore attempted: {restore_message}", path, wanted_flags
+    if live_flags != wanted_flags:
+        restore_ok, restore_message = upload_text_file_to_nitrado(config, path, source_text)
+        return False, f"cfggameplay verification mismatch after upload. Restore attempted: {restore_message}", path, wanted_flags
+
+    return True, f"{upload_message} Verified `{path}` with disableBaseDamage={wanted_flags['disableBaseDamage']} and disableContainerDamage={wanted_flags['disableContainerDamage']}.", path, wanted_flags
+
+
 def scheduled_vehicle_reset_restore_delay_seconds(config):
     try:
         seconds = int(config.get("vehicle_reset_post_restart_restore_delay_seconds", 300) or 300)
@@ -31542,20 +31681,55 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
         return None
 
     next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
-    if not next_run or now_utc < next_run:
+    if not next_run:
         return None
 
-    base_state = "off" if str(schedule.get("base_state") or config.get("base_damage_state") or "on").lower() == "off" else "on"
-    container_state = "off" if str(schedule.get("container_state") or config.get("container_damage_state") or "on").lower() == "off" else "on"
+    apply_at = next_run - timedelta(seconds=scheduled_damage_settings_preflight_seconds(config))
+    if now_utc < apply_at:
+        return None
+    last_attempt = _parse_schedule_datetime(schedule.get("last_attempt_at"))
+    if last_attempt and now_utc < next_run and (now_utc - last_attempt) < timedelta(minutes=5):
+        return None
+
+    base_state = normalized_damage_state(schedule.get("base_state") or config.get("base_damage_state") or "on")
+    container_state = normalized_damage_state(schedule.get("container_state") or config.get("container_damage_state") or "on")
+    upload_ok, upload_message, cfggameplay_path, flags = upload_cfggameplay_damage_settings(
+        guild_id,
+        config,
+        base_state,
+        container_state,
+    )
+    schedule["last_attempt_at"] = now_utc.isoformat()
+    schedule["last_cfggameplay_path"] = cfggameplay_path
+    if not upload_ok:
+        schedule["last_error_at"] = now_utc.isoformat()
+        schedule["last_error"] = upload_message
+        save_guild_configs()
+        return {
+            "guild_id": str(guild_id),
+            "ok": False,
+            "base_damage_state": base_state,
+            "container_damage_state": container_state,
+            "cfggameplay_path": cfggameplay_path,
+            "message": upload_message,
+            "next_run_utc": schedule.get("next_run_utc", ""),
+        }
+
     config["base_damage_state"] = base_state
     config["container_damage_state"] = container_state
     schedule["last_applied_at"] = now_utc.isoformat()
+    schedule["last_error"] = ""
+    schedule["last_flags"] = flags
     _advance_vehicle_reset_schedule(schedule, now_utc)
     save_guild_configs()
     return {
         "guild_id": str(guild_id),
+        "ok": True,
         "base_damage_state": base_state,
         "container_damage_state": container_state,
+        "cfggameplay_path": cfggameplay_path,
+        "message": upload_message,
+        "flags": flags,
         "next_run_utc": schedule.get("next_run_utc", ""),
     }
 
@@ -32292,10 +32466,13 @@ async def restart_delivery_processor():
 
             applied_damage = apply_due_damage_schedule(guild_id, config, now)
             if applied_damage:
+                status = "APPLIED" if applied_damage.get("ok") else "FAILED"
                 print(
-                    "SCHEDULED DAMAGE SETTINGS APPLIED "
+                    f"SCHEDULED DAMAGE SETTINGS {status} "
                     f"{guild_id}: base={applied_damage.get('base_damage_state')} "
-                    f"container={applied_damage.get('container_damage_state')}"
+                    f"container={applied_damage.get('container_damage_state')} "
+                    f"path={applied_damage.get('cfggameplay_path') or 'unknown'} "
+                    f"{applied_damage.get('message') or ''}"
                 )
 
             queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
