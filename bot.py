@@ -2290,6 +2290,10 @@ def update_player_stats_from_adm(guild_id, event_type, line):
             )
         return
 
+    if event_type == "connect":
+        ensure_player_stats_record(guild_id, player_name)
+        return
+
     if event_type == "cut" and "killed by" in line.lower():
         add_player_stat(guild_id, player_name, "cuts")
         add_player_stat(guild_id, player_name, "deaths")
@@ -2649,6 +2653,33 @@ def closest_adm_player_name(guild_id, typed_name):
     return best_name
 
 
+def find_live_or_enforcement_player_name(guild_id, typed_name):
+    wanted = normalize_discord_name(typed_name)
+    if not wanted:
+        return ""
+
+    ensure_guild_runtime(str(guild_id))
+    for player_name in online_players.get(str(guild_id), set()):
+        if normalize_discord_name(player_name) == wanted:
+            return str(player_name)
+
+    config = guild_configs.get(str(guild_id), {})
+    pending = {}
+    try:
+        pending = link_enforcement_pending_bucket(config)
+    except Exception:
+        pending = {}
+    if isinstance(pending, dict):
+        for record in pending.values():
+            if not isinstance(record, dict):
+                continue
+            player_name = str(record.get("gamertag") or "").strip()
+            if player_name and normalize_discord_name(player_name) == wanted:
+                return player_name
+
+    return ""
+
+
 def learn_recent_adm_players_for_linking(guild_id, config, hours=168, max_logs=40):
     ensure_guild_runtime(str(guild_id))
 
@@ -2718,6 +2749,14 @@ def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
             matches.append((player_name, stats))
 
     if not matches:
+        live_name = find_live_or_enforcement_player_name(guild_id, typed_name)
+        if live_name:
+            stats = ensure_player_stats_record(guild_id, live_name)
+            if stats:
+                stats["verified_from_live_link_enforcement"] = str(datetime.now(UTC))
+                save_player_stats()
+            return live_name, None
+
         suggestion = closest_adm_player_name(guild_id, typed_name)
         if suggestion:
             return None, f"That gamertag has not appeared exactly in ADM. Did you mean `{suggestion}`? Try `/linkgamer gamertag:{suggestion}`."
