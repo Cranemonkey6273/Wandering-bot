@@ -7138,6 +7138,13 @@ def load_guild_configs():
                 split_config
             )
 
+    changed = False
+    for config in guild_configs.values():
+        if normalize_server_control_schedules(config):
+            changed = True
+    if changed:
+        save_guild_configs()
+
 
 def save_guild_config(guild_id):
     guild_id = str(guild_id)
@@ -10851,6 +10858,13 @@ def active_guild_config_items():
     # changes are picked up by live bot loops without requiring a restart.
     load_guild_configs()
     active_ids = active_guild_ids()
+
+    changed = False
+    for config in guild_configs.values():
+        if normalize_server_control_schedules(config):
+            changed = True
+    if changed:
+        save_guild_configs()
 
     for guild_id, config in list(guild_configs.items()):
         if str(guild_id) in active_ids:
@@ -21739,6 +21753,107 @@ last_restart_hour = {}
 restart_warning_tracker = {}
 
 
+def schedule_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return default
+
+
+def set_config_value_if_changed(target, key, value):
+    if target.get(key) == value:
+        return False
+    target[key] = value
+    return True
+
+
+def normalize_schedule_pair(config, flag_key, schedule_key, defaults):
+    if not isinstance(config, dict):
+        return False
+    changed = False
+    schedule = config.get(schedule_key)
+    if not isinstance(schedule, dict):
+        schedule = {}
+        config[schedule_key] = schedule
+        changed = True
+
+    top_enabled = schedule_bool(config.get(flag_key), False)
+    nested_enabled = schedule_bool(schedule.get("enabled"), top_enabled)
+    enabled = top_enabled or nested_enabled
+    changed |= set_config_value_if_changed(config, flag_key, enabled)
+    changed |= set_config_value_if_changed(schedule, "enabled", enabled)
+
+    for key, default in defaults.items():
+        config_key = f"{schedule_key.removesuffix('_schedule')}_{key}"
+        existing = schedule.get(key)
+        mirror = config.get(config_key)
+        if existing in (None, "") and mirror not in (None, ""):
+            changed |= set_config_value_if_changed(schedule, key, mirror)
+        elif mirror in (None, "") and existing not in (None, ""):
+            changed |= set_config_value_if_changed(config, config_key, existing)
+        elif existing in (None, "") and mirror in (None, ""):
+            changed |= set_config_value_if_changed(schedule, key, default)
+            changed |= set_config_value_if_changed(config, config_key, default)
+
+    return changed
+
+
+def normalize_server_control_schedules(config):
+    if not isinstance(config, dict):
+        return False
+    changed = False
+
+    restart_enabled = schedule_bool(config.get("restart_schedule_enabled"), False)
+    restart_confirmed = schedule_bool(config.get("restart_schedule_confirmed"), restart_enabled)
+    if restart_enabled and not restart_confirmed:
+        restart_confirmed = True
+    changed |= set_config_value_if_changed(config, "restart_schedule_enabled", restart_enabled)
+    changed |= set_config_value_if_changed(config, "restart_schedule_confirmed", restart_confirmed)
+    changed |= set_config_value_if_changed(
+        config,
+        "restart_interval_hours",
+        max(1, min(24, safe_int(config.get("restart_interval_hours"), DEFAULT_RESTART_INTERVAL_HOURS))),
+    )
+    changed |= set_config_value_if_changed(
+        config,
+        "restart_start_hour",
+        max(0, min(23, safe_int(config.get("restart_start_hour"), 0))),
+    )
+    warnings = []
+    for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in warnings:
+            warnings.append(minute)
+    changed |= set_config_value_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+
+    changed |= normalize_schedule_pair(config, "damage_schedule_enabled", "damage_schedule", {
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 7,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
+    changed |= normalize_schedule_pair(config, "vehicle_reset_schedule_enabled", "vehicle_reset_schedule", {
+        "method": "cfgignorelist",
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 7,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
+    return changed
+
+
 def append_restart_history(guild_id, config, source, status, details="", actor=""):
     if not isinstance(config, dict):
         return {}
@@ -21896,11 +22011,11 @@ async def scheduled_restart_loop():
             if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
                 continue
 
-            restart_interval = int(config.get(
-                "restart_interval_hours",
-                DEFAULT_RESTART_INTERVAL_HOURS
-            ) or DEFAULT_RESTART_INTERVAL_HOURS)
-            restart_offset = int(config.get("restart_start_hour", 0) or 0)
+            restart_interval = max(1, min(24, safe_int(
+                config.get("restart_interval_hours"),
+                DEFAULT_RESTART_INTERVAL_HOURS,
+            )))
+            restart_offset = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
             if restart_interval <= 0:
                 continue
 
@@ -21983,15 +22098,12 @@ async def scheduled_restart_loop():
         if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
             continue
 
-        restart_interval = config.get(
-            "restart_interval_hours",
-            DEFAULT_RESTART_INTERVAL_HOURS
-        )
+        restart_interval = max(1, min(24, safe_int(
+            config.get("restart_interval_hours"),
+            DEFAULT_RESTART_INTERVAL_HOURS,
+        )))
 
-        restart_offset = config.get(
-            "restart_start_hour",
-            0
-        )
+        restart_offset = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
 
         should_restart = (
             current_hour >= restart_offset
@@ -27687,9 +27799,28 @@ async def apply_stack_watch_configured_action(guild_id, config, settings, player
     return f"Permanent game-ban queued. {message} No restart requested."
 
 
+CONSOLE_CE_ITEM_CONTAINER_CLASSES = {
+    "WoodenCrate",
+    "SeaChest",
+    "Barrel_Green",
+    "Barrel_Blue",
+    "Barrel_Red",
+    "Barrel_Yellow",
+    "SmallProtectorCase",
+}
+
+
+def normalize_console_ce_container_class(class_name):
+    wanted = str(class_name or "").strip()
+    if wanted in {"StaticObj_Misc_WoodenCrate_5x", "SupplyCrate", "Crate"}:
+        return "WoodenCrate"
+    return wanted
+
+
 def ce_event_family_for_record(event_type, class_name=""):
     event_type = str(event_type or "").strip().lower()
     class_name = str(class_name or "").strip()
+    container_class = normalize_console_ce_container_class(class_name)
     if event_type == "gas_zone" or class_name.startswith("ContaminatedArea"):
         return "ContaminatedArea"
     if class_name.startswith("Animal_") or event_type == "animal_pack":
@@ -27698,9 +27829,13 @@ def ce_event_family_for_record(event_type, class_name=""):
         return "Infected"
     if event_type == "vehicle_spawn":
         return "Vehicle"
-    if class_name.startswith(("Static", "Land_")):
-        return "Static"
     if event_type in {"airdrop", "loot_crate"}:
+        if container_class in CONSOLE_CE_ITEM_CONTAINER_CLASSES:
+            return "Item"
+        if class_name.startswith(("Static", "Land_")):
+            return "Static"
+        return "Item"
+    if class_name.startswith(("Static", "Land_")):
         return "Static"
     return "Static"
 
@@ -27963,10 +28098,7 @@ def find_or_create_spawnable_type(root, class_name):
 
 
 def scenario_container_class_for_ce(class_name):
-    wanted = str(class_name or "").strip()
-    if wanted in {"StaticObj_Misc_WoodenCrate_5x", "SupplyCrate", "Crate"}:
-        return "WoodenCrate"
-    return wanted
+    return normalize_console_ce_container_class(class_name)
 
 
 def scenario_loot_items(event):
@@ -31940,14 +32072,15 @@ def _ensure_vehicle_reset_next_run(schedule, now_utc):
 
 
 def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
-    if not config.get("vehicle_reset_schedule_enabled", False):
+    normalize_server_control_schedules(config)
+    if not schedule_bool(config.get("vehicle_reset_schedule_enabled"), False):
         return None
 
     schedule = config.setdefault("vehicle_reset_schedule", {})
     if not isinstance(schedule, dict):
         schedule = {}
         config["vehicle_reset_schedule"] = schedule
-    schedule.setdefault("enabled", bool(config.get("vehicle_reset_schedule_enabled", False)))
+    schedule.setdefault("enabled", schedule_bool(config.get("vehicle_reset_schedule_enabled"), False))
     schedule.setdefault("method", config.get("vehicle_reset_method", "cfgignorelist"))
     schedule.setdefault("first_date", config.get("vehicle_reset_first_date", ""))
     schedule.setdefault("time", config.get("vehicle_reset_time", "04:00"))
@@ -31961,7 +32094,7 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
         method = "cfgignorelist"
     schedule["method"] = method
     config["vehicle_reset_method"] = method
-    if not schedule.get("enabled", True):
+    if not schedule_bool(schedule.get("enabled"), True):
         return None
 
     next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
@@ -32013,14 +32146,15 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
 
 
 def apply_due_damage_schedule(guild_id, config, now_utc):
-    if not config.get("damage_schedule_enabled", False):
+    normalize_server_control_schedules(config)
+    if not schedule_bool(config.get("damage_schedule_enabled"), False):
         return None
 
     schedule = config.setdefault("damage_schedule", {})
     if not isinstance(schedule, dict):
         schedule = {}
         config["damage_schedule"] = schedule
-    schedule.setdefault("enabled", bool(config.get("damage_schedule_enabled", False)))
+    schedule.setdefault("enabled", schedule_bool(config.get("damage_schedule_enabled"), False))
     schedule.setdefault("base_state", config.get("base_damage_state", "on"))
     schedule.setdefault("container_state", config.get("container_damage_state", "on"))
     schedule.setdefault("first_date", config.get("damage_first_date", ""))
@@ -32028,7 +32162,7 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
     schedule.setdefault("timezone", config.get("damage_timezone", "Europe/Dublin"))
     schedule.setdefault("interval_value", config.get("damage_interval_value", 7))
     schedule.setdefault("interval_unit", config.get("damage_interval_unit", "days"))
-    if not schedule.get("enabled", True):
+    if not schedule_bool(schedule.get("enabled"), True):
         return None
 
     next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)

@@ -12144,6 +12144,8 @@ def load_store(name: str, default: Any) -> Any:
                 config = read_json_file(os.path.join(folder, filename), None)
                 if isinstance(config, dict):
                     data[guild_id] = merge_guild_config_records(data.get(guild_id), config)
+        for config in data.values():
+            normalize_dashboard_server_control_schedules(config)
     return data
 
 
@@ -15029,6 +15031,100 @@ def safe_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def set_dashboard_config_if_changed(target: dict[str, Any], key: str, value: Any) -> bool:
+    if target.get(key) == value:
+        return False
+    target[key] = value
+    return True
+
+
+def normalize_dashboard_schedule_pair(
+    config: dict[str, Any],
+    flag_key: str,
+    schedule_key: str,
+    defaults: dict[str, Any],
+) -> bool:
+    if not isinstance(config, dict):
+        return False
+    changed = False
+    schedule = config.get(schedule_key)
+    if not isinstance(schedule, dict):
+        schedule = {}
+        config[schedule_key] = schedule
+        changed = True
+
+    top_enabled = dashboard_bool(config.get(flag_key), False)
+    nested_enabled = dashboard_bool(schedule.get("enabled"), top_enabled)
+    enabled = top_enabled or nested_enabled
+    changed |= set_dashboard_config_if_changed(config, flag_key, enabled)
+    changed |= set_dashboard_config_if_changed(schedule, "enabled", enabled)
+
+    prefix = schedule_key.removesuffix("_schedule")
+    for key, default in defaults.items():
+        config_key = f"{prefix}_{key}"
+        existing = schedule.get(key)
+        mirror = config.get(config_key)
+        if existing in (None, "") and mirror not in (None, ""):
+            changed |= set_dashboard_config_if_changed(schedule, key, mirror)
+        elif mirror in (None, "") and existing not in (None, ""):
+            changed |= set_dashboard_config_if_changed(config, config_key, existing)
+        elif existing in (None, "") and mirror in (None, ""):
+            changed |= set_dashboard_config_if_changed(schedule, key, default)
+            changed |= set_dashboard_config_if_changed(config, config_key, default)
+
+    return changed
+
+
+def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool:
+    if not isinstance(config, dict):
+        return False
+    changed = False
+
+    restart_enabled = dashboard_bool(config.get("restart_schedule_enabled"), False)
+    restart_confirmed = dashboard_bool(config.get("restart_schedule_confirmed"), restart_enabled)
+    if restart_enabled and not restart_confirmed:
+        restart_confirmed = True
+    changed |= set_dashboard_config_if_changed(config, "restart_schedule_enabled", restart_enabled)
+    changed |= set_dashboard_config_if_changed(config, "restart_schedule_confirmed", restart_confirmed)
+    changed |= set_dashboard_config_if_changed(
+        config,
+        "restart_interval_hours",
+        max(1, min(24, safe_int(config.get("restart_interval_hours"), 4))),
+    )
+    changed |= set_dashboard_config_if_changed(
+        config,
+        "restart_start_hour",
+        max(0, min(23, safe_int(config.get("restart_start_hour"), 0))),
+    )
+    warnings: list[int] = []
+    for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in warnings:
+            warnings.append(minute)
+    changed |= set_dashboard_config_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+
+    changed |= normalize_dashboard_schedule_pair(config, "damage_schedule_enabled", "damage_schedule", {
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 7,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
+    changed |= normalize_dashboard_schedule_pair(config, "vehicle_reset_schedule_enabled", "vehicle_reset_schedule", {
+        "method": "cfgignorelist",
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 7,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
+    return changed
 
 
 def safe_date(value: Any) -> str:
@@ -21830,6 +21926,7 @@ def api_server_control():
         config["vehicle_reset_day_of_month"] = day_of_month
 
     config["updated_at"] = datetime.now(UTC).isoformat()
+    normalize_dashboard_server_control_schedules(config)
     save_store("guild_configs", guild_configs)
     saved_parts = []
     if {
