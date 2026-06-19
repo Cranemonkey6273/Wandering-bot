@@ -90,6 +90,7 @@ PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
+LINKED_PLAYER_CLAIMS_FILE = data_path("linked_player_claims.json")
 LONGSHOT_RECORDS_FILE = data_path("longshot_records.json")
 RAMPAGE_TRACKER_FILE = data_path("rampage_tracker.json")
 FIRST_BLOOD_FILE = data_path("first_blood.json")
@@ -205,6 +206,7 @@ THREAD_ON_RAMPAGE_KILLS = 5
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
+linked_player_claims = {}
 last_funny_message_time = {}
 last_funny_index = {}
 last_emoji_showcase_time = {}
@@ -2826,8 +2828,210 @@ def linked_player_gamertag_summary(data):
     return "\n".join(lines)
 
 
+def linked_player_claim_key(gamertag):
+    return normalize_discord_name(gamertag)
+
+
+def linked_player_claim_owner_id(claim):
+    if not isinstance(claim, dict):
+        return ""
+    return str(
+        claim.get("current_user_id")
+        or claim.get("owner_user_id")
+        or claim.get("first_user_id")
+        or claim.get("discord_id")
+        or ""
+    )
+
+
+def linked_player_claim_owner_label(claim):
+    if not isinstance(claim, dict):
+        return ""
+    return str(
+        claim.get("current_discord_name")
+        or claim.get("owner_discord_name")
+        or claim.get("first_discord_name")
+        or linked_player_claim_owner_id(claim)
+        or "that Discord account"
+    )
+
+
+def linked_player_claim_history(claim):
+    if not isinstance(claim, dict):
+        return []
+    history = claim.setdefault("history", [])
+    if not isinstance(history, list):
+        history = []
+        claim["history"] = history
+    return history
+
+
+def record_linked_player_claim(guild_id, user_id, discord_name, gamertag, *, source="linkgamer", account_type="primary", override=False):
+    key = linked_player_claim_key(gamertag)
+    if not key:
+        return None
+    now_text = datetime.now(UTC).isoformat()
+    user_id = str(user_id)
+    claim = linked_player_claims.setdefault(key, {})
+    previous_owner = linked_player_claim_owner_id(claim)
+    if previous_owner and previous_owner != user_id and override:
+        linked_player_claim_history(claim).append({
+            "action": "admin_override",
+            "previous_user_id": previous_owner,
+            "previous_discord_name": linked_player_claim_owner_label(claim),
+            "new_user_id": user_id,
+            "new_discord_name": str(discord_name),
+            "source": source,
+            "at": now_text,
+        })
+    claim.setdefault("first_user_id", user_id)
+    claim.setdefault("first_discord_name", str(discord_name))
+    claim.setdefault("first_claimed_at", now_text)
+    claim["current_user_id"] = user_id
+    claim["current_discord_name"] = str(discord_name)
+    claim["guild_id"] = str(guild_id)
+    claim["gamertag"] = str(gamertag).strip()
+    claim["normalized_gamertag"] = key
+    claim["account_type"] = account_type
+    claim["status"] = "active"
+    claim["source"] = source
+    claim["updated_at"] = now_text
+    linked_player_claim_history(claim).append({
+        "action": "claim",
+        "user_id": user_id,
+        "discord_name": str(discord_name),
+        "guild_id": str(guild_id),
+        "gamertag": str(gamertag).strip(),
+        "account_type": account_type,
+        "source": source,
+        "at": now_text,
+    })
+    return claim
+
+
+def reserve_removed_linked_player_claim(guild_id, user_id, discord_name, gamertag, *, source="unlinkgamer", reason="removed"):
+    key = linked_player_claim_key(gamertag)
+    if not key:
+        return None
+    now_text = datetime.now(UTC).isoformat()
+    claim = linked_player_claims.setdefault(key, {})
+    claim.setdefault("first_user_id", str(user_id))
+    claim.setdefault("first_discord_name", str(discord_name))
+    claim.setdefault("first_claimed_at", now_text)
+    claim.setdefault("guild_id", str(guild_id))
+    claim.setdefault("gamertag", str(gamertag).strip())
+    claim["normalized_gamertag"] = key
+    if linked_player_claim_owner_id(claim) == str(user_id):
+        claim.pop("current_user_id", None)
+        claim.pop("current_discord_name", None)
+    claim["status"] = f"reserved_{reason}"
+    claim["updated_at"] = now_text
+    claim["source"] = source
+    linked_player_claim_history(claim).append({
+        "action": reason,
+        "user_id": str(user_id),
+        "discord_name": str(discord_name),
+        "guild_id": str(guild_id),
+        "gamertag": str(gamertag).strip(),
+        "source": source,
+        "at": now_text,
+    })
+    return claim
+
+
+def migrate_linked_player_claims_from_links():
+    changed = False
+    for user_id, data in list(linked_players.items()):
+        if not isinstance(data, dict):
+            continue
+        guild_id = str(data.get("guild_id") or "")
+        discord_name = str(data.get("discord_name") or user_id)
+        names = linked_player_gamertags(data)
+        for index, gamertag in enumerate(names[:2]):
+            key = linked_player_claim_key(gamertag)
+            if not key:
+                continue
+            claim = linked_player_claims.get(key)
+            if not isinstance(claim, dict):
+                record_linked_player_claim(
+                    guild_id,
+                    user_id,
+                    discord_name,
+                    gamertag,
+                    source="migration",
+                    account_type="primary" if index == 0 else "alt",
+                )
+                changed = True
+                continue
+            owner_id = linked_player_claim_owner_id(claim)
+            if not owner_id:
+                record_linked_player_claim(
+                    guild_id,
+                    user_id,
+                    discord_name,
+                    gamertag,
+                    source="migration",
+                    account_type="primary" if index == 0 else "alt",
+                )
+                changed = True
+            elif owner_id != str(user_id):
+                linked_player_claim_history(claim).append({
+                    "action": "duplicate_detected_on_migration",
+                    "existing_owner_id": owner_id,
+                    "duplicate_user_id": str(user_id),
+                    "duplicate_discord_name": discord_name,
+                    "guild_id": guild_id,
+                    "gamertag": str(gamertag).strip(),
+                    "at": datetime.now(UTC).isoformat(),
+                })
+                claim["duplicate_detected"] = True
+                claim["updated_at"] = datetime.now(UTC).isoformat()
+                changed = True
+    return changed
+
+
+def gamertag_claimed_to_other_user(gamertag, user_id):
+    key = linked_player_claim_key(gamertag)
+    if not key:
+        return None, None
+    claim = linked_player_claims.get(key)
+    owner_id = linked_player_claim_owner_id(claim)
+    if owner_id and owner_id != str(user_id):
+        return key, claim
+    return None, None
+
+
+def active_manual_ban_record_for_gamertag(guild_id, gamertag):
+    wanted = normalize_discord_name(gamertag)
+    if not wanted:
+        return None
+    config = guild_configs.get(str(guild_id), {})
+    for record in config.get("nitrado_perm_bans", []):
+        if isinstance(record, dict) and normalize_discord_name(record.get("gamertag")) == wanted:
+            return record
+    now_ts = datetime.now(UTC).timestamp()
+    for record in config.get("nitrado_temp_bans", []):
+        if not isinstance(record, dict):
+            continue
+        if normalize_discord_name(record.get("gamertag")) != wanted:
+            continue
+        if _temp_ban_record_is_link_enforcement(record):
+            continue
+        until_ts = float(record.get("until_ts") or 0)
+        if not until_ts or until_ts > now_ts:
+            return record
+    return None
+
+
 def gamertag_linked_to_other_user(gamertag, user_id):
     wanted = normalize_discord_name(gamertag)
+    _claim_key, claim = gamertag_claimed_to_other_user(gamertag, user_id)
+    if claim:
+        return linked_player_claim_owner_id(claim), {
+            "discord_name": linked_player_claim_owner_label(claim),
+            "gamertag": claim.get("gamertag") or gamertag,
+            "claim": claim,
+        }
     for linked_user_id, data in linked_players.items():
         if str(linked_user_id) == str(user_id):
             continue
@@ -3188,6 +3392,14 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
     if linked_user_id:
         return False, f"`{verified_name}` is already linked to `{linked_data.get('discord_name', linked_user_id)}`. Ask staff if this needs correcting."
 
+    active_ban = active_manual_ban_record_for_gamertag(guild_id, verified_name)
+    if active_ban:
+        ban_source = str(active_ban.get("source") or "manual ban")
+        return False, (
+            f"`{verified_name}` is currently recorded as banned for this server (`{ban_source}`). "
+            "Staff must unban or use `/forcelinkgamer` if this is a correction."
+        )
+
     user_id = str(member.id)
     existing = linked_players.get(user_id, {}) if isinstance(linked_players.get(user_id), dict) else {}
     primary_name = linked_player_primary_gamertag(existing)
@@ -3211,6 +3423,14 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             "alt_verified_by": "ADM",
             "alt_linked_at": str(datetime.now(UTC)),
         }
+        record_linked_player_claim(
+            guild_id,
+            user_id,
+            str(member),
+            verified_name,
+            source="linkaltgamer",
+            account_type="alt",
+        )
         account_label = "Alt gamertag"
     else:
         alt_gamertags = [
@@ -3227,9 +3447,18 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             "verified_by": "ADM",
             "linked_at": str(datetime.now(UTC))
         }
+        record_linked_player_claim(
+            guild_id,
+            user_id,
+            str(member),
+            verified_name,
+            source="linkgamer",
+            account_type="primary",
+        )
         account_label = "Primary gamertag"
 
     save_linked_players()
+    save_linked_player_claims()
     await cleanup_link_enforcement_after_link(
         guild_id,
         config,
@@ -10314,12 +10543,21 @@ def save_swear_jar():
 
 
 def load_linked_players():
-    global linked_players
+    global linked_players, linked_player_claims
     linked_players = load_json(LINKED_PLAYERS_FILE)
+    linked_player_claims = load_json(LINKED_PLAYER_CLAIMS_FILE)
+    if not isinstance(linked_player_claims, dict):
+        linked_player_claims = {}
+    if migrate_linked_player_claims_from_links():
+        save_linked_player_claims()
 
 
 def save_linked_players():
     save_json(LINKED_PLAYERS_FILE, linked_players)
+
+
+def save_linked_player_claims():
+    save_json(LINKED_PLAYER_CLAIMS_FILE, linked_player_claims)
 
 
 def load_support_tickets():
@@ -25275,10 +25513,21 @@ def unlink_alt_gamertag_for_member(member):
     if not alt_gamertags:
         return False, "You do not have an alt gamertag linked."
     removed = alt_gamertags[0]
+    guild = getattr(member, "guild", None)
+    guild_id = str(getattr(guild, "id", "") or data.get("guild_id") or "")
+    reserve_removed_linked_player_claim(
+        guild_id,
+        member.id,
+        str(member),
+        removed,
+        source="unlinkaltgamer",
+        reason="alt_removed",
+    )
     data["alt_gamertags"] = []
     data.pop("alt_verified_by", None)
     data.pop("alt_linked_at", None)
     save_linked_players()
+    save_linked_player_claims()
     return True, removed
 
 
@@ -25360,6 +25609,14 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         if str(linked_user_id) == str(target_member.id) or not linked_player_matches_gamertag(data, wanted):
             continue
         if normalize_discord_name(data.get("gamertag", "")) == wanted:
+            reserve_removed_linked_player_claim(
+                guild_id,
+                linked_user_id,
+                data.get("discord_name") or linked_user_id,
+                verified_name,
+                source="forcelinkgamer",
+                reason="admin_reassigned",
+            )
             linked_players.pop(linked_user_id, None)
             continue
         if isinstance(data, dict):
@@ -25371,8 +25628,26 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
             if not remaining_alts:
                 data.pop("alt_verified_by", None)
                 data.pop("alt_linked_at", None)
+            reserve_removed_linked_player_claim(
+                guild_id,
+                linked_user_id,
+                data.get("discord_name") or linked_user_id,
+                verified_name,
+                source="forcelinkgamer",
+                reason="admin_reassigned",
+            )
 
     existing = linked_players.get(str(target_member.id), {}) if isinstance(linked_players.get(str(target_member.id)), dict) else {}
+    for old_name in linked_player_gamertags(existing):
+        if normalize_discord_name(old_name) != wanted:
+            reserve_removed_linked_player_claim(
+                guild_id,
+                target_member.id,
+                str(target_member),
+                old_name,
+                source="forcelinkgamer",
+                reason="replaced_by_force_link",
+            )
     alt_gamertags = [
         alt for alt in linked_player_alt_gamertags(existing)
         if normalize_discord_name(alt) != wanted
@@ -25388,7 +25663,17 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         "verified_by": f"FORCED_BY_ADMIN:{admin_member.id}",
         "linked_at": str(datetime.now(UTC))
     }
+    record_linked_player_claim(
+        guild_id,
+        target_member.id,
+        str(target_member),
+        verified_name,
+        source=f"forcelinkgamer:{admin_member.id}",
+        account_type="primary",
+        override=True,
+    )
     save_linked_players()
+    save_linked_player_claims()
 
     stats = ensure_player_stats_record(guild_id, verified_name)
     if stats:
@@ -25554,9 +25839,23 @@ async def unlinkgamer(ctx, member: discord.Member):
         await ctx.send("No linked gamertag found.")
         return
 
+    data = linked_players.get(user_id, {})
+    guild_id = str(getattr(ctx.guild, "id", "") or (data.get("guild_id") if isinstance(data, dict) else "") or "")
+    if isinstance(data, dict):
+        for gamertag in linked_player_gamertags(data):
+            reserve_removed_linked_player_claim(
+                guild_id,
+                user_id,
+                str(member),
+                gamertag,
+                source="unlinkgamer",
+                reason="staff_unlinked",
+            )
+
     del linked_players[user_id]
 
     save_linked_players()
+    save_linked_player_claims()
 
     await ctx.send(
         f"🗑️ Removed linked gamertag for {member.mention}"
