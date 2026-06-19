@@ -1,0 +1,293 @@
+"""Regression tests for the Wandering-bot DayZ native CE XML generator.
+
+These cover the two root-cause fixes made in response to the production RPT
+symptom: WanderingBot event definitions appeared in the live RPT but DayZ
+never produced any spawn lines for them.
+
+Root cause 1 ? events.xml ``<children>`` was non-empty for events that
+referenced an entry in ``cfgeventgroups.xml`` through a ``<pos group="...">``
+attribute in ``cfgeventspawns.xml``. Vanilla DayZ Livonia events such as
+``StaticMilitaryConvoy`` keep ``<children/>`` empty in that pattern, and DayZ
+silently refuses to instantiate the event when both spawn paths are populated.
+
+Root cause 2 ? ``cfgeventspawns.xml`` ``<pos>`` entries included a ``y``
+attribute. Vanilla DayZ Livonia ``cfgeventspawns.xml`` only carries ``x``,
+``z`` and ``a``; the engine samples terrain height itself. Forcing ``y=0``
+makes vehicles and static crates fail to spawn on Livonia terrain.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import unittest
+import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+from _bot_loader import import_bot_module  # noqa: E402
+
+bot = import_bot_module()
+
+
+def _base_event(event_id, event_type, class_name, **overrides):
+    event = {
+        "id": event_id,
+        "event_type": event_type,
+        "class_name": class_name,
+        "x": 5000,
+        "y": 0,
+        "z": 5000,
+        "radius": 70,
+        "native_ce_revision": 2,
+        "updated_at": "2026-01-01T00:00:00+00:00",
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    event.update(overrides)
+    return event
+
+
+class AirdropEventGroupTests(unittest.TestCase):
+    """Verify the events.xml/cfgeventspawns/cfgeventgroups linkage for airdrops."""
+
+    def _build_airdrop_event_node(self, event):
+        records, _warnings = bot.console_ce_records_for_event(event)
+        self.assertTrue(records, "airdrop should produce at least one CE record")
+        record = records[0]
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record.get("event_child_type") or record["class_name"],
+            record["count"],
+            record["lifetime"],
+            restock=record.get("restock", 0),
+            use_eventgroup=bool(record.get("use_eventgroup")),
+            limit_type=record.get("limit_type") or "child",
+            child_lootmin=record.get("child_lootmin", 0),
+            child_lootmax=record.get("child_lootmax", 0),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+            saferadius=record.get("saferadius", 0),
+            distanceradius=record.get("distanceradius", 0),
+            cleanupradius=record.get("cleanupradius", 100),
+            child_records=record.get("child_records"),
+            remove_damaged=bool(record.get("remove_damaged")),
+            empty_children=bool(record.get("empty_event_children")),
+        )
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+            y=record.get("y"),
+            count=record["count"],
+            radius=record.get("radius") or 45,
+            group_name=record["name"] if record.get("use_eventgroup") else "",
+        )
+        eventgroups_root = ET.Element("eventgroupdef")
+        if record.get("use_eventgroup"):
+            bot.add_console_ce_event_group(
+                eventgroups_root,
+                record["name"],
+                record["class_name"],
+                lootmin=record.get("child_lootmin", 40) or 40,
+                lootmax=record.get("child_lootmax", 80) or 80,
+                child_records=record.get("eventgroup_children"),
+            )
+        return record, events_root, spawns_root, eventgroups_root
+
+    def test_airdrop_events_xml_children_block_is_empty(self):
+        """events.xml `<children/>` must be empty when the event is bound to a
+        cfgeventgroups group via cfgeventspawns ``<pos group="...">``. Earlier
+        revisions emitted both the static ``<child type="WoodenCrate"/>`` AND a
+        ``group="..."`` reference, which caused DayZ to load the event but
+        never instantiate it (matches the RPT 0-spawn-line symptom)."""
+        event = _base_event(29, "airdrop", "WoodenCrate")
+        record, events_root, _spawns, _groups = self._build_airdrop_event_node(event)
+
+        self.assertTrue(record.get("use_eventgroup"))
+        self.assertTrue(record.get("empty_event_children"))
+        event_node = events_root.find("event")
+        self.assertIsNotNone(event_node)
+        children_node = event_node.find("children")
+        self.assertIsNotNone(children_node, "events.xml event must still carry a <children/> element")
+        self.assertEqual(
+            list(children_node.findall("child")),
+            [],
+            "events.xml <children/> must be empty for eventgroup-routed Static events; "
+            "otherwise DayZ refuses to instantiate the event.",
+        )
+
+    def test_airdrop_cfgeventspawns_pos_carries_group(self):
+        """cfgeventspawns.xml <pos> must reference the group by name and must
+        NOT contain a ``y`` attribute (vanilla DayZ only carries x, z, a)."""
+        event = _base_event(29, "airdrop", "WoodenCrate")
+        record, _events, spawns_root, _groups = self._build_airdrop_event_node(event)
+
+        spawn_event = spawns_root.find("event")
+        self.assertIsNotNone(spawn_event)
+        pos = spawn_event.find("pos")
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.get("group"), record["name"])
+        for attr in ("x", "z", "a"):
+            self.assertIn(attr, pos.attrib)
+        self.assertNotIn(
+            "y", pos.attrib,
+            "cfgeventspawns.xml <pos> must not carry y ? vanilla DayZ samples "
+            "terrain height itself, and forcing y=0 prevents the spawn.",
+        )
+
+    def test_eventgroup_carries_real_object_class(self):
+        """The actual crate / scene object must live in cfgeventgroups.xml,
+        keyed by the event name. That is the source DayZ uses to instantiate
+        the Static event scene."""
+        event = _base_event(29, "airdrop", "WoodenCrate")
+        record, _events, _spawns, groups_root = self._build_airdrop_event_node(event)
+
+        group = groups_root.find("group")
+        self.assertIsNotNone(group)
+        self.assertEqual(group.get("name"), record["name"])
+        children = group.findall("child")
+        self.assertTrue(children, "cfgeventgroups <group> must contain at least one <child>")
+        types_in_group = {child.get("type") for child in children}
+        self.assertIn(
+            "WoodenCrate", types_in_group,
+            "the real loot crate class must appear inside cfgeventgroups.xml, "
+            "not in events.xml <children>",
+        )
+
+
+class VehicleAndZombieSpawnTests(unittest.TestCase):
+    """Vehicles and hordes do NOT use cfgeventgroups. Their <pos> blocks must
+    still avoid the y attribute and must carry the actual class as the
+    events.xml ``<child type=...>`` value."""
+
+    def _build_event(self, event):
+        records, warnings = bot.console_ce_records_for_event(event)
+        self.assertTrue(records, f"event {event} produced no CE records: {warnings}")
+        record = records[0]
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record.get("event_child_type") or record["class_name"],
+            record["count"],
+            record["lifetime"],
+            restock=record.get("restock", 0),
+            use_eventgroup=bool(record.get("use_eventgroup")),
+            limit_type=record.get("limit_type") or "child",
+            child_lootmin=record.get("child_lootmin", 0),
+            child_lootmax=record.get("child_lootmax", 0),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+            saferadius=record.get("saferadius", 0),
+            distanceradius=record.get("distanceradius", 0),
+            cleanupradius=record.get("cleanupradius", 100),
+            child_records=record.get("child_records"),
+            empty_children=bool(record.get("empty_event_children")),
+        )
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+            y=record.get("y"),
+            count=record["count"],
+            radius=record.get("radius") or 45,
+            group_name="",
+        )
+        return record, events_root, spawns_root
+
+    def test_vehicle_event_has_real_class_child_and_no_pos_y(self):
+        event = _base_event(31, "vehicle_spawn", "Hatchback_02")
+        record, events_root, spawns_root = self._build_event(event)
+
+        self.assertFalse(record.get("use_eventgroup"))
+        self.assertFalse(record.get("empty_event_children"))
+        event_node = events_root.find("event")
+        self.assertIsNotNone(event_node)
+        child = event_node.find("children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual(child.get("type"), "Hatchback_02")
+
+        pos = spawns_root.find("event/pos")
+        self.assertIsNotNone(pos)
+        self.assertNotIn("y", pos.attrib)
+
+    def test_zombie_horde_has_zone_block_no_y(self):
+        event = _base_event(
+            33,
+            "zombie_horde",
+            "ZmbM_HeavyIndustryWorker",
+            preset="heavymilitaryzombie",
+        )
+        record, events_root, spawns_root = self._build_event(event)
+
+        self.assertFalse(record.get("use_eventgroup"))
+        event_node = events_root.find("event")
+        self.assertIsNotNone(event_node)
+        self.assertEqual(event_node.findtext("position"), "fixed")
+        children = event_node.findall("children/child")
+        self.assertTrue(children)
+        for child in children:
+            self.assertTrue(child.get("type", "").startswith(("ZmbM_", "ZmbF_")))
+
+        spawn_event = spawns_root.find("event")
+        self.assertIsNotNone(spawn_event)
+        for pos in spawn_event.findall("pos"):
+            self.assertNotIn("y", pos.attrib)
+        # Infected hordes are zone-spawn family ? make sure a zone block is
+        # emitted with x/z/r and no y attribute.
+        zone = spawn_event.find("zone")
+        if zone is not None:
+            self.assertNotIn("y", zone.attrib)
+
+
+class EventGroupChildPlacementTests(unittest.TestCase):
+    """The cfgeventgroups child placement still needs all four offset attrs
+    (x, y, z, a) ? these are LOCAL offsets relative to the group anchor, not
+    map coordinates. This guards against accidentally stripping them along
+    with the cfgeventspawns y removal."""
+
+    def test_eventgroup_child_has_full_local_offsets(self):
+        event = _base_event(32, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
+        records, _ = bot.console_ce_records_for_event(event)
+        record = records[0]
+        groups_root = ET.Element("eventgroupdef")
+        bot.add_console_ce_event_group(
+            groups_root,
+            record["name"],
+            record["class_name"],
+            lootmin=record.get("child_lootmin", 40) or 40,
+            lootmax=record.get("child_lootmax", 80) or 80,
+            child_records=record.get("eventgroup_children"),
+        )
+        children = groups_root.findall("group/child")
+        self.assertTrue(children)
+        for child in children:
+            for attr in ("x", "y", "z", "a"):
+                self.assertIn(attr, child.attrib, f"cfgeventgroups child missing {attr}")
+
+
+class MapGroupProtoTests(unittest.TestCase):
+    """Each cfgeventgroups child type must have a mapgroupproto group entry,
+    otherwise the live RPT prints ``No group configured for '<class>'``."""
+
+    def test_proto_group_added_for_marker_and_crate(self):
+        event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
+        records, _ = bot.console_ce_records_for_event(event)
+        record = records[0]
+        proto_root = ET.Element("prototype")
+        for child in record["eventgroup_children"]:
+            bot.add_mapgroupproto_loot_group(proto_root, child["type"])
+        names = {g.get("name") for g in proto_root.findall("group")}
+        self.assertIn("WoodenCrate", names)
+        self.assertIn("Wreck_Mi8_Crashed", names)
+
+
+if __name__ == "__main__":
+    unittest.main()

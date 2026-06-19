@@ -29342,6 +29342,7 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     count = max(1, int(count or 1))
     radius = max(0, int(radius or 0))
     remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
+    # DayZ samples terrain height for cfgeventspawns positions; forcing y can reject spawns.
     if group_name:
         attrs = {
             "x": ce_decimal(x),
@@ -29349,8 +29350,6 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "a": ce_decimal(angle),
             "group": str(group_name),
         }
-        if y is not None:
-            attrs["y"] = ce_decimal(y)
         ET.SubElement(event_node, "pos", attrs)
         return event_node
 
@@ -29369,8 +29368,6 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         "z": ce_decimal(z),
         "a": ce_decimal(angle),
     }
-    if y is not None:
-        attrs["y"] = ce_decimal(y)
     ET.SubElement(event_node, "pos", attrs)
     return event_node
 
@@ -29718,7 +29715,8 @@ def console_ce_records_for_event(event):
         "child_lootmax": child_lootmax,
         "child_records": child_records,
         "eventgroup_children": eventgroup_children,
-        "empty_event_children": False,
+        # Eventgroup-routed Static events resolve children from cfgeventgroups.xml.
+        "empty_event_children": bool(use_eventgroup),
         "nominal": 1 if use_eventgroup else None,
         "min_count": 1 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
