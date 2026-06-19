@@ -6571,12 +6571,14 @@ PAGE_TEMPLATE = """
       {% set vr_weekday = (vr.day_of_week or server.config.vehicle_reset_day_of_week or '') if server else '' %}
       {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
       {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'cfgignorelist') if server else 'cfgignorelist' %}
+      {% set dmg_next = (dmg.next_run_local or dmg.next_run_utc or '') if dmg else '' %}
+      {% set vr_next = (vr.next_run_local or vr.next_run_utc or '') if vr else '' %}
       <div class="mini-grid" style="margin-bottom:1rem">
         <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
         <div class="mini-card"><span class="muted">Next restart</span><strong>{{ restart_status.next_restart_uk }}</strong><span>{% if restart_status.minutes_until is not none %}In about {{ restart_status.minutes_until }} min{% else %}Schedule disabled{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Last restart</span><strong>{{ restart_status.last_restart.status|default('No log yet')|replace('_', ' ')|title }}</strong><span>{{ restart_status.last_restart.source|default('Waiting for bot/RPT')|replace('_', ' ')|title }}</span></div>
-        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_first_date %} from {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
-        <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_first_date %} from {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
+        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_next %} · Next {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %} · From {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
+        <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_next %} · Next {{ vr_next[:16]|replace('T', ' ') }}{% elif vr_first_date %} · From {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
@@ -6657,7 +6659,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_first_date %}: stages cfggameplay.json around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}. Restart is required before DayZ applies the staged damage flags.</span></div>
+            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_next %}: next staged write {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %}: stages cfggameplay.json around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}{% if dmg_weekday %} on {{ dmg_weekday|title }}{% endif %}{% if dmg_month_day %} on day {{ dmg_month_day }}{% endif %}. Restart is required before DayZ applies the staged damage flags.{% if dmg.last_error %} Last error: {{ dmg.last_error[:220] }}{% endif %}</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -6687,7 +6689,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}. The default method stages vehicle classes in cfgignorelist.xml before the restart, waits for the server to return, restores the backup, then requests the restore restart.</span></div>
+            <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_next %}: next reset {{ vr_next[:16]|replace('T', ' ') }}{% elif vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}{% if vr_weekday %} on {{ vr_weekday|title }}{% endif %}{% if vr_month_day %} on day {{ vr_month_day }}{% endif %}. The default method stages vehicle classes in cfgignorelist.xml before the restart, waits for the server to return, restores the backup, then requests the restore restart.</span></div>
             <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
           </form>
         </article>

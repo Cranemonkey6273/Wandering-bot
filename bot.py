@@ -32273,9 +32273,55 @@ def _add_months(value, months):
     month = value.month - 1 + max(1, int(months or 1))
     year = value.year + month // 12
     month = month % 12 + 1
-    days_in_month = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    day = min(value.day, days_in_month[month - 1])
+    day = min(value.day, _days_in_month(year, month))
     return value.replace(year=year, month=month, day=day)
+
+
+def _days_in_month(year, month):
+    return [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+
+
+SCHEDULE_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def _schedule_month_day(schedule):
+    try:
+        day = int(schedule.get("day_of_month") or 0)
+    except Exception:
+        day = 0
+    return day if 1 <= day <= 31 else 0
+
+
+def _schedule_weekday(schedule):
+    return SCHEDULE_WEEKDAYS.get(str(schedule.get("day_of_week") or "").strip().lower())
+
+
+def _schedule_matches_preferred_day(schedule, candidate):
+    day = _schedule_month_day(schedule)
+    if day:
+        wanted_day = min(day, _days_in_month(candidate.year, candidate.month))
+        if candidate.day != wanted_day:
+            return False
+    weekday = _schedule_weekday(schedule)
+    if weekday is not None and candidate.weekday() != weekday:
+        return False
+    return True
+
+
+def _normalize_schedule_candidate(schedule, candidate, now_utc):
+    for _ in range(400):
+        if candidate.astimezone(UTC) > now_utc and _schedule_matches_preferred_day(schedule, candidate):
+            return candidate
+        candidate += timedelta(days=1)
+    return None
 
 
 def _advance_vehicle_reset_schedule(schedule, now_utc):
@@ -32296,6 +32342,9 @@ def _advance_vehicle_reset_schedule(schedule, now_utc):
             candidate = _add_months(candidate, interval_value)
         else:
             candidate += timedelta(days=interval_value)
+        candidate = _normalize_schedule_candidate(schedule, candidate, now_utc)
+        if not candidate:
+            return None
         next_utc = candidate.astimezone(UTC)
         if next_utc > now_utc:
             schedule["next_run_local"] = candidate.isoformat(timespec="minutes")
@@ -32329,10 +32378,9 @@ def _ensure_vehicle_reset_next_run(schedule, now_utc):
         base_date = now_utc.astimezone(local_tz).date()
 
     candidate = datetime(base_date.year, base_date.month, base_date.day, hour, minute, tzinfo=local_tz)
-    if not first_date and candidate.astimezone(UTC) <= now_utc:
-        schedule["next_run_utc"] = candidate.astimezone(UTC).isoformat()
-        _advance_vehicle_reset_schedule(schedule, now_utc)
-        return _parse_schedule_datetime(schedule.get("next_run_utc"))
+    candidate = _normalize_schedule_candidate(schedule, candidate, now_utc)
+    if not candidate:
+        return None
 
     schedule["next_run_local"] = candidate.isoformat(timespec="minutes")
     schedule["next_run_utc"] = candidate.astimezone(UTC).isoformat()
