@@ -27996,7 +27996,26 @@ def ce_event_name(event, suffix="", family=""):
     stable_slug = stable_console_event_slug(event)
     if stable_slug:
         return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{stable_slug}{tail}"[:64]
-    return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{event_id}_{kind}{tail}"[:64]
+    revision = scenario_event_ce_revision_token(event)
+    revision_tail = f"_{revision}" if revision else ""
+    return f"{event_family}{CONSOLE_CE_EVENT_MARKER}{event_id}_{kind}{revision_tail}{tail}"[:64]
+
+
+def scenario_event_ce_revision_token(event):
+    event_type = str((event or {}).get("event_type") or "").strip().lower()
+    if event_type in STABLE_CONSOLE_EVENT_TYPES:
+        return ""
+    revision = max(
+        safe_int((event or {}).get("native_ce_revision"), 0),
+        safe_int((event or {}).get("ce_revision"), 0),
+        safe_int((event or {}).get("upload_revision"), 0),
+    )
+    if revision > 0:
+        return f"r{min(revision, 9999)}"
+    seed = str((event or {}).get("updated_at") or (event or {}).get("created_at") or "").strip()
+    if not seed:
+        return ""
+    return hashlib.sha1(seed.encode("utf-8", errors="ignore")).hexdigest()[:5]
 
 
 def stable_console_event_slug(event):
@@ -29277,10 +29296,29 @@ def console_ce_records_for_event(event):
         family = "ContaminatedArea"
         limit_type = "child"
 
-    restock = max(0, min(3888000, safe_int(event.get("restock"), 3600 if use_eventgroup else 0)))
+    restock_default = 0 if event_type in {"airdrop", "loot_crate", "vehicle_spawn", "zombie_horde", "animal_pack"} else (3600 if use_eventgroup else 0)
+    restock = max(0, min(3888000, safe_int(event.get("restock"), restock_default)))
+    if event_type in {"airdrop", "loot_crate"} and restock == 3600:
+        restock = 0
     saferadius = max(0, min(5000, safe_int(event.get("saferadius"), 0)))
-    distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), 1000 if use_eventgroup else 0)))
-    cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), 1500 if use_eventgroup else 100)))
+    if event_type in {"airdrop", "loot_crate"}:
+        distanceradius_default = 25
+        cleanupradius_default = max(100, min(1500, safe_int(event.get("radius"), 70) * 4))
+    elif event_type == "vehicle_spawn":
+        distanceradius_default = 25
+        cleanupradius_default = 100
+    else:
+        distanceradius_default = 1000 if use_eventgroup else 0
+        cleanupradius_default = 1500 if use_eventgroup else 100
+    distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), distanceradius_default)))
+    cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), cleanupradius_default)))
+    if event_type in {"airdrop", "loot_crate"}:
+        if distanceradius in {0, 1000}:
+            distanceradius = distanceradius_default
+        if cleanupradius == 1500:
+            cleanupradius = cleanupradius_default
+    elif event_type == "vehicle_spawn" and distanceradius == 0:
+        distanceradius = distanceradius_default
 
     record_name = vanilla_animal_name if event_type == "animal_pack" else ce_event_name(event, family=family)
     record = {

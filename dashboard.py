@@ -4846,7 +4846,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=3600, saferadius=0, distanceradius=1000, cleanupradius=1500, gas_lifetime=1800, gas_particle='server_default') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=0, saferadius=0, distanceradius=25, cleanupradius=380, gas_lifetime=1800, gas_particle='server_default') %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -10765,7 +10765,7 @@ PAGE_TEMPLATE = """
         if (option.dataset.gasParticle && form.elements.gas_particle) form.elements.gas_particle.value = option.dataset.gasParticle;
         if (option.dataset.permanent && form.elements.permanent) form.elements.permanent.value = option.dataset.permanent;
         const typeDefaults = {
-          airdrop: {lifetime: 7200, restock: 3600, saferadius: 0, distanceradius: 1000, cleanupradius: 1500},
+          airdrop: {lifetime: 7200, restock: 0, saferadius: 0, distanceradius: 25, cleanupradius: 380},
           animal_pack: {lifetime: 3600, restock: 0, saferadius: 2, distanceradius: 100, cleanupradius: 100},
           zombie_horde: {lifetime: 1800, restock: 0, saferadius: 0, distanceradius: 50, cleanupradius: 100},
           vehicle_spawn: {lifetime: 3888000, restock: 0, saferadius: 0, distanceradius: 5, cleanupradius: 100},
@@ -21178,13 +21178,13 @@ def api_scenario_event():
         "gas_zone": gas_lifetime,
     }.get(event_type, 3600)
     event_lifetime = max(60, min(3888000, safe_int(payload.get("lifetime"), event_lifetime_default)))
-    restock_default = 3600 if event_type in {"airdrop", "loot_crate"} else 0
+    restock_default = 0
     restock = max(0, min(3888000, safe_int(payload.get("restock"), restock_default)))
     saferadius_default = 2 if event_type == "animal_pack" else 0
     saferadius = max(0, min(5000, safe_int(payload.get("saferadius"), saferadius_default)))
     if event_type in {"airdrop", "loot_crate"}:
-        distanceradius_default = 1000
-        cleanupradius_default = 1500
+        distanceradius_default = 25
+        cleanupradius_default = max(100, min(1500, radius * 4 or 380))
     elif event_type == "gas_zone":
         distanceradius_default = max(50, radius)
         cleanupradius_default = max(100, radius + 100)
@@ -21291,6 +21291,11 @@ def api_scenario_event():
             loot_mix,
             f"{guild_id}:{current_event_id}:{event_type}:{spawn_preset}:{loc_name}:{location.get('x')}:{location.get('z')}",
         )
+        native_ce_revision = max(
+            safe_int(event.get("native_ce_revision"), 0),
+            safe_int(event.get("ce_revision"), 0),
+            safe_int(event.get("upload_revision"), 0),
+        ) + 1
         event.update({
             "id": current_event_id,
             "name": display_name,
@@ -21328,6 +21333,7 @@ def api_scenario_event():
             "use_delivery_bridge": use_delivery_bridge,
             "delivery_bridge_explicit": bool(use_delivery_bridge),
             "delivery_route": "delivery_bridge" if use_delivery_bridge else "native_ce",
+            "native_ce_revision": native_ce_revision,
             "permanent": permanent,
             "remaining_restarts": 0 if permanent else max(1, min(365, restarts)),
             "enabled": True,
@@ -21504,6 +21510,11 @@ def api_scenario_event_action():
                 event["use_delivery_bridge"] = False
                 event["delivery_route"] = "native_ce"
                 event["force_native_ce"] = True
+            event["native_ce_revision"] = max(
+                safe_int(event.get("native_ce_revision"), 0),
+                safe_int(event.get("ce_revision"), 0),
+                safe_int(event.get("upload_revision"), 0),
+            ) + 1
             event["upload_status"] = "waiting_for_bot_upload"
             event["upload_attempts"] = 0
             event.pop("xml_uploaded_at", None)
