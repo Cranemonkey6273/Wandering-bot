@@ -29306,21 +29306,18 @@ STALE_AIRDROP_PROTO_CLASSES = {
 
 
 def mapgroupproto_group_looks_like_old_airdrop_proto(group_node):
+    # Only the actual bot fingerprint (<value name="Tier4"/>) counts as
+    # stale. The previous lootfloor+categories heuristic also matched
+    # community packs like StaticLivoniaRevampLoot and silently deleted
+    # their <group name="StaticObj_Misc_WoodenCrate_5x"> on every upload,
+    # which left the live RPT spamming:
+    #   [CE][SpawnRandomLoot] (StaticLivoniaRevampLoot_NN) :: !!! No group
+    #   configured for 'StaticObj_Misc_WoodenCrate_5x', failed to spawn loot
     name = str(group_node.get("name") or "").strip().lower()
     if name not in STALE_AIRDROP_PROTO_CLASSES:
         return False
     for value_node in group_node.findall("value"):
         if str(value_node.get("name") or "").strip().lower() == "tier4":
-            return True
-    for container in group_node.findall("container"):
-        container_name = str(container.get("name") or "").strip().lower()
-        if container_name == "lootfloor" and container.findall("cargo"):
-            return True
-        categories = {
-            str(category.get("name") or "").strip().lower()
-            for category in container.findall("category")
-        }
-        if container_name == "lootfloor" and categories.intersection({"weapons", "explosives", "containers", "clothes", "food", "tools", "medicine", "vehiclesparts", "money"}):
             return True
     return False
 
@@ -29356,54 +29353,44 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
 
 
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
+    # Non-destructive: if a <group> with this name already exists, leave
+    # it strictly alone (only the rogue Tier4 value is stripped). Earlier
+    # revisions wiped <usage>, <category> and <container name="lootfloor">
+    # off any matching group, which silently neutered community packs
+    # that already populated mapgroupproto.xml with working military
+    # loot tables.
+    #
+    # When creating a BRAND NEW group, seed a real <container> + the
+    # canonical military categories so DayZ actually has a loot pool to
+    # spawn from. The old version only added <usage> + <point>, which is
+    # why WanderingBot airdrops loaded but never produced a
+    # [CE][SpawnRandomLoot] line — there was nowhere for the engine to
+    # drop weapons / explosives / tools into the crate.
     wanted = str(class_name or "").strip()
     if not wanted:
         return None, False
     changed = False
     for group_node in root.findall("group"):
         if str(group_node.get("name") or "").strip().lower() == wanted.lower():
-            break
-    else:
-        append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
-        group_node = ET.SubElement(root, "group", {"name": wanted})
-        changed = True
+            for value_node in list(group_node.findall("value")):
+                if str(value_node.get("name") or "").strip().lower() == "tier4":
+                    group_node.remove(value_node)
+                    changed = True
+            return group_node, changed
 
     target_lootmax = str(max(1, int(lootmax or 80)))
-    if str(group_node.get("lootmax") or "") != target_lootmax:
-        group_node.set("lootmax", target_lootmax)
-        changed = True
-
-    for value_node in list(group_node.findall("value")):
-        if str(value_node.get("name") or "").strip().lower() == "tier4":
-            group_node.remove(value_node)
-            changed = True
-
-    for direct_category in list(group_node.findall("category")):
-        group_node.remove(direct_category)
-        changed = True
-
-    for container in list(group_node.findall("container")):
-        if str(container.get("name") or "").strip().lower() == "lootfloor":
-            group_node.remove(container)
-            changed = True
-
-    for usage in list(group_node.findall("usage")):
-        if str(usage.get("name") or "").strip().lower() in {"weapons", "explosives", "containers", "clothes"}:
-            group_node.remove(usage)
-            changed = True
-
-    if not group_node.findall("usage"):
-        ET.SubElement(group_node, "usage", {"name": "Military"})
-        changed = True
-
-    if not group_node.findall("point"):
-        ET.SubElement(group_node, "point", {
-            "pos": "0 0 0",
-            "range": "0.5",
-            "height": "0.5",
-        })
-        changed = True
-    return group_node, changed
+    append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
+    group_node = ET.SubElement(root, "group", {"name": wanted, "lootmax": target_lootmax})
+    ET.SubElement(group_node, "usage", {"name": "Military"})
+    container = ET.SubElement(group_node, "container", {"name": "lootfloor", "lootmax": target_lootmax})
+    for category_name in ("weapons", "explosives", "tools", "clothes", "containers", "food"):
+        ET.SubElement(container, "category", {"name": category_name})
+    ET.SubElement(container, "point", {
+        "pos": "0 0 0",
+        "range": "0.5",
+        "height": "0.5",
+    })
+    return group_node, True
 
 
 def find_or_create_named_child(root, tag_name, name, comment_text=""):
