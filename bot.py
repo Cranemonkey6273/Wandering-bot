@@ -13936,9 +13936,32 @@ PROTECTED_DAYZ_XML_REQUIRED_CHILDREN = {
 }
 
 
-def protected_dayz_xml_root_for_path(target_path):
+PROTECTED_DAYZ_XML_BACKUP_RE = re.compile(
+    r"^(?P<filename>.+\.xml)\.wandering(?:bot)?-backup-(?:latest|\d{8,})$",
+    re.IGNORECASE,
+)
+
+
+def protected_dayz_xml_filename_for_path(target_path):
     filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    match = PROTECTED_DAYZ_XML_BACKUP_RE.match(filename)
+    if match:
+        filename = match.group("filename").lower()
+    return filename
+
+
+def protected_dayz_xml_is_backup_path(target_path):
+    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    return bool(PROTECTED_DAYZ_XML_BACKUP_RE.match(filename))
+
+
+def protected_dayz_xml_root_for_path(target_path):
+    filename = protected_dayz_xml_filename_for_path(target_path)
     return PROTECTED_DAYZ_XML_ROOTS.get(filename)
+
+
+def normalize_uploaded_text_for_compare(value):
+    return str(value or "").lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").rstrip()
 
 
 def validate_protected_dayz_xml_upload(target_path, text_content):
@@ -13954,9 +13977,9 @@ def validate_protected_dayz_xml_upload(target_path, text_content):
         return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
     if root.tag != expected_root:
         return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
-    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    filename = protected_dayz_xml_filename_for_path(target_path)
     required_child = PROTECTED_DAYZ_XML_REQUIRED_CHILDREN.get(filename)
-    if required_child and not root.findall(required_child):
+    if required_child and not protected_dayz_xml_is_backup_path(target_path) and not root.findall(required_child):
         return False, f"Refusing to upload `{target_path}`: <{expected_root}> has no <{required_child}> records, which looks like an empty/minimal live file."
     return True, ""
 
@@ -14083,6 +14106,66 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
         return False, f"Nitrado API upload failed: {error}"
 
 
+def verify_uploaded_protected_dayz_xml_text(config, label, path, expected_text):
+    expected_root = protected_dayz_xml_root_for_path(path)
+    if not expected_root:
+        return True, ""
+    last_message = ""
+    for attempt in range(3):
+        ok, message, content = download_text_file_from_nitrado(config, path)
+        if not ok:
+            last_message = f"`{label}` post-upload re-download failed: {message}"
+        else:
+            valid, validation_message = validate_protected_dayz_xml_upload(path, content)
+            if not valid:
+                last_message = validation_message
+            elif normalize_uploaded_text_for_compare(content) != normalize_uploaded_text_for_compare(expected_text):
+                last_message = (
+                    f"`{label}` post-upload re-download did not match the uploaded content "
+                    f"(uploaded {len(str(expected_text or '').encode('utf-8'))} bytes, "
+                    f"downloaded {len(str(content or '').encode('utf-8'))} bytes)."
+                )
+            else:
+                return True, f"`{label}` post-upload re-download matched with <{expected_root}> root."
+        if attempt < 2:
+            time.sleep(1)
+    return False, last_message
+
+
+def upload_text_file_to_nitrado_ftp(config, target_path, text_content):
+    temp_path = None
+    try:
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            return False, ftp_error
+
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".xml") as temp_file:
+            temp_file.write(text_content)
+            temp_path = temp_file.name
+
+        remote_folder = os.path.dirname(str(target_path).replace("\\", "/"))
+        if remote_folder and remote_folder != "/":
+            try:
+                ftp.mkd(remote_folder)
+            except Exception:
+                pass
+
+        with open(temp_path, "rb") as file_obj:
+            ftp.storbinary(f"STOR {target_path}", file_obj)
+
+        ftp.quit()
+        return True, f"Uploaded successfully via {ftp_host}."
+
+    except Exception as error:
+        return False, str(error)
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
 def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
 
     try:
@@ -14106,51 +14189,50 @@ def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
 
 
 def upload_text_file_to_nitrado(config, target_path, text_content):
-    temp_path = None
     try:
         valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
         if not valid_upload:
             return False, validation_message
 
+        expected_root = protected_dayz_xml_root_for_path(target_path)
+        if expected_root:
+            ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, target_path, text_content)
+            if ftp_success:
+                verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
+                    config,
+                    os.path.basename(str(target_path or "").replace("\\", "/")),
+                    target_path,
+                    text_content,
+                )
+                if verify_ok:
+                    return True, f"{ftp_message} {verify_message}"
+                return False, f"{ftp_message} Post-upload verification failed: {verify_message}"
+
+            api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
+            if api_success:
+                verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
+                    config,
+                    os.path.basename(str(target_path or "").replace("\\", "/")),
+                    target_path,
+                    text_content,
+                )
+                if verify_ok:
+                    return True, f"{api_message} {verify_message}"
+                return False, f"{api_message} Post-upload verification failed: {verify_message}"
+            return False, f"{ftp_message} API fallback also failed: {api_message}"
+
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:
             return True, api_message
 
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-        if ftp_error:
-            return False, f"{api_message} FTP fallback also failed: {ftp_error}"
+        ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, target_path, text_content)
+        if ftp_success:
+            return True, ftp_message
 
-        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".xml") as temp_file:
-            temp_file.write(text_content)
-            temp_path = temp_file.name
-
-        remote_folder = os.path.dirname(str(target_path).replace("\\", "/"))
-        if remote_folder and remote_folder != "/":
-            try:
-                ftp.mkd(remote_folder)
-            except Exception:
-                pass
-
-        with open(temp_path, "rb") as file_obj:
-            ftp.storbinary(f"STOR {target_path}", file_obj)
-
-        ftp.quit()
-
-        try:
-            os.remove(temp_path)
-        except Exception:
-            pass
-
-        return True, f"Uploaded successfully via {ftp_host}."
+        return False, f"{api_message} FTP fallback also failed: {ftp_message}"
 
     except Exception as error:
         return False, str(error)
-    finally:
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
 
 
 def download_text_file_from_nitrado_ftp(config, target_path, exact_only=False):
@@ -29872,9 +29954,17 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             "mapgroupproto_path",
             ""
         )
-        eventgroups_root, eventgroups_parse_warning = parse_xml_root_or_new(eventgroups_text, "eventgroupdef")
+        eventgroups_root, eventgroups_parse_warning, eventgroups_parse_blocker = parse_console_ce_xml_source(
+            config,
+            "cfgeventgroups.xml",
+            eventgroups_text,
+            "eventgroupdef",
+            resolved_eventgroups_path,
+        )
         mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "prototype")
-        if eventgroups_parse_warning:
+        if eventgroups_parse_blocker:
+            output.setdefault("source_fallbacks", []).append(eventgroups_parse_blocker)
+        elif eventgroups_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"cfgeventgroups.xml: {eventgroups_parse_warning}")
         if mapgroupproto_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"mapgroupproto.xml: {mapgroupproto_parse_warning}")
