@@ -30335,6 +30335,8 @@ def upload_protected_ce_file_to_nitrado(config, label, path, text_content):
         restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path)
         suffix = f" Restore attempted: {restore_message}" if restore_message else ""
         return False, f"{upload_message} Live verification after failure: {live_message}.{suffix}"
+    if protected_dayz_xml_root_for_path(path):
+        return True, upload_message
     verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
     if verify_ok:
         return True, f"{upload_message} {verify_message}"
