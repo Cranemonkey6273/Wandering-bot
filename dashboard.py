@@ -6558,6 +6558,15 @@ PAGE_TEMPLATE = """
       {% set dmg_interval_unit = (dmg.interval_unit or server.config.damage_interval_unit or 'days') if server else 'days' %}
       {% set dmg_weekday = (dmg.day_of_week or server.config.damage_day_of_week or '') if server else '' %}
       {% set dmg_month_day = (dmg.day_of_month or server.config.damage_day_of_month or '') if server else '' %}
+      {% set dmg_restore = server.config.damage_restore_schedule if server and server.config.damage_restore_schedule else {} %}
+      {% set dmg_restore_enabled = dmg_restore.enabled if dmg_restore and dmg_restore.enabled is defined else (server.config.damage_restore_schedule_enabled if server else false) %}
+      {% set dmg_restore_first_date = (dmg_restore.first_date or server.config.damage_restore_first_date or '') if server else '' %}
+      {% set dmg_restore_time = (dmg_restore.time or server.config.damage_restore_time or '04:00') if server else '04:00' %}
+      {% set dmg_restore_timezone = (dmg_restore.timezone or server.config.damage_restore_timezone or 'Europe/Dublin') if server else 'Europe/Dublin' %}
+      {% set dmg_restore_interval_value = (dmg_restore.interval_value or server.config.damage_restore_interval_value or 14) if server else 14 %}
+      {% set dmg_restore_interval_unit = (dmg_restore.interval_unit or server.config.damage_restore_interval_unit or 'days') if server else 'days' %}
+      {% set dmg_restore_weekday = (dmg_restore.day_of_week or server.config.damage_restore_day_of_week or '') if server else '' %}
+      {% set dmg_restore_month_day = (dmg_restore.day_of_month or server.config.damage_restore_day_of_month or '') if server else '' %}
       {% set vr = server.config.vehicle_reset_schedule if server and server.config.vehicle_reset_schedule else {} %}
       {% set vr_enabled = server.config.vehicle_reset_schedule_enabled if server else false %}
       {% if vr and vr.enabled is defined %}
@@ -6572,6 +6581,7 @@ PAGE_TEMPLATE = """
       {% set vr_month_day = (vr.day_of_month or server.config.vehicle_reset_day_of_month or '') if server else '' %}
       {% set vr_method = (vr.method or server.config.vehicle_reset_method or 'cfgignorelist') if server else 'cfgignorelist' %}
       {% set dmg_next = (dmg.next_run_local or dmg.next_run_utc or '') if dmg else '' %}
+      {% set dmg_restore_next = (dmg_restore.next_run_local or dmg_restore.next_run_utc or '') if dmg_restore else '' %}
       {% set vr_next = (vr.next_run_local or vr.next_run_utc or '') if vr else '' %}
       <div class="mini-grid" style="margin-bottom:1rem">
         <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
@@ -6579,6 +6589,7 @@ PAGE_TEMPLATE = """
         <div class="mini-card"><span class="muted">Last restart</span><strong>{{ restart_status.last_restart.status|default('No log yet')|replace('_', ' ')|title }}</strong><span>{{ restart_status.last_restart.source|default('Waiting for bot/RPT')|replace('_', ' ')|title }}</span></div>
         <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_next %} · Next {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %} · From {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_next %} · Next {{ vr_next[:16]|replace('T', ' ') }}{% elif vr_first_date %} · From {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
+        <div class="mini-card"><span class="muted">Damage restore</span><strong>{{ 'On' if dmg_restore_enabled else 'Off' }}</strong><span>{% if dmg_restore_next %}Off write {{ dmg_restore_next[:16]|replace('T', ' ') }}{% elif dmg_restore_first_date and dmg_restore_enabled %}Off from {{ dmg_restore_first_date }} {{ dmg_restore_time }}{% elif dmg_restore_enabled %}Waiting for date{% else %}Manual until enabled{% endif %}</span></div>
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
@@ -6659,7 +6670,28 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
-            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>{{ 'Enabled' if dmg_enabled else 'Disabled' }}{% if dmg_next %}: next staged write {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %}: stages cfggameplay.json around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, repeating every {{ dmg_interval_value }} {{ dmg_interval_unit }}{% if dmg_weekday %} on {{ dmg_weekday|title }}{% endif %}{% if dmg_month_day %} on day {{ dmg_month_day }}{% endif %}. Restart is required before DayZ applies the staged damage flags.{% if dmg.last_error %} Last error: {{ dmg.last_error[:220] }}{% endif %}</span></div>
+            <div class="full embed-preview"><strong>Auto-off schedule</strong><span>Use this for the restart that should restore base and container protection after raid time.</span></div>
+            <label>Auto turn damage off <select name="damage_restore_schedule_enabled"><option value="false" {% if not dmg_restore_enabled %}selected{% endif %}>Off</option><option value="true" {% if dmg_restore_enabled %}selected{% endif %}>On</option></select><small class="field-help">Writes disableBaseDamage=true and disableContainerDamage=true before the chosen restart.</small></label>
+            <label>Turn-off date <input name="damage_restore_first_date" type="date" value="{{ dmg_restore_first_date }}"></label>
+            <label>Turn-off time <input name="damage_restore_time" type="time" value="{{ dmg_restore_time }}"></label>
+            <label>Turn-off timezone <input name="damage_restore_timezone" value="{{ dmg_restore_timezone }}"></label>
+            <label>Repeat off every <input name="damage_restore_interval_value" type="number" min="1" max="999" value="{{ dmg_restore_interval_value }}"></label>
+            <label>Repeat off unit
+              <select name="damage_restore_interval_unit">
+                <option value="hours" {% if dmg_restore_interval_unit == 'hours' %}selected{% endif %}>Hours</option>
+                <option value="days" {% if dmg_restore_interval_unit == 'days' %}selected{% endif %}>Days</option>
+                <option value="weeks" {% if dmg_restore_interval_unit == 'weeks' %}selected{% endif %}>Weeks</option>
+                <option value="months" {% if dmg_restore_interval_unit == 'months' %}selected{% endif %}>Months</option>
+              </select>
+            </label>
+            <label>Off preferred weekday
+              <select name="damage_restore_day_of_week">
+                <option value="">Use turn-off date</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_restore_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Off monthly day <input name="damage_restore_day_of_month" type="number" min="1" max="31" value="{{ dmg_restore_month_day }}" placeholder="optional"></label>
+            <div class="full embed-preview"><strong>Current Damage Plan</strong><span>Raid start {{ 'enabled' if dmg_enabled else 'disabled' }}{% if dmg_next %}: {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %}: around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, every {{ dmg_interval_value }} {{ dmg_interval_unit }}{% if dmg_weekday %} on {{ dmg_weekday|title }}{% endif %}{% if dmg_month_day %} on day {{ dmg_month_day }}{% endif %}. Protection restore {{ 'enabled' if dmg_restore_enabled else 'disabled' }}{% if dmg_restore_next %}: {{ dmg_restore_next[:16]|replace('T', ' ') }}{% elif dmg_restore_first_date %}: around 15 minutes before {{ dmg_restore_first_date }} {{ dmg_restore_time }} {{ dmg_restore_timezone }}{% endif %}, every {{ dmg_restore_interval_value }} {{ dmg_restore_interval_unit }}{% if dmg_restore_weekday %} on {{ dmg_restore_weekday|title }}{% endif %}{% if dmg_restore_month_day %} on day {{ dmg_restore_month_day }}{% endif %}. Restart is required before DayZ applies staged damage flags.{% if dmg.last_error %} Start error: {{ dmg.last_error[:180] }}{% endif %}{% if dmg_restore.last_error %} Restore error: {{ dmg_restore.last_error[:180] }}{% endif %}</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -15273,6 +15305,15 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
         "day_of_week": "",
         "day_of_month": 0,
     })
+    changed |= normalize_dashboard_schedule_pair(config, "damage_restore_schedule_enabled", "damage_restore_schedule", {
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 14,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
     changed |= normalize_dashboard_schedule_pair(config, "vehicle_reset_schedule_enabled", "vehicle_reset_schedule", {
         "method": "cfgignorelist",
         "first_date": "",
@@ -22169,6 +22210,53 @@ def api_server_control():
         config["damage_interval_unit"] = interval_unit
         config["damage_day_of_week"] = day_of_week
         config["damage_day_of_month"] = day_of_month
+    if "damage_restore_schedule_enabled" in payload:
+        config["damage_restore_schedule_enabled"] = safe_bool(payload.get("damage_restore_schedule_enabled"), False)
+    damage_restore_schedule_keys = {
+        "damage_restore_schedule_enabled",
+        "damage_restore_first_date",
+        "damage_restore_time",
+        "damage_restore_timezone",
+        "damage_restore_interval_value",
+        "damage_restore_interval_unit",
+        "damage_restore_day_of_week",
+        "damage_restore_day_of_month",
+    }
+    if damage_restore_schedule_keys.intersection(payload.keys()):
+        interval_unit = str(payload.get("damage_restore_interval_unit") or config.get("damage_restore_interval_unit") or "days").strip().lower()
+        if interval_unit not in {"hours", "days", "weeks", "months"}:
+            interval_unit = "days"
+        interval_value = max(1, min(999, safe_int(payload.get("damage_restore_interval_value"), safe_int(config.get("damage_restore_interval_value"), 14))))
+        first_date = safe_date(payload.get("damage_restore_first_date") or config.get("damage_restore_first_date"))
+        restore_time = safe_time(payload.get("damage_restore_time") or config.get("damage_restore_time") or "04:00")
+        timezone = str(payload.get("damage_restore_timezone") or config.get("damage_restore_timezone") or "Europe/Dublin").strip()[:80]
+        day_of_week = str(payload.get("damage_restore_day_of_week") or "").strip().lower()
+        if day_of_week not in {"", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}:
+            day_of_week = ""
+        day_of_month = safe_int(payload.get("damage_restore_day_of_month"), 0)
+        day_of_month = day_of_month if 1 <= day_of_month <= 31 else 0
+        schedule = {
+            "enabled": safe_bool(payload.get("damage_restore_schedule_enabled"), bool(config.get("damage_restore_schedule_enabled", False))),
+            "base_state": "off",
+            "container_state": "off",
+            "first_date": first_date,
+            "time": restore_time,
+            "timezone": timezone,
+            "interval_value": interval_value,
+            "interval_unit": interval_unit,
+            "day_of_week": day_of_week,
+            "day_of_month": day_of_month,
+            "next_run_local": f"{first_date}T{restore_time}:00" if first_date else "",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        config["damage_restore_schedule"] = schedule
+        config["damage_restore_first_date"] = first_date
+        config["damage_restore_time"] = restore_time
+        config["damage_restore_timezone"] = timezone
+        config["damage_restore_interval_value"] = interval_value
+        config["damage_restore_interval_unit"] = interval_unit
+        config["damage_restore_day_of_week"] = day_of_week
+        config["damage_restore_day_of_month"] = day_of_month
     if "vehicle_reset_schedule_enabled" in payload:
         config["vehicle_reset_schedule_enabled"] = safe_bool(payload.get("vehicle_reset_schedule_enabled"), False)
     if "vehicle_reset_method" in payload:
@@ -22237,7 +22325,7 @@ def api_server_control():
         "restart_log_channel_key",
     }.intersection(payload.keys()):
         saved_parts.append("restart schedule")
-    if {"base_damage_state", "container_damage_state"}.intersection(payload.keys()) or damage_schedule_keys.intersection(payload.keys()):
+    if {"base_damage_state", "container_damage_state"}.intersection(payload.keys()) or damage_schedule_keys.intersection(payload.keys()) or damage_restore_schedule_keys.intersection(payload.keys()):
         saved_parts.append("damage settings")
     if vehicle_schedule_keys.intersection(payload.keys()):
         saved_parts.append("vehicle reset schedule")

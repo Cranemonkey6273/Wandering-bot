@@ -22411,6 +22411,15 @@ def normalize_server_control_schedules(config):
         "day_of_week": "",
         "day_of_month": 0,
     })
+    changed |= normalize_schedule_pair(config, "damage_restore_schedule_enabled", "damage_restore_schedule", {
+        "first_date": "",
+        "time": "04:00",
+        "timezone": "Europe/Dublin",
+        "interval_value": 14,
+        "interval_unit": "days",
+        "day_of_week": "",
+        "day_of_month": 0,
+    })
     changed |= normalize_schedule_pair(config, "vehicle_reset_schedule_enabled", "vehicle_reset_schedule", {
         "method": "cfgignorelist",
         "first_date": "",
@@ -32980,23 +32989,7 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
     return event
 
 
-def apply_due_damage_schedule(guild_id, config, now_utc):
-    normalize_server_control_schedules(config)
-    if not schedule_bool(config.get("damage_schedule_enabled"), False):
-        return None
-
-    schedule = config.setdefault("damage_schedule", {})
-    if not isinstance(schedule, dict):
-        schedule = {}
-        config["damage_schedule"] = schedule
-    schedule.setdefault("enabled", schedule_bool(config.get("damage_schedule_enabled"), False))
-    schedule.setdefault("base_state", config.get("base_damage_state", "on"))
-    schedule.setdefault("container_state", config.get("container_damage_state", "on"))
-    schedule.setdefault("first_date", config.get("damage_first_date", ""))
-    schedule.setdefault("time", config.get("damage_time", "04:00"))
-    schedule.setdefault("timezone", config.get("damage_timezone", "Europe/Dublin"))
-    schedule.setdefault("interval_value", config.get("damage_interval_value", 7))
-    schedule.setdefault("interval_unit", config.get("damage_interval_unit", "days"))
+def _apply_due_damage_schedule_entry(guild_id, config, schedule, now_utc, label, base_default, container_default):
     if not schedule_bool(schedule.get("enabled"), True):
         return None
 
@@ -33011,8 +33004,8 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
     if last_attempt and now_utc < next_run and (now_utc - last_attempt) < timedelta(minutes=5):
         return None
 
-    base_state = normalized_damage_state(schedule.get("base_state") or config.get("base_damage_state") or "on")
-    container_state = normalized_damage_state(schedule.get("container_state") or config.get("container_damage_state") or "on")
+    base_state = normalized_damage_state(schedule.get("base_state") or base_default)
+    container_state = normalized_damage_state(schedule.get("container_state") or container_default)
     upload_ok, upload_message, cfggameplay_path, flags = upload_cfggameplay_damage_settings(
         guild_id,
         config,
@@ -33021,6 +33014,7 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
     )
     schedule["last_attempt_at"] = now_utc.isoformat()
     schedule["last_cfggameplay_path"] = cfggameplay_path
+    schedule["last_action"] = label
     if not upload_ok:
         schedule["last_error_at"] = now_utc.isoformat()
         schedule["last_error"] = upload_message
@@ -33028,6 +33022,7 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
         return {
             "guild_id": str(guild_id),
             "ok": False,
+            "schedule_label": label,
             "base_damage_state": base_state,
             "container_damage_state": container_state,
             "cfggameplay_path": cfggameplay_path,
@@ -33045,6 +33040,7 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
     return {
         "guild_id": str(guild_id),
         "ok": True,
+        "schedule_label": label,
         "base_damage_state": base_state,
         "container_damage_state": container_state,
         "cfggameplay_path": cfggameplay_path,
@@ -33052,6 +33048,63 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
         "flags": flags,
         "next_run_utc": schedule.get("next_run_utc", ""),
     }
+
+
+def apply_due_damage_schedule(guild_id, config, now_utc):
+    normalize_server_control_schedules(config)
+    results = []
+
+    if schedule_bool(config.get("damage_schedule_enabled"), False):
+        schedule = config.setdefault("damage_schedule", {})
+        if not isinstance(schedule, dict):
+            schedule = {}
+            config["damage_schedule"] = schedule
+        schedule.setdefault("enabled", schedule_bool(config.get("damage_schedule_enabled"), False))
+        schedule.setdefault("base_state", config.get("base_damage_state", "on"))
+        schedule.setdefault("container_state", config.get("container_damage_state", "on"))
+        schedule.setdefault("first_date", config.get("damage_first_date", ""))
+        schedule.setdefault("time", config.get("damage_time", "04:00"))
+        schedule.setdefault("timezone", config.get("damage_timezone", "Europe/Dublin"))
+        schedule.setdefault("interval_value", config.get("damage_interval_value", 7))
+        schedule.setdefault("interval_unit", config.get("damage_interval_unit", "days"))
+        result = _apply_due_damage_schedule_entry(
+            guild_id,
+            config,
+            schedule,
+            now_utc,
+            "raid_damage_on",
+            config.get("base_damage_state", "on"),
+            config.get("container_damage_state", "on"),
+        )
+        if result:
+            results.append(result)
+
+    if schedule_bool(config.get("damage_restore_schedule_enabled"), False):
+        restore_schedule = config.setdefault("damage_restore_schedule", {})
+        if not isinstance(restore_schedule, dict):
+            restore_schedule = {}
+            config["damage_restore_schedule"] = restore_schedule
+        restore_schedule.setdefault("enabled", schedule_bool(config.get("damage_restore_schedule_enabled"), False))
+        restore_schedule.setdefault("base_state", "off")
+        restore_schedule.setdefault("container_state", "off")
+        restore_schedule.setdefault("first_date", config.get("damage_restore_first_date", ""))
+        restore_schedule.setdefault("time", config.get("damage_restore_time", "04:00"))
+        restore_schedule.setdefault("timezone", config.get("damage_restore_timezone", "Europe/Dublin"))
+        restore_schedule.setdefault("interval_value", config.get("damage_restore_interval_value", 14))
+        restore_schedule.setdefault("interval_unit", config.get("damage_restore_interval_unit", "days"))
+        result = _apply_due_damage_schedule_entry(
+            guild_id,
+            config,
+            restore_schedule,
+            now_utc,
+            "raid_damage_off",
+            "off",
+            "off",
+        )
+        if result:
+            results.append(result)
+
+    return results or None
 
 
 # =========================================================
@@ -33786,14 +33839,16 @@ async def restart_delivery_processor():
 
             applied_damage = apply_due_damage_schedule(guild_id, config, now)
             if applied_damage:
-                status = "APPLIED" if applied_damage.get("ok") else "FAILED"
-                print(
-                    f"SCHEDULED DAMAGE SETTINGS {status} "
-                    f"{guild_id}: base={applied_damage.get('base_damage_state')} "
-                    f"container={applied_damage.get('container_damage_state')} "
-                    f"path={applied_damage.get('cfggameplay_path') or 'unknown'} "
-                    f"{applied_damage.get('message') or ''}"
-                )
+                for damage_result in applied_damage:
+                    status = "APPLIED" if damage_result.get("ok") else "FAILED"
+                    print(
+                        f"SCHEDULED DAMAGE SETTINGS {status} "
+                        f"{guild_id}: schedule={damage_result.get('schedule_label') or 'damage'} "
+                        f"base={damage_result.get('base_damage_state')} "
+                        f"container={damage_result.get('container_damage_state')} "
+                        f"path={damage_result.get('cfggameplay_path') or 'unknown'} "
+                        f"{damage_result.get('message') or ''}"
+                    )
 
             queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
             if queued_reset:
