@@ -4201,7 +4201,10 @@ PAGE_TEMPLATE = """
                 {% for emoji in onboarding_reaction_options %}<option value="{{ emoji }}" {% if emoji == onboarding.reaction_emoji %}selected{% endif %}>{{ emoji }}</option>{% endfor %}
               </select>
             </label>
-            <label>Exact rules message ID <input name="rules_message_id" value="{{ onboarding.rules_message_id }}" placeholder="optional - leave blank for any message in rules channel"></label>
+            <label>Exact rules message ID
+              <input name="rules_message_id" value="{{ onboarding.rules_message_id }}" placeholder="paste the real Discord rules message ID">
+              <small class="muted">Members react to this exact rules message only. If blank, the bot will try to use a pinned/existing real rules message and store it; it will not post a second reaction target.</small>
+            </label>
             <label>Give role after rules
               <select name="rules_role_id">
                 <option value="" {% if not onboarding.rules_role_id %}selected{% endif %}>No rules role selected</option>
@@ -4237,7 +4240,7 @@ PAGE_TEMPLATE = """
             <div class="full embed-preview">
               <strong>Current gate</strong>
               <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }}</span>
-              <small>Use Discord permissions so the rules role and linked role unlock the channels you want players to see.</small>
+              <small>Use Discord permissions so the rules role and linked role unlock the channels you want players to see. The bot no longer accepts reactions on its own onboarding notices.</small>
             </div>
             <div class="full modal-actions"><button type="submit">Save Onboarding Gate</button><span class="result muted"></span></div>
           </form>

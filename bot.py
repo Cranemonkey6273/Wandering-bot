@@ -2924,32 +2924,124 @@ async def remove_onboarding_role(member, role_id, reason):
         return False
 
 
+def onboarding_message_has_reaction(message, reaction_emoji):
+    wanted = str(reaction_emoji or "").strip()
+    if not wanted:
+        return False
+    for reaction in getattr(message, "reactions", []) or []:
+        if str(getattr(reaction, "emoji", "")) == wanted:
+            return True
+    return False
+
+
+def is_onboarding_bot_prompt_message(message):
+    for embed in getattr(message, "embeds", []) or []:
+        if str(getattr(embed, "title", "") or "").strip().upper() == "RULES CHECK REQUIRED":
+            return True
+        footer = getattr(embed, "footer", None)
+        footer_text = str(getattr(footer, "text", "") or "")
+        if "Member Onboarding" in footer_text:
+            return True
+    return False
+
+
+def is_onboarding_rules_message_candidate(message):
+    if is_onboarding_bot_prompt_message(message):
+        return False
+    if (getattr(message, "content", "") or "").strip():
+        return True
+    return bool(getattr(message, "embeds", None))
+
+
+async def fetch_onboarding_rules_message(channel, message_id):
+    message_text = str(message_id or "").strip()
+    if not message_text.isdigit():
+        return None
+    try:
+        message = await channel.fetch_message(int(message_text))
+        if is_onboarding_rules_message_candidate(message):
+            return message
+    except Exception as error:
+        print(f"[ONBOARDING] could not fetch configured rules message {message_text}: {error}")
+    return None
+
+
+async def find_existing_onboarding_rules_message(channel, reaction_emoji):
+    pinned_candidates = []
+    try:
+        pinned_candidates = [
+            message
+            for message in await channel.pins()
+            if is_onboarding_rules_message_candidate(message)
+        ]
+    except Exception as error:
+        print(f"[ONBOARDING] could not inspect pinned rules messages in #{getattr(channel, 'name', channel)}: {error}")
+
+    for message in pinned_candidates:
+        if onboarding_message_has_reaction(message, reaction_emoji):
+            return message
+    if pinned_candidates:
+        return pinned_candidates[0]
+
+    fallback = None
+    try:
+        async for message in channel.history(limit=100, oldest_first=False):
+            if not is_onboarding_rules_message_candidate(message):
+                continue
+            if onboarding_message_has_reaction(message, reaction_emoji):
+                return message
+            content = (getattr(message, "content", "") or "").strip()
+            if fallback is None and (len(content) >= 80 or getattr(message, "embeds", None)):
+                fallback = message
+    except Exception as error:
+        print(f"[ONBOARDING] could not inspect rules channel history in #{getattr(channel, 'name', channel)}: {error}")
+    return fallback
+
+
+def remember_onboarding_rules_message(config, settings, message_id):
+    if not isinstance(config, dict):
+        return
+    onboarding = config.get("member_onboarding")
+    if not isinstance(onboarding, dict):
+        onboarding = {}
+        config["member_onboarding"] = onboarding
+    message_text = str(message_id or "").strip()
+    if not message_text or str(onboarding.get("rules_message_id") or "").strip() == message_text:
+        return
+    onboarding["rules_message_id"] = message_text
+    settings["rules_message_id"] = message_text
+    try:
+        save_guild_configs()
+    except Exception as error:
+        print(f"[ONBOARDING] could not save discovered rules message {message_text}: {error}")
+
+
 async def send_member_onboarding_join_prompt(member, config, settings):
     channel = resolve_onboarding_channel(member.guild, config, settings, "rules", "welcome")
     if not channel:
         return False
-    embed = discord.Embed(
-        title="RULES CHECK REQUIRED",
-        description=(
-            f"{member.mention}\n\n"
-            f"{settings['welcome_message']}\n\n"
-            f"React with {settings['reaction_emoji']} when you accept the rules."
-        ),
-        color=0xFF9F43,
-    )
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+    reaction_emoji = settings["reaction_emoji"]
+    target_message = await fetch_onboarding_rules_message(channel, settings.get("rules_message_id"))
+    if not target_message:
+        target_message = await find_existing_onboarding_rules_message(channel, reaction_emoji)
+        if target_message:
+            remember_onboarding_rules_message(config, settings, getattr(target_message, "id", ""))
+    if not target_message:
+        print(f"[ONBOARDING] no real rules message target found in #{getattr(channel, 'name', channel)}; refusing to create a second reaction target")
+        return False
     try:
-        message = await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
-        if not settings.get("rules_message_id"):
-            try:
-                await message.add_reaction(settings["reaction_emoji"])
-            except Exception:
-                pass
+        await target_message.add_reaction(reaction_emoji)
+    except Exception as error:
+        print(f"[ONBOARDING] could not add rules reaction to message {getattr(target_message, 'id', '')}: {error}")
+    try:
+        await member.send(
+            f"Please read and react to the server rules here: {target_message.jump_url}\n"
+            f"React with {reaction_emoji} to unlock the next step, then use /linkgamer."
+        )
         return True
     except Exception as error:
-        print(f"[ONBOARDING] failed to send join prompt for {member}: {error}")
-        return False
+        print(f"[ONBOARDING] could not DM rules link to {member}: {error}")
+        return True
 
 
 async def apply_member_onboarding_rules_acceptance(guild, config, member):
@@ -17298,7 +17390,9 @@ async def on_raw_reaction_add(payload):
     if not rules_channel or int(payload.channel_id) != int(rules_channel.id):
         return
     rules_message_id = str(settings.get("rules_message_id") or "").strip()
-    if rules_message_id and str(payload.message_id) != rules_message_id:
+    if not rules_message_id:
+        return
+    if str(payload.message_id) != rules_message_id:
         return
     if str(payload.emoji) != settings.get("reaction_emoji"):
         return
@@ -28602,6 +28696,18 @@ def scenario_airdrop_scene_min_radius(event):
     return max(0, int(scene.get("min_radius") or 0))
 
 
+def scenario_airdrop_primary_static_child(event, class_name):
+    if event.get("visual_marker"):
+        marker_class = str(
+            scenario_airdrop_scene_config(event).get("marker")
+            or event.get("marker_class")
+            or ""
+        ).strip()
+        if marker_class:
+            return marker_class
+    return str(class_name or "").strip()
+
+
 def scenario_airdrop_child_offsets(index, radius=35, max_spread=None):
     try:
         radius_value = float(radius or 35)
@@ -29148,7 +29254,14 @@ def console_ce_records_for_event(event):
         family = "Static"
         use_eventgroup = True
         eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name)
-        child_records = []
+        child_records = [{
+            "type": scenario_airdrop_primary_static_child(event, class_name),
+            "count": 1,
+            "min": 1,
+            "max": 1,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
         count = 1
     if event_type == "animal_pack":
         vanilla_animal_name = vanilla_animal_ce_event_name(class_name)
@@ -29173,7 +29286,7 @@ def console_ce_records_for_event(event):
     record = {
         "name": record_name,
         "class_name": class_name,
-        "event_child_type": class_name,
+        "event_child_type": scenario_airdrop_primary_static_child(event, class_name) if use_eventgroup else class_name,
         "count": count,
         "lifetime": lifetime,
         "x": event.get("x"),
@@ -29186,7 +29299,7 @@ def console_ce_records_for_event(event):
         "child_lootmax": child_lootmax,
         "child_records": child_records,
         "eventgroup_children": eventgroup_children,
-        "empty_event_children": bool(use_eventgroup),
+        "empty_event_children": False,
         "nominal": 1 if use_eventgroup else None,
         "min_count": 1 if use_eventgroup else None,
         "max_count": 1 if use_eventgroup else None,
@@ -29194,7 +29307,7 @@ def console_ce_records_for_event(event):
         "saferadius": saferadius,
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
-        "remove_damaged": event_type in {"airdrop", "loot_crate"},
+        "remove_damaged": False,
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
         "use_existing_definition": event_type == "animal_pack",
     }
