@@ -215,6 +215,31 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
                     f"events.xml `{name}` has empty <children/> but cfgeventspawns has no "
                     "group reference either ? nothing to spawn."
                 )
+        if has_group_pos and not child_nodes and eventgroups_root is not None:
+            group_names = [
+                (pos.get("group") or "").strip()
+                for pos in spawn_node.findall("pos")
+                if (pos.get("group") or "").strip()
+            ]
+            for group_name in dict.fromkeys(group_names):
+                group_node = eventgroups_root.find(f"./group[@name='{group_name}']")
+                if group_node is None:
+                    continue
+                max_values: List[int] = []
+                for child in group_node.findall("child"):
+                    raw_max = child.get("max")
+                    if raw_max is None:
+                        raw_max = child.get("lootmax")
+                    try:
+                        max_values.append(int(str(raw_max or "0").strip() or 0))
+                    except ValueError:
+                        max_values.append(0)
+                if not max_values or max(max_values) <= 0:
+                    report.fail(
+                        f"events.xml `{name}` has empty <children/> and uses cfgeventgroups.xml "
+                        f"`{group_name}`, but all group child max/lootmax values are 0. DayZ disables "
+                        "child-limited Static events in this shape."
+                    )
 
     # cfgeventgroups validation.
     eventgroup_nodes: Dict[str, ET.Element] = {}

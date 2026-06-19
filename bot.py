@@ -29265,7 +29265,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         crate_x, crate_z = "0.0", "0.0"
     children.append({
         "type": class_name,
-        "spawnsecondary": "false",
         "x": crate_x,
         "z": crate_z,
         "a": "0.0",
@@ -30608,6 +30607,7 @@ def validate_console_ce_xml_bundle(built):
                 f"`{name}` uses its event group name as an events.xml child type; "
                 "use the real object classname, such as `WoodenCrate`, and keep the group name only in cfgeventspawns.xml."
             )
+        group_child_max_values = []
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()
             if not child_type:
@@ -30621,9 +30621,19 @@ def validate_console_ce_xml_bundle(built):
                 group_lootmax = int(str(child.get("lootmax") or "0"))
             except Exception:
                 group_lootmax = 0
+            try:
+                group_child_max = int(str(child.get("max") or "0"))
+            except Exception:
+                group_child_max = 0
+            group_child_max_values.append(max(group_lootmax, group_child_max))
             is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
             if group_lootmax <= 0 and not is_static_scene_prop:
                 messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
+        if child_nodes and max(group_child_max_values or [0]) <= 0:
+            messages.append(
+                f"`{name}` eventgroup children all have max/lootmax 0. DayZ disables child-limited Static events "
+                "in this shape."
+            )
 
     if territory_files:
         territories_node = cfgenvironment_root.find("territories") if cfgenvironment_root.tag != "territories" else cfgenvironment_root
@@ -30652,6 +30662,36 @@ def validate_console_ce_xml_bundle(built):
     if messages:
         return False, messages
     return True, [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
+
+
+def verify_uploaded_console_ce_xml_bundle(config, built):
+    remote_built = dict(built)
+    remote_built["source_fallbacks"] = []
+    messages = []
+    targets = [
+        ("events.xml", "events_path", "events_text"),
+        ("cfgeventspawns.xml", "spawns_path", "spawns_text"),
+        ("cfgspawnabletypes.xml", "spawnabletypes_path", "spawnabletypes_text"),
+        ("cfgeventgroups.xml", "eventgroups_path", "eventgroups_text"),
+        ("mapgroupproto.xml", "mapgroupproto_path", "mapgroupproto_text"),
+        ("cfgenvironment.xml", "cfgenvironment_path", "cfgenvironment_text"),
+        ("cfgareaeffects.xml", "cfgareaeffects_path", "cfgareaeffects_text"),
+    ]
+    for label, path_key, text_key in targets:
+        if not built.get(text_key):
+            continue
+        path = built.get(path_key)
+        if not path:
+            return False, [f"`{label}` final bundle check skipped because the remote path was missing."]
+        ok, message, text = download_text_file_from_nitrado(config, path)
+        if not ok or not str(text or "").strip():
+            return False, [f"`{label}` final bundle check failed after upload: {message}"]
+        remote_built[text_key] = text
+    validation_ok, validation_messages = validate_console_ce_xml_bundle(remote_built)
+    messages.extend(validation_messages)
+    if not validation_ok:
+        return False, ["Final remote CE bundle verification failed after upload."] + validation_messages
+    return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml."]
 
 
 def backup_remote_ce_sources_before_upload(config, built):
@@ -30876,6 +30916,10 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         messages.append(f"`cfgEffectArea.json`: {cfgeffectarea_message}")
 
     success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
+    if success:
+        final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
+        messages.extend(final_bundle_messages)
+        success = success and final_bundle_ok
     if success:
         settings = console_ce_event_config(config)
         settings["enabled"] = True

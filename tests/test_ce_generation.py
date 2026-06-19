@@ -157,6 +157,15 @@ class AirdropEventGroupTests(unittest.TestCase):
             "the real loot crate class must appear inside cfgeventgroups.xml, "
             "not in events.xml <children>",
         )
+        crate_child = next(child for child in children if child.get("type") == "WoodenCrate")
+        self.assertNotIn(
+            "spawnsecondary",
+            crate_child.attrib,
+            "the crate must be the primary loot-bearing eventgroup child; "
+            "secondary-only children make DayZ disable the Static event.",
+        )
+        self.assertGreater(int(crate_child.get("lootmax") or 0), 0)
+        self.assertGreaterEqual(int(crate_child.get("lootmin") or 0), 0)
 
 
 class VehicleAndZombieSpawnTests(unittest.TestCase):

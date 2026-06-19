@@ -177,6 +177,36 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             self.assertFalse(report.ok())
             self.assertTrue(any("No group configured for 'WoodenCrate'" in err for err in report.errors))
 
+    def test_validator_rejects_secondary_only_eventgroup_children(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        # Inject the live RPT regression: every eventgroup child is marked as a
+        # secondary scene prop, leaving DayZ with no positive child max/lootmax.
+        for child in eventgroups_root.findall("group/child"):
+            child.attrib.pop("lootmin", None)
+            child.attrib.pop("lootmax", None)
+            child.attrib.pop("deloot", None)
+            child.set("spawnsecondary", "false")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("all group child max/lootmax values are 0" in err for err in report.errors))
+
+    def test_validator_rejects_mixed_revision_bundle(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate", native_ce_revision=7)]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        # Simulate a partial upload/restore: events.xml has r7 while the spawn
+        # file references r8, matching the mixed-revision RPT symptom.
+        spawns_root.find("event").set("name", "StaticWanderingBot_29_airdrop_r8")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            rendered = "\n".join(report.errors)
+            self.assertIn("missing from cfgeventspawns.xml", rendered)
+            self.assertIn("missing from events.xml", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
