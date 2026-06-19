@@ -6955,11 +6955,88 @@ TRANSLATION_LANGUAGE_LABELS = {
 }
 
 
+TRANSLATION_LANGUAGE_MARKERS = {
+    "en": {
+        "a", "about", "and", "are", "back", "be", "but", "can", "do", "for",
+        "from", "get", "go", "have", "i", "im", "in", "is", "it", "its", "just",
+        "kind", "know", "like", "mind", "my", "of", "on", "see", "strange",
+        "that", "the", "this", "to", "up", "what", "why", "with", "you", "your",
+        "youre",
+    },
+    "de": {
+        "aber", "auf", "aus", "bin", "bist", "das", "dein", "den", "der", "die",
+        "du", "ein", "eine", "einfach", "er", "es", "geht", "hab", "habe",
+        "ich", "im", "in", "ist", "ja", "kein", "keine", "mein", "mit", "nicht",
+        "noch", "nur", "oder", "schon", "sie", "sind", "und", "verlierst",
+        "verstand", "was", "wie", "wir", "zu", "zur",
+    },
+}
+
+TRANSLATION_LANGUAGE_STRONG_CHARS = {
+    "de": set("äöüÄÖÜß"),
+}
+
+
 def _translation_language_label(code):
     code = normalize_translation_language(code, "auto")
     if code in {"auto", "autodetect"}:
         return "auto-detected"
     return TRANSLATION_LANGUAGE_LABELS.get(code, code.upper())
+
+
+def _translation_tokenize_for_detection(text):
+    normalized = str(text or "").lower().replace("'", "")
+    return re.findall(r"[a-zà-ÿ]+", normalized)
+
+
+def detect_translation_language_hint(text):
+    tokens = _translation_tokenize_for_detection(text)
+    if not tokens:
+        return "", 0
+    scores = defaultdict(int)
+    token_set = set(tokens)
+    for language, markers in TRANSLATION_LANGUAGE_MARKERS.items():
+        scores[language] += sum(1 for token in tokens if token in markers)
+    for language, chars in TRANSLATION_LANGUAGE_STRONG_CHARS.items():
+        if any(ch in str(text or "") for ch in chars):
+            scores[language] += 4
+    if "ich" in token_set or "nicht" in token_set:
+        scores["de"] += 2
+    if "you" in token_set or "your" in token_set or "youre" in token_set:
+        scores["en"] += 2
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    if not ranked or ranked[0][1] <= 0:
+        return "", 0
+    top_lang, top_score = ranked[0]
+    runner_up = ranked[1][1] if len(ranked) > 1 else 0
+    if top_score >= 3 and top_score >= runner_up + 2:
+        return top_lang, top_score
+    if top_score >= 5 and top_score > runner_up:
+        return top_lang, top_score
+    return "", top_score
+
+
+def translation_source_matches_text(text, source_language, target_language):
+    src = normalize_translation_language(source_language, "auto")
+    target = normalize_translation_language(target_language, "en")
+    if src in {"auto", "autodetect"}:
+        return True, ""
+    detected, score = detect_translation_language_hint(text)
+    if detected and detected != src:
+        return False, f"detected {detected}, expected {src}"
+    if not detected and target in TRANSLATION_LANGUAGE_MARKERS:
+        target_markers = TRANSLATION_LANGUAGE_MARKERS.get(target, set())
+        tokens = _translation_tokenize_for_detection(text)
+        target_score = sum(1 for token in tokens if token in target_markers)
+        if target_score >= 3:
+            return False, f"looks like target language {target}"
+    return True, ""
+
+
+def translation_embed_title(target_language):
+    target = normalize_translation_language(target_language, "en").upper()
+    label = _translation_language_label(target_language)
+    return f"{target} translation" if label == target else f"{label} translation"
 
 
 def _translation_provider_order():
@@ -7307,6 +7384,20 @@ async def maybe_translate_message(message):
             )
             continue
 
+        source_matches, source_skip_reason = translation_source_matches_text(
+            message.content,
+            src_lang,
+            target_lang,
+        )
+        if not source_matches:
+            print(f"[TRANSLATE] rule#{rule_index} skipped - {source_skip_reason}")
+            record_translation_runtime_stat(
+                guild_id,
+                "skipped",
+                f"rule#{rule_index} {source_skip_reason}",
+            )
+            continue
+
         translated = None
         used_source = src_lang
         last_result = ""
@@ -7361,17 +7452,31 @@ async def maybe_translate_message(message):
         fired_targets.add(target_key)
 
         embed = discord.Embed(
-            title=f"Translation -> {target_lang.upper()}",
+            title=translation_embed_title(target_lang),
             description=translated[:1500],
             color=0x1ABC9C,
         )
-        embed.add_field(name="From", value=message.author.mention, inline=True)
+        author_name = getattr(message.author, "display_name", None) or str(message.author)
+        avatar_url = getattr(getattr(message.author, "display_avatar", None), "url", None)
+        if avatar_url:
+            embed.set_author(name=str(author_name), icon_url=avatar_url)
+        else:
+            embed.set_author(name=str(author_name))
         if mode == "channel":
+            embed.add_field(name="From", value=message.author.mention, inline=True)
             embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
-        embed.set_footer(text=f"Translation {used_source.upper()} -> {target_lang.upper()}")
+        embed.set_footer(text=f"{used_source.upper()} -> {target_lang.upper()}")
 
         try:
-            await target_channel.send(embed=style_embed(embed))
+            same_channel = int(getattr(target_channel, "id", 0) or 0) == int(getattr(message.channel, "id", -1) or -1)
+            send_kwargs = {"embed": embed if same_channel else style_embed(embed)}
+            if same_channel:
+                send_kwargs.update({
+                    "reference": message,
+                    "mention_author": False,
+                    "allowed_mentions": discord.AllowedMentions.none(),
+                })
+            await target_channel.send(**send_kwargs)
             record_translation_runtime_stat(guild_id, "posted", f"rule#{rule_index} posted to {getattr(target_channel, 'id', '')}")
             print(f"[TRANSLATE] rule#{rule_index} posted to "
                   f"#{getattr(target_channel, 'name', target_channel.id)}")
