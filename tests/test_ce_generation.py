@@ -304,10 +304,11 @@ class MapGroupProtoTests(unittest.TestCase):
         record = records[0]
         proto_root = ET.Element("prototype")
         for child in record["eventgroup_children"]:
-            bot.add_mapgroupproto_loot_group(proto_root, child["type"])
+            if bot.eventgroup_child_needs_mapgroupproto(child):
+                bot.add_mapgroupproto_loot_group(proto_root, child["type"])
         names = {g.get("name") for g in proto_root.findall("group")}
         self.assertIn("WoodenCrate", names)
-        self.assertIn("Wreck_Mi8_Crashed", names)
+        self.assertNotIn("Wreck_Mi8_Crashed", names)
         crate_group = next(g for g in proto_root.findall("group") if g.get("name") == "WoodenCrate")
         container = crate_group.find("container")
         self.assertIsNotNone(container)
@@ -318,6 +319,13 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIsNotNone(container.find("point"))
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
+
+    def test_scene_marker_child_does_not_need_mapgroupproto(self):
+        event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
+        records, _ = bot.console_ce_records_for_event(event)
+        marker_child = next(child for child in records[0]["eventgroup_children"] if child.get("type") == "Wreck_Mi8_Crashed")
+
+        self.assertFalse(bot.eventgroup_child_needs_mapgroupproto(marker_child))
 
     def test_existing_bare_proto_group_gets_repaired(self):
         proto_root = ET.Element("prototype")

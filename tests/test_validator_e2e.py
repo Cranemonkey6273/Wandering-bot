@@ -87,6 +87,7 @@ def _emit_bundle(events):
         proto_classes = [
             (child.get("type") or "").strip()
             for child in record.get("eventgroup_children", []) or []
+            if bot.eventgroup_child_needs_mapgroupproto(child)
         ]
         for proto in dict.fromkeys(proto_classes):
             if proto:

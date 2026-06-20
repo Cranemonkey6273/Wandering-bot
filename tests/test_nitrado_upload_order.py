@@ -215,6 +215,34 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("non-WanderingBot", message)
         self.assertIn("StaticVanillaThing", message)
 
+    def test_scope_guard_allows_legacy_bare_airdrop_proto_repair(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="WoodenCrate" lootmax="80">
+        <usage name="Military" />
+        <point pos="0 0 0" range="0.5" height="0.5" />
+    </group>
+</prototype>
+"""
+        merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <!-- Wandering Bot: managed mapgroupproto group WoodenCrate -->
+    <group name="WoodenCrate" lootmax="80">
+        <usage name="Military" />
+        <container name="lootFloor" lootmax="80">
+            <category name="weapons" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" flags="32" />
+        </container>
+    </group>
+</prototype>
+"""
+
+        ok, message = bot.validate_managed_ce_xml_scope("mapgroupproto.xml", original, merged)
+
+        self.assertTrue(ok)
+        self.assertIn("only WanderingBot-managed", message)
+
     def test_scope_guard_success_messages_do_not_fail_bundle_validation(self):
         events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <events>

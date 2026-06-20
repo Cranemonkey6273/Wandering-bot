@@ -28967,6 +28967,8 @@ def is_wandering_scope_node(node):
     for attr in ("name", "path", "usable"):
         if is_wandering_managed_name(node.get(attr)):
             return True
+    if mapgroupproto_group_looks_like_legacy_bare_airdrop_proto(node):
+        return True
     if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
         return True
     return False
@@ -29719,14 +29721,32 @@ STALE_AIRDROP_PROTO_CLASSES = {
 }
 
 
+def mapgroupproto_group_looks_like_legacy_bare_airdrop_proto(group_node):
+    if getattr(group_node, "tag", None) != "group":
+        return False
+    name = str(group_node.get("name") or "").strip().lower()
+    if name not in STALE_AIRDROP_PROTO_CLASSES:
+        return False
+    if group_node.findall("container"):
+        return False
+    child_tags = {
+        str(getattr(child, "tag", "") or "").lower()
+        for child in list(group_node)
+        if not is_xml_comment_node(child)
+    }
+    return child_tags.issubset({"usage", "point", "value"})
+
+
 def mapgroupproto_group_looks_like_old_airdrop_proto(group_node):
-    # Only the actual bot fingerprint (<value name="Tier4"/>) counts as
-    # stale. The previous lootfloor+categories heuristic also matched
-    # community packs like StaticLivoniaRevampLoot and silently deleted
-    # their <group name="StaticObj_Misc_WoodenCrate_5x"> on every upload,
-    # which left the live RPT spamming:
+    # Only explicit legacy bot fingerprints count as stale. A previous broad
+    # lootfloor+categories heuristic also matched community packs like
+    # StaticLivoniaRevampLoot and silently deleted their
+    # <group name="StaticObj_Misc_WoodenCrate_5x"> on every upload, which left
+    # the live RPT spamming:
     #   [CE][SpawnRandomLoot] (StaticLivoniaRevampLoot_NN) :: !!! No group
     #   configured for 'StaticObj_Misc_WoodenCrate_5x', failed to spawn loot
+    if mapgroupproto_group_looks_like_legacy_bare_airdrop_proto(group_node):
+        return True
     name = str(group_node.get("name") or "").strip().lower()
     if name not in STALE_AIRDROP_PROTO_CLASSES:
         return False
@@ -29956,6 +29976,14 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
                 point.set("flags", "32")
                 changed = True
     return changed
+
+
+def eventgroup_child_needs_mapgroupproto(child_record):
+    if not isinstance(child_record, dict):
+        return False
+    if str(child_record.get("spawnsecondary") or "").strip().lower() == "false":
+        return False
+    return bool(str(child_record.get("type") or "").strip())
 
 
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
@@ -31041,6 +31069,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 proto_classes = [
                     str(child.get("type") or "").strip()
                     for child in eventgroup_children
+                    if eventgroup_child_needs_mapgroupproto(child)
                     if str(child.get("type") or "").strip()
                 ]
             for proto_class in dict.fromkeys(proto_classes):
@@ -31300,9 +31329,10 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         group_child_max_values = []
         for child in child_nodes:
             child_type = str(child.get("type") or "").strip()
+            is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
             if not child_type:
                 messages.append(f"`{name}` has an eventgroup child with no type.")
-            elif child_type not in proto_nodes:
+            elif not is_static_scene_prop and child_type not in proto_nodes:
                 messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
             for attr in ("x", "y", "z", "a"):
                 if str(child.get(attr) or "").strip() == "":
@@ -31316,10 +31346,9 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             except Exception:
                 group_child_max = 0
             group_child_max_values.append(max(group_lootmax, group_child_max))
-            is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
             if group_lootmax <= 0 and not is_static_scene_prop:
                 messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
-            if group_lootmax > 0 and child_type in proto_nodes:
+            if group_lootmax > 0 and not is_static_scene_prop and child_type in proto_nodes:
                 proto_node = proto_nodes[child_type]
                 if not mapgroupproto_group_has_usable_loot_container(proto_node):
                     messages.append(
