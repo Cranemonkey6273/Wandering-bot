@@ -11840,7 +11840,7 @@ def remember_scenario_upload_warning(event: dict[str, Any], warning: Any, now_te
 
 
 def dashboard_native_ce_source_blocked(messages: list[Any] | tuple[Any, ...] | None) -> bool:
-    combined = " | ".join(str(message or "") for message in (messages or []))
+    combined = " | ".join(str(message or "") for message in (messages or []) if not dashboard_successful_native_ce_fallback_message(message))
     lowered = combined.lower()
     return (
         "native ce xml upload blocked because the bot could not download" in lowered
@@ -11850,7 +11850,7 @@ def dashboard_native_ce_source_blocked(messages: list[Any] | tuple[Any, ...] | N
 
 
 def dashboard_native_ce_nitrado_response_blocked(messages: list[Any] | tuple[Any, ...] | None) -> bool:
-    combined = " | ".join(str(message or "") for message in (messages or []))
+    combined = " | ".join(str(message or "") for message in (messages or []) if not dashboard_successful_native_ce_fallback_message(message))
     lowered = combined.lower()
     return (
         "returned non-json response" in lowered
@@ -11866,9 +11866,44 @@ def dashboard_native_ce_upload_blocked(messages: list[Any] | tuple[Any, ...] | N
     return dashboard_native_ce_source_blocked(messages) or dashboard_native_ce_nitrado_response_blocked(messages)
 
 
+def dashboard_successful_native_ce_fallback_message(message: Any) -> bool:
+    text = str(message or "").lower()
+    return (
+        "api upload failed, so verified ftp live write was used" in text
+        and (
+            "post-upload re-download matched" in text
+            or "verified after upload" in text
+        )
+    )
+
+
+def dashboard_native_ce_failure_summary_messages(messages: list[Any] | tuple[Any, ...] | None, limit: int = 4) -> list[str]:
+    candidates: list[str] = []
+    for message in messages or []:
+        text = str(message or "")
+        lower = text.lower()
+        if dashboard_successful_native_ce_fallback_message(text):
+            continue
+        if any(token in lower for token in ("blocked", "failed", "invalid", "missing", "refusing", "exception", "error", "restore")):
+            candidates.append(text)
+    fallback = [
+        str(message)
+        for message in (messages or [])
+        if not dashboard_successful_native_ce_fallback_message(message)
+    ]
+    return (candidates or fallback)[-limit:]
+
+
+def dashboard_native_ce_failed_status_text(messages: list[Any] | tuple[Any, ...] | None) -> str:
+    summary = dashboard_native_ce_failure_summary_messages(messages)
+    return "Native CE XML upload failed: " + (" | ".join(summary) if summary else "no details")
+
+
 def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
     detail = ""
     for message in messages or []:
+        if dashboard_successful_native_ce_fallback_message(message):
+            continue
         text = str(message or "").strip()
         lowered = text.lower()
         if "could not download existing" in lowered or "rate-limit" in lowered or "cloudflare" in lowered:
@@ -11885,6 +11920,8 @@ def dashboard_native_ce_source_required_status(messages: list[Any] | tuple[Any, 
 def dashboard_native_ce_nitrado_response_status(messages: list[Any] | tuple[Any, ...] | None = None) -> str:
     detail = ""
     for message in messages or []:
+        if dashboard_successful_native_ce_fallback_message(message):
+            continue
         text = str(message or "").strip()
         lowered = text.lower()
         if (
@@ -12202,7 +12239,7 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     elif source_blocked:
         status_text = dashboard_native_ce_upload_blocked_status(messages)
     else:
-        status_text = "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+        status_text = dashboard_native_ce_failed_status_text(messages)
 
     for event in events:
         if not isinstance(event, dict):

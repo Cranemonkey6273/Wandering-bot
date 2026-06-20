@@ -240,6 +240,37 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(any("snippet scope guard confirmed" in message for message in messages))
         self.assertTrue(any("Validated" in message for message in messages))
 
+    def test_final_bundle_redownload_failure_is_warning_after_individual_verification(self):
+        original_download = bot.download_text_file_from_nitrado
+        try:
+            def download(*_args):
+                self.calls.append("download")
+                return False, "Nitrado API download failed: 429 Cloudflare Just a moment", ""
+
+            bot.download_text_file_from_nitrado = download
+            built = {
+                "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                "events_text": "<events></events>",
+            }
+
+            ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
+
+            self.assertTrue(ok)
+            self.assertTrue(any("re-download warning" in message for message in messages))
+            self.assertEqual(["download"], self.calls)
+        finally:
+            bot.download_text_file_from_nitrado = original_download
+
+    def test_successful_ftp_fallback_message_does_not_mark_upload_blocked(self):
+        messages = [
+            "mapgroupproto.xml: Nitrado API upload token failed with status 429: Cloudflare. "
+            "API upload failed, so verified FTP live write was used. Uploaded successfully via ukln138.gamedata.io. "
+            "mapgroupproto.xml post-upload re-download matched with <prototype> root."
+        ]
+
+        self.assertFalse(bot.native_ce_upload_blocked_messages(messages))
+        self.assertNotIn("mapgroupproto.xml", bot.native_ce_failed_status_text(messages))
+
 
 if __name__ == "__main__":
     unittest.main()

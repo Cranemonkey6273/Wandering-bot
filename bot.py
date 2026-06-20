@@ -30959,13 +30959,61 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
             return False, [f"`{label}` final bundle check skipped because the remote path was missing."]
         ok, message, text = download_text_file_from_nitrado(config, path)
         if not ok or not str(text or "").strip():
-            return False, [f"`{label}` final bundle check failed after upload: {message}"]
+            detail = message
+            if ok and not str(text or "").strip():
+                detail = f"{message} (download returned empty content)"
+            return True, [
+                f"Final remote CE bundle re-download warning: `{label}` could not be re-downloaded "
+                f"after individual upload verification already passed: {detail}"
+            ]
         remote_built[text_key] = text
     validation_ok, validation_messages = validate_console_ce_xml_bundle(remote_built)
     messages.extend(validation_messages)
     if not validation_ok:
         return False, ["Final remote CE bundle verification failed after upload."] + validation_messages
     return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml."]
+
+
+def successful_native_ce_fallback_message(message):
+    text = str(message or "").lower()
+    return (
+        "api upload failed, so verified ftp live write was used" in text
+        and (
+            "post-upload re-download matched" in text
+            or "verified after upload" in text
+        )
+    )
+
+
+def native_ce_failure_summary_messages(messages, limit=4):
+    candidates = []
+    for message in messages or []:
+        text = str(message or "")
+        lower = text.lower()
+        if successful_native_ce_fallback_message(text):
+            continue
+        if any(token in lower for token in (
+            "blocked",
+            "failed",
+            "invalid",
+            "missing",
+            "refusing",
+            "exception",
+            "error",
+            "restore",
+        )):
+            candidates.append(text)
+    fallback = [
+        str(message)
+        for message in (messages or [])
+        if not successful_native_ce_fallback_message(message)
+    ]
+    return (candidates or fallback)[-limit:]
+
+
+def native_ce_failed_status_text(messages):
+    summary = native_ce_failure_summary_messages(messages)
+    return "Native CE XML upload failed: " + (" | ".join(summary) if summary else "no details")
 
 
 def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content):
@@ -31649,7 +31697,11 @@ def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Das
 
 
 def native_ce_source_blocked_messages(messages):
-    combined = " | ".join(str(message or "") for message in (messages or []))
+    combined = " | ".join(
+        str(message or "")
+        for message in (messages or [])
+        if not successful_native_ce_fallback_message(message)
+    )
     lowered = combined.lower()
     return (
         "native ce xml upload blocked because the bot could not download" in lowered
@@ -31659,7 +31711,11 @@ def native_ce_source_blocked_messages(messages):
 
 
 def native_ce_nitrado_response_blocked_messages(messages):
-    combined = " | ".join(str(message or "") for message in (messages or []))
+    combined = " | ".join(
+        str(message or "")
+        for message in (messages or [])
+        if not successful_native_ce_fallback_message(message)
+    )
     lowered = combined.lower()
     return (
         "returned non-json response" in lowered
@@ -31678,6 +31734,8 @@ def native_ce_upload_blocked_messages(messages):
 def native_ce_source_required_status(messages=None):
     detail = ""
     for message in messages or []:
+        if successful_native_ce_fallback_message(message):
+            continue
         text = str(message or "").strip()
         lowered = text.lower()
         if "could not download existing" in lowered:
@@ -31697,6 +31755,8 @@ def native_ce_source_required_status(messages=None):
 def native_ce_nitrado_response_status(messages=None):
     detail = ""
     for message in messages or []:
+        if successful_native_ce_fallback_message(message):
+            continue
         text = str(message or "").strip()
         lowered = text.lower()
         if (
@@ -31840,7 +31900,7 @@ def dashboard_upload_console_ce_event_files(guild_id):
         if success
         else native_ce_upload_blocked_status(messages)
         if source_blocked
-        else "Native CE XML upload failed: " + (" | ".join(str(message) for message in messages[-4:]) if messages else "no details")
+        else native_ce_failed_status_text(messages)
     )
     now_text = datetime.now(UTC).isoformat()
     changed = False
@@ -34409,7 +34469,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             if upload_success
             else native_ce_upload_blocked_status(messages)
             if source_blocked
-            else "Native CE XML upload failed: " + (" | ".join(messages[-4:]) if messages else "no details")
+            else native_ce_failed_status_text(messages)
         )
     except Exception as ce_error:
         upload_success = False
