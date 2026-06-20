@@ -41,7 +41,6 @@ DATA_ROOT = (
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
-BOT_3D_VIEWER_FILE = os.getenv("WANDERING_BOT_3D_VIEWER_FILE", os.path.join(APP_ROOT, "wandering_bot_3d_viewer.html"))
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
@@ -1272,6 +1271,7 @@ PAGE_TEMPLATE = """
       border-radius: .5rem;
       box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, .3);
     }
+    .command-title-mark { display: none; }
     .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding: clamp(1rem, 4vw, 2rem); }
     h1 { margin: .2rem 0 .5rem; font-size: clamp(2rem, 5vw, 4.25rem); line-height: .95; text-transform: uppercase; letter-spacing: 0; }
     .hero img { width: min(11rem, 35vw); aspect-ratio: 1; object-fit: cover; border-radius: 50%; border: 2px solid var(--gold); }
@@ -1455,13 +1455,72 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] main {
       max-width: none;
       margin-left: var(--sidebar-w);
-      padding: 4.35rem .9rem 2.9rem;
+      padding: .9rem .9rem 2.9rem;
       gap: .9rem;
       overflow-x: hidden;
     }
-    body[data-theme="command"] .hero,
     body[data-theme="command"] .stats,
     body[data-theme="command"] .category-grid { display: none; }
+    body[data-theme="command"] .hero {
+      position: relative;
+      min-height: 5.9rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 1rem;
+      padding: .9rem 1rem;
+      overflow: hidden;
+      border-color: rgba(103,245,231,.14);
+      border-radius: .55rem;
+      background:
+        linear-gradient(120deg, rgba(8,24,29,.96), rgba(3,10,13,.94) 60%),
+        radial-gradient(circle at 86% 0%, rgba(255,159,67,.18), transparent 32%);
+      box-shadow: 0 18px 44px rgba(0,0,0,.24);
+    }
+    body[data-theme="command"] .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: .16rem;
+      background: linear-gradient(90deg, var(--orange), var(--accent), transparent);
+      opacity: .95;
+    }
+    body[data-theme="command"] .command-title-mark {
+      display: block;
+      margin: 0 0 .08rem;
+      color: var(--orange);
+      font-family: Impact, Haettenschweiler, "Arial Black", sans-serif;
+      font-size: clamp(1.35rem, 2.25vw, 2.35rem);
+      line-height: .92;
+      text-transform: uppercase;
+      letter-spacing: .035em;
+      text-shadow: 0 0 18px rgba(255,159,67,.18), 0 2px 0 rgba(0,0,0,.36);
+    }
+    body[data-theme="command"] .hero h1 {
+      margin: 0;
+      color: #effcff;
+      font-size: clamp(.92rem, 1.2vw, 1.25rem);
+      line-height: 1.1;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    body[data-theme="command"] .hero .muted {
+      margin: 0;
+      max-width: 72rem;
+      font-size: .82rem;
+      line-height: 1.35;
+    }
+    body[data-theme="command"] .hero .pills {
+      margin-top: .35rem;
+      justify-content: flex-start;
+    }
+    body[data-theme="command"] .hero > img {
+      width: 4.6rem;
+      height: 4.6rem;
+      border-radius: .55rem;
+      border-color: rgba(103,245,231,.34);
+      box-shadow: 0 .9rem 2.1rem rgba(0,0,0,.34), 0 0 26px rgba(103,245,231,.12);
+    }
     body[data-theme="command"][data-section="overview"] main > .grid,
     body[data-theme="command"][data-section="overview"] main > .servers { display: none; }
     body[data-theme="command"] .theme-picker button:not([data-theme-choice="command"]) {
@@ -1497,6 +1556,7 @@ PAGE_TEMPLATE = """
       position: relative;
       width: 100%;
       aspect-ratio: 1 / 1;
+      contain: layout paint size;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,.58);
       border-radius: .7rem;
@@ -1507,6 +1567,7 @@ PAGE_TEMPLATE = """
       display: block;
       width: 100%;
       height: 100%;
+      aspect-ratio: 1 / 1;
       object-fit: contain;
       object-position: center bottom;
       padding: .12rem;
@@ -1692,42 +1753,48 @@ PAGE_TEMPLATE = """
       display: flex;
       flex-wrap: nowrap;
       align-items: center;
-      gap: 1rem;
-      min-height: 3rem;
-      padding: .45rem .9rem;
+      gap: .55rem;
+      min-height: 3.6rem;
+      padding: .55rem .65rem;
       max-width: 100%;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: thin;
+      scrollbar-color: rgba(255,159,67,.72) rgba(103,245,231,.12);
       border-color: rgba(103,245,231,.16);
       border-radius: .55rem;
-      background: rgba(4,12,15,.68);
+      background: linear-gradient(180deg, rgba(9,25,30,.92), rgba(3,11,14,.86));
       -webkit-overflow-scrolling: touch;
-      margin: 0 0 .85rem;
+      margin: -.25rem 0 .85rem;
       flex-shrink: 0;
+      box-shadow: inset 0 0 0 1px rgba(255,159,67,.06), 0 1rem 2.2rem rgba(0,0,0,.18);
     }
     body[data-theme="command"] .section-nav .tab-link {
       flex: 0 0 auto;
-      min-height: 2rem;
-      padding: .35rem 0;
-      border: 0;
-      border-bottom: 2px solid transparent;
-      border-radius: 0;
-      background: transparent;
-      color: #92a8ad;
-      font-size: .72rem;
+      min-height: 2.55rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: .55rem .78rem;
+      border: 1px solid rgba(103,245,231,.13);
+      border-radius: .42rem;
+      background: rgba(4,16,20,.72);
+      color: #abc0c5;
+      font-size: .76rem;
       text-transform: uppercase;
-      letter-spacing: .06em;
+      letter-spacing: .045em;
       box-shadow: none;
     }
     body[data-theme="command"] .section-nav .tab-link:hover,
     body[data-theme="command"] .section-nav .tab-link:focus-visible {
       color: #effcff;
-      border-bottom-color: rgba(103,245,231,.55);
+      border-color: rgba(103,245,231,.42);
+      background: rgba(18,48,55,.72);
     }
     body[data-theme="command"] .section-nav .tab-link.active {
       color: #fff3df;
-      border-bottom-color: var(--orange);
+      border-color: rgba(255,159,67,.72);
+      background: linear-gradient(180deg, rgba(255,159,67,.22), rgba(18,49,56,.62));
       text-shadow: 0 0 18px rgba(255,159,67,.18);
     }
     .command-metrics {
@@ -1898,21 +1965,6 @@ PAGE_TEMPLATE = """
       object-fit: contain;
       object-position: center bottom;
       filter: drop-shadow(0 24px 32px rgba(0,0,0,.55));
-    }
-    .character-3d-embed {
-      overflow: hidden;
-      min-height: clamp(34rem, 72vh, 50rem);
-      border: 1px solid rgba(255,159,67,.28);
-      border-radius: .55rem;
-      background: rgba(2, 9, 11, .84);
-      box-shadow: inset 0 0 0 1px rgba(103,245,231,.10), 0 1.4rem 4rem rgba(0,0,0,.28);
-    }
-    .character-3d-embed iframe {
-      display: block;
-      width: 100%;
-      height: clamp(34rem, 72vh, 50rem);
-      border: 0;
-      background: #03070a;
     }
     .command-gear-column { display: grid; gap: .45rem; }
     .command-gear-card {
@@ -2927,7 +2979,7 @@ PAGE_TEMPLATE = """
   <aside class="command-sidebar" aria-label="Command dashboard navigation">
     <div class="command-logo">
       <div class="command-logo-frame">
-        <img class="command-logo-character" src="/brand-character" alt="Wandering Bot character">
+        <img class="command-logo-character" src="/brand-character" alt="Wandering Bot character" width="180" height="180" decoding="async" fetchpriority="high">
       </div>
       <div>
         <strong>Wandering Bot</strong>
@@ -2964,7 +3016,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('visual-loadout') %}<a class="{{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
-      <a class="{{ 'active' if active_section == 'character-3d' else '' }}" href="{{ dashboard_path }}?section=character-3d{{ server_qs }}">3D Character</a>
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
@@ -2985,10 +3036,11 @@ PAGE_TEMPLATE = """
     </div>
     {% endif %}
   </aside>
-  <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo">
+  <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo" width="64" height="64" loading="lazy" decoding="async">
   <main>
     <section class="hero">
       <div>
+        <p class="command-title-mark">Wandering Bot</p>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ 'AI Development Agent' if auth.kind == 'agent_account' else view_title }}</h1>
         <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Login when you manage more than one.{% endif %}</p>
@@ -3000,7 +3052,7 @@ PAGE_TEMPLATE = """
         </div>
         {% endif %}
       </div>
-      <img src="/brand-image" alt="Wandering Bot mark">
+      <img src="/brand-image" alt="Wandering Bot mark" width="96" height="96" decoding="async">
     </section>
 
     {% if auth.kind != "agent_account" %}
@@ -3054,7 +3106,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
       {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
       {% if section_allowed('visual-loadout') %}<a class="tab-link {{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
-      <a class="tab-link {{ 'active' if active_section == 'character-3d' else '' }}" href="{{ dashboard_path }}?section=character-3d{{ server_qs }}">3D Character</a>
       {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
@@ -3084,7 +3135,6 @@ PAGE_TEMPLATE = """
           {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
           {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
           {% if section_allowed('visual-loadout') %}<option value="/admin?section=visual-loadout{{ server_qs }}" {{ 'selected' if active_section == 'visual-loadout' else '' }}>Visual Loadout</option>{% endif %}
-          <option value="{{ dashboard_path }}?section=character-3d{{ server_qs }}" {{ 'selected' if active_section == 'character-3d' else '' }}>3D Character</option>
           {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk Economy</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
@@ -6279,20 +6329,6 @@ PAGE_TEMPLATE = """
             <span class="result muted" data-package-result></span>
           </form>
         </aside>
-      </div>
-    </section>
-    {% endif %}
-
-    {% if mode in ["admin", "owner"] and active_section == "character-3d" %}
-    <section class="section-panel" id="character-3d">
-      <div class="section-head">
-        <div>
-          <h2>3D Character</h2>
-          <p class="tool-note">Rotate, zoom and inspect the Wandering Bot character inside the dashboard.</p>
-        </div>
-      </div>
-      <div class="character-3d-embed">
-        <iframe src="/bot-3d" title="Rotatable Wandering Bot character"></iframe>
       </div>
     </section>
     {% endif %}
@@ -18341,7 +18377,6 @@ COMMAND_SECTION_META = {
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
     "loot-engine": {"kicker": "Loot", "title": "Loot Engine", "body": "Build curated loot pools, container cargo and pristine item templates."},
     "visual-loadout": {"kicker": "Spawn Gear", "title": "Visual Loadout", "body": "Assemble player loadouts with body slots, cargo, child attachments and exportable server files."},
-    "character-3d": {"kicker": "Brand", "title": "3D Character", "body": "View the Wandering Bot character as a rotatable dashboard model."},
     "bulk-economy": {"kicker": "Economy", "title": "Bulk Economy", "body": "Run wider economy edits and batch wallet or faction updates."},
     "server-rules": {"kicker": "Rules", "title": "Server Rules", "body": "Publish and maintain server rules for players and Discord panels."},
     "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
@@ -19668,7 +19703,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "character-3d", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if auth.get("kind") != "owner" and active_section == "owner":
@@ -19953,13 +19988,6 @@ def brand_character():
         return send_file(BOT_CHARACTER_FILE)
     if os.path.exists(BOT_IMAGE_FILE):
         return send_file(BOT_IMAGE_FILE)
-    return ("", 404)
-
-
-@APP.get("/bot-3d")
-def bot_3d_viewer():
-    if os.path.exists(BOT_3D_VIEWER_FILE):
-        return send_file(BOT_3D_VIEWER_FILE)
     return ("", 404)
 
 
