@@ -6981,6 +6981,57 @@ PAGE_TEMPLATE = """
           </form>
           <p class="tool-note" style="margin-top:.75rem">This verifies the other server's private dashboard login before it appears in this dashboard group.</p>
         </article>
+        {% if not auth.temporary_login_id %}
+        <article class="admin-panel full" id="temporary-logins">
+          <h3>Temporary Dashboard Logins</h3>
+          <p class="tool-note">Create short-lived dashboard details for a server admin, helper, or promo recording. Revoke any login here when it is finished.</p>
+          <form class="admin-form" method="post" action="/api/admin/temp-login" data-route="/api/admin/temp-login">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#temporary-logins">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Label <input name="label" placeholder="Promo editor, admin trial, setup helper"></label>
+            <label>Dashboard ID <input name="dashboard_id" autocomplete="off" placeholder="leave blank to generate one"></label>
+            <label>Password <input name="password" type="password" autocomplete="new-password" placeholder="at least 8 characters"></label>
+            <label>Duration
+              <select name="duration_hours">
+                <option value="24">24 hours</option>
+                <option value="6">6 hours</option>
+                <option value="168">7 days</option>
+                <option value="0">Until deleted</option>
+              </select>
+            </label>
+            <div class="full"><button type="submit">Create Login</button> <span class="result muted"></span></div>
+          </form>
+          <table class="table" style="margin-top:1rem">
+            <thead><tr><th>Label</th><th>Dashboard ID</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% if server %}
+              {% for login in server.dashboard_access.temporary_logins %}
+              <tr>
+                <td>{{ login.label }}</td>
+                <td><code>{{ login.dashboard_id }}</code></td>
+                <td><span class="pill {{ 'ok' if login.status == 'active' else 'bad' }}">{{ login.status }}</span></td>
+                <td>{{ login.expires_at or 'Until deleted' }}</td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/temp-login-action" data-route="/api/admin/temp-login-action" data-confirm="Revoke this temporary dashboard login?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="login_id" value="{{ login.id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id }}#temporary-logins">
+                    <button type="submit">Revoke</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5">No temporary dashboard logins yet.</td></tr>
+              {% endfor %}
+              {% else %}
+              <tr><td colspan="5">No server selected.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </article>
+        {% endif %}
         <article class="admin-panel full" id="linked-servers">
           <h3>Linked Dashboard Servers</h3>
           <p class="tool-note">Switch between every server available to this dashboard login. The active card controls which server every page edits.</p>
@@ -11619,6 +11670,8 @@ ADMIN_ROUTES = [
     "/api/admin/scenario-event-status",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
+    "/api/admin/temp-login",
+    "/api/admin/temp-login-action",
     "/api/admin/zone",
     "/api/admin/zone-action",
     "/api/admin/member-action",
@@ -14859,6 +14912,11 @@ def make_session_cookie(guild_id: str, credentials: dict[str, Any]) -> str:
     return f"{guild_id}:{session_signature(guild_id, credentials)}"
 
 
+def make_temp_session_cookie(guild_id: str, login_id: str, credentials: dict[str, Any]) -> str:
+    signature = session_signature(f"{guild_id}:temp:{login_id}", credentials)
+    return f"{guild_id}:temp:{login_id}:{signature}"
+
+
 def owner_session_signature() -> str:
     return hashlib.sha256(f"owner:{OWNER_DASHBOARD_PASSWORD}:{DASHBOARD_COOKIE_SECRET}".encode("utf-8")).hexdigest()
 
@@ -14903,21 +14961,118 @@ def dashboard_feature_allowed(config: dict[str, Any], feature: str) -> bool:
 
 
 def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str, Any] | None]:
+    match = find_dashboard_login_by_id(dashboard_id)
+    if match:
+        return match[0], match[1]
+    return None, None
+
+
+def temp_dashboard_logins_for_config(config: dict[str, Any] | None) -> list[dict[str, Any]]:
+    dashboard = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    logins = dashboard.get("temporary_logins") if isinstance(dashboard, dict) else []
+    return logins if isinstance(logins, list) else []
+
+
+def temp_dashboard_login_expired(login: dict[str, Any], now: datetime | None = None) -> bool:
+    expires_at = str(login.get("expires_at") or "").strip()
+    if not expires_at:
+        return False
+    now = now or datetime.now(UTC)
+    try:
+        parsed = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC) <= now
+
+
+def active_temp_dashboard_login_by_id(config: dict[str, Any] | None, login_id: str) -> dict[str, Any] | None:
+    login_id = str(login_id or "").strip()
+    if not login_id:
+        return None
+    for login in temp_dashboard_logins_for_config(config):
+        if not isinstance(login, dict):
+            continue
+        if str(login.get("id") or "").strip() != login_id:
+            continue
+        if not safe_bool(login.get("enabled"), True) or temp_dashboard_login_expired(login):
+            return None
+        credentials = login.get("credentials") if isinstance(login.get("credentials"), dict) else login
+        if not isinstance(credentials, dict) or not credentials.get("dashboard_id"):
+            return None
+        return login
+    return None
+
+
+def temp_dashboard_credentials(login: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(login, dict):
+        return None
+    credentials = login.get("credentials") if isinstance(login.get("credentials"), dict) else login
+    return credentials if isinstance(credentials, dict) and credentials.get("dashboard_id") else None
+
+
+def find_dashboard_login_by_id(dashboard_id: str) -> tuple[str, dict[str, Any], dict[str, Any], str, str] | None:
     dashboard_id = str(dashboard_id or "").strip().lower()
     if not dashboard_id:
-        return None, None
+        return None
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
-        return None, None
+        return None
+    now = datetime.now(UTC)
     for guild_id, config in guild_configs.items():
         if not isinstance(config, dict):
             continue
         credentials = dashboard_credentials_for_config(config)
-        if not isinstance(credentials, dict):
-            continue
-        if str(credentials.get("dashboard_id") or "").strip().lower() == dashboard_id:
-            return str(guild_id), config
-    return None, None
+        if isinstance(credentials, dict) and str(credentials.get("dashboard_id") or "").strip().lower() == dashboard_id:
+            return str(guild_id), config, credentials, "primary", ""
+        for login in temp_dashboard_logins_for_config(config):
+            if not isinstance(login, dict) or not safe_bool(login.get("enabled"), True):
+                continue
+            if temp_dashboard_login_expired(login, now):
+                continue
+            temp_credentials = temp_dashboard_credentials(login)
+            if not isinstance(temp_credentials, dict):
+                continue
+            if str(temp_credentials.get("dashboard_id") or "").strip().lower() == dashboard_id:
+                return str(guild_id), config, temp_credentials, "temporary", str(login.get("id") or "")
+    return None
+
+
+def new_dashboard_password_credentials(dashboard_id: str, password: str) -> dict[str, str]:
+    salt = secrets.token_urlsafe(16)
+    return {
+        "dashboard_id": dashboard_id,
+        "password_salt": salt,
+        "password_hash": dashboard_password_hash(password, salt),
+    }
+
+
+def unique_temp_dashboard_id(config: dict[str, Any], label: str = "") -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", str(label or config.get("guild_name") or "server").strip().lower()).strip("-")
+    if not base:
+        base = "server"
+    for _ in range(20):
+        candidate = f"wb-{base[:24]}-{secrets.token_hex(2)}"
+        if not find_dashboard_login_by_id(candidate):
+            return candidate
+    return f"wb-{secrets.token_hex(8)}"
+
+
+def public_temp_dashboard_login(login: dict[str, Any]) -> dict[str, Any]:
+    credentials = temp_dashboard_credentials(login) or {}
+    expired = temp_dashboard_login_expired(login)
+    return {
+        "id": str(login.get("id") or ""),
+        "label": str(login.get("label") or "Temporary admin"),
+        "dashboard_id": str(credentials.get("dashboard_id") or login.get("dashboard_id") or ""),
+        "expires_at": str(login.get("expires_at") or ""),
+        "created_at": str(login.get("created_at") or ""),
+        "created_by": str(login.get("created_by") or ""),
+        "enabled": safe_bool(login.get("enabled"), True),
+        "expired": expired,
+        "status": "expired" if expired else ("active" if safe_bool(login.get("enabled"), True) else "revoked"),
+    }
 
 
 def linked_guild_ids_for_config(config: dict[str, Any], primary_guild_id: str) -> list[str]:
@@ -14961,7 +15116,14 @@ def current_auth() -> dict[str, Any] | None:
     cookie = request.cookies.get("dashboard_session", "")
     if ":" not in cookie:
         return None
-    guild_id, signature = cookie.split(":", 1)
+    cookie_parts = cookie.split(":")
+    if len(cookie_parts) == 2:
+        guild_id, signature = cookie_parts
+        temp_login_id = ""
+    elif len(cookie_parts) == 4 and cookie_parts[1] == "temp":
+        guild_id, _, temp_login_id, signature = cookie_parts
+    else:
+        return None
     guild_configs = load_store("guild_configs", {})
     if guild_id == "owner" and OWNER_DASHBOARD_PASSWORD:
         if secrets.compare_digest(signature, owner_session_signature()):
@@ -14972,18 +15134,34 @@ def current_auth() -> dict[str, Any] | None:
         return None
     if not dashboard_admin_login_enabled(config):
         return None
-    credentials = dashboard_credentials_for_config(config)
-    if not isinstance(credentials, dict):
-        return None
-    expected = session_signature(guild_id, credentials)
+    login_label = str(config.get("guild_name") or f"Guild {guild_id}")
+    temporary_login_id = ""
+    if temp_login_id:
+        login = active_temp_dashboard_login_by_id(config, temp_login_id)
+        credentials = temp_dashboard_credentials(login)
+        if not isinstance(credentials, dict):
+            return None
+        expected = session_signature(f"{guild_id}:temp:{temp_login_id}", credentials)
+        temporary_login_id = temp_login_id
+        temp_label = str((login or {}).get("label") or "Temporary admin").strip()
+        if temp_label:
+            login_label = f"{login_label} ({temp_label})"
+    else:
+        credentials = dashboard_credentials_for_config(config)
+        if not isinstance(credentials, dict):
+            return None
+        expected = session_signature(guild_id, credentials)
     if not secrets.compare_digest(signature, expected):
         return None
-    return {
+    auth = {
         "kind": "guild",
         "guild_id": guild_id,
-        "guild_ids": linked_guild_ids_for_config(config, guild_id),
-        "label": str(config.get("guild_name") or f"Guild {guild_id}"),
+        "guild_ids": [guild_id] if temporary_login_id else linked_guild_ids_for_config(config, guild_id),
+        "label": login_label,
     }
+    if temporary_login_id:
+        auth["temporary_login_id"] = temporary_login_id
+    return auth
 
 
 def login_page(error: str = ""):
@@ -18270,6 +18448,11 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
         "owner_admin_visible": safe_bool(access.get("owner_admin_visible"), False),
         "allowed_role_ids": [str(item) for item in access.get("allowed_role_ids", []) if item],
         "allowed_user_ids": [str(item) for item in access.get("allowed_user_ids", []) if item],
+        "temporary_logins": [
+            public_temp_dashboard_login(login)
+            for login in temp_dashboard_logins_for_config(config)
+            if isinstance(login, dict)
+        ],
         "features": {
             "economy": bool(features.get("economy", False)),
             "embeds": bool(features.get("embeds", False)),
@@ -20203,18 +20386,23 @@ def login_post():
         )
         return response
 
-    guild_id, config = find_guild_by_dashboard_id(dashboard_id)
-    if not guild_id or not isinstance(config, dict):
+    login_match = find_dashboard_login_by_id(dashboard_id)
+    if not login_match:
         return login_page("Dashboard ID or password is incorrect."), 401
+    guild_id, config, credentials, login_kind, temp_login_id = login_match
     if not dashboard_admin_login_enabled(config):
         return login_page("Dashboard access is currently disabled for this server."), 403
-    credentials = dashboard_credentials_for_config(config)
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         return login_page("Dashboard ID or password is incorrect."), 401
     response = make_response(redirect("/admin"))
+    session_cookie = (
+        make_temp_session_cookie(guild_id, temp_login_id, credentials)
+        if login_kind == "temporary" and temp_login_id
+        else make_session_cookie(guild_id, credentials)
+    )
     response.set_cookie(
         "dashboard_session",
-        make_session_cookie(guild_id, credentials),
+        session_cookie,
         httponly=True,
         secure=True,
         samesite="Lax",
@@ -21883,14 +22071,16 @@ def api_link_server():
     auth = current_auth()
     if not auth:
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    if auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot link servers"}), 403
     raw_payload = request_payload() or {}
     payload = strip_dashboard_control_fields(raw_payload)
     dashboard_id = str(payload.get("dashboard_id") or "").strip()
     password = str(payload.get("password") or "")
-    target_guild_id, target_config = find_guild_by_dashboard_id(dashboard_id)
-    if not target_guild_id or not isinstance(target_config, dict):
+    login_match = find_dashboard_login_by_id(dashboard_id)
+    if not login_match:
         return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
-    credentials = dashboard_credentials_for_config(target_config)
+    target_guild_id, target_config, credentials, _login_kind, _temp_login_id = login_match
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         return jsonify({"ok": False, "error": "dashboard ID or password is incorrect"}), 401
     if auth["kind"] == "owner":
@@ -21931,6 +22121,118 @@ def api_link_server():
         {"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)},
         "access",
         "#linked-servers",
+    )
+
+
+@APP.post("/api/admin/temp-login")
+def api_temp_login():
+    auth = current_auth()
+    if auth and auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot create other logins"}), 403
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id") or (auth or {}).get("guild_id"))
+    if not guild_id or guild_id == "global":
+        return jsonify({"ok": False, "error": "server is required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        return jsonify({"ok": False, "error": "server config was not found"}), 404
+
+    label = str(raw_payload.get("label") or "Temporary admin").strip()[:80] or "Temporary admin"
+    password = str(raw_payload.get("password") or "")
+    if len(password) < 8:
+        return jsonify({"ok": False, "error": "temporary login password must be at least 8 characters"}), 400
+    dashboard_id = str(raw_payload.get("dashboard_id") or "").strip()
+    if dashboard_id:
+        if len(dashboard_id) > 80 or ":" in dashboard_id or any(ch.isspace() for ch in dashboard_id):
+            return jsonify({"ok": False, "error": "dashboard ID must be under 80 characters with no spaces"}), 400
+        if find_dashboard_login_by_id(dashboard_id):
+            return jsonify({"ok": False, "error": "that dashboard ID is already in use"}), 409
+    else:
+        dashboard_id = unique_temp_dashboard_id(config, label)
+
+    duration_hours = safe_int(raw_payload.get("duration_hours"), 24)
+    if duration_hours < 0:
+        duration_hours = 24
+    if duration_hours > 24 * 30:
+        duration_hours = 24 * 30
+    now = datetime.now(UTC)
+    expires_at = "" if duration_hours == 0 else (now + timedelta(hours=duration_hours)).isoformat()
+    dashboard = config.setdefault("dashboard", {})
+    if not isinstance(dashboard, dict):
+        dashboard = {}
+        config["dashboard"] = dashboard
+    logins = dashboard.setdefault("temporary_logins", [])
+    if not isinstance(logins, list):
+        logins = []
+        dashboard["temporary_logins"] = logins
+    login = {
+        "id": f"temp-{now.strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+        "label": label,
+        "credentials": new_dashboard_password_credentials(dashboard_id, password),
+        "expires_at": expires_at,
+        "enabled": True,
+        "created_at": now.isoformat(),
+        "created_by": str((auth or {}).get("kind") or "dashboard"),
+    }
+    logins.append(login)
+    dashboard["temporary_logins_updated_at"] = now.isoformat()
+    save_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {
+            "ok": True,
+            "login": public_temp_dashboard_login(login),
+            "note": f"Temporary dashboard login created. Dashboard ID: {dashboard_id}",
+        },
+        "access",
+        "#temporary-logins",
+    )
+
+
+@APP.post("/api/admin/temp-login-action")
+def api_temp_login_action():
+    auth = current_auth()
+    if auth and auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot manage other logins"}), 403
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    action = str(raw_payload.get("action") or "delete").strip().lower()
+    if action not in {"delete", "revoke", "disable"}:
+        return jsonify({"ok": False, "error": "unsupported temporary login action"}), 400
+    guild_id = normalize_guild_id(raw_payload.get("guild_id") or (auth or {}).get("guild_id"))
+    login_id = str(raw_payload.get("login_id") or "").strip()
+    if not guild_id or guild_id == "global" or not login_id:
+        return jsonify({"ok": False, "error": "server and login_id are required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else None
+    if not isinstance(config, dict):
+        return jsonify({"ok": False, "error": "server config was not found"}), 404
+    dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    logins = dashboard.get("temporary_logins") if isinstance(dashboard, dict) else []
+    if not isinstance(logins, list):
+        return jsonify({"ok": False, "error": "temporary login not found"}), 404
+    before = len(logins)
+    dashboard["temporary_logins"] = [
+        login for login in logins
+        if not (isinstance(login, dict) and str(login.get("id") or "") == login_id)
+    ]
+    if len(dashboard["temporary_logins"]) == before:
+        return jsonify({"ok": False, "error": "temporary login not found"}), 404
+    dashboard["temporary_logins_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "deleted": login_id, "note": "Temporary dashboard login revoked."},
+        "access",
+        "#temporary-logins",
     )
 
 
