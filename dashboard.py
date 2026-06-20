@@ -107,6 +107,31 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
         {"name": "Dolnik", "x": 11350, "z": 11350},
     ],
 }
+DASHBOARD_MAP_LABELS = {
+    "livonia": [
+        {"name": "Lukow", "x": 3560, "z": 11880, "kind": "major"},
+        {"name": "Brena", "x": 6660, "z": 11160, "kind": "major"},
+        {"name": "Tarnow", "x": 9200, "z": 10450, "kind": "major"},
+        {"name": "Dolnik", "x": 11350, "z": 11350, "kind": "major"},
+        {"name": "Sobotka", "x": 6350, "z": 8200, "kind": "major"},
+        {"name": "Topolin", "x": 10800, "z": 7900, "kind": "major"},
+        {"name": "Polana", "x": 10700, "z": 5400, "kind": "major"},
+        {"name": "Nadbor", "x": 6050, "z": 3920, "kind": "major"},
+        {"name": "Lembork", "x": 8500, "z": 8700, "kind": "minor"},
+        {"name": "Radunin", "x": 9130, "z": 3500, "kind": "minor"},
+        {"name": "Swarog", "x": 4800, "z": 2270, "kind": "minor"},
+        {"name": "Lukow Airfield", "x": 3800, "z": 11700, "kind": "landmark"},
+    ],
+    "chernarus": [
+        {"name": "NWAF", "x": 4481, "z": 10355, "kind": "landmark"},
+        {"name": "Tisy", "x": 1612, "z": 14175, "kind": "landmark"},
+        {"name": "Vybor", "x": 4600, "z": 8400, "kind": "major"},
+        {"name": "Zelenogorsk", "x": 2520, "z": 5140, "kind": "major"},
+        {"name": "Cherno", "x": 6560, "z": 2520, "kind": "major"},
+        {"name": "Elektro", "x": 10480, "z": 2320, "kind": "major"},
+        {"name": "Berezino", "x": 12200, "z": 9500, "kind": "major"},
+    ],
+}
 SCENARIO_LOOT_PRESETS = {
     "none": [],
     "military_high": [
@@ -2670,8 +2695,11 @@ PAGE_TEMPLATE = """
     .zone-builder-form { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .zone-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .zone-tool-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; }
-    .zone-map-viewport { width: 100%; overflow: visible; border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); }
-    .zone-map-viewport .zone-map { border: 0; border-radius: .45rem; margin: 0 auto; }
+    .zone-map-viewport { width: 100%; overflow: auto; max-height: min(78vh, 58rem); border: 1px solid var(--line); border-radius: .5rem; background: rgba(5,8,6,.45); overscroll-behavior: contain; }
+    .zone-map-viewport .zone-map { width: var(--zone-map-display-size, 512px); max-width: none; border: 0; border-radius: .45rem; margin: 0 auto; }
+    .zone-map-toolbar { position: sticky; top: 0; z-index: 16; display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; padding: .5rem; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 88%, #000); }
+    .zone-map-toolbar button { min-height: 2rem; padding: .3rem .55rem; font-size: .82rem; }
+    .zone-map-toolbar span { margin-left: auto; color: var(--muted); font-size: .82rem; font-weight: 800; }
     .zone-map { position: relative; width: min(100%, var(--zone-map-display-size, 512px)); max-width: 100%; margin-inline: auto; min-height: 0; aspect-ratio: 1 / 1; border: 1px solid var(--line); border-radius: .5rem; overflow: hidden; isolation: isolate; contain: paint; background:
       var(--map-image),
       radial-gradient(circle at 22% 68%, rgba(213,180,95,.18), transparent 10%),
@@ -2688,6 +2716,9 @@ PAGE_TEMPLATE = """
     .zone-map-hit-layer { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: crosshair; opacity: 1; object-fit: fill; }
     .zone-map-hit-label { position: absolute; left: .75rem; bottom: .65rem; z-index: 8; padding: .32rem .5rem; border: 1px solid var(--line); border-radius: .35rem; background: rgba(5,8,6,.74); color: var(--text); font-size: .82rem; font-weight: 900; pointer-events: none; }
     .zone-map-hit-layer:focus-visible { outline: 2px solid #fff; outline-offset: -4px; background: rgba(255,255,255,.04); }
+    .map-town-label { position: absolute; z-index: 3; transform: translate(-50%, -50%); pointer-events: none; padding: .16rem .32rem; border: 1px solid rgba(5,8,6,.62); border-radius: .28rem; background: rgba(243,236,217,.78); color: #10170d; font-size: .66rem; font-weight: 950; line-height: 1; letter-spacing: 0; text-shadow: 0 1px 0 rgba(255,255,255,.34); box-shadow: 0 1px 4px rgba(0,0,0,.18); white-space: nowrap; }
+    .map-town-label.major { font-size: .75rem; background: rgba(245,238,215,.9); }
+    .map-town-label.landmark { background: rgba(56,189,248,.82); color: #06131a; }
     .zone-radius-ring { position: absolute; transform: translate(-50%, -50%); width: var(--zone-radius, 3%); aspect-ratio: 1 / 1; border: 2px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 82%, #fff); border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--zone-colour, var(--gold)) 16%, transparent) 0 58%, color-mix(in srgb, var(--zone-colour, var(--gold)) 30%, transparent) 59% 100%); box-shadow: 0 0 26px color-mix(in srgb, var(--zone-colour, var(--gold)) 48%, transparent); pointer-events: none; z-index: 4; }
     .zone-radius-ring { padding: 0; min-height: 0; color: inherit; text-decoration: none; }
     .zone-dot { position: absolute; transform: translate(-50%, -50%); min-width: 34px; min-height: 34px; border: 3px solid var(--zone-colour, var(--gold)); background: color-mix(in srgb, var(--zone-colour, var(--gold)) 58%, rgba(5,8,6,.16)); border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: .82rem; font-weight: 900; text-shadow: 0 1px 2px #000; cursor: pointer; box-shadow: 0 0 0 3px rgba(5,8,6,.44), 0 0 22px color-mix(in srgb, var(--zone-colour, var(--gold)) 72%, transparent); z-index: 5; isolation: isolate; }
@@ -4655,6 +4686,12 @@ PAGE_TEMPLATE = """
               </div>
             </div>
             <div class="full zone-map-viewport">
+            <div class="zone-map-toolbar">
+              <button type="button" data-zone-map-zoom="out">Zoom -</button>
+              <button type="button" data-zone-map-zoom="reset">Reset</button>
+              <button type="button" data-zone-map-zoom="in">Zoom +</button>
+              <span data-zone-map-zoom-label>100%</span>
+            </div>
             <div class="zone-map" data-zone-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: 512px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
               {% if server and not server.map_image_available %}
               <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and this builder will use it automatically.</div>
@@ -4670,6 +4707,9 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="map_click_override" value="">
               <input class="hidden-field" name="draft_radius" value="{{ edit_zone.radius }}">
               <span class="zone-map-hit-label">Click empty map to add zone</span>
+              {% for label in (server.map_labels if server else []) %}
+              <span class="map-town-label {{ label.kind }}" style="left: {{ label.x_percent }}%; top: {{ label.y_percent }}%;">{{ label.name }}</span>
+              {% endfor %}
               <svg class="zone-boundary-layer" data-boundary-layer viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
               {% if draft_zone_active and edit_zone.shape == "circle" %}
               <span class="zone-radius-ring {{ edit_zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ edit_zone.colour }}; --zone-radius: {{ draft_radius_percent }}%; left: {{ draft_x_percent }}%; top: {{ draft_y_percent }}%;"></span>
@@ -5622,6 +5662,9 @@ PAGE_TEMPLATE = """
                   {% if server and not server.map_image_available %}
                   <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and the airdrop picker will use it automatically.</div>
                   {% endif %}
+                  {% for label in (server.map_labels if server else []) %}
+                  <span class="map-town-label {{ label.kind }}" style="left: {{ label.x_percent }}%; top: {{ label.y_percent }}%;">{{ label.name }}</span>
+                  {% endfor %}
                 </div>
                 <div class="airdrop-map-tools">
                   <button type="button" data-airdrop-clear>Clear Locations</button>
@@ -6546,6 +6589,11 @@ PAGE_TEMPLATE = """
       {% set restart_on = server and server.config.restart_schedule_enabled == true and server.config.restart_schedule_confirmed == true %}
       {% set restart_hours = (server.config.restart_interval_hours if server else 4) or 4 %}
       {% set restart_start = (server.config.restart_start_hour if server else 0) or 0 %}
+      {% if server %}
+      {% set restart_timezone = restart_status.timezone or server.config.restart_timezone or server.config.server_timezone or server.config.timezone or 'Europe/Dublin' %}
+      {% else %}
+      {% set restart_timezone = 'Europe/Dublin' %}
+      {% endif %}
       {% set restart_warnings = (server.config.restart_warning_minutes|join(', ') if server and server.config.restart_warning_minutes else '30, 15, 10, 5, 1') %}
       {% set base_state = (server.config.base_damage_state if server else 'on') or 'on' %}
       {% set container_state = (server.config.container_damage_state if server else 'on') or 'on' %}
@@ -6584,7 +6632,7 @@ PAGE_TEMPLATE = """
       {% set dmg_restore_next = (dmg_restore.next_run_local or dmg_restore.next_run_utc or '') if dmg_restore else '' %}
       {% set vr_next = (vr.next_run_local or vr.next_run_utc or '') if vr else '' %}
       <div class="mini-grid" style="margin-bottom:1rem">
-        <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ restart_start }}:00 UTC</span></div>
+        <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ '%02d'|format(restart_start|int) }}:00 {{ restart_timezone }}</span></div>
         <div class="mini-card"><span class="muted">Next restart</span><strong>{{ restart_status.next_restart_uk }}</strong><span>{% if restart_status.minutes_until is not none %}In about {{ restart_status.minutes_until }} min{% else %}Schedule disabled{% endif %}</span></div>
         <div class="mini-card"><span class="muted">Last restart</span><strong>{{ restart_status.last_restart.status|default('No log yet')|replace('_', ' ')|title }}</strong><span>{{ restart_status.last_restart.source|default('Waiting for bot/RPT')|replace('_', ' ')|title }}</span></div>
         <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_next %} · Next {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %} · From {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
@@ -6598,8 +6646,9 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Restart schedule <select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
+            <label>Server timezone <input name="server_timezone" value="{{ restart_timezone }}"><small class="field-help">IANA name, for example Europe/London, Europe/Berlin, America/New_York, or UTC.</small></label>
             <label>Every hours <input name="restart_interval_hours" type="number" min="1" max="24" value="{{ restart_hours }}"></label>
-            <label>Start hour UTC <input name="restart_start_hour" type="number" min="0" max="23" value="{{ restart_start }}"></label>
+            <label>Start hour local <input name="restart_start_hour" type="number" min="0" max="23" value="{{ restart_start }}"><small class="field-help">This hour is read in the server timezone above.</small></label>
             <label>Warning minutes <input name="restart_warning_minutes" value="{{ restart_warnings|replace(' ', '') }}"></label>
             <label>Notify channel
               <select name="restart_channel_key">
@@ -10933,6 +10982,31 @@ PAGE_TEMPLATE = """
         "#f472b6",
         "#60a5fa",
       ];
+      const viewport = map.closest(".zone-map-viewport");
+      const zoomLabel = viewport ? viewport.querySelector("[data-zone-map-zoom-label]") : null;
+      const baseMapSize = 512;
+      let mapZoom = Number(map.dataset.zoom || 1);
+
+      function applyMapZoom(nextZoom, keepCenter = true) {
+        if (!viewport) return;
+        const previousRect = map.getBoundingClientRect();
+        const centerX = viewport.scrollLeft + (viewport.clientWidth / 2);
+        const centerY = viewport.scrollTop + (viewport.clientHeight / 2);
+        const ratioX = previousRect.width ? centerX / previousRect.width : 0.5;
+        const ratioY = previousRect.height ? centerY / previousRect.height : 0.5;
+        mapZoom = Math.max(1, Math.min(3, Number(nextZoom) || 1));
+        map.dataset.zoom = String(mapZoom);
+        map.style.setProperty("--zone-map-display-size", `${Math.round(baseMapSize * mapZoom)}px`);
+        if (zoomLabel) zoomLabel.textContent = `${Math.round(mapZoom * 100)}%`;
+        window.requestAnimationFrame(() => {
+          updateMapClickMetrics();
+          renderCirclePreview();
+          if (keepCenter) {
+            viewport.scrollLeft = Math.max(0, (map.clientWidth * ratioX) - (viewport.clientWidth / 2));
+            viewport.scrollTop = Math.max(0, (map.clientHeight * ratioY) - (viewport.clientHeight / 2));
+          }
+        });
+      }
 
       function escapeHtml(value) {
         return String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -11227,6 +11301,21 @@ PAGE_TEMPLATE = """
           renderBoundary();
         });
       }
+      if (viewport) {
+        viewport.querySelectorAll("[data-zone-map-zoom]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const action = button.dataset.zoneMapZoom;
+            if (action === "in") applyMapZoom(mapZoom + 0.25);
+            else if (action === "out") applyMapZoom(mapZoom - 0.25);
+            else applyMapZoom(1, false);
+          });
+        });
+      }
+      map.addEventListener("wheel", (event) => {
+        if (!event.ctrlKey && !event.metaKey) return;
+        event.preventDefault();
+        applyMapZoom(mapZoom + (event.deltaY < 0 ? 0.25 : -0.25));
+      }, {passive: false});
       map.addEventListener("pointerdown", updateMapClickMetrics, true);
       map.addEventListener("click", updateMapClickMetrics, true);
       window.addEventListener("resize", () => updateMapClickMetrics());
@@ -11443,6 +11532,7 @@ PAGE_TEMPLATE = """
       setZoneEditingState(zoneFields.zoneId && zoneFields.zoneId.value ? (zoneFields.name ? zoneFields.name.value : "zone") : "");
       syncRadius(radiusInput ? radiusInput.value : 250);
       syncZoneColour(colourInput ? colourInput.value : zonePalette[0]);
+      applyMapZoom(mapZoom, false);
       updateMapClickMetrics();
       loadBoundaryFromField();
       if (zoneFields.zoneId && zoneFields.zoneId.value) {
@@ -15332,11 +15422,16 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
         if minute > 0 and minute not in warnings:
             warnings.append(minute)
     changed |= set_dashboard_config_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+    timezone_name = dashboard_server_timezone_name(config)
+    restart_timezone = dashboard_restart_timezone_name(config)
+    changed |= set_dashboard_config_if_changed(config, "server_timezone", timezone_name)
+    changed |= set_dashboard_config_if_changed(config, "adm_timezone", config.get("adm_timezone") or timezone_name)
+    changed |= set_dashboard_config_if_changed(config, "restart_timezone", restart_timezone or timezone_name)
 
     changed |= normalize_dashboard_schedule_pair(config, "damage_schedule_enabled", "damage_schedule", {
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 7,
         "interval_unit": "days",
         "day_of_week": "",
@@ -15345,7 +15440,7 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
     changed |= normalize_dashboard_schedule_pair(config, "damage_restore_schedule_enabled", "damage_restore_schedule", {
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 14,
         "interval_unit": "days",
         "day_of_week": "",
@@ -15355,7 +15450,7 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
         "method": "cfgignorelist",
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 7,
         "interval_unit": "days",
         "day_of_week": "",
@@ -17303,12 +17398,51 @@ def local_dashboard_clock() -> str:
     return datetime.now(DASHBOARD_TIMEZONE).strftime("%H:%M")
 
 
+def validate_dashboard_timezone_name(value: Any, default: str = "Europe/Dublin") -> tuple[str, str]:
+    clean = str(value or default or "UTC").strip()
+    try:
+        ZoneInfo(clean)
+        return clean, ""
+    except Exception:
+        return "", f"{clean} is not a valid IANA timezone. Use values like Europe/London, Europe/Berlin, America/New_York, or UTC."
+
+
+def dashboard_server_timezone_name(config: dict[str, Any] | None, default: str = "Europe/Dublin") -> str:
+    configured = default
+    if isinstance(config, dict):
+        configured = (
+            config.get("server_timezone")
+            or config.get("timezone")
+            or config.get("adm_timezone")
+            or default
+        )
+    clean, _ = validate_dashboard_timezone_name(configured, default)
+    return clean or "UTC"
+
+
+def dashboard_restart_timezone_name(config: dict[str, Any] | None) -> str:
+    configured = ""
+    if isinstance(config, dict):
+        configured = config.get("restart_timezone") or config.get("server_timezone") or config.get("timezone")
+    clean, _ = validate_dashboard_timezone_name(configured, "Europe/Dublin")
+    return clean or "UTC"
+
+
+def dashboard_restart_timezone(config: dict[str, Any] | None) -> ZoneInfo:
+    try:
+        return ZoneInfo(dashboard_restart_timezone_name(config))
+    except Exception:
+        return ZoneInfo("UTC")
+
+
 def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
         config = {}
     enabled = config.get("restart_schedule_enabled") is True and config.get("restart_schedule_confirmed") is True
     interval = max(1, min(24, safe_int(config.get("restart_interval_hours"), 4)))
     start_hour = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
+    timezone_name = dashboard_restart_timezone_name(config)
+    local_tz = dashboard_restart_timezone(config)
     warnings = []
     for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
         minute = safe_int(item, 0)
@@ -17316,8 +17450,10 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
             warnings.append(minute)
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
     history = config.get("restart_history") if isinstance(config.get("restart_history"), list) else []
-    now = datetime.now(UTC)
+    now_utc = datetime.now(UTC)
+    now_local = now_utc.astimezone(local_tz)
     next_restart_utc = None
+    next_restart_local = None
     minutes_until = None
     if enabled:
         candidate_hours = [
@@ -17328,21 +17464,25 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
             candidate_hours = [start_hour]
         candidates = []
         for day_offset in (0, 1):
-            base_date = (now + timedelta(days=day_offset)).date()
+            base_date = (now_local + timedelta(days=day_offset)).date()
             for hour in candidate_hours:
-                candidate = datetime(base_date.year, base_date.month, base_date.day, hour, 0, tzinfo=UTC)
-                if candidate > now:
-                    candidates.append(candidate)
-        next_restart_utc = min(candidates) if candidates else None
+                candidate_local = datetime(base_date.year, base_date.month, base_date.day, hour, 0, tzinfo=local_tz)
+                if candidate_local > now_local:
+                    candidates.append(candidate_local)
+        next_restart_local = min(candidates) if candidates else None
+        next_restart_utc = next_restart_local.astimezone(UTC) if next_restart_local else None
         if next_restart_utc:
-            minutes_until = int((next_restart_utc - now).total_seconds() // 60)
+            minutes_until = int((next_restart_utc - now_utc).total_seconds() // 60)
+    next_restart_label = next_restart_local.strftime(f"%Y-%m-%d %H:%M {timezone_name}") if next_restart_local else "Not scheduled"
     return {
         "enabled": enabled,
         "interval_hours": interval,
         "start_hour": start_hour,
+        "timezone": timezone_name,
         "warnings": sorted(warnings, reverse=True),
         "next_restart_utc": next_restart_utc.isoformat() if next_restart_utc else "",
-        "next_restart_uk": next_restart_utc.astimezone(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M UK") if next_restart_utc else "Not scheduled",
+        "next_restart_local": next_restart_label,
+        "next_restart_uk": next_restart_label,
         "minutes_until": minutes_until,
         "warning_channel_key": str(config.get("restart_channel_key") or "admin_logs"),
         "warning_channel_id": str(config.get("restart_channel_id") or channels.get(config.get("restart_channel_key") or "admin_logs") or ""),
@@ -18958,6 +19098,24 @@ def dashboard_airdrop_location_presets(server_map: str) -> list[dict[str, Any]]:
     return [dict(item) for item in presets]
 
 
+def dashboard_map_labels(server_map: str) -> list[dict[str, Any]]:
+    key = map_key_for(server_map)
+    map_size = map_size_for(server_map)
+    labels = []
+    for label in DASHBOARD_MAP_LABELS.get(key, []):
+        x = max(0, min(map_size, safe_int(label.get("x"))))
+        z = max(0, min(map_size, safe_int(label.get("z"))))
+        labels.append({
+            "name": str(label.get("name") or "").strip(),
+            "kind": str(label.get("kind") or "minor").strip(),
+            "x": x,
+            "z": z,
+            "x_percent": round((x / map_size) * 100, 3) if map_size else 0,
+            "y_percent": round(100 - ((z / map_size) * 100), 3) if map_size else 0,
+        })
+    return [label for label in labels if label["name"]]
+
+
 def dashboard_airdrop_preset_location(server_map: str, name: Any) -> dict[str, Any] | None:
     wanted = str(name or "").strip().lower()
     if not wanted:
@@ -19396,6 +19554,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
                 "map": server_map,
                 "map_key": map_key_for(server_map),
                 "map_size": map_size_for(server_map),
+                "map_labels": redact(dashboard_map_labels(server_map)),
                 "map_image_available": map_image_available_for(server_map),
                 "platform": server_platform,
                 "platform_label": dashboard_server_platform_label(server_platform),
@@ -22180,6 +22339,18 @@ def api_server_control():
         config["restart_interval_hours"] = max(1, min(24, safe_int(payload.get("restart_interval_hours"), 4)))
     if "restart_start_hour" in payload:
         config["restart_start_hour"] = max(0, min(23, safe_int(payload.get("restart_start_hour"), 0)))
+    if "server_timezone" in payload or "restart_timezone" in payload:
+        timezone_value = payload.get("restart_timezone") or payload.get("server_timezone") or config.get("restart_timezone") or config.get("server_timezone") or "Europe/Dublin"
+        timezone_name, timezone_error = validate_dashboard_timezone_name(timezone_value)
+        if timezone_error:
+            return jsonify({"ok": False, "error": timezone_error}), 400
+        config["server_timezone"] = timezone_name
+        config["timezone"] = timezone_name
+        config["adm_timezone"] = timezone_name
+        config["restart_timezone"] = timezone_name
+        config.setdefault("damage_timezone", timezone_name)
+        config.setdefault("damage_restore_timezone", timezone_name)
+        config.setdefault("vehicle_reset_timezone", timezone_name)
     if "restart_warning_minutes" in payload:
         warnings = []
         for item in csv_list(payload.get("restart_warning_minutes", [])):
@@ -22357,6 +22528,8 @@ def api_server_control():
         "restart_schedule_enabled",
         "restart_interval_hours",
         "restart_start_hour",
+        "server_timezone",
+        "restart_timezone",
         "restart_warning_minutes",
         "restart_channel_key",
         "restart_log_channel_key",

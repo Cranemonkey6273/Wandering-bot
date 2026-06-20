@@ -2,8 +2,40 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from tests._bot_loader import import_bot_module
+
+
+class RestartTimezoneTests(unittest.TestCase):
+    def setUp(self):
+        self.bot = import_bot_module()
+
+    def test_restart_timezone_prefers_server_timezone(self):
+        config = {"server_timezone": "America/New_York"}
+
+        self.assertEqual("America/New_York", self.bot.restart_timezone_name(config))
+        self.assertEqual("America/New_York", str(self.bot.restart_timezone_for_config(config)))
+
+    def test_restart_minutes_are_calculated_from_local_time(self):
+        config = {"server_timezone": "America/New_York"}
+        local_now = datetime(2026, 6, 20, 6, 50, tzinfo=UTC).astimezone(
+            self.bot.restart_timezone_for_config(config)
+        )
+
+        self.assertEqual(10, self.bot._minutes_until_next_restart(local_now, 3, 4))
+
+    def test_apply_server_timezone_links_restart_and_adm_time(self):
+        config = {}
+
+        clean, error = self.bot.apply_server_timezone(config, "Europe/Berlin")
+
+        self.assertEqual("", error)
+        self.assertEqual("Europe/Berlin", clean)
+        self.assertEqual("Europe/Berlin", config["server_timezone"])
+        self.assertEqual("Europe/Berlin", config["adm_timezone"])
+        self.assertEqual("Europe/Berlin", config["restart_timezone"])
+        self.assertIsInstance(ZoneInfo(config["restart_timezone"]), ZoneInfo)
 
 
 class DamageRestoreScheduleTests(unittest.TestCase):

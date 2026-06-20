@@ -11043,6 +11043,69 @@ def adm_timezone_for_config(config=None):
         return UTC
 
 
+def validate_timezone_name(timezone_name, default="Europe/Dublin"):
+    clean = str(timezone_name or default or "UTC").strip()
+    try:
+        ZoneInfo(clean)
+        return clean, ""
+    except Exception:
+        return "", f"`{clean}` is not a valid IANA timezone. Examples: `Europe/London`, `Europe/Berlin`, `America/New_York`, `America/Chicago`, `UTC`."
+
+
+def server_timezone_name(config=None, default="Europe/Dublin"):
+    if isinstance(config, dict):
+        configured = (
+            config.get("server_timezone")
+            or config.get("timezone")
+            or config.get("adm_timezone")
+            or default
+        )
+    else:
+        configured = default
+    clean, _ = validate_timezone_name(configured, default)
+    return clean or "UTC"
+
+
+def restart_timezone_name(config=None):
+    if isinstance(config, dict):
+        configured = config.get("restart_timezone") or config.get("server_timezone") or config.get("timezone")
+    else:
+        configured = ""
+    clean, _ = validate_timezone_name(configured, "Europe/Dublin")
+    return clean or "UTC"
+
+
+def restart_timezone_for_config(config=None):
+    try:
+        return ZoneInfo(restart_timezone_name(config))
+    except Exception:
+        return UTC
+
+
+def apply_server_timezone(config, timezone_name):
+    clean, error = validate_timezone_name(timezone_name)
+    if error:
+        return "", error
+    if not isinstance(config, dict):
+        return "", "Server config is missing."
+    config["server_timezone"] = clean
+    config["timezone"] = clean
+    config["adm_timezone"] = clean
+    config["restart_timezone"] = clean
+    config.setdefault("damage_timezone", clean)
+    config.setdefault("damage_restore_timezone", clean)
+    config.setdefault("vehicle_reset_timezone", clean)
+    for schedule_key, config_key in (
+        ("damage_schedule", "damage_timezone"),
+        ("damage_restore_schedule", "damage_restore_timezone"),
+        ("vehicle_reset_schedule", "vehicle_reset_timezone"),
+    ):
+        schedule = config.get(schedule_key)
+        if isinstance(schedule, dict):
+            schedule.setdefault("timezone", config.get(config_key) or clean)
+    return clean, ""
+
+
 def adm_line_time_parts(line):
     if not line:
         return None
@@ -12573,6 +12636,64 @@ ZONE_POINTS_BY_MAP = {
     }
 }
 
+MAP_LABELS_BY_MAP = {
+    "livonia": [
+        ("Lukow", 3560, 11880, "major"),
+        ("Brena", 6660, 11160, "major"),
+        ("Tarnow", 9200, 10450, "major"),
+        ("Dolnik", 11350, 11350, "major"),
+        ("Sobotka", 6350, 8200, "major"),
+        ("Topolin", 10800, 7900, "major"),
+        ("Polana", 10700, 5400, "major"),
+        ("Nadbor", 6050, 3920, "major"),
+        ("Lembork", 8500, 8700, "minor"),
+        ("Radunin", 9130, 3500, "minor"),
+        ("Swarog", 4800, 2270, "minor"),
+        ("Lukow Airfield", 3800, 11700, "landmark"),
+    ],
+    "chernarus": [
+        ("NWAF", 4481, 10355, "landmark"),
+        ("Tisy", 1612, 14175, "landmark"),
+        ("Vybor", 4600, 8400, "major"),
+        ("Zelenogorsk", 2520, 5140, "major"),
+        ("Cherno", 6560, 2520, "major"),
+        ("Elektro", 10480, 2320, "major"),
+        ("Berezino", 12200, 9500, "major"),
+    ],
+}
+
+
+def draw_map_location_labels(draw, map_key, width, height, font=None):
+    labels = MAP_LABELS_BY_MAP.get(map_key, [])
+    if not labels:
+        return
+    map_width, map_height = (12800, 12800) if map_key == "livonia" else (15360, 15360)
+    for name, x, z, kind in labels:
+        px = int(max(0, min(width - 1, (float(x) / map_width) * width)))
+        py = int(max(0, min(height - 1, height - ((float(z) / map_height) * height))))
+        try:
+            bbox = draw.textbbox((0, 0), name, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except Exception:
+            text_width = max(40, len(str(name)) * 7)
+            text_height = 12
+        pad_x = 5 if kind == "major" else 4
+        pad_y = 3
+        left = max(2, min(width - text_width - (pad_x * 2) - 2, px - (text_width // 2) - pad_x))
+        top = max(72, min(height - text_height - (pad_y * 2) - 2, py - text_height - 7))
+        fill = (245, 238, 215, 218) if kind != "landmark" else (56, 189, 248, 218)
+        outline = (8, 14, 10, 190)
+        text_fill = (16, 23, 13, 255)
+        draw.rounded_rectangle(
+            (left, top, left + text_width + (pad_x * 2), top + text_height + (pad_y * 2)),
+            radius=5,
+            fill=fill,
+            outline=outline,
+            width=1,
+        )
+        draw.text((left + pad_x, top + pad_y - 1), name, fill=text_fill, font=font)
+
 
 def candidate_local_map_image_paths(guild_id, map_key):
     guild_id = str(guild_id or "global")
@@ -12692,7 +12813,7 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
         return None
 
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageDraw, ImageFont
     except Exception as error:
         set_heatmap_render_status(guild_id, mode, f"Pillow is not installed or could not load: {error}")
         return None
@@ -12715,6 +12836,11 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
             source_path = source
 
         base = Image.open(source_path).convert("RGBA").resize((width, height))
+        try:
+            label_font = ImageFont.truetype("arial.ttf", 12)
+        except Exception:
+            label_font = ImageFont.load_default()
+        draw_map_location_labels(ImageDraw.Draw(base), map_key, width, height, label_font)
         overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
@@ -13052,6 +13178,8 @@ def generate_live_player_map_image(guild_id: str):
         )
         if source_status_note:
             draw.text((760, 42), source_status_note[:52], fill=(255, 210, 120, 255), font=small_font)
+
+        draw_map_location_labels(draw, map_key, width, height, small_font)
 
         for idx, (player, coords, point) in enumerate(plotted_players, start=1):
             px, py = point
@@ -13914,8 +14042,9 @@ async def setup_command(
             name="SERVER CONTROL & RADAR",
             value=(
                 "`/restartserver` - trigger a Nitrado restart\n"
+                "`/settimezone timezone` - set this server's local timezone for ADM logs and restarts\n"
                 "`/setrestartinterval hours` - set restart interval\n"
-                "`/setrestartstart hour` - set UTC restart start hour\n"
+                "`/setrestartstart hour` - set local restart start hour\n"
                 "`/cancelrestarts` - disable recurring restart schedule\n"
                 "`/listrestarts` - show restart schedule\n"
                 "`/botupdates` - create/repair the public bot updates feed and post missing notes\n"
@@ -19205,6 +19334,8 @@ async def helpme(ctx):
         name="Server Control",
         value=(
             "`/restartserver`, `/admstatus`, `/restartadm force`\n"
+            "`/server settimezone timezone` - set local server time for ADM logs and restarts\n"
+            "`/server setrestartinterval hours`, `/server setrestartstart hour`, `/server listrestarts`\n"
             "`/tools reloadguilds`\n"
             "`/setradarchannel channel`, `/radarping x y reason`\n"
             "`/addradarzone`, `/radarstatus`, `/forcelinkgamer`\n"
@@ -22463,7 +22594,7 @@ async def setrestartstart(ctx, hour: int):
     if hour < 0 or hour > 23:
 
         await ctx.send(
-            "Start hour must be between 0 and 23 UTC."
+            "Start hour must be between 0 and 23 in this server's configured timezone."
         )
 
         return
@@ -22476,12 +22607,13 @@ async def setrestartstart(ctx, hour: int):
     guild_configs[guild_id]["restart_start_hour"] = hour
     guild_configs[guild_id]["restart_schedule_enabled"] = True
     guild_configs[guild_id]["restart_schedule_confirmed"] = True
+    timezone_name = restart_timezone_name(guild_configs[guild_id])
 
     save_guild_configs()
 
     embed = discord.Embed(
         title="🕒 RESTART START HOUR UPDATED",
-        description=f"Restart schedule now begins at {hour}:00 UTC.",
+        description=f"Restart schedule now begins at {hour:02d}:00 {timezone_name}.",
         color=0x1ABC9C
     )
 
@@ -22516,6 +22648,7 @@ async def listrestarts(ctx):
         "restart_start_hour",
         0
     )
+    timezone_name = restart_timezone_name(config)
 
     times = []
 
@@ -22523,7 +22656,7 @@ async def listrestarts(ctx):
 
     while current < 24:
 
-        times.append(f"{current:02d}:00 UTC")
+        times.append(f"{current:02d}:00 {timezone_name}")
 
         current += interval
 
@@ -22538,9 +22671,42 @@ async def listrestarts(ctx):
         value=f"Every {interval} hours",
         inline=False
     )
+    embed.add_field(
+        name="Timezone",
+        value=timezone_name,
+        inline=False
+    )
 
     embed.set_thumbnail(url=BOT_IMAGE)
 
+    await ctx.send(embed=style_embed(embed))
+
+
+@bot.command()
+async def settimezone(ctx, timezone: str):
+
+    if not has_staff_permissions(ctx):
+        return
+
+    guild_id = str(ctx.guild.id)
+    config = guild_configs.setdefault(guild_id, {"guild_name": ctx.guild.name, "channels": {}})
+    clean, error = apply_server_timezone(config, timezone)
+    if error:
+        await ctx.send(error)
+        return
+
+    save_guild_configs()
+    local_now = datetime.now(ZoneInfo(clean)).strftime("%Y-%m-%d %H:%M")
+    embed = discord.Embed(
+        title="SERVER TIMEZONE UPDATED",
+        description=(
+            f"This server now uses `{clean}` for ADM log timestamps and scheduled restarts.\n"
+            f"Current local server time: `{local_now}`.\n"
+            "`/setrestartstart hour` now means that hour in this timezone."
+        ),
+        color=0x1ABC9C,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
     await ctx.send(embed=style_embed(embed))
 
 
@@ -22657,11 +22823,16 @@ def normalize_server_control_schedules(config):
         if minute > 0 and minute not in warnings:
             warnings.append(minute)
     changed |= set_config_value_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+    timezone_name = server_timezone_name(config)
+    restart_timezone = restart_timezone_name(config)
+    changed |= set_config_value_if_changed(config, "server_timezone", timezone_name)
+    changed |= set_config_value_if_changed(config, "adm_timezone", config.get("adm_timezone") or timezone_name)
+    changed |= set_config_value_if_changed(config, "restart_timezone", restart_timezone or timezone_name)
 
     changed |= normalize_schedule_pair(config, "damage_schedule_enabled", "damage_schedule", {
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 7,
         "interval_unit": "days",
         "day_of_week": "",
@@ -22670,7 +22841,7 @@ def normalize_server_control_schedules(config):
     changed |= normalize_schedule_pair(config, "damage_restore_schedule_enabled", "damage_restore_schedule", {
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 14,
         "interval_unit": "days",
         "day_of_week": "",
@@ -22680,7 +22851,7 @@ def normalize_server_control_schedules(config):
         "method": "cfgignorelist",
         "first_date": "",
         "time": "04:00",
-        "timezone": "Europe/Dublin",
+        "timezone": timezone_name,
         "interval_value": 7,
         "interval_unit": "days",
         "day_of_week": "",
@@ -22832,9 +23003,6 @@ async def scheduled_restart_loop():
 
     now = datetime.now(UTC)
 
-    current_hour = now.hour
-    current_minute = now.minute
-
     # ────────────────────────────────────────────────────────────────
     # PRE-RESTART COUNTDOWN WARNINGS in general_chat
     # Fires once for each configured warning minute before each scheduled restart.
@@ -22854,7 +23022,10 @@ async def scheduled_restart_loop():
             if restart_interval <= 0:
                 continue
 
-            minutes_until = _minutes_until_next_restart(now, restart_offset, restart_interval)
+            local_tz = restart_timezone_for_config(config)
+            local_now = now.astimezone(local_tz)
+            current_hour = local_now.hour
+            minutes_until = _minutes_until_next_restart(local_now, restart_offset, restart_interval)
             if minutes_until is None:
                 continue
 
@@ -22894,15 +23065,17 @@ async def scheduled_restart_loop():
                 continue
 
             fired = restart_warning_tracker.setdefault(guild_id, {})
-            cycle_key = (current_hour + (minutes_until // 60)) % 24
-            cycle_marker = f"{now.date().isoformat()}-{cycle_key:02d}"
+            cycle_date = (local_now + timedelta(minutes=minutes_until)).date().isoformat()
+            cycle_key = ((current_hour * 60) + local_now.minute + minutes_until) // 60 % 24
+            cycle_marker = f"{cycle_date}-{cycle_key:02d}-{restart_timezone_name(config)}"
             already_fired = fired.setdefault(cycle_marker, set())
             if minutes_until in already_fired:
                 continue
             already_fired.add(minutes_until)
 
-            today_marker = now.date().isoformat()
-            for stale_key in [k for k in fired if not k.startswith(today_marker)]:
+            today_marker = local_now.date().isoformat()
+            yesterday_marker = (local_now - timedelta(days=1)).date().isoformat()
+            for stale_key in [k for k in fired if not (k.startswith(today_marker) or k.startswith(yesterday_marker))]:
                 fired.pop(stale_key, None)
 
             embed = discord.Embed(
@@ -22939,6 +23112,10 @@ async def scheduled_restart_loop():
         )))
 
         restart_offset = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
+        local_tz = restart_timezone_for_config(config)
+        local_now = now.astimezone(local_tz)
+        current_hour = local_now.hour
+        current_minute = local_now.minute
 
         should_restart = (
             current_hour >= restart_offset
@@ -22949,12 +23126,13 @@ async def scheduled_restart_loop():
         if not should_restart:
             continue
 
-        if last_restart_hour.get(guild_id) == current_hour:
+        trigger_marker = f"{local_now.date().isoformat()}-{current_hour:02d}-{restart_timezone_name(config)}"
+        if last_restart_hour.get(guild_id) == trigger_marker:
             continue
 
-        last_restart_hour[guild_id] = current_hour
+        last_restart_hour[guild_id] = trigger_marker
 
-        print(f"SCHEDULED RESTART TRIGGERED {guild_id} @ {current_hour}:00")
+        print(f"SCHEDULED RESTART TRIGGERED {guild_id} @ {current_hour}:00 {restart_timezone_name(config)}")
 
         try:
 
@@ -22978,7 +23156,7 @@ async def scheduled_restart_loop():
                     description=(
                         f"Automatic restart triggered.\n\n"
                         f"⏰ Interval: Every {restart_interval} hours\n"
-                        f"🕒 Current Restart: {current_hour}:00 UTC"
+                        f"🕒 Current Restart: {current_hour}:00 {restart_timezone_name(config)}"
                     ),
                     color=0xE74C3C
                 )
@@ -23111,7 +23289,7 @@ async def scheduled_restart_loop():
                             config,
                             "bot_schedule",
                             "requested" if restart_ok else "failed",
-                            f"Scheduled restart at {current_hour:02d}:00 UTC. Nitrado status {restart_response.status_code}.",
+                            f"Scheduled restart at {current_hour:02d}:00 {restart_timezone_name(config)} ({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}.",
                             "scheduled_restart_loop",
                         )
                         save_guild_configs()
@@ -23247,8 +23425,9 @@ async def send_custom_feed_message(guild_id, config, feed):
     if feed_type == "restart":
         interval = config.get("restart_interval_hours", DEFAULT_RESTART_INTERVAL_HOURS)
         start_hour = config.get("restart_start_hour", 0)
+        timezone_name = restart_timezone_name(config)
         title = "SCHEDULED RESTART FEED"
-        description = message or f"Restart schedule is every {interval} hours starting at {start_hour:02d}:00 UTC."
+        description = message or f"Restart schedule is every {interval} hours starting at {start_hour:02d}:00 {timezone_name}."
         color = 0xE67E22
     elif feed_type == "basedamage":
         state = str(config.get("base_damage_state", "unknown")).upper()
@@ -34926,13 +35105,15 @@ async def restart_delivery_processor():
                 "restart_start_hour",
                 0
             )
+            local_tz = restart_timezone_for_config(config)
+            local_now = now.astimezone(local_tz)
 
-            if now.minute != 0:
+            if local_now.minute != 0:
                 continue
 
             if (
-                now.hour >= restart_offset
-                and ((now.hour - restart_offset) % restart_interval == 0)
+                local_now.hour >= restart_offset
+                and ((local_now.hour - restart_offset) % restart_interval == 0)
             ):
                 normal_scenario_events = bridge_scenario_events(config)
                 delivery_scenario_events = delivery_bridge_scenario_events(config)
@@ -42483,11 +42664,18 @@ async def slash_server_setrestartinterval(interaction: discord.Interaction, hour
     await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
 
 
-@server_group.command(name="setrestartstart", description="Set the first daily restart hour (UTC)")
+@server_group.command(name="setrestartstart", description="Set the first daily restart hour in this server's timezone")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(hour="Hour 0-23")
 async def slash_server_setrestartstart(interaction: discord.Interaction, hour: int):
     await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
+
+
+@server_group.command(name="settimezone", description="Set local server timezone for ADM logs and restart schedules")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York")
+async def slash_server_settimezone(interaction: discord.Interaction, timezone: str):
+    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone)
 
 
 @server_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
