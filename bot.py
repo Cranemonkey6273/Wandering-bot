@@ -11623,17 +11623,44 @@ ADM_LOG_NAME_PATTERN = re.compile(
 
 def nitrado_adm_search_paths(config):
     nitrado_user = config.get("nitrado_user")
-    return [
-        f"/games/{nitrado_user}/noftp/dayzxb/config/",
-        f"/games/{nitrado_user}/noftp/dayzxb/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/",
-        f"/games/{nitrado_user}/noftp/dayzxb/storage_1/",
-        f"/games/{nitrado_user}/noftp/dayzxb/profiles/",
-        f"/games/{nitrado_user}/noftp/dayzxb/logs/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.chernarusplus/",
-        f"/games/{nitrado_user}/noftp/dayzxb/mpmissions/dayzOffline.enoch/",
-        f"/games/{nitrado_user}/noftp/"
+    if not nitrado_user:
+        return []
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    if platform_key == "playstation":
+        roots = ("dayzps", "dayzps_missions", "dayzxb", "dayzxb_missions")
+    elif platform_key == "pc":
+        roots = ("dayz", "mpmissions", "dayzxb", "dayzxb_missions", "dayzps", "dayzps_missions")
+    else:
+        roots = ("dayzxb", "dayzxb_missions", "dayzps", "dayzps_missions", "dayz")
+
+    mission_names = [
+        "dayzOffline.chernarusplus",
+        "dayzOffline.enoch",
+        "dayzOffline.sakhal",
     ]
+    active_mission = str(config.get("active_mission_dir") or config.get("mission_folder") or "").strip().strip("/")
+    if active_mission and "/" not in active_mission and active_mission not in mission_names:
+        mission_names.insert(0, active_mission)
+
+    paths = []
+
+    def add(path):
+        clean = str(path or "").strip()
+        if clean and clean not in paths:
+            paths.append(clean)
+
+    for root in roots:
+        base = f"/games/{nitrado_user}/noftp/{root}"
+        add(f"{base}/config/")
+        add(f"{base}/profiles/")
+        add(f"{base}/logs/")
+        add(f"{base}/")
+        add(f"{base}/mpmissions/")
+        for mission in mission_names:
+            add(f"{base}/mpmissions/{mission}/")
+            add(f"{base}/{mission}/")
+    add(f"/games/{nitrado_user}/noftp/")
+    return paths
 
 
 def parse_nitrado_datetime(value):
@@ -11675,7 +11702,35 @@ def adm_debug_log(message):
         print(message)
 
 
-def list_adm_logs(config, lookback_hours=None):
+def compact_adm_scan_message(message, limit=220):
+    text = re.sub(r"\s+", " ", str(message or "")).strip()
+    if "Just a moment" in text or "<!DOCTYPE html" in text:
+        text = "Nitrado/Cloudflare returned an HTML rate-limit page."
+    return text[:limit]
+
+
+def adm_scan_failure_summary(diagnostics, limit=5):
+    diagnostics = diagnostics if isinstance(diagnostics, list) else []
+    if not diagnostics:
+        return "No ADM search diagnostics were recorded."
+    failures = []
+    for item in diagnostics:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        status = str(item.get("status") or "").strip()
+        count = int(item.get("count") or 0)
+        error = compact_adm_scan_message(item.get("error") or item.get("message") or "")
+        if count > 0:
+            failures.append(f"{path}: {count} ADM candidate(s)")
+        elif error:
+            failures.append(f"{path}: {status or 'error'} {error}")
+        else:
+            failures.append(f"{path}: {status or 'no entries'}")
+    return "; ".join(failures[-limit:])[:900]
+
+
+def list_adm_logs(config, lookback_hours=None, diagnostics=None):
 
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
@@ -11715,6 +11770,13 @@ def list_adm_logs(config, lookback_hours=None):
             adm_debug_log(f"[PING STATUS] {response.status_code}")
 
             if response.status_code != 200:
+                if isinstance(diagnostics, list):
+                    diagnostics.append({
+                        "path": search_path,
+                        "status": response.status_code,
+                        "error": response.text[:300],
+                        "count": 0,
+                    })
                 continue
 
             data = response.json()
@@ -11726,12 +11788,14 @@ def list_adm_logs(config, lookback_hours=None):
             )
 
             adm_debug_log(f"[SEARCH PATH] {search_path}")
+            path_matches = 0
 
             for entry in entries:
                 if not ADM_LOG_NAME_PATTERN.match(entry.get("name", "")):
                     continue
 
                 adm_debug_log(f"FOUND FILE: {entry.get('name')}")
+                path_matches += 1
 
                 entry_time = adm_log_datetime(entry)
                 if cutoff and entry_time and entry_time < cutoff:
@@ -11743,17 +11807,31 @@ def list_adm_logs(config, lookback_hours=None):
                     modified_time = parse_nitrado_datetime(entry.get("modified_at"))
                     entry["_modified_datetime"] = modified_time.isoformat() if modified_time else ""
                     matching_logs[path] = entry
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": search_path,
+                    "status": response.status_code,
+                    "count": path_matches,
+                    "entries": len(entries),
+                })
 
         except Exception as error:
             print(error)
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": search_path,
+                    "status": "exception",
+                    "error": str(error),
+                    "count": 0,
+                })
 
     logs = list(matching_logs.values())
     logs.sort(key=lambda item: item.get("_adm_datetime") or item.get("modified_at", ""), reverse=True)
     return logs
 
 
-def ping_latest_adm_log(config):
-    matching_logs = list_adm_logs(config)
+def ping_latest_adm_log(config, diagnostics=None):
+    matching_logs = list_adm_logs(config, diagnostics=diagnostics)
 
     if not matching_logs:
         adm_debug_log("NO MATCHING ADM FILES")
@@ -15684,7 +15762,8 @@ def build_dayz_messages_xml(messages, interval_minutes):
 def download_latest_adm(
     guild_id,
     config,
-    latest_log
+    latest_log,
+    diagnostics=None,
 ):
 
     token = config.get("nitrado_token")
@@ -15713,6 +15792,13 @@ def download_latest_adm(
         )
 
         if response.status_code != 200:
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": latest_log.get("path"),
+                    "status": response.status_code,
+                    "error": response.text[:300],
+                    "stage": "download-token",
+                })
             return False
 
         data = response.json()
@@ -15725,9 +15811,34 @@ def download_latest_adm(
         )
 
         if not token_url:
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": latest_log.get("path"),
+                    "status": "missing-token-url",
+                    "error": str(data)[:300],
+                    "stage": "download-token",
+                })
             return False
 
-        file_response = requests.get(token_url)
+        file_response = requests.get(token_url, timeout=30)
+        if file_response.status_code != 200:
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": latest_log.get("path"),
+                    "status": file_response.status_code,
+                    "error": file_response.text[:300],
+                    "stage": "download-file",
+                })
+            return False
+        if not file_response.content:
+            if isinstance(diagnostics, list):
+                diagnostics.append({
+                    "path": latest_log.get("path"),
+                    "status": "empty-content",
+                    "error": "ADM file download returned empty content.",
+                    "stage": "download-file",
+                })
+            return False
 
         adm_path = os.path.join(
             GUILD_DATA_FOLDER,
@@ -15742,6 +15853,13 @@ def download_latest_adm(
     except Exception as error:
 
         print(error)
+        if isinstance(diagnostics, list):
+            diagnostics.append({
+                "path": (latest_log or {}).get("path") if isinstance(latest_log, dict) else "",
+                "status": "exception",
+                "error": str(error),
+                "stage": "download",
+            })
 
         return False
 
@@ -17344,23 +17462,27 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
                 print(f"[ADM COLD-START] sweep error on {older.get('path')}: {err}")
         _adm_history_swept[str(guild_id)] = True
 
+    adm_scan_diagnostics = []
     latest_log = await asyncio.to_thread(
         ping_latest_adm_log,
-        config
+        config,
+        adm_scan_diagnostics,
     )
 
     if not latest_log:
-        return False, "No ADM log found"
+        return False, f"No ADM log found: {adm_scan_failure_summary(adm_scan_diagnostics)}"
 
+    adm_download_diagnostics = []
     success = await asyncio.to_thread(
         download_latest_adm,
         guild_id,
         config,
-        latest_log
+        latest_log,
+        adm_download_diagnostics,
     )
 
     if not success:
-        return False, "ADM download failed"
+        return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
 
     adm_parse_context[str(guild_id)] = {
         "source_path": latest_log.get("path") or "",
