@@ -11725,6 +11725,16 @@ def nitrado_adm_search_paths(config):
         if clean and clean not in paths:
             paths.append(clean)
 
+    for remembered_key in ("adm_log_directory", "adm_last_log_directory"):
+        remembered = normalize_nitrado_directory_path(config.get(remembered_key))
+        if remembered:
+            add(remembered)
+
+    remembered_path = str(config.get("adm_last_log_path") or "").strip()
+    remembered_dir = nitrado_directory_from_file_path(remembered_path)
+    if remembered_dir:
+        add(remembered_dir)
+
     for root in roots:
         base = f"/games/{nitrado_user}/noftp/{root}"
         add(f"{base}/config/")
@@ -11737,6 +11747,41 @@ def nitrado_adm_search_paths(config):
             add(f"{base}/{mission}/")
     add(f"/games/{nitrado_user}/noftp/")
     return paths
+
+
+def normalize_nitrado_directory_path(path):
+    clean = str(path or "").strip().replace("\\", "/")
+    if not clean.startswith("/games/"):
+        return ""
+    if not clean.endswith("/"):
+        clean = f"{clean}/"
+    return clean
+
+
+def nitrado_directory_from_file_path(path):
+    clean = str(path or "").strip().replace("\\", "/")
+    if not clean.startswith("/games/") or "/" not in clean:
+        return ""
+    directory = clean.rsplit("/", 1)[0]
+    return normalize_nitrado_directory_path(directory)
+
+
+def remember_adm_log_source(config, latest_log):
+    if not isinstance(config, dict) or not isinstance(latest_log, dict):
+        return False
+    path = str(latest_log.get("path") or "").strip()
+    directory = nitrado_directory_from_file_path(path)
+    if not path or not directory:
+        return False
+
+    changed = False
+    if config.get("adm_last_log_path") != path:
+        config["adm_last_log_path"] = path
+        changed = True
+    if config.get("adm_log_directory") != directory:
+        config["adm_log_directory"] = directory
+        changed = True
+    return changed
 
 
 def parse_nitrado_datetime(value):
@@ -11846,7 +11891,7 @@ def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
     )
 
 
-def list_adm_logs(config, lookback_hours=None, diagnostics=None):
+def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_first_match=False):
 
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
@@ -11921,6 +11966,7 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None):
 
             adm_debug_log(f"[SEARCH PATH] {search_path}")
             path_matches = 0
+            matched_this_path = False
 
             for entry in entries:
                 if not ADM_LOG_NAME_PATTERN.match(entry.get("name", "")):
@@ -11939,6 +11985,7 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None):
                     modified_time = parse_nitrado_datetime(entry.get("modified_at"))
                     entry["_modified_datetime"] = modified_time.isoformat() if modified_time else ""
                     matching_logs[path] = entry
+                    matched_this_path = True
             if isinstance(diagnostics, list):
                 diagnostics.append({
                     "path": search_path,
@@ -11946,6 +11993,8 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None):
                     "count": path_matches,
                     "entries": len(entries),
                 })
+            if stop_after_first_match and matched_this_path:
+                break
 
         except Exception as error:
             print(error)
@@ -11963,7 +12012,7 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None):
 
 
 def ping_latest_adm_log(config, diagnostics=None):
-    matching_logs = list_adm_logs(config, diagnostics=diagnostics)
+    matching_logs = list_adm_logs(config, diagnostics=diagnostics, stop_after_first_match=True)
 
     if not matching_logs:
         adm_debug_log("NO MATCHING ADM FILES")
@@ -17630,7 +17679,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if cold_start:
         history_diagnostics = []
         try:
-            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics)
+            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True)
         except Exception as err:
             print(f"[ADM COLD-START] history listing failed: {err}")
             history_logs = []
@@ -17690,6 +17739,9 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             backoff_seconds = set_adm_rate_limit_backoff(guild_id)
             return False, adm_rate_limited_message("download", adm_download_diagnostics, backoff_seconds)
         return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
+
+    if remember_adm_log_source(config, latest_log):
+        save_guild_configs()
 
     adm_parse_context[str(guild_id)] = {
         "source_path": latest_log.get("path") or "",
