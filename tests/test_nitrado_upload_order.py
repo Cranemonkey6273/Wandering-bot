@@ -26,9 +26,11 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
     def setUp(self):
         self.original_api = bot.upload_text_file_to_nitrado_api
         self.original_ftp = bot.upload_text_file_to_nitrado_ftp
+        self.original_upload_text = bot.upload_text_file_to_nitrado
         self.original_verified_ftp = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified
         self.original_verify = bot.verify_uploaded_protected_dayz_xml_text
         self.original_verify_remote = bot.verify_remote_protected_dayz_xml
+        self.original_restore = bot.restore_remote_ce_file_from_latest_backup
         self.original_download = bot.download_text_file_from_nitrado
         self.original_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
@@ -37,9 +39,11 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
     def tearDown(self):
         bot.upload_text_file_to_nitrado_api = self.original_api
         bot.upload_text_file_to_nitrado_ftp = self.original_ftp
+        bot.upload_text_file_to_nitrado = self.original_upload_text
         bot.upload_protected_dayz_xml_to_nitrado_ftp_verified = self.original_verified_ftp
         bot.verify_uploaded_protected_dayz_xml_text = self.original_verify
         bot.verify_remote_protected_dayz_xml = self.original_verify_remote
+        bot.restore_remote_ce_file_from_latest_backup = self.original_restore
         bot.download_text_file_from_nitrado = self.original_download
         bot.upload_ce_latest_backup_to_nitrado = self.original_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
@@ -177,6 +181,36 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertEqual(SPAWNS_XML, built["restore_texts"][spawns_path])
         self.assertTrue(any("in-memory restore copy" in message for message in messages))
         self.assertEqual(["download", "backup"], self.calls)
+
+    def test_ce_protected_upload_fails_when_remote_copy_is_stale_after_success(self):
+        def upload(*_args):
+            self.calls.append("upload")
+            return True, "Uploaded successfully via Nitrado API."
+
+        def verify(*_args):
+            self.calls.append("verify")
+            return False, "`cfgeventspawns.xml` post-upload re-download did not match the uploaded content"
+
+        def restore(*_args, **_kwargs):
+            self.calls.append("restore")
+            return True, "`cfgeventspawns.xml` restored from in-memory pre-upload copy."
+
+        bot.upload_text_file_to_nitrado = upload
+        bot.verify_uploaded_protected_dayz_xml_text = verify
+        bot.restore_remote_ce_file_from_latest_backup = restore
+
+        ok, message = bot.upload_protected_ce_file_to_nitrado(
+            {},
+            "cfgeventspawns.xml",
+            "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            SPAWNS_XML,
+            restore_text="<eventposdef></eventposdef>",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("did not match the uploaded content", message)
+        self.assertIn("Restore attempted", message)
+        self.assertEqual(["upload", "verify", "restore"], self.calls)
 
     def test_scope_guard_allows_only_wanderingbot_event_changes(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
