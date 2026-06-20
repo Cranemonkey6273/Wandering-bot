@@ -14551,18 +14551,10 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
                     return True, f"{api_message} {verify_message}"
                 return False, f"{api_message} Post-upload verification failed: {verify_message}"
 
-            ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, target_path, text_content)
-            if ftp_success:
-                verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
-                    config,
-                    os.path.basename(str(target_path or "").replace("\\", "/")),
-                    target_path,
-                    text_content,
-                )
-                if verify_ok:
-                    return True, f"{ftp_message} {verify_message}"
-                return False, f"{ftp_message} Post-upload verification failed: {verify_message}"
-            return False, f"{api_message} FTP fallback also failed: {ftp_message}"
+            return False, (
+                f"{api_message} Protected DayZ XML upload stopped before FTP fallback. "
+                "FTP can report success while changing protected CE XML bytes; fix the Nitrado API upload path/token instead."
+            )
 
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:

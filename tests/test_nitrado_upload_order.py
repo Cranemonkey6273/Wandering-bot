@@ -79,7 +79,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("Post-upload verification failed", message)
         self.assertEqual(["api", "verify"], self.calls)
 
-    def test_protected_xml_falls_back_to_ftp_only_when_api_fails_before_write(self):
+    def test_protected_xml_refuses_ftp_when_api_fails_before_write(self):
         def api_upload(*_args):
             self.calls.append("api")
             return False, "Nitrado API token or service ID is missing."
@@ -98,9 +98,9 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         ok, message = bot.upload_text_file_to_nitrado({}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", SPAWNS_XML)
 
-        self.assertTrue(ok)
-        self.assertIn("FTP", message)
-        self.assertEqual(["api", "ftp", "verify"], self.calls)
+        self.assertFalse(ok)
+        self.assertIn("Protected DayZ XML upload stopped before FTP fallback", message)
+        self.assertEqual(["api"], self.calls)
 
 
 if __name__ == "__main__":
