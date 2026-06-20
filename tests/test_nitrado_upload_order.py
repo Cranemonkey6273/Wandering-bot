@@ -31,6 +31,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_verify = bot.verify_uploaded_protected_dayz_xml_text
         self.original_verify_remote = bot.verify_remote_protected_dayz_xml
         self.original_restore = bot.restore_remote_ce_file_from_latest_backup
+        self.original_download_ftp = bot.download_text_file_from_nitrado_ftp
         self.original_download = bot.download_text_file_from_nitrado
         self.original_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
@@ -44,6 +45,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.verify_uploaded_protected_dayz_xml_text = self.original_verify
         bot.verify_remote_protected_dayz_xml = self.original_verify_remote
         bot.restore_remote_ce_file_from_latest_backup = self.original_restore
+        bot.download_text_file_from_nitrado_ftp = self.original_download_ftp
         bot.download_text_file_from_nitrado = self.original_download
         bot.upload_ce_latest_backup_to_nitrado = self.original_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
@@ -211,6 +213,63 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("did not match the uploaded content", message)
         self.assertIn("Restore attempted", message)
         self.assertEqual(["upload", "verify", "restore"], self.calls)
+
+    def test_verified_ftp_write_rechecks_same_file_via_ftp_not_api(self):
+        def ftp_upload(_config, path, _text):
+            self.calls.append(("upload_ftp", path))
+            return True, "Uploaded successfully via ukln138.gamedata.io."
+
+        def ftp_download(_config, path, exact_only=False):
+            self.calls.append(("download_ftp", path, exact_only))
+            return True, "Downloaded successfully via FTP.", SPAWNS_XML
+
+        def generic_verify(*_args):
+            self.calls.append(("generic_verify",))
+            return False, "generic API-first verifier should not be used"
+
+        bot.upload_text_file_to_nitrado_ftp = ftp_upload
+        bot.download_text_file_from_nitrado_ftp = ftp_download
+        bot.verify_uploaded_protected_dayz_xml_text = generic_verify
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified(
+            {},
+            "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            SPAWNS_XML,
+        )
+
+        self.assertTrue(ok, message)
+        self.assertIn("post-upload re-download matched", message)
+        self.assertEqual([
+            ("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"),
+            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
+        ], self.calls)
+
+    def test_verified_ftp_write_reports_stale_ftp_copy(self):
+        stale_spawns = SPAWNS_XML.replace("StaticWanderingBot_test", "StaticWanderingBot_old")
+
+        def ftp_upload(_config, path, _text):
+            self.calls.append(("upload_ftp", path))
+            return True, "Uploaded successfully via ukln138.gamedata.io."
+
+        def ftp_download(_config, path, exact_only=False):
+            self.calls.append(("download_ftp", path, exact_only))
+            return True, "Downloaded successfully via FTP.", stale_spawns
+
+        bot.upload_text_file_to_nitrado_ftp = ftp_upload
+        bot.download_text_file_from_nitrado_ftp = ftp_download
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified(
+            {},
+            "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            SPAWNS_XML,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("did not match the uploaded content", message)
+        self.assertEqual([
+            ("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"),
+            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
+        ], self.calls)
 
     def test_scope_guard_allows_only_wanderingbot_event_changes(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

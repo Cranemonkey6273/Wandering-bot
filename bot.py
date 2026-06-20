@@ -14860,12 +14860,11 @@ def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_
     if not direct_ok:
         return False, f"Direct FTP live write failed: {direct_message}"
 
-    verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
-        config,
-        os.path.basename(str(target_path or "").replace("\\", "/")),
-        target_path,
-        text_content,
-    )
+    label = os.path.basename(str(target_path or "").replace("\\", "/"))
+    download_ok, download_message, live_text = download_text_file_from_nitrado_ftp(config, clean_target, exact_only=True)
+    if not download_ok:
+        return False, f"{direct_message} Live verification failed after direct FTP write: FTP re-download failed: {download_message}"
+    verify_ok, verify_message = verify_protected_dayz_xml_content_matches(label, clean_target, text_content, live_text)
     if not verify_ok:
         return False, f"{direct_message} Live verification failed after direct FTP write: {verify_message}"
     return True, f"{direct_message} {verify_message}"
