@@ -240,6 +240,38 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertGreater(int(anchor.get("lootmax") or 0), 0)
         self.assertTrue(any(child.get("spawnsecondary") == "false" for child in children[1:]))
 
+    def test_eventgroup_airdrop_replaces_stale_ungrouped_spawn_pos(self):
+        event = _base_event(
+            49,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="convoy_wreck",
+        )
+        records, _warnings = bot.console_ce_records_for_event(event)
+        record = records[0]
+        self.assertTrue(record.get("use_eventgroup"))
+
+        spawns_root = ET.Element("eventposdef")
+        stale_event = ET.SubElement(spawns_root, "event", {"name": record["name"]})
+        ET.SubElement(stale_event, "pos", {"x": "1", "z": "2", "a": "0"})
+
+        bot.add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+            y=record.get("y"),
+            count=record["count"],
+            radius=record.get("radius") or 45,
+            group_name=record["name"],
+        )
+
+        positions = spawns_root.findall("event/pos")
+        self.assertEqual(1, len(positions))
+        self.assertEqual(record["name"], positions[0].get("group"))
+        self.assertEqual("5000", positions[0].get("x"))
+
     def test_gas_zone_uses_static_contaminated_area_shape(self):
         event = _base_event(
             48,

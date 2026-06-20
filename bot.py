@@ -30888,6 +30888,9 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
     # DayZ samples terrain height for cfgeventspawns positions; forcing y can reject spawns.
     if group_name:
+        for child in list(event_node):
+            if getattr(child, "tag", "") in {"pos", "zone"}:
+                event_node.remove(child)
         attrs = {
             "x": ce_decimal(x),
             "z": ce_decimal(z),
