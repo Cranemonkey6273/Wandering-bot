@@ -14566,49 +14566,21 @@ def delete_nitrado_ftp_temp_file(config, target_path):
         return False, str(error)
 
 
-def rename_nitrado_ftp_file(config, source_path, target_path):
-    try:
-        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-        if ftp_error:
-            return False, ftp_error
-        errors = []
-        candidates = [
-            (str(source_path or ""), str(target_path or "")),
-            (str(source_path or "").lstrip("/"), str(target_path or "").lstrip("/")),
-        ]
-        for source, target in dict.fromkeys(candidates):
-            if not source or not target:
-                continue
-            try:
-                ftp.rename(source, target)
-                ftp.quit()
-                return True, f"Renamed verified temporary upload into place via {ftp_host}."
-            except Exception as error:
-                errors.append(str(error))
-        try:
-            ftp.quit()
-        except Exception:
-            pass
-        return False, "; ".join(errors[-2:])
-    except Exception as error:
-        return False, str(error)
-
-
-def upload_protected_dayz_xml_to_nitrado_ftp_staged(config, target_path, text_content):
+def upload_protected_dayz_xml_to_nitrado_ftp_prechecked(config, target_path, text_content):
     valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
     if not valid_upload:
         return False, validation_message
 
     clean_target = canonical_remote_path(target_path)
-    temp_path = f"{clean_target}.wanderingbot-upload-tmp"
+    temp_path = f"{clean_target}.wanderingbot-precheck-tmp"
     ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, temp_path, text_content)
     if not ftp_success:
-        return False, f"Temporary FTP upload failed: {ftp_message}"
+        return False, f"Precheck FTP upload failed: {ftp_message}"
 
     ok, download_message, temp_content = download_text_file_from_nitrado(config, temp_path)
     if not ok or not str(temp_content or "").strip():
         delete_nitrado_ftp_temp_file(config, temp_path)
-        return False, f"Temporary FTP upload could not be re-downloaded: {download_message}"
+        return False, f"Precheck FTP upload could not be re-downloaded: {download_message}"
     matched, match_message = verify_protected_dayz_xml_content_matches(
         os.path.basename(str(target_path or "").replace("\\", "/")),
         target_path,
@@ -14617,12 +14589,15 @@ def upload_protected_dayz_xml_to_nitrado_ftp_staged(config, target_path, text_co
     )
     if not matched:
         delete_nitrado_ftp_temp_file(config, temp_path)
-        return False, f"Temporary FTP upload failed verification before touching live XML: {match_message}"
+        return False, f"Precheck FTP upload failed verification before touching live XML: {match_message}"
 
-    rename_ok, rename_message = rename_nitrado_ftp_file(config, temp_path, clean_target)
-    if not rename_ok:
+    direct_ok, direct_message = upload_text_file_to_nitrado_ftp(config, clean_target, text_content)
+    if not direct_ok:
         delete_nitrado_ftp_temp_file(config, temp_path)
-        return False, f"Temporary FTP upload verified but could not be renamed into live XML: {rename_message}"
+        return False, (
+            "Precheck FTP upload verified, but direct live write failed. "
+            f"Direct write: {direct_message}"
+        )
 
     verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
         config,
@@ -14630,9 +14605,16 @@ def upload_protected_dayz_xml_to_nitrado_ftp_staged(config, target_path, text_co
         target_path,
         text_content,
     )
+    delete_nitrado_ftp_temp_file(config, temp_path)
     if not verify_ok:
-        return False, f"{rename_message} Live verification failed after staged FTP upload: {verify_message}"
-    return True, f"{ftp_message} {rename_message} {verify_message}"
+        return False, (
+            "Precheck FTP upload verified, then direct FTP wrote live XML. "
+            f"Live verification failed after direct write: {verify_message}"
+        )
+    return True, (
+        f"{ftp_message} Precheck FTP upload verified before direct live write. "
+        f"{direct_message} {verify_message}"
+    )
 
 
 def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
@@ -14677,14 +14659,14 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
                     return True, f"{api_message} {verify_message}"
                 return False, f"{api_message} Post-upload verification failed: {verify_message}"
 
-            staged_success, staged_message = upload_protected_dayz_xml_to_nitrado_ftp_staged(
+            precheck_success, precheck_message = upload_protected_dayz_xml_to_nitrado_ftp_prechecked(
                 config,
                 target_path,
                 text_content,
             )
-            if staged_success:
-                return True, f"{api_message} API upload failed, so staged FTP fallback was used. {staged_message}"
-            return False, f"{api_message} Staged FTP fallback also failed: {staged_message}"
+            if precheck_success:
+                return True, f"{api_message} API upload failed, so prechecked FTP live write was used. {precheck_message}"
+            return False, f"{api_message} Prechecked FTP live write also failed: {precheck_message}"
 
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:
