@@ -27723,7 +27723,7 @@ SCENARIO_VEHICLE_CONDITIONS = {
     "random_parts": "Random chance of common parts",
 }
 
-SCENARIO_AIRDROP_MARKER_CLASS = "StaticObj_Misc_WoodenCrate_5x"
+SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
 
 SCENARIO_AIRDROP_SCENES = {
     "compact_crater": {
@@ -28870,7 +28870,7 @@ def parse_xml_root_or_new(text, fallback_root):
         return ET.Element(fallback_root), "Created new template because the source XML was empty."
 
     try:
-        return ET.fromstring(text.encode("utf-8")), None
+        return parse_xml_root_preserving_comments(text), None
     except Exception as error:
         close_tag = f"</{str(fallback_root or '').strip().lower()}>"
         lower_text = text.lower()
@@ -28967,8 +28967,6 @@ def is_wandering_scope_node(node):
     for attr in ("name", "path", "usable"):
         if is_wandering_managed_name(node.get(attr)):
             return True
-    if mapgroupproto_group_looks_like_old_airdrop_proto(node):
-        return True
     if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
         return True
     return False
@@ -29649,10 +29647,25 @@ def scenario_airdrop_eventgroup_children(event, class_name):
 
     scene = scenario_airdrop_scene_config(event)
     marker_class = str(scene.get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
-    if event.get("visual_marker") and marker_class and marker_class.lower() != str(class_name or "").lower():
+    guard_class = str(event.get("guard_class") or "").strip()
+    guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
+    guard_radius = max(5, min(500, safe_int(event.get("guard_radius"), event.get("radius") or 35)))
+
+    def append_guard_children():
+        for index in range(max(0, min(80, guard_count))):
+            guard_x, guard_z = scenario_airdrop_child_offsets(index, guard_radius, max_spread=guard_radius)
+            children.append({
+                "type": guard_class,
+                "spawnsecondary": "false",
+                "x": ce_decimal(guard_x),
+                "z": ce_decimal(guard_z),
+                "a": "0.0",
+                "y": "0.0",
+            })
+
+    if event.get("visual_marker") and marker_class:
         children.append({
             "type": marker_class,
-            "spawnsecondary": "false",
             "x": "0.0",
             "z": "0.0",
             "a": "0.0",
@@ -29667,6 +29680,8 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "z": scene_prop["z"],
                 "a": scene_prop["a"],
             })
+        append_guard_children()
+        return children
 
     crate_x, crate_z = scene.get("crate_offset") or ("4.6", "-3.2")
     if not children:
@@ -29678,6 +29693,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "a": "0.0",
         "y": "0.0",
     })
+    append_guard_children()
     return children
 
 
@@ -29763,25 +29779,27 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
     if str(root.tag or "").strip().lower() in {"mapgroupproto", "map"}:
         root.tag = "prototype"
         changed = True
-    map_key = str(map_key or "").strip().lower()
-    bad_values = {"tier4"} if map_key in {"livonia", "enoch", "sakhal"} else set()
 
+    remove_next_managed_group = False
     for group_node in list(root.findall("group")):
         if "wanderingbot" in normalize_discord_name(group_node.get("name") or ""):
             root.remove(group_node)
             removed_groups += 1
             changed = True
+
+    for child in list(root):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            if "wandering bot:" in text and "managed mapgroupproto group" in text:
+                root.remove(child)
+                remove_next_managed_group = True
+                changed = True
             continue
-        if mapgroupproto_group_looks_like_old_airdrop_proto(group_node):
-            root.remove(group_node)
+        if remove_next_managed_group:
+            root.remove(child)
             removed_groups += 1
             changed = True
-            continue
-        for value_node in list(group_node.findall("value")):
-            if str(value_node.get("name") or "").strip().lower() in bad_values:
-                group_node.remove(value_node)
-                removed_values += 1
-                changed = True
+            remove_next_managed_group = False
 
     return changed, removed_groups, removed_values
 
@@ -29986,33 +30004,38 @@ def eventgroup_child_needs_mapgroupproto(child_record):
     return bool(str(child_record.get("type") or "").strip())
 
 
+def find_managed_mapgroupproto_group(root, class_name):
+    wanted = str(class_name or "").strip().lower()
+    pending_managed_comment = False
+    for child in list(root):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            pending_managed_comment = "wandering bot:" in text and "managed mapgroupproto group" in text
+            continue
+        if (
+            pending_managed_comment
+            and str(getattr(child, "tag", "") or "") == "group"
+            and str(child.get("name") or "").strip().lower() == wanted
+        ):
+            return child
+        pending_managed_comment = False
+    return None
+
+
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
-    # Non-destructive: if a <group> with this name already exists, leave
-    # it strictly alone (only the rogue Tier4 value is stripped). Earlier
-    # revisions wiped <usage>, <category> and <container name="lootFloor">
-    # off any matching group, which silently neutered community packs
-    # that already populated mapgroupproto.xml with working military
-    # loot tables.
+    # Non-destructive: unmarked live groups stay byte-for-byte under the
+    # snippet scope guard. If WanderingBot needs a proto, append its own marked
+    # group at the end and only refresh that marked block on later retries.
     #
-    # When creating a BRAND NEW group, seed a real <container> + the
-    # canonical military categories so DayZ actually has a loot pool to
-    # spawn from. The old version only added <usage> + <point>, which is
-    # why WanderingBot airdrops loaded but never produced a
-    # [CE][SpawnRandomLoot] line — there was nowhere for the engine to
-    # drop weapons / explosives / tools into the crate.
+    # The appended group seeds a real <container> + canonical categories so
+    # DayZ has a loot pool to spawn from.
     wanted = str(class_name or "").strip()
     if not wanted:
         return None, False
-    changed = False
-    for group_node in root.findall("group"):
-        if str(group_node.get("name") or "").strip().lower() == wanted.lower():
-            for value_node in list(group_node.findall("value")):
-                if str(value_node.get("name") or "").strip().lower() == "tier4":
-                    group_node.remove(value_node)
-                    changed = True
-            if not mapgroupproto_group_has_usable_loot_container(group_node):
-                changed = ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags) or changed
-            return group_node, changed
+    managed_group = find_managed_mapgroupproto_group(root, wanted)
+    if managed_group is not None:
+        changed = ensure_mapgroupproto_loot_container(managed_group, lootmax=lootmax, tags=tags)
+        return managed_group, changed
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
     group_node = ET.SubElement(root, "group", {"name": wanted})
@@ -30538,25 +30561,12 @@ def console_ce_records_for_event(event):
     records.append(record)
 
     if event_type == "airdrop":
-        guard_class = str(event.get("guard_class") or "").strip()
-        guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
-        if guard_class and guard_count:
-            records.append({
-                "name": ce_event_name(event, "guards", family="Infected"),
-                "class_name": guard_class,
-                "count": guard_count,
-                "lifetime": 1800,
-                "x": event.get("x"),
-                "z": event.get("z"),
-                "radius": event.get("guard_radius") or event.get("radius"),
-            })
-
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
             warnings.append(
                 f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
-                "Native CE will deploy the scene through cfgeventgroups.xml and one fixed Static dynamic event."
+                "Native CE will deploy the scene, lootFloor proto, and any infected guards through one fixed Static dynamic event."
             )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
@@ -31095,11 +31105,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
                 output.setdefault("source_fallbacks", []).append(f"{label}: {source_text}")
         output["messages"].append(
-            f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` crate group(s), removed `{removed_groups}` old Wandering Bot group(s)."
+            f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` event group(s), removed `{removed_groups}` old Wandering Bot group(s)."
         )
         output["messages"].append(
-            f"Cleaned `mapgroupproto.xml`: removed `{removed_proto_groups}` stale airdrop proto group(s), "
-            f"`{removed_proto_values}` invalid map value(s), and added/repaired `{added_proto}` proto group(s)."
+            f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
+            f"left live server proto groups unchanged, and added/repaired `{added_proto}` lootFloor proto group(s)."
         )
         if eventgroups_parse_warning:
             output["messages"].append(eventgroups_parse_warning)
@@ -38802,14 +38812,14 @@ async def event_vehicle(
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
-@events_group.command(name="airdrop", description="Admin: create a one-time or recurring airdrop crate event")
+@events_group.command(name="airdrop", description="Admin: create a one-time or recurring airdrop event")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     location="Preset location or custom coordinates",
-    loot_preset="Pick what the crate should contain. This patches cfgspawnabletypes.xml on uploadce.",
+    loot_preset="Pick which CE loot tags/categories the airdrop should use.",
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
-    visual_marker="Spawn a crash/debris marker object beside the crate",
+    visual_marker="Spawn a crash/debris object as the lootFloor anchor",
     scene_type="Visual scene to place around the airdrop when marker is on",
     zombie_guards="Spawn infected guards around the airdrop",
     guard_preset="Guard infected type",
@@ -38843,7 +38853,7 @@ async def event_airdrop(
     restarts: int = 1,
     permanent: bool = False,
     visual_marker: bool = True,
-    scene_type: str = "compact_crater",
+    scene_type: str = "helicopter_crash",
     zombie_guards: bool = True,
     guard_preset: str = "military_zombie",
     guard_count: int = 8,
@@ -38885,8 +38895,11 @@ async def event_airdrop(
     guard_radius = max(5, min(500, int(guard_radius or 35)))
     scene_type = re.sub(r"[^a-z0-9_]+", "_", str(scene_type or "compact_crater").strip().lower()).strip("_")
     if scene_type not in SCENARIO_AIRDROP_SCENES:
-        scene_type = "compact_crater"
+        scene_type = "helicopter_crash"
     scene_radius = scenario_airdrop_scene_min_radius({"scene_type": scene_type}) if visual_marker else 35
+    airdrop_class = crate_class
+    if visual_marker:
+        airdrop_class = str(SCENARIO_AIRDROP_SCENES[scene_type].get("marker") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
     events = scenario_events_for_config(config)
     event_id = next_scenario_event_id(config)
     event_record = {
@@ -38897,7 +38910,7 @@ async def event_airdrop(
         "x": location_data["x"],
         "y": location_data["y"],
         "z": location_data["z"],
-        "class_name": crate_class,
+        "class_name": airdrop_class,
         "preset": "airdrop",
         "map": map_key,
         "count": 1,
@@ -38905,7 +38918,7 @@ async def event_airdrop(
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
         "visual_marker": bool(visual_marker),
-        "marker_class": SCENARIO_AIRDROP_MARKER_CLASS if visual_marker else "",
+        "marker_class": airdrop_class if visual_marker else "",
         "scene_type": scene_type,
         "guard_class": guard_class if zombie_guards else "",
         "guard_count": guard_count if zombie_guards else 0,
@@ -38927,7 +38940,7 @@ async def event_airdrop(
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
-    embed.add_field(name="Crate", value=f"`{crate_class}`", inline=True)
+    embed.add_field(name="Loot anchor", value=f"`{airdrop_class}`", inline=True)
     embed.add_field(name="Loot", value=f"`{loot_key}` ({len(event_record['loot'])} item types)", inline=True)
     embed.add_field(name="Marker", value="On" if visual_marker else "Off", inline=True)
     embed.add_field(name="Scene", value=SCENARIO_AIRDROP_SCENES[scene_type]["label"] if visual_marker else "Off", inline=True)

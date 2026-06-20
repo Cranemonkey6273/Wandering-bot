@@ -167,6 +167,47 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertGreater(int(crate_child.get("lootmax") or 0), 0)
         self.assertGreaterEqual(int(crate_child.get("lootmin") or 0), 0)
 
+    def test_helicopter_airdrop_uses_crash_as_loot_child_not_crate(self):
+        event = _base_event(
+            32,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+        )
+        record, _events, _spawns, groups_root = self._build_airdrop_event_node(event)
+
+        self.assertEqual(record["event_child_type"], "Wreck_Mi8_Crashed")
+        group = groups_root.find("group")
+        children = group.findall("child")
+        types_in_group = [child.get("type") for child in children]
+        self.assertIn("Wreck_Mi8_Crashed", types_in_group)
+        self.assertNotIn("WoodenCrate", types_in_group)
+        crash_child = next(child for child in children if child.get("type") == "Wreck_Mi8_Crashed")
+        self.assertNotIn("spawnsecondary", crash_child.attrib)
+        self.assertGreater(int(crash_child.get("lootmax") or 0), 0)
+
+    def test_airdrop_guards_are_eventgroup_children(self):
+        event = _base_event(
+            32,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+            guard_class="ZmbM_SoldierNormal",
+            guard_count=3,
+            guard_radius=35,
+        )
+        records, _warnings = bot.console_ce_records_for_event(event)
+
+        self.assertEqual(1, len(records))
+        guard_children = [
+            child for child in records[0]["eventgroup_children"]
+            if child.get("type") == "ZmbM_SoldierNormal"
+        ]
+        self.assertEqual(3, len(guard_children))
+        self.assertTrue(all(child.get("spawnsecondary") == "false" for child in guard_children))
+
 
 class VehicleAndZombieSpawnTests(unittest.TestCase):
     """Vehicles and hordes do NOT use cfgeventgroups. Their <pos> blocks must
@@ -298,7 +339,7 @@ class MapGroupProtoTests(unittest.TestCase):
     """Each cfgeventgroups child type must have a mapgroupproto group entry,
     otherwise the live RPT prints ``No group configured for '<class>'``."""
 
-    def test_proto_group_added_for_marker_and_crate(self):
+    def test_proto_group_added_for_helicopter_crash_loot_floor(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
         records, _ = bot.console_ce_records_for_event(event)
         record = records[0]
@@ -307,10 +348,10 @@ class MapGroupProtoTests(unittest.TestCase):
             if bot.eventgroup_child_needs_mapgroupproto(child):
                 bot.add_mapgroupproto_loot_group(proto_root, child["type"])
         names = {g.get("name") for g in proto_root.findall("group")}
-        self.assertIn("WoodenCrate", names)
-        self.assertNotIn("Wreck_Mi8_Crashed", names)
-        crate_group = next(g for g in proto_root.findall("group") if g.get("name") == "WoodenCrate")
-        container = crate_group.find("container")
+        self.assertIn("Wreck_Mi8_Crashed", names)
+        self.assertNotIn("WoodenCrate", names)
+        crash_group = next(g for g in proto_root.findall("group") if g.get("name") == "Wreck_Mi8_Crashed")
+        container = crash_group.find("container")
         self.assertIsNotNone(container)
         self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
@@ -320,23 +361,26 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
 
-    def test_scene_marker_child_does_not_need_mapgroupproto(self):
+    def test_guard_children_do_not_need_mapgroupproto(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
+        event["guard_class"] = "ZmbM_SoldierNormal"
+        event["guard_count"] = 2
         records, _ = bot.console_ce_records_for_event(event)
-        marker_child = next(child for child in records[0]["eventgroup_children"] if child.get("type") == "Wreck_Mi8_Crashed")
+        guard_child = next(child for child in records[0]["eventgroup_children"] if child.get("type") == "ZmbM_SoldierNormal")
 
-        self.assertFalse(bot.eventgroup_child_needs_mapgroupproto(marker_child))
+        self.assertFalse(bot.eventgroup_child_needs_mapgroupproto(guard_child))
 
-    def test_existing_bare_proto_group_gets_repaired(self):
+    def test_existing_unmarked_proto_group_is_left_alone_and_managed_group_appended(self):
         proto_root = ET.Element("prototype")
-        ET.SubElement(proto_root, "group", {"name": "WoodenCrate"})
+        ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed"})
 
-        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "WoodenCrate")
+        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "Wreck_Mi8_Crashed")
 
         self.assertTrue(changed)
-        crate_group = proto_root.find("./group[@name='WoodenCrate']")
-        self.assertIsNotNone(crate_group)
-        container = crate_group.find("container")
+        groups = proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertEqual(2, len(groups))
+        self.assertIsNone(groups[0].find("container"))
+        container = groups[1].find("container")
         self.assertIsNotNone(container)
         self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
@@ -346,16 +390,17 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
 
-    def test_existing_top_level_point_proto_group_gets_lootfloor_repaired(self):
+    def test_existing_marked_proto_group_gets_lootfloor_repaired(self):
         proto_root = ET.Element("prototype")
-        crate_group = ET.SubElement(proto_root, "group", {"name": "WoodenCrate", "lootmax": "80"})
-        ET.SubElement(crate_group, "usage", {"name": "Military"})
-        ET.SubElement(crate_group, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
+        bot.append_wandering_xml_comment(proto_root, "managed mapgroupproto group Wreck_Mi8_Crashed")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "80"})
+        ET.SubElement(crash_group, "usage", {"name": "Military"})
+        ET.SubElement(crash_group, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
 
-        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "WoodenCrate")
+        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "Wreck_Mi8_Crashed")
 
         self.assertTrue(changed)
-        container = crate_group.find("container")
+        container = crash_group.find("container")
         self.assertIsNotNone(container)
         self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)

@@ -216,7 +216,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("non-WanderingBot", message)
         self.assertIn("StaticVanillaThing", message)
 
-    def test_scope_guard_allows_legacy_bare_airdrop_proto_repair(self):
+    def test_scope_guard_allows_managed_proto_append_after_legacy_live_proto(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <prototype>
     <group name="WoodenCrate" lootmax="80">
@@ -227,6 +227,10 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 """
         merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <prototype>
+    <group name="WoodenCrate" lootmax="80">
+        <usage name="Military" />
+        <point pos="0 0 0" range="0.5" height="0.5" />
+    </group>
     <!-- Wandering Bot: managed mapgroupproto group WoodenCrate -->
     <group name="WoodenCrate" lootmax="80">
         <usage name="Military" />
@@ -244,7 +248,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("only WanderingBot-managed", message)
 
-    def test_scope_guard_allows_old_tier4_airdrop_proto_replacement(self):
+    def test_scope_guard_allows_managed_proto_append_after_old_tier4_live_proto(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <prototype>
     <group name="WoodenCrate" lootmax="80">
@@ -255,11 +259,15 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 """
         root = ET.fromstring(original)
         _changed, removed_groups, removed_values = bot.cleanup_stale_mapgroupproto_airdrop_nodes(root)
-        self.assertEqual(1, removed_groups)
+        self.assertEqual(0, removed_groups)
         self.assertEqual(0, removed_values)
 
         merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <prototype>
+    <group name="WoodenCrate" lootmax="80">
+        <value name="Tier4" />
+        <container name="lootFloor" lootmax="0" />
+    </group>
     <!-- Wandering Bot: managed mapgroupproto group WoodenCrate -->
     <group name="WoodenCrate">
         <container name="lootFloor" lootmax="80">
