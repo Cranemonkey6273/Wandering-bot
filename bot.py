@@ -28996,8 +28996,18 @@ def validate_console_ce_upload_scope(built):
 
 
 def console_ce_needs_spawnabletypes(config):
+    # Scenario loot should come from DayZ CE usage/category tags and native class
+    # loot config. Do not inject per-item cargo into cfgspawnabletypes.xml.
+    return False
+
+
+def console_ce_has_native_loot_intent(config):
     for event in native_ce_scenario_events(config):
-        if event.get("event_type") in {"airdrop", "vehicle_spawn"} and event.get("loot"):
+        if event.get("event_type") in {"airdrop", "loot_crate"} and (
+            event.get("loot_preset")
+            or event.get("loot")
+            or event.get("loot_mix")
+        ):
             return True
     return False
 
@@ -29673,6 +29683,68 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
 
 
 MAPGROUPPROTO_LOOT_CATEGORIES = ("weapons", "explosives", "tools", "clothes", "containers", "food")
+MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
+    "military": {
+        "usage": ("Military",),
+        "category": ("weapons", "explosives", "tools", "clothes", "containers", "food"),
+    },
+    "military_basic": {
+        "usage": ("Military", "Police"),
+        "category": ("weapons", "tools", "clothes", "food"),
+    },
+    "military_high": {
+        "usage": ("Military",),
+        "category": ("weapons", "explosives", "tools", "clothes", "containers"),
+    },
+    "medical": {
+        "usage": ("Medic",),
+        "category": ("tools", "clothes"),
+    },
+    "survival": {
+        "usage": ("Hunting", "Village", "Town"),
+        "category": ("food", "tools", "containers", "clothes"),
+    },
+    "building": {
+        "usage": ("Industrial", "Farm"),
+        "category": ("tools", "containers"),
+    },
+    "food": {
+        "usage": ("Town", "Village", "Farm"),
+        "category": ("food",),
+    },
+    "vehicle": {
+        "usage": ("Industrial", "Farm"),
+        "category": ("tools", "containers"),
+    },
+    "vehicle_car": {
+        "usage": ("Industrial", "Farm"),
+        "category": ("tools", "containers"),
+    },
+    "vehicle_truck": {
+        "usage": ("Industrial", "Farm"),
+        "category": ("tools", "containers"),
+    },
+    "weapons": {
+        "usage": ("Military",),
+        "category": ("weapons",),
+    },
+    "ammo": {
+        "usage": ("Military", "Police"),
+        "category": ("weapons", "explosives"),
+    },
+    "clothing": {
+        "usage": ("Military", "Hunting", "Town"),
+        "category": ("clothes",),
+    },
+    "bags": {
+        "usage": ("Military", "Hunting", "Town"),
+        "category": ("containers", "clothes"),
+    },
+    "utility": {
+        "usage": ("Industrial", "Town", "Village"),
+        "category": ("tools",),
+    },
+}
 
 
 def mapgroupproto_positive_int(value, default=0):
@@ -29693,16 +29765,64 @@ def mapgroupproto_group_has_usable_loot_container(group_node):
     return False
 
 
-def ensure_mapgroupproto_loot_container(group_node, lootmax=80):
+def scenario_mapgroupproto_loot_tag_keys(event):
+    keys = []
+
+    def add(key):
+        key = str(key or "").strip().lower()
+        if key and key != "none" and key not in keys:
+            keys.append(key)
+
+    add(event.get("loot_preset"))
+    mix = event.get("loot_mix")
+    if isinstance(mix, dict):
+        for key, value in mix.items():
+            if safe_int(value, 0) > 0:
+                add(key)
+    if not keys and event.get("event_type") in {"airdrop", "loot_crate"}:
+        add("military")
+    return keys
+
+
+def scenario_mapgroupproto_loot_tags(event):
+    usages = []
+    categories = []
+
+    def add_unique(target, values):
+        for value in values or ():
+            value = str(value or "").strip()
+            if value and value not in target:
+                target.append(value)
+
+    for key in scenario_mapgroupproto_loot_tag_keys(event):
+        tags = MAPGROUPPROTO_LOOT_TAGS_BY_KEY.get(key, {})
+        add_unique(usages, tags.get("usage"))
+        add_unique(categories, tags.get("category"))
+    if not usages:
+        usages = ["Military"]
+    if not categories:
+        categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
+    return {"usage": usages, "category": categories}
+
+
+def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
     target_lootmax = str(max(1, int(lootmax or 80)))
+    tags = tags if isinstance(tags, dict) else {}
+    wanted_usages = [str(item).strip() for item in tags.get("usage", []) if str(item).strip()]
+    wanted_categories = [str(item).strip() for item in tags.get("category", []) if str(item).strip()]
+    if not wanted_usages:
+        wanted_usages = ["Military"]
+    if not wanted_categories:
+        wanted_categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
     changed = False
 
     if mapgroupproto_positive_int(group_node.get("lootmax")) <= 0:
         group_node.set("lootmax", target_lootmax)
         changed = True
     if not group_node.findall("usage"):
-        ET.SubElement(group_node, "usage", {"name": "Military"})
-        changed = True
+        for usage_name in wanted_usages:
+            ET.SubElement(group_node, "usage", {"name": usage_name})
+            changed = True
 
     containers = list(group_node.findall("container"))
     container = next(
@@ -29727,7 +29847,7 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80):
             changed = True
 
     if not container.findall("category"):
-        for category_name in MAPGROUPPROTO_LOOT_CATEGORIES:
+        for category_name in wanted_categories:
             ET.SubElement(container, "category", {"name": category_name})
         changed = True
     if not container.findall("point"):
@@ -29740,7 +29860,7 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80):
     return changed
 
 
-def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
+def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
     # Non-destructive: if a <group> with this name already exists, leave
     # it strictly alone (only the rogue Tier4 value is stripped). Earlier
     # revisions wiped <usage>, <category> and <container name="lootfloor">
@@ -29765,12 +29885,12 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
                     group_node.remove(value_node)
                     changed = True
             if not mapgroupproto_group_has_usable_loot_container(group_node):
-                changed = ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax) or changed
+                changed = ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags) or changed
             return group_node, changed
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
     group_node = ET.SubElement(root, "group", {"name": wanted})
-    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax)
+    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags)
     return group_node, True
 
 
@@ -29787,6 +29907,43 @@ def find_or_create_named_child(root, tag_name, name, comment_text=""):
 def console_ce_event_uses_zone_spawn(event_name):
     name = str(event_name or "").strip()
     return name.startswith(CONSOLE_CE_ZONE_SPAWN_FAMILIES)
+
+
+def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45):
+    base_x = parse_dayz_map_number(x)
+    base_z = parse_dayz_map_number(z)
+    base_angle = parse_dayz_map_number(angle) or 0
+    if base_x is None or base_z is None:
+        return [(x, z, base_angle)]
+
+    try:
+        spread = int(radius or 45)
+    except Exception:
+        spread = 45
+    spread = max(12, min(75, spread or 45))
+    diagonal = round(spread * 0.7, 3)
+    offsets = [
+        (0, 0),
+        (spread, 0),
+        (-spread, 0),
+        (0, spread),
+        (0, -spread),
+        (diagonal, diagonal),
+        (-diagonal, diagonal),
+        (diagonal, -diagonal),
+        (-diagonal, -diagonal),
+    ]
+    positions = []
+    seen = set()
+    for dx, dz in offsets:
+        pos_x = round(base_x + dx, 3)
+        pos_z = round(base_z + dz, 3)
+        key = (pos_x, pos_z)
+        if key in seen:
+            continue
+        seen.add(key)
+        positions.append((pos_x, pos_z, base_angle))
+    return positions
 
 
 def remove_matching_console_ce_spawn_children(event_node, x, z, radius=None, group_name=""):
@@ -29836,6 +29993,14 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "z": ce_decimal(z),
             "r": str(max(1, radius or 45)),
         })
+    if event_name.startswith("Vehicle") and CONSOLE_CE_EVENT_MARKER in event_name:
+        for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(x, z, angle=angle, radius=radius or 45):
+            ET.SubElement(event_node, "pos", {
+                "x": ce_decimal(pos_x),
+                "z": ce_decimal(pos_z),
+                "a": ce_decimal(pos_angle),
+            })
+        return event_node
     attrs = {
         "x": ce_decimal(x),
         "z": ce_decimal(z),
@@ -30080,6 +30245,8 @@ def console_ce_records_for_event(event):
     eventgroup_children = None
     family = ce_event_family_for_record(event_type, class_name)
     limit_type = "child"
+    if event_type == "vehicle_spawn":
+        limit_type = "mixed"
     child_lootmin = 0
     child_lootmax = 0
     if event_type == "zombie_horde":
@@ -30151,13 +30318,16 @@ def console_ce_records_for_event(event):
     restock = max(0, min(3888000, safe_int(event.get("restock"), restock_default)))
     if event_type in {"airdrop", "loot_crate"} and restock == 3600:
         restock = 0
-    saferadius = max(0, min(5000, safe_int(event.get("saferadius"), 0)))
+    saferadius_default = 500 if event_type == "vehicle_spawn" else 0
+    saferadius = max(0, min(5000, safe_int(event.get("saferadius"), saferadius_default)))
+    if event_type == "vehicle_spawn" and saferadius == 0:
+        saferadius = saferadius_default
     if event_type in {"airdrop", "loot_crate"}:
         distanceradius_default = 25
         cleanupradius_default = max(100, min(1500, safe_int(event.get("radius"), 70) * 4))
     elif event_type == "vehicle_spawn":
-        distanceradius_default = 25
-        cleanupradius_default = 100
+        distanceradius_default = 500
+        cleanupradius_default = 200
     else:
         distanceradius_default = 1000 if use_eventgroup else 0
         cleanupradius_default = 1500 if use_eventgroup else 100
@@ -30170,6 +30340,11 @@ def console_ce_records_for_event(event):
             cleanupradius = cleanupradius_default
     elif event_type == "vehicle_spawn" and distanceradius == 0:
         distanceradius = distanceradius_default
+    elif event_type == "vehicle_spawn":
+        if distanceradius < distanceradius_default:
+            distanceradius = distanceradius_default
+        if cleanupradius < cleanupradius_default:
+            cleanupradius = cleanupradius_default
 
     record_name = vanilla_animal_name if event_type == "animal_pack" else ce_event_name(event, family=family)
     record = {
@@ -30197,9 +30372,10 @@ def console_ce_records_for_event(event):
         "saferadius": saferadius,
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
-        "remove_damaged": False,
+        "remove_damaged": event_type == "vehicle_spawn",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
         "use_existing_definition": event_type == "animal_pack",
+        "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if use_eventgroup else {},
     }
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
@@ -30770,7 +30946,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     if str(child.get("type") or "").strip()
                 ]
             for proto_class in dict.fromkeys(proto_classes):
-                _, created = add_mapgroupproto_loot_group(mapgroupproto_root, proto_class)
+                _, created = add_mapgroupproto_loot_group(
+                    mapgroupproto_root,
+                    proto_class,
+                    tags=record.get("mapgroupproto_tags") if proto_class == record["class_name"] else {},
+                )
                 if created:
                     added_proto += 1
         if removed_groups or eventgroup_records or cleanup_pending:
@@ -30799,6 +30979,12 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if mapgroupproto_parse_warning:
             output["messages"].append(mapgroupproto_parse_warning)
 
+    if console_ce_has_native_loot_intent(config):
+        output["messages"].append(
+            "Native CE loot uses `mapgroupproto.xml` usage/category tags for the selected preset; "
+            "`cfgspawnabletypes.xml` per-item cargo tuning is skipped."
+        )
+
     if console_ce_needs_spawnabletypes(config):
         spawnable_text, resolved_spawnable_path, spawnable_source = download_console_ce_source(
             config,
@@ -30822,27 +31008,41 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             else:
                 removed_ignored_items, removed_empty_groups = sanitize_spawnabletypes_ignored_items(spawnable_root)
                 changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, native_ce_scenario_events(config))
-                output["spawnabletypes_path"] = resolved_spawnable_path
-                output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
-                output["spawnabletypes_source_text"] = spawnable_text
-                output["messages"].append(spawnable_source)
-                output["messages"].append(
-                    f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
-                    + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
+                candidate_spawnable_text = xml_text_from_root(spawnable_root)
+                scope_ok, scope_message = validate_managed_ce_xml_scope(
+                    "cfgspawnabletypes.xml",
+                    spawnable_text,
+                    candidate_spawnable_text,
                 )
-                if preset_refs_removed:
+                if not scope_ok:
+                    output["messages"].append(spawnable_source)
                     output["messages"].append(
-                        f"Removed `{preset_refs_removed}` missing-preset cargo/attachment reference(s) from touched airdrop classes."
+                        "`cfgspawnabletypes.xml` cargo tuning skipped because it would modify existing server item/class definitions. "
+                        "Core WanderingBot CE events, spawn points, event groups, and mapgroupproto snippets can still upload safely."
                     )
-                if removed_ignored_items:
+                    output["messages"].append(scope_message)
+                else:
+                    output["spawnabletypes_path"] = resolved_spawnable_path
+                    output["spawnabletypes_text"] = candidate_spawnable_text
+                    output["spawnabletypes_source_text"] = spawnable_text
+                    output["messages"].append(spawnable_source)
                     output["messages"].append(
-                        f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
-                        f"and cleaned `{removed_empty_groups}` empty cargo/attachment group(s)."
+                        f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
+                        + (", ".join(f"`{item}`" for item in changed_classes) if changed_classes else "none")
                     )
-                if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
-                    output["messages"].append(
-                        "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
-                    )
+                    if preset_refs_removed:
+                        output["messages"].append(
+                            f"Removed `{preset_refs_removed}` missing-preset cargo/attachment reference(s) from touched airdrop classes."
+                        )
+                    if removed_ignored_items:
+                        output["messages"].append(
+                            f"Removed `{removed_ignored_items}` ignored flare preset item reference(s) from `cfgspawnabletypes.xml` "
+                            f"and cleaned `{removed_empty_groups}` empty cargo/attachment group(s)."
+                        )
+                    if any(str(item).lower() in {"woodencrate", "staticobj_misc_woodencrate_5x"} for item in changed_classes):
+                        output["messages"].append(
+                            "Note: wooden-crate cargo tuning is class-based, so other CE-spawned crates using that same classname can share that cargo setup."
+                        )
 
     return output
 
@@ -30897,8 +31097,10 @@ def validate_console_ce_xml_bundle(built):
         if (event_node.findtext("position") or "").strip() != "fixed":
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
-        if limit_text not in {"child", "custom"}:
-            messages.append(f"`{name}` must use `<limit>child</limit>` or `<limit>custom</limit>`.")
+        if limit_text not in {"child", "custom", "mixed"}:
+            messages.append(f"`{name}` must use `<limit>child</limit>`, `<limit>custom</limit>`, or `<limit>mixed</limit>`.")
+        if limit_text == "mixed" and not name.startswith("Vehicle"):
+            messages.append(f"`{name}` uses `<limit>mixed</limit>`, which is only allowed for vehicle CE events.")
         if (event_node.findtext("active") or "").strip() != "1":
             messages.append(f"`{name}` is not active.")
         children = event_node.find("children")
@@ -38440,7 +38642,10 @@ async def event_vehicle(
         "preset": vehicle_preset,
         "map": map_key,
         "count": 1,
-        "radius": 0,
+        "radius": 45,
+        "saferadius": 500,
+        "distanceradius": 500,
+        "cleanupradius": 200,
         "loot_preset": "none",
         "loot": [],
         "vehicle_condition": condition,

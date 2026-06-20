@@ -10800,7 +10800,7 @@ PAGE_TEMPLATE = """
           airdrop: {lifetime: 7200, restock: 0, saferadius: 0, distanceradius: 25, cleanupradius: 380},
           animal_pack: {lifetime: 3600, restock: 0, saferadius: 2, distanceradius: 100, cleanupradius: 100},
           zombie_horde: {lifetime: 1800, restock: 0, saferadius: 0, distanceradius: 50, cleanupradius: 100},
-          vehicle_spawn: {lifetime: 3888000, restock: 0, saferadius: 0, distanceradius: 5, cleanupradius: 100},
+          vehicle_spawn: {lifetime: 3888000, restock: 0, saferadius: 500, distanceradius: 500, cleanupradius: 200},
           gas_zone: {lifetime: Number(form.elements.gas_lifetime ? form.elements.gas_lifetime.value : 1800) || 1800, restock: 0, saferadius: 0, distanceradius: Math.max(50, Number(form.elements.radius ? form.elements.radius.value : 120) || 120), cleanupradius: Math.max(100, (Number(form.elements.radius ? form.elements.radius.value : 120) || 120) + 100)}
         };
         const defaults = typeDefaults[normalScenarioType(typeSelect ? typeSelect.value : option.dataset.type || "airdrop")] || typeDefaults.airdrop;

@@ -58,6 +58,7 @@ def _emit_bundle(events):
             distanceradius=record.get("distanceradius", 0),
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
+            remove_damaged=bool(record.get("remove_damaged")),
             empty_children=bool(record.get("empty_event_children")),
         )
     for record in records:

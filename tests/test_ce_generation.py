@@ -196,6 +196,7 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
             distanceradius=record.get("distanceradius", 0),
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
+            remove_damaged=bool(record.get("remove_damaged")),
             empty_children=bool(record.get("empty_event_children")),
         )
         spawns_root = ET.Element("eventposdef")
@@ -219,13 +220,24 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         self.assertFalse(record.get("empty_event_children"))
         event_node = events_root.find("event")
         self.assertIsNotNone(event_node)
+        self.assertEqual(event_node.findtext("limit"), "mixed")
+        self.assertEqual(event_node.findtext("saferadius"), "500")
+        self.assertEqual(event_node.findtext("distanceradius"), "500")
+        self.assertEqual(event_node.findtext("cleanupradius"), "200")
+        self.assertEqual(event_node.find("flags").get("remove_damaged"), "1")
         child = event_node.find("children/child")
         self.assertIsNotNone(child)
         self.assertEqual(child.get("type"), "Hatchback_02")
 
-        pos = spawns_root.find("event/pos")
-        self.assertIsNotNone(pos)
-        self.assertNotIn("y", pos.attrib)
+        positions = spawns_root.findall("event/pos")
+        self.assertGreaterEqual(
+            len(positions),
+            5,
+            "vehicle events need several nearby candidate positions so DayZ can recover from one blocked spot",
+        )
+        self.assertGreater(len({(pos.get("x"), pos.get("z")) for pos in positions}), 1)
+        for pos in positions:
+            self.assertNotIn("y", pos.attrib)
 
     def test_zombie_horde_has_zone_block_no_y(self):
         event = _base_event(
@@ -315,6 +327,111 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIsNotNone(container)
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
         self.assertIsNotNone(container.find("point"))
+
+
+class BuildConsoleCeEventFilesTests(unittest.TestCase):
+    def setUp(self):
+        self.original_download = bot.download_console_ce_source
+        self.guild_id = "999001"
+
+    def tearDown(self):
+        bot.download_console_ce_source = self.original_download
+        bot.guild_configs.pop(self.guild_id, None)
+
+    def test_cfgspawnabletypes_scope_block_skips_optional_cargo_tuning(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": (
+                '<spawnabletypes><type name="WoodenCrate"><damage min="0.1" max="0.2" /></type><type name="Hammer" /></spawnabletypes>',
+                f"{base_path}/cfgspawnabletypes.xml",
+            ),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    41,
+                    "airdrop",
+                    "WoodenCrate",
+                    loot=["Hammer"],
+                    loot_preset="custom",
+                    visual_marker=False,
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        self.assertFalse(built.get("spawnabletypes_text"))
+        self.assertFalse(built.get("spawnabletypes_path"))
+        self.assertTrue(
+            any("per-item cargo tuning" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_zombie_horde_uses_native_infected_loot_not_spawnabletypes(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": (
+                '<spawnabletypes><type name="ZmbM_SoldierNormal"><cargo chance="1.00"><item name="Rag" /></cargo></type></spawnabletypes>',
+                f"{base_path}/cfgspawnabletypes.xml",
+            ),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    42,
+                    "zombie_horde",
+                    "ZmbM_SoldierNormal",
+                    loot=["Rag", "BandageDressing"],
+                    loot_preset="medical",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        self.assertFalse(built.get("spawnabletypes_text"))
+        self.assertFalse(built.get("spawnabletypes_path"))
+        events_root = ET.fromstring(built["events_text"])
+        child = events_root.find("event/children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual(child.get("type"), "ZmbM_SoldierNormal")
+        self.assertEqual(child.get("lootmin"), "0")
+        self.assertEqual(child.get("lootmax"), "5")
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
 
 
 if __name__ == "__main__":
