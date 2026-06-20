@@ -30012,9 +30012,19 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
     if mapgroupproto_positive_int(group_node.get("lootmax")) <= 0:
         group_node.set("lootmax", target_lootmax)
         changed = True
+    wanted_usage_set = {name.lower() for name in wanted_usages}
+    for usage_node in list(group_node.findall("usage")):
+        if str(usage_node.get("name") or "").strip().lower() not in wanted_usage_set:
+            group_node.remove(usage_node)
+            changed = True
     if not group_node.findall("usage"):
         for usage_name in wanted_usages:
             ET.SubElement(group_node, "usage", {"name": usage_name})
+            changed = True
+    wanted_value_set = {name.lower() for name in wanted_values}
+    for value_node in list(group_node.findall("value")):
+        if str(value_node.get("name") or "").strip().lower() not in wanted_value_set:
+            group_node.remove(value_node)
             changed = True
     if not group_node.findall("value"):
         for value_name in wanted_values:

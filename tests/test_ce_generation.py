@@ -426,6 +426,23 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
 
+    def test_existing_marked_proto_group_drops_obsolete_crash_usage(self):
+        proto_root = ET.Element("prototype")
+        bot.append_wandering_xml_comment(proto_root, "managed mapgroupproto group Wreck_Mi8_Crashed")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "80"})
+        ET.SubElement(crash_group, "usage", {"name": "Crash"})
+        ET.SubElement(crash_group, "value", {"name": "Tier1"})
+
+        _, changed = bot.add_mapgroupproto_loot_group(
+            proto_root,
+            "Wreck_Mi8_Crashed",
+            tags={"usage": ["Military"], "value": ["Tier4"], "category": ["weapons"]},
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual([node.get("name") for node in crash_group.findall("usage")], ["Military"])
+        self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier4"])
+
 
 class BuildConsoleCeEventFilesTests(unittest.TestCase):
     def setUp(self):
