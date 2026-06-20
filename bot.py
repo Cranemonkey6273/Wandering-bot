@@ -4058,7 +4058,6 @@ async def showcase_autonomous_loop():
                 last_showcase_discussion_time[guild_id] = now_ts
 
 
-@bot.tree.command(name="showcasesetup", description="Owner: initialise the autonomous showcase server")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(secret_code="Owner secret code", invite_url="Bot invite URL to display in start-here")
 async def showcasesetup(interaction: discord.Interaction, secret_code: str, invite_url: str = ""):
@@ -4189,7 +4188,6 @@ async def showcasesetup(interaction: discord.Interaction, secret_code: str, invi
     )
 
 
-@bot.tree.command(name="showcasestatus", description="Show autonomous showcase server status")
 @app_commands.default_permissions(administrator=True)
 async def showcasestatus(interaction: discord.Interaction):
     """Show the current state of the autonomous showcase engine."""
@@ -5062,7 +5060,7 @@ SHOWCASE_COMMAND_HINTS = [
     "💡 `/admstatus` shows whether the live feed reader is running and when it last processed your server logs.",
     "💡 Heatmaps post automatically in the configured heatmap channel when enough activity exists.",
     "💡 `/radarstatus` shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
-    "💡 Want AI-generated DayZ art in your server? Ask an admin to enable it with `/aiimageconfig`.",
+    "💡 Mention the bot in chat for DayZ help, setup guidance, and server advice.",
     "💡 `/toplongshots` is the sniper hall of fame — every kill over 300m gets automatically logged.",
     "💡 `/mylink` shows your linked gamertag and personal stats. Run it any time to check your progress.",
     "💡 The `/events airdrop` command lets admins spawn an airdrop loot crate anywhere on the map.",
@@ -5071,7 +5069,7 @@ SHOWCASE_COMMAND_HINTS = [
     "💡 Power tip: `/setup` walks you through the whole bot configuration in under 5 minutes.",
     "💡 `/welcomeconfig` lets admins customise the new-member welcome message — make a great first impression.",
     "💡 `/vehiclerentals` adds a paid vehicle rental economy to your DayZ server. Players pay pennies, get keys, return for refunds.",
-    "💡 `/aiimageconfig` enables periodic AI-generated DayZ art. Cinematic, gritty, funny — your choice of style.",
+    "💡 Heatmaps, radar zones, economy, and live feeds are the core Wandering Bot tools.",
     "💡 `/serverinfo` posts a public server-info embed any visitor can read for IP, mods, and player count.",
 ]
 
@@ -5116,7 +5114,7 @@ SHOWCASE_QUESTION_RESPONSES = {
         "Installation is just inviting me to your server and running `/setup`. No file uploads, no config files, no headaches.",
     ],
     "configure": [
-        "Most config happens via slash commands: `/setup`, `/welcomeconfig`, `/translationconfig`, `/aiimageconfig`, `/economyconfig`. Each one is interactive.",
+        "Most config happens via slash commands: `/setup`, `/welcomeconfig`, `/translationconfig`, and `/economyconfig`. Each one is interactive.",
     ],
     "begin": [
         "Brand new? Head to **#🌟🎉・GET STARTED NOW・🎉🌟** for the 5-minute getting-started guide.",
@@ -5149,7 +5147,7 @@ SHOWCASE_QUESTION_RESPONSES = {
     ],
     # ── AI / smart features ───────────────────────────────
     "ai": [
-        "🧠 The AI layer is always on — mention me in any channel and I'll respond with context-aware advice. Admins can also enable AI-generated DayZ art with `/aiimageconfig`.",
+        "🧠 The AI layer is always on — mention me in any channel and I'll respond with context-aware advice.",
         "🤖 I'm powered by AI for: smart kill alerts, radar anomaly detection, AI-generated DayZ artwork, intelligent chat responses, and pattern recognition from ADM logs.",
         "💡 The **#🤖🧠・AI MAGIC・🧠🤖** channel shows off everything I can do with artificial intelligence!",
     ],
@@ -23674,90 +23672,6 @@ async def removefeed(interaction: discord.Interaction, feed_id: int):
     save_guild_configs()
     await interaction.response.send_message(f"Feed `{feed_id}` removed.", ephemeral=True)
 
-
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    enabled="Turn occasional AI pictures on or off",
-    channel="Channel where pictures should be posted",
-    style="funny, gritty, or pinup",
-    cooldown_hours="Minimum hours between random picture posts, 1 to 72"
-)
-async def setaiimages(
-    interaction: discord.Interaction,
-    enabled: bool,
-    channel: discord.TextChannel = None,
-    style: str = "funny",
-    cooldown_hours: int = 6
-):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    style = str(style or "funny").lower().strip()
-    if style not in AI_IMAGE_PROMPTS:
-        await interaction.response.send_message("Style must be `funny`, `gritty`, or `pinup`.", ephemeral=True)
-        return
-
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
-    settings = ai_image_config(config)
-    settings["enabled"] = bool(enabled)
-    settings["style"] = style
-    settings["cooldown_seconds"] = max(1, min(72, int(cooldown_hours or 6))) * 3600
-
-    if channel:
-        settings["channel_id"] = channel.id
-
-    save_guild_configs()
-
-    target_channel = channel.mention if channel else "auto-selected chat channel"
-    api_note = "" if OPENAI_API_KEY else "\nWarning: `OPENAI_API_KEY` is not set, so images will not generate until it is added."
-    await interaction.response.send_message(
-        f"AI pictures are now `{'on' if enabled else 'off'}`. Style: `{style}`. Channel: {target_channel}. Cooldown: `{settings['cooldown_seconds'] // 3600}`h.{api_note}",
-        ephemeral=True
-    )
-
-
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(style="Optional style override: funny, gritty, or pinup")
-async def aiimagepostnow(interaction: discord.Interaction, style: str = ""):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id, {})
-    settings = ai_image_config(config)
-    chosen_style = str(style or settings.get("style") or "funny").lower().strip()
-
-    if chosen_style not in AI_IMAGE_PROMPTS:
-        await interaction.response.send_message("Style must be `funny`, `gritty`, or `pinup`.", ephemeral=True)
-        return
-
-    if not OPENAI_API_KEY:
-        await interaction.response.send_message("`OPENAI_API_KEY` is not set, so I cannot generate images yet.", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-
-    image_bytes, error = await asyncio.to_thread(generate_ai_image_bytes, chosen_style)
-    if error:
-        await interaction.followup.send(f"Image generation failed: `{error[:900]}`", ephemeral=True)
-        return
-
-    file = discord.File(io.BytesIO(image_bytes), filename="wandering_postcard.png")
-    embed = discord.Embed(
-        title="WANDERING BOT POSTCARD",
-        description=random.choice(AI_IMAGE_CAPTIONS),
-        color=0x9B59B6
-    )
-    embed.set_image(url="attachment://wandering_postcard.png")
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - AI Generated DayZ-Inspired Art")
-    embed.timestamp = datetime.now(UTC)
-    await interaction.channel.send(embed=style_embed(embed), file=file)
-    last_ai_image_time[guild_id] = datetime.now(UTC).timestamp()
-    await interaction.followup.send("Posted one AI picture.", ephemeral=True)
 # =========================================================
 # PVE QUEST SYSTEM
 # =========================================================
@@ -36506,11 +36420,10 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         inline=False
     )
     embed.add_field(
-        name="🎨 AI-Generated DayZ Art",
+        name="🧠 Smart Server Help",
         value=(
-            "Enable the AI image feature with `/aiimageconfig` and the bot will periodically "
-            "generate original DayZ-inspired artwork and post it to your chosen channel. "
-            "Styles include cinematic, funny, survival horror, and more."
+            "Mention the bot in chat for DayZ setup help, feature guidance, "
+            "and server advice without adding extra slash commands."
         ),
         inline=False
     )
@@ -36818,7 +36731,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="Recent Highlights",
         value=(
-            "• AI-generated DayZ art via `/aiimageconfig`\n"
+            "• Smart DayZ help when members mention the bot\n"
             "• Radar zone system with coordinate-based alerts\n"
             "• PVE quest system with hunting, fishing, crafting, and expedition chains\n"
             "• Custom scheduled feeds via `/addfeed`\n"
