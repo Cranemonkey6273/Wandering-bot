@@ -83,6 +83,71 @@ def _json_root_type(value: Any) -> str:
     return type(value).__name__
 
 
+def _xml_text_without_comments(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", str(text or ""), flags=re.DOTALL)
+
+
+def _parse_dayz_xml(text: str) -> ET.Element:
+    return ET.fromstring(_xml_text_without_comments(text).encode("utf-8"))
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_number_triplet(value: Any, label: str) -> str:
+    if not isinstance(value, list) or len(value) != 3 or not all(_is_number(item) for item in value):
+        return f"{label} must be an array of 3 numbers."
+    return ""
+
+
+def _validate_object_spawner_payload(payload: Any, target_path: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, f"Refusing to upload `{target_path}`: object spawner JSON root must be an object."
+    objects = payload.get("Objects")
+    if not isinstance(objects, list):
+        return False, f"Refusing to upload `{target_path}`: object spawner JSON must contain an `Objects` array."
+    for index, item in enumerate(objects[:5000]):
+        if not isinstance(item, dict):
+            return False, f"Refusing to upload `{target_path}`: Objects[{index}] must be an object."
+        if not str(item.get("name") or "").strip():
+            return False, f"Refusing to upload `{target_path}`: Objects[{index}] is missing `name`."
+        pos_error = _validate_number_triplet(item.get("pos"), f"Objects[{index}].pos")
+        if pos_error:
+            return False, f"Refusing to upload `{target_path}`: {pos_error}"
+        if "ypr" in item:
+            ypr_error = _validate_number_triplet(item.get("ypr"), f"Objects[{index}].ypr")
+            if ypr_error:
+                return False, f"Refusing to upload `{target_path}`: {ypr_error}"
+        if "scale" in item and not _is_number(item.get("scale")):
+            return False, f"Refusing to upload `{target_path}`: Objects[{index}].scale must be a number."
+    return True, ""
+
+
+def _validate_cfggameplay_payload(payload: Any, target_path: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, f"Refusing to upload `{target_path}`: cfggameplay.json root must be an object."
+    worlds = payload.get("WorldsData")
+    if worlds is not None:
+        if not isinstance(worlds, dict):
+            return False, f"Refusing to upload `{target_path}`: WorldsData must be an object."
+        spawners = worlds.get("objectSpawnersArr")
+        if spawners is not None and not isinstance(spawners, list):
+            return False, f"Refusing to upload `{target_path}`: WorldsData.objectSpawnersArr must be an array."
+        if spawners is not None and not all(isinstance(item, str) and item.strip() for item in spawners):
+            return False, f"Refusing to upload `{target_path}`: WorldsData.objectSpawnersArr must contain string paths."
+    player = payload.get("PlayerData")
+    if player is not None:
+        if not isinstance(player, dict):
+            return False, f"Refusing to upload `{target_path}`: PlayerData must be an object."
+        presets = player.get("spawnGearPresetFiles")
+        if presets is not None and not isinstance(presets, list):
+            return False, f"Refusing to upload `{target_path}`: PlayerData.spawnGearPresetFiles must be an array."
+        if presets is not None and not all(isinstance(item, str) and item.strip() for item in presets):
+            return False, f"Refusing to upload `{target_path}`: PlayerData.spawnGearPresetFiles must contain string paths."
+    return True, ""
+
+
 def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool, str]:
     """Validate known DayZ XML/JSON files before upload.
 
@@ -101,7 +166,7 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
 
     if spec and spec.kind == "xml":
         try:
-            root = ET.fromstring(text.encode("utf-8"))
+            root = _parse_dayz_xml(text)
         except Exception as error:
             return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
         if root.tag != spec.xml_root:
@@ -124,20 +189,24 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
         if spec.json_root_types and root_type not in spec.json_root_types:
             allowed = ", ".join(spec.json_root_types)
             return False, f"Refusing to upload `{target_path}`: expected JSON root {allowed}, got {root_type}."
+        if filename == "cfggameplay.json":
+            return _validate_cfggameplay_payload(payload, target_path)
         return True, ""
 
     if extension == ".xml":
         try:
-            ET.fromstring(text.encode("utf-8"))
+            _parse_dayz_xml(text)
         except Exception as error:
             return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
         return True, ""
 
     if extension == ".json":
         try:
-            json.loads(text)
+            payload = json.loads(text)
         except Exception as error:
             return False, f"Refusing to upload invalid JSON to `{target_path}`: {error}"
+        if isinstance(payload, dict) and "Objects" in payload:
+            return _validate_object_spawner_payload(payload, target_path)
         return True, ""
 
     return True, ""

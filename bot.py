@@ -28111,7 +28111,19 @@ def scenario_event_bridge_enabled(event, config=None):
     )
 
 
+def normalize_dayz_reference_map_key(map_key):
+    text = str(map_key or "").strip().lower()
+    if text in DAYZ_REFERENCE_MAP_FOLDERS:
+        return text
+    if "sakhal" in text:
+        return "sakhal"
+    if text in {"enoch", "livonia"} or "enoch" in text:
+        return "livonia"
+    return "chernarus"
+
+
 def dayz_reference_path(map_key, *parts):
+    map_key = normalize_dayz_reference_map_key(map_key)
     folder = DAYZ_REFERENCE_MAP_FOLDERS.get(map_key)
     if not folder:
         return None
@@ -28127,7 +28139,7 @@ def load_dayz_reference_text(map_key, *parts):
 
 
 def load_dayz_reference(map_key):
-    map_key = "livonia" if map_key == "livonia" else "chernarus"
+    map_key = normalize_dayz_reference_map_key(map_key)
     if map_key in dayz_reference_cache:
         return dayz_reference_cache[map_key]
 
