@@ -57,6 +57,19 @@ BUILD_COMMIT = (
     or ""
 )
 DASHBOARD_VERSION = os.getenv("WANDERING_DASHBOARD_VERSION", "1.26")
+SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
+SCENARIO_AIRDROP_SCENE_MARKERS = {
+    "compact_crater": SCENARIO_AIRDROP_MARKER_CLASS,
+    "helicopter_crash": "Wreck_Mi8_Crashed",
+    "cargo_plane_wreck": "Land_Wreck_C130J_Cargo",
+    "convoy_wreck": "StaticObj_Wreck_HMMWV_DE",
+}
+SCENARIO_AIRDROP_LEGACY_CRATE_CLASSES = {
+    "staticobj_misc_woodencrate_5x",
+    "woodencrate",
+    "supplycrate",
+    "crate",
+}
 SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack", "count": 3, "radius": 90},
     "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack", "count": 6, "radius": 120},
@@ -67,13 +80,13 @@ SCENARIO_SPAWN_PRESETS = {
     "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
-    "military_crate": {"label": "Military loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "military_high"},
-    "wooden_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "survival"},
+    "military_crate": {"label": "Military ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "military_high"},
+    "wooden_crate": {"label": "Survival ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "survival"},
     "sea_chest": {"label": "Sea chest container", "class": "SeaChest", "event_type": "airdrop", "loot_preset": "survival"},
     "green_barrel": {"label": "Green barrel container", "class": "Barrel_Green", "event_type": "airdrop", "loot_preset": "survival"},
-    "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "medical"},
-    "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "building"},
-    "food_crate": {"label": "Food loot", "class": "WoodenCrate", "event_type": "airdrop", "loot_preset": "food"},
+    "medical_crate": {"label": "Medical ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "medical"},
+    "building_crate": {"label": "Building ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "building"},
+    "food_crate": {"label": "Food ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "food"},
     "gas_temp": {"label": "Temporary gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120},
     "gas_permanent": {"label": "Permanent gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150},
     "gas_red_temp": {"label": "Temporary red gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120, "gas_particle": "debug"},
@@ -2565,6 +2578,11 @@ PAGE_TEMPLATE = """
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
     .notification small { display: block; color: var(--muted); margin-top: .15rem; }
+    .one-time-secret { display: grid; gap: .7rem; border: 1px solid rgba(36,239,225,.38); border-left: 3px solid var(--accent); border-radius: .5rem; padding: .85rem; background: rgba(2, 18, 20, .78); margin-top: .75rem; }
+    .one-time-secret[hidden] { display: none; }
+    .one-time-secret .secret-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem; }
+    .one-time-secret code { display: block; margin-top: .25rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: .4rem; background: #030707; color: #eaffff; overflow-wrap: anywhere; }
+    .one-time-secret .secret-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .row-between { display: flex; justify-content: space-between; gap: .8rem; align-items: center; flex-wrap: wrap; }
     .inline-actions { display: inline-flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
     .dashboard-edit-modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 40; width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid color-mix(in srgb, var(--accent) 70%, var(--line)); border-radius: .65rem; padding: 1rem; background: color-mix(in srgb, var(--panel) 94%, #000); box-shadow: 0 24px 70px rgba(0,0,0,.64); }
@@ -4936,7 +4954,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name='WoodenCrate', x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=0, saferadius=0, distanceradius=25, cleanupradius=380, gas_lifetime=1800, gas_particle='server_default') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name=airdrop_marker_class, x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=0, saferadius=0, distanceradius=25, cleanupradius=380, gas_lifetime=1800, gas_particle='server_default') %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -5024,11 +5042,11 @@ PAGE_TEMPLATE = """
             </label>
             <label>Spawn type
               <select name="spawn_preset" data-scenario-preset>
-                <option value="military_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="35" data-loot="military_high">Military loot</option>
-                <option value="wooden_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="survival">Survival loot</option>
-                <option value="medical_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="medical">Medical loot</option>
-                <option value="building_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="building">Building loot</option>
-                <option value="food_crate" data-type="airdrop" data-class="WoodenCrate" data-count="1" data-radius="20" data-loot="food">Food loot</option>
+                <option value="military_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="35" data-loot="military_high">Military ground loot</option>
+                <option value="wooden_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="survival">Survival ground loot</option>
+                <option value="medical_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="medical">Medical ground loot</option>
+                <option value="building_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="building">Building ground loot</option>
+                <option value="food_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="food">Food ground loot</option>
                 <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
                 <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
                 <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
@@ -5075,14 +5093,15 @@ PAGE_TEMPLATE = """
               <div data-zombie-mix-rows></div>
               <button type="button" data-add-zombie-row>Add Zombie Type</button>
             </div>
-            <label>Event length
+            <label>Spawn repeats
               <select name="permanent">
-                <option value="false" {% if edit_event.permanent == 'false' %}selected{% endif %}>One restart only</option>
-                <option value="true" {% if edit_event.permanent == 'true' %}selected{% endif %}>Permanent until deleted</option>
+                <option value="false" {% if edit_event.permanent == 'false' %}selected{% endif %}>Use restart count below</option>
+                <option value="true" {% if edit_event.permanent == 'true' %}selected{% endif %}>Every restart until deleted</option>
               </select>
+              <small class="field-help">Controls how many restarts the event keeps spawning at this spot.</small>
             </label>
-            <label>Runs for restarts <input name="restarts" type="number" value="{{ edit_event.restarts }}" placeholder="Used only for one-time events"></label>
-            <label>Lifetime seconds <input name="lifetime" type="number" min="60" max="3888000" value="{{ edit_event.lifetime }}"><small class="field-help">How long DayZ keeps this event alive after it spawns. Longer means it stays available for longer after restart.</small></label>
+            <label>Spawn for restarts <input name="restarts" type="number" min="0" max="365" value="{{ edit_event.restarts }}" placeholder="0 = every restart"><small class="field-help">Used when Spawn repeats is set to restart count. Use 1 for next restart only, or 0 for every restart.</small></label>
+            <label>Spawned object stays seconds <input name="lifetime" type="number" min="60" max="3888000" value="{{ edit_event.lifetime }}"><small class="field-help">How long DayZ keeps the spawned object/vehicle before CE cleanup. Vehicles default to 3888000 seconds, about 45 days.</small></label>
             <label>Restock seconds <input name="restock" type="number" min="0" max="3888000" value="{{ edit_event.restock }}"><small class="field-help">How long CE waits before trying to restock/respawn the event. Use 0 for no timed restock.</small></label>
             <label>Safe radius <input name="saferadius" type="number" min="0" max="5000" value="{{ edit_event.saferadius }}"><small class="field-help">Stops the event spawning too close to players. Use 0 when you want the exact fixed point.</small></label>
             <label>Distance radius <input name="distanceradius" type="number" min="0" max="30000" value="{{ edit_event.distanceradius }}"><small class="field-help">How close players need to get before DayZ can wake/spawn the event.</small></label>
@@ -7002,6 +7021,19 @@ PAGE_TEMPLATE = """
             </label>
             <div class="full"><button type="submit">Create Login</button> <span class="result muted"></span></div>
           </form>
+          <div class="one-time-secret" data-temp-login-secret hidden>
+            <strong>Temporary login created</strong>
+            <span class="muted">Save these details now. The password is not stored in plain text and cannot be shown again after you leave this page.</span>
+            <div class="secret-grid">
+              <div><span class="muted">Dashboard ID</span><code data-temp-login-id></code></div>
+              <div><span class="muted">Password</span><code data-temp-login-password></code></div>
+            </div>
+            <div class="secret-actions">
+              <button type="button" data-temp-login-reveal>Reveal</button>
+              <button type="button" data-temp-login-copy>Copy Details</button>
+              <span class="result muted" data-temp-login-copy-result></span>
+            </div>
+          </div>
           <table class="table" style="margin-top:1rem">
             <thead><tr><th>Label</th><th>Dashboard ID</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
             <tbody>
@@ -9388,6 +9420,31 @@ PAGE_TEMPLATE = """
       else list.appendChild(card);
       syncEmptyDashboardRecords(list);
     }
+    function maskedSecret(value) {
+      const length = Math.max(8, String(value || "").length);
+      return "•".repeat(length);
+    }
+    function showTempLoginSecret(form, body, payload) {
+      const panel = document.querySelector("[data-temp-login-secret]");
+      if (!panel || !body || !body.login) return;
+      const dashboardId = String(body.login.dashboard_id || payload.dashboard_id || "").trim();
+      const password = String(payload.password || "").trim();
+      if (!dashboardId || !password) return;
+      panel.hidden = false;
+      panel.dataset.revealed = "false";
+      panel.dataset.password = password;
+      panel.dataset.dashboardId = dashboardId;
+      const idOutput = panel.querySelector("[data-temp-login-id]");
+      const passwordOutput = panel.querySelector("[data-temp-login-password]");
+      const reveal = panel.querySelector("[data-temp-login-reveal]");
+      const copyResult = panel.querySelector("[data-temp-login-copy-result]");
+      if (idOutput) idOutput.textContent = dashboardId;
+      if (passwordOutput) passwordOutput.textContent = maskedSecret(password);
+      if (reveal) reveal.textContent = "Reveal";
+      if (copyResult) copyResult.textContent = "";
+      panel.scrollIntoView({behavior: "smooth", block: "center"});
+      if (form && form.elements.password) form.elements.password.value = "";
+    }
     const REFRESH_AFTER_SAVE_ROUTES = new Set([
       "/api/admin/faction",
       "/api/admin/faction-member",
@@ -10495,6 +10552,33 @@ PAGE_TEMPLATE = """
     }
     document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
     setupAiAgentChat();
+    document.addEventListener("click", async (event) => {
+      const reveal = event.target.closest("[data-temp-login-reveal]");
+      if (reveal) {
+        const panel = reveal.closest("[data-temp-login-secret]");
+        const output = panel?.querySelector("[data-temp-login-password]");
+        const password = String(panel?.dataset.password || "");
+        const isRevealed = panel?.dataset.revealed === "true";
+        if (panel) panel.dataset.revealed = isRevealed ? "false" : "true";
+        if (output) output.textContent = isRevealed ? maskedSecret(password) : password;
+        reveal.textContent = isRevealed ? "Reveal" : "Hide";
+        return;
+      }
+      const copy = event.target.closest("[data-temp-login-copy]");
+      if (copy) {
+        const panel = copy.closest("[data-temp-login-secret]");
+        const result = panel?.querySelector("[data-temp-login-copy-result]");
+        const dashboardId = String(panel?.dataset.dashboardId || "");
+        const password = String(panel?.dataset.password || "");
+        const text = `Dashboard URL: ${window.location.origin}/\nDashboard ID: ${dashboardId}\nDashboard password: ${password}`;
+        try {
+          await navigator.clipboard.writeText(text);
+          if (result) result.textContent = "Copied.";
+        } catch (error) {
+          if (result) result.textContent = "Copy blocked by browser.";
+        }
+      }
+    });
     document.querySelectorAll(".admin-form").forEach((form) => {
       if (form.dataset.aiChatForm === "true") return;
       if (form.dataset.route) {
@@ -10565,6 +10649,11 @@ PAGE_TEMPLATE = """
               preview.hidden = false;
               preview.textContent = JSON.stringify(body.recipe.generated_json || body.recipe, null, 2);
             }
+          }
+          if (response.ok && routePath === "/api/admin/temp-login") {
+            showTempLoginSecret(form, body, payload);
+            if (result) result.textContent = body.note || "Temporary dashboard login created.";
+            return;
           }
           if (response.ok && routePath === "/api/admin/embed-template" && body.template) {
             upsertEmbedTemplateCard(body.template, form);
@@ -10919,12 +11008,20 @@ PAGE_TEMPLATE = """
         const option = presetSelect.selectedOptions[0];
         if (!option) return;
         const customClass = option.value === "custom" || option.value === "custom_vehicle";
+        const activeType = normalScenarioType(typeSelect ? typeSelect.value : option.dataset.type || "airdrop");
+        const classDefaults = {
+          airdrop: "Wreck_Mi8_Crashed",
+          animal_pack: "Animal_UrsusArctos",
+          zombie_horde: "ZmbM_SoldierNormal",
+          vehicle_spawn: "Truck_01_Covered",
+          gas_zone: "ContaminatedArea_Dynamic"
+        };
         if (classInput) {
           classInput.readOnly = !customClass;
           classInput.placeholder = customClass ? "Type the exact DayZ classname" : "Locked to selected spawn type";
         }
         if (typeSelect && option.dataset.type) typeSelect.value = normalScenarioType(option.dataset.type);
-        if (!customClass && option.dataset.class) form.elements.class_name.value = option.dataset.class;
+        if (!customClass) form.elements.class_name.value = option.dataset.class || classDefaults[activeType] || "";
         if (customClass && !form.elements.class_name.value) form.elements.class_name.value = "";
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
         if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
@@ -19990,6 +20087,7 @@ def page(mode: str, auth: dict[str, Any]):
         xml_picker_groups=picker_groups,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
+        airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
         loot_mix_fields=SCENARIO_LOOT_MIX_FIELDS,
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
         visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
@@ -21565,8 +21663,8 @@ def api_scenario_event():
         class_name = str(preset.get("class") or class_name)
     if not class_name:
         defaults = {
-            "airdrop": "WoodenCrate",
-            "loot_crate": "WoodenCrate",
+            "airdrop": SCENARIO_AIRDROP_MARKER_CLASS,
+            "loot_crate": SCENARIO_AIRDROP_MARKER_CLASS,
             "animal_pack": "Animal_UrsusArctos",
             "zombie_horde": "ZmbM_SoldierNormal",
             "vehicle_spawn": "OffroadHatchback",
@@ -21593,6 +21691,9 @@ def api_scenario_event():
     }
     if scene_type not in scene_min_radius:
         scene_type = "compact_crater"
+    scene_marker_class = SCENARIO_AIRDROP_SCENE_MARKERS.get(scene_type, SCENARIO_AIRDROP_MARKER_CLASS)
+    if event_type in {"airdrop", "loot_crate"} and class_name.strip().lower() in SCENARIO_AIRDROP_LEGACY_CRATE_CLASSES:
+        class_name = scene_marker_class
     if event_type in {"airdrop", "loot_crate"} and safe_bool(payload.get("visual_marker"), False):
         radius = max(radius, scene_min_radius[scene_type])
     if event_type == "gas_zone":
@@ -21630,7 +21731,10 @@ def api_scenario_event():
         "vehicle_spawn": 3888000,
         "gas_zone": gas_lifetime,
     }.get(event_type, 3600)
-    event_lifetime = max(60, min(3888000, safe_int(payload.get("lifetime"), event_lifetime_default)))
+    raw_lifetime = safe_int(payload.get("lifetime"), event_lifetime_default)
+    if event_type == "vehicle_spawn" and raw_lifetime == 7200:
+        raw_lifetime = event_lifetime_default
+    event_lifetime = max(60, min(3888000, raw_lifetime))
     restock_default = 0
     restock = max(0, min(3888000, safe_int(payload.get("restock"), restock_default)))
     saferadius_default = 2 if event_type == "animal_pack" else 0
@@ -21642,8 +21746,8 @@ def api_scenario_event():
         distanceradius_default = max(50, radius)
         cleanupradius_default = max(100, radius + 100)
     elif event_type == "vehicle_spawn":
-        distanceradius_default = 0
-        cleanupradius_default = 100
+        distanceradius_default = 500
+        cleanupradius_default = 200
     else:
         distanceradius_default = max(0, radius)
         cleanupradius_default = 100
@@ -21771,7 +21875,7 @@ def api_scenario_event():
             "vehicle_condition": str(payload.get("vehicle_condition") or "full").strip(),
             "vehicle_cargo_mode": vehicle_cargo_mode,
             "visual_marker": safe_bool(payload.get("visual_marker"), False),
-            "marker_class": "StaticObj_Misc_WoodenCrate_5x" if safe_bool(payload.get("visual_marker"), False) else "",
+            "marker_class": scene_marker_class if event_type in {"airdrop", "loot_crate"} and safe_bool(payload.get("visual_marker"), False) else "",
             "scene_type": scene_type if event_type in {"airdrop", "loot_crate"} else "compact_crater",
             "guard_class": str(payload.get("guard_class") or "").strip(),
             "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
