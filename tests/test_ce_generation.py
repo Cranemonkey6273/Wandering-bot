@@ -158,7 +158,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual(primary_child.get("lootmax"), "0")
         self.assertEqual(primary_child.get("lootmin"), "0")
 
-    def test_helicopter_airdrop_uses_secondary_crash_and_ground_loot_not_crate(self):
+    def test_helicopter_airdrop_uses_crash_and_proto_tags_not_item_children(self):
         event = _base_event(
             32,
             "airdrop",
@@ -178,12 +178,12 @@ class AirdropEventGroupTests(unittest.TestCase):
         crash_children = [child for child in children if child.get("type") == "Wreck_Mi8_Crashed"]
         self.assertTrue(any("spawnsecondary" not in child.attrib and child.get("lootmax") == "0" for child in crash_children))
         self.assertTrue(any(child.get("spawnsecondary") == "false" for child in crash_children))
-        ground_loot_children = [
+        non_crash_secondary_children = [
             child for child in children
             if child.get("spawnsecondary") == "false" and child.get("type") != "Wreck_Mi8_Crashed"
         ]
-        self.assertGreater(len(ground_loot_children), 0)
-        self.assertTrue(any(child.get("type") in bot.SCENARIO_AIRDROP_GROUND_LOOT for child in ground_loot_children))
+        self.assertEqual([], non_crash_secondary_children)
+        self.assertFalse(any(child.get("type") in bot.SCENARIO_AIRDROP_GROUND_LOOT for child in children))
 
     def test_airdrop_guards_are_eventgroup_children(self):
         event = _base_event(
@@ -349,13 +349,20 @@ class MapGroupProtoTests(unittest.TestCase):
     otherwise the live RPT prints ``No group configured for '<class>'``."""
 
     def test_proto_group_added_for_helicopter_crash_loot_floor(self):
-        event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
+        event = _base_event(
+            34,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+            loot_preset="military_high",
+        )
         records, _ = bot.console_ce_records_for_event(event)
         record = records[0]
         proto_root = ET.Element("prototype")
         for child in record["eventgroup_children"]:
             if bot.eventgroup_child_needs_mapgroupproto(child):
-                bot.add_mapgroupproto_loot_group(proto_root, child["type"])
+                bot.add_mapgroupproto_loot_group(proto_root, child["type"], tags=record.get("mapgroupproto_tags"))
         names = {g.get("name") for g in proto_root.findall("group")}
         self.assertIn("Wreck_Mi8_Crashed", names)
         self.assertNotIn("WoodenCrate", names)
@@ -364,6 +371,8 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIsNotNone(container)
         self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertEqual([node.get("name") for node in crash_group.findall("usage")], ["Military"])
+        self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier4"])
         self.assertIsNotNone(container.find("category"))
         self.assertIsNotNone(container.find("tag"))
         self.assertIsNotNone(container.find("point"))

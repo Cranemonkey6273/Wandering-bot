@@ -29688,25 +29688,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "y": "0.0",
             })
 
-    def append_ground_loot_children():
-        ground_loot = scenario_airdrop_ground_loot_items(event)
-        if not ground_loot:
-            return
-        ground_spread = max(4, safe_int(scene.get("ground_spread"), max(12, min(35, safe_int(event.get("radius"), 18)))))
-        for index, item_name in enumerate(ground_loot[:36]):
-            item_name = str(item_name or "").strip()
-            if not item_name:
-                continue
-            loot_x, loot_z = scenario_airdrop_child_offsets(index, ground_spread, max_spread=ground_spread)
-            children.append({
-                "type": item_name,
-                "spawnsecondary": "false",
-                "x": ce_decimal(loot_x),
-                "z": ce_decimal(loot_z),
-                "a": "0.0",
-                "y": "0.0",
-            })
-
     if event.get("visual_marker") and marker_class:
         children.append({
             "type": marker_class,
@@ -29736,7 +29717,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "z": scene_prop["z"],
                 "a": scene_prop["a"],
             })
-        append_ground_loot_children()
         append_guard_children()
         return children
 
@@ -29754,7 +29734,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "lootmin": 0,
         "lootmax": 0,
     })
-    append_ground_loot_children()
     append_guard_children()
     return children
 
@@ -29874,62 +29853,77 @@ MAPGROUPPROTO_LOOT_CATEGORIES = ("weapons", "explosives", "tools", "clothes", "c
 MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "military": {
         "usage": ("Military",),
+        "value": ("Tier3", "Tier4"),
         "category": ("weapons", "explosives", "tools", "clothes", "containers", "food"),
     },
     "military_basic": {
         "usage": ("Military", "Police"),
+        "value": ("Tier2", "Tier3"),
         "category": ("weapons", "tools", "clothes", "food"),
     },
     "military_high": {
         "usage": ("Military",),
+        "value": ("Tier4",),
         "category": ("weapons", "explosives", "tools", "clothes", "containers"),
     },
     "medical": {
         "usage": ("Medic",),
+        "value": ("Tier2", "Tier3"),
         "category": ("tools", "clothes"),
     },
     "survival": {
         "usage": ("Hunting", "Village", "Town"),
+        "value": ("Tier1", "Tier2"),
         "category": ("food", "tools", "containers", "clothes"),
     },
     "building": {
         "usage": ("Industrial", "Farm"),
+        "value": ("Tier1", "Tier2"),
         "category": ("tools", "containers"),
     },
     "food": {
         "usage": ("Town", "Village", "Farm"),
+        "value": ("Tier1",),
         "category": ("food",),
     },
     "vehicle": {
         "usage": ("Industrial", "Farm"),
+        "value": ("Tier2", "Tier3"),
         "category": ("tools", "containers"),
     },
     "vehicle_car": {
         "usage": ("Industrial", "Farm"),
+        "value": ("Tier2", "Tier3"),
         "category": ("tools", "containers"),
     },
     "vehicle_truck": {
         "usage": ("Industrial", "Farm"),
+        "value": ("Tier2", "Tier3"),
         "category": ("tools", "containers"),
     },
     "weapons": {
         "usage": ("Military",),
+        "value": ("Tier3", "Tier4"),
         "category": ("weapons",),
     },
     "ammo": {
         "usage": ("Military", "Police"),
+        "value": ("Tier2", "Tier3", "Tier4"),
         "category": ("weapons", "explosives"),
     },
     "clothing": {
         "usage": ("Military", "Hunting", "Town"),
+        "value": ("Tier2", "Tier3", "Tier4"),
         "category": ("clothes",),
     },
     "bags": {
         "usage": ("Military", "Hunting", "Town"),
+        "value": ("Tier2", "Tier3"),
         "category": ("containers", "clothes"),
     },
     "utility": {
         "usage": ("Industrial", "Town", "Village"),
+        "value": ("Tier1", "Tier2"),
         "category": ("tools",),
     },
 }
@@ -29978,6 +29972,7 @@ def scenario_mapgroupproto_loot_tag_keys(event):
 
 def scenario_mapgroupproto_loot_tags(event):
     usages = []
+    values = []
     categories = []
 
     def add_unique(target, values):
@@ -29989,21 +29984,27 @@ def scenario_mapgroupproto_loot_tags(event):
     for key in scenario_mapgroupproto_loot_tag_keys(event):
         tags = MAPGROUPPROTO_LOOT_TAGS_BY_KEY.get(key, {})
         add_unique(usages, tags.get("usage"))
+        add_unique(values, tags.get("value"))
         add_unique(categories, tags.get("category"))
     if not usages:
         usages = ["Military"]
+    if not values:
+        values = ["Tier3", "Tier4"]
     if not categories:
         categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
-    return {"usage": usages, "category": categories}
+    return {"usage": usages, "value": values, "category": categories}
 
 
 def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
     target_lootmax = str(max(1, int(lootmax or 80)))
     tags = tags if isinstance(tags, dict) else {}
     wanted_usages = [str(item).strip() for item in tags.get("usage", []) if str(item).strip()]
+    wanted_values = [str(item).strip() for item in tags.get("value", []) if str(item).strip()]
     wanted_categories = [str(item).strip() for item in tags.get("category", []) if str(item).strip()]
     if not wanted_usages:
         wanted_usages = ["Military"]
+    if not wanted_values:
+        wanted_values = ["Tier3", "Tier4"]
     if not wanted_categories:
         wanted_categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
     changed = False
@@ -30014,6 +30015,10 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
     if not group_node.findall("usage"):
         for usage_name in wanted_usages:
             ET.SubElement(group_node, "usage", {"name": usage_name})
+            changed = True
+    if not group_node.findall("value"):
+        for value_name in wanted_values:
+            ET.SubElement(group_node, "value", {"name": value_name})
             changed = True
 
     containers = list(group_node.findall("container"))
