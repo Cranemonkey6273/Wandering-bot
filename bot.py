@@ -27950,6 +27950,29 @@ SCENARIO_VEHICLE_CONDITIONS = {
 }
 
 SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
+SCENARIO_AIRDROP_SECONDARY_INFECTED = "InfectedArmy"
+SCENARIO_MI8_LOOT_POINTS = [
+    {"pos": "-3.660218 -1.511133 -0.747803", "range": "0.134375", "height": "0.335938"},
+    {"pos": "-5.188050 -1.487791 -0.553956", "range": "0.168750", "height": "0.421875"},
+    {"pos": "-6.361786 -1.474339 -0.424318", "range": "0.203125", "height": "0.507813"},
+    {"pos": "-3.550293 -1.555975 -2.536621", "range": "0.203125", "height": "0.507813"},
+    {"pos": "-2.769746 -1.517029 -2.799561", "range": "0.203125", "height": "0.507813"},
+    {"pos": "-6.174928 -1.774635 -1.928222", "range": "0.216064", "height": "0.540161"},
+    {"pos": "-4.700715 -1.854195 -1.203125", "range": "0.334039", "height": "0.211958"},
+    {"pos": "-3.084625 -1.796867 -1.247071", "range": "0.393962", "height": "0.169039"},
+    {"pos": "-7.857819 -1.816639 -0.384278", "range": "0.407959", "height": "1.019897"},
+    {"pos": "-3.818542 -1.811153 -1.685303", "range": "0.460957", "height": "1.302490"},
+    {"pos": "-5.446472 -1.813892 -1.698241", "range": "0.548840", "height": "1.410522"},
+    {"pos": "-1.758788 -1.888990 -2.302246", "range": "0.597443", "height": "1.493607", "flags": "32"},
+    {"pos": "-6.652740 -1.799643 -1.263429", "range": "0.603010", "height": "0.139997"},
+    {"pos": "-2.693787 -1.888990 1.671386", "range": "0.703328", "height": "2.000000", "flags": "32"},
+    {"pos": "-1.599335 -1.888990 -0.949219", "range": "0.764948", "height": "1.163458", "flags": "32"},
+    {"pos": "-9.951996 -1.888990 -2.661621", "range": "0.932135", "height": "2.000000", "flags": "32"},
+    {"pos": "-9.645112 -1.888990 1.531249", "range": "1.199951", "height": "2.000000", "flags": "32"},
+    {"pos": "-7.113404 -1.888990 1.797849", "range": "1.199951", "height": "2.000000", "flags": "32"},
+    {"pos": "-4.582459 -1.888990 1.906738", "range": "1.199951", "height": "2.000000", "flags": "32"},
+    {"pos": "-5.150909 -1.888990 -4.171387", "range": "1.199951", "height": "2.000000", "flags": "32"},
+]
 SCENARIO_AIRDROP_RETIRED_ANCHOR_CLASSES = {
     "staticobj_misc_woodencrate_5x",
     "woodencrate",
@@ -29903,6 +29926,7 @@ def add_console_ce_event_definition(
     child_records=None,
     remove_damaged=False,
     empty_children=False,
+    secondary="",
 ):
     append_wandering_xml_comment(root, f"managed event definition {event_name}")
     event_node = ET.SubElement(root, "event", {"name": event_name})
@@ -29919,6 +29943,11 @@ def add_console_ce_event_definition(
     for tag, value in fields:
         child = ET.SubElement(event_node, tag)
         child.text = str(int(value))
+
+    secondary = str(secondary or "").strip()
+    if secondary:
+        secondary_node = ET.SubElement(event_node, "secondary")
+        secondary_node.text = secondary
 
     flags = ET.SubElement(event_node, "flags")
     flags.set("deletable", "1")
@@ -30000,6 +30029,7 @@ def patch_existing_console_ce_event_definition(root, record):
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
             remove_damaged=bool(record.get("remove_damaged")),
+            secondary=record.get("secondary", ""),
         )
         return True
     changed = False
@@ -30140,7 +30170,7 @@ def scenario_airdrop_direct_child_records(event, class_name):
     marker_class = scenario_airdrop_anchor_class(event, class_name)
     loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
     loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
-    records = [{
+    return [{
         "type": marker_class,
         "count": 1,
         "min": 1,
@@ -30148,18 +30178,12 @@ def scenario_airdrop_direct_child_records(event, class_name):
         "lootmin": loot_min,
         "lootmax": loot_count,
     }]
-    guard_class = str(event.get("guard_class") or "").strip()
-    guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
-    if guard_class and guard_count:
-        records.append({
-            "type": guard_class,
-            "count": guard_count,
-            "min": max(1, min(guard_count, safe_int(event.get("guard_min"), max(1, guard_count // 2)))),
-            "max": guard_count,
-            "lootmin": 0,
-            "lootmax": 0,
-        })
-    return records
+
+
+def scenario_airdrop_secondary_infected(event):
+    guard_class = str((event or {}).get("guard_class") or "").strip()
+    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0)) if guard_class else 0
+    return SCENARIO_AIRDROP_SECONDARY_INFECTED if guard_class and guard_count > 0 else ""
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
@@ -30419,7 +30443,15 @@ def scenario_mapgroupproto_loot_tags(event):
     return {"usage": usages, "value": values, "category": categories}
 
 
-def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
+def mapgroupproto_uses_generic_single_point(container_node):
+    points = list(container_node.findall("point")) if container_node is not None else []
+    if len(points) != 1:
+        return False
+    point = points[0]
+    return str(point.get("pos") or "").strip() in {"0 0 0", "0.0 0.0 0.0"}
+
+
+def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class_name=""):
     target_lootmax = str(max(1, int(lootmax or 80)))
     tags = tags if isinstance(tags, dict) else {}
     wanted_usages = [str(item).strip() for item in tags.get("usage", []) if str(item).strip()]
@@ -30482,16 +30514,37 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
         for category_name in wanted_categories:
             ET.SubElement(container, "category", {"name": category_name})
         changed = True
-    if not container.findall("tag"):
+    existing_tags = {
+        str(tag_node.get("name") or "").strip().lower()
+        for tag_node in container.findall("tag")
+    }
+    if not existing_tags:
         ET.SubElement(container, "tag", {"name": "floor"})
         changed = True
+        existing_tags.add("floor")
+    if str(class_name or "").strip().lower() == "wreck_mi8_crashed" and "shelves" not in existing_tags:
+        ET.SubElement(container, "tag", {"name": "shelves"})
+        changed = True
+
     if not container.findall("point"):
-        ET.SubElement(container, "point", {
+        point_records = SCENARIO_MI8_LOOT_POINTS if str(class_name or "").strip().lower() == "wreck_mi8_crashed" else [{
             "pos": "0 0 0",
             "range": "0.5",
             "height": "0.5",
             "flags": "32",
-        })
+        }]
+        for point_record in point_records:
+            attrs = dict(point_record)
+            attrs.setdefault("flags", "32")
+            ET.SubElement(container, "point", attrs)
+        changed = True
+    elif str(class_name or "").strip().lower() == "wreck_mi8_crashed" and mapgroupproto_uses_generic_single_point(container):
+        for point in list(container.findall("point")):
+            container.remove(point)
+        for point_record in SCENARIO_MI8_LOOT_POINTS:
+            attrs = dict(point_record)
+            attrs.setdefault("flags", "32")
+            ET.SubElement(container, "point", attrs)
         changed = True
     else:
         for point in container.findall("point"):
@@ -30527,6 +30580,26 @@ def find_managed_mapgroupproto_group(root, class_name):
     return None
 
 
+def find_usable_unmanaged_mapgroupproto_group(root, class_name):
+    wanted = str(class_name or "").strip().lower()
+    pending_managed_comment = False
+    for child in list(root):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            pending_managed_comment = "wandering bot:" in text and "managed mapgroupproto group" in text
+            continue
+        is_managed = pending_managed_comment
+        pending_managed_comment = False
+        if (
+            not is_managed
+            and str(getattr(child, "tag", "") or "") == "group"
+            and str(child.get("name") or "").strip().lower() == wanted
+            and mapgroupproto_group_has_usable_loot_container(child)
+        ):
+            return child
+    return None
+
+
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
     # Non-destructive: unmarked live groups stay byte-for-byte under the
     # snippet scope guard. If WanderingBot needs a proto, append its own marked
@@ -30539,12 +30612,15 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
         return None, False
     managed_group = find_managed_mapgroupproto_group(root, wanted)
     if managed_group is not None:
-        changed = ensure_mapgroupproto_loot_container(managed_group, lootmax=lootmax, tags=tags)
+        changed = ensure_mapgroupproto_loot_container(managed_group, lootmax=lootmax, tags=tags, class_name=wanted)
         return managed_group, changed
+    usable_unmanaged = find_usable_unmanaged_mapgroupproto_group(root, wanted)
+    if usable_unmanaged is not None:
+        return usable_unmanaged, False
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
     group_node = ET.SubElement(root, "group", {"name": wanted})
-    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags)
+    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags, class_name=wanted)
     return group_node, True
 
 
@@ -30600,6 +30676,29 @@ def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45):
     return positions
 
 
+def console_ce_spread_positions(x, z, angle=0, radius=45, count=1):
+    base_x = parse_dayz_map_number(x)
+    base_z = parse_dayz_map_number(z)
+    base_angle = parse_dayz_map_number(angle) or 0
+    count = max(1, min(80, safe_int(count, 1)))
+    if base_x is None or base_z is None or count == 1:
+        return [(x, z, base_angle)]
+    spread = max(6, min(250, safe_int(radius, 45)))
+    positions = [(round(base_x, 3), round(base_z, 3), base_angle)]
+    for index in range(1, count):
+        ring = (index - 1) // 8
+        slot = (index - 1) % 8
+        distance = min(spread, 8 + (ring * 8))
+        pos_angle = (slot * 45) + (ring * 22.5)
+        radians = math.radians(pos_angle)
+        positions.append((
+            round(base_x + (math.cos(radians) * distance), 3),
+            round(base_z + (math.sin(radians) * distance), 3),
+            round((base_angle + pos_angle) % 360, 3),
+        ))
+    return positions
+
+
 def remove_matching_console_ce_spawn_children(event_node, x, z, radius=None, group_name=""):
     target_x = ce_decimal(x)
     target_z = ce_decimal(z)
@@ -30616,6 +30715,13 @@ def remove_matching_console_ce_spawn_children(event_node, x, z, radius=None, gro
             continue
         event_node.remove(child)
         removed += 1
+    return removed
+
+
+def cleanup_wandering_marked_spawn_children(root):
+    removed = 0
+    for event_node in root.findall("event"):
+        removed += remove_wandering_marked_spawn_children(event_node)
     return removed
 
 
@@ -30639,7 +30745,9 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         ET.SubElement(event_node, "pos", attrs)
         return event_node
 
-    if console_ce_event_uses_zone_spawn(event_name):
+    if console_ce_event_uses_zone_spawn(event_name) and not (
+        event_name.startswith("Animal") and CONSOLE_CE_EVENT_MARKER in event_name
+    ):
         append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
         ET.SubElement(event_node, "zone", {
             "smin": "1",
@@ -30657,6 +30765,16 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
                 "x": ce_decimal(pos_x),
                 "z": ce_decimal(pos_z),
                 "a": ce_decimal(pos_angle),
+            })
+        return event_node
+    if event_name.startswith("Animal") and CONSOLE_CE_EVENT_MARKER in event_name:
+        for pos_x, pos_z, pos_angle in console_ce_spread_positions(x, z, angle=angle, radius=radius or 45, count=count):
+            append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
+            ET.SubElement(event_node, "pos", {
+                "x": ce_decimal(pos_x),
+                "z": ce_decimal(pos_z),
+                "a": ce_decimal(pos_angle),
+                "active": "1",
             })
         return event_node
     attrs = {
@@ -31018,15 +31136,19 @@ def console_ce_records_for_event(event):
         child_records = scenario_airdrop_direct_child_records(event, class_name)
         count = 1
     if event_type == "animal_pack":
-        vanilla_animal_name = vanilla_animal_ce_event_name(class_name)
-        if not vanilla_animal_name:
-            warnings.append(
-                f"`{event.get('id')}` animal pack uses `{class_name}`, but no safe vanilla animal CE event was found for that class. "
-                "Skipping it instead of creating a custom AnimalWanderingBot event that DayZ cannot attach to a herd template."
-            )
+        if not class_name.startswith("Animal_"):
+            warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
         family = "Animal"
         limit_type = "custom"
+        child_records = [{
+            "type": class_name,
+            "count": count,
+            "min": count,
+            "max": count,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
     if event_type == "gas_zone":
         family = "ContaminatedArea"
         limit_type = "child"
@@ -31049,7 +31171,7 @@ def console_ce_records_for_event(event):
         if cleanupradius < speed_defaults["cleanupradius"]:
             cleanupradius = speed_defaults["cleanupradius"]
 
-    record_name = vanilla_animal_name if event_type == "animal_pack" else ce_event_name(event, family=family)
+    record_name = ce_event_name(event, family=family)
     record = {
         "name": record_name,
         "class_name": class_name,
@@ -31065,6 +31187,7 @@ def console_ce_records_for_event(event):
         "child_lootmin": child_lootmin,
         "child_lootmax": child_lootmax,
         "child_records": child_records,
+        "secondary": scenario_airdrop_secondary_infected(event) if event_type in {"airdrop", "loot_crate"} else "",
         "eventgroup_children": eventgroup_children,
         # Eventgroup-routed Static events resolve children from cfgeventgroups.xml.
         "empty_event_children": bool(use_eventgroup),
@@ -31077,8 +31200,8 @@ def console_ce_records_for_event(event):
         "cleanupradius": cleanupradius,
         "start_speed": scenario_start_speed_key(event),
         "remove_damaged": event_type == "vehicle_spawn",
-        "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
-        "use_existing_definition": event_type == "animal_pack",
+        "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
+        "use_existing_definition": False,
         "mapgroupproto_classes": [class_name] if event_type in {"airdrop", "loot_crate"} else [],
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
@@ -31103,15 +31226,10 @@ def console_ce_records_for_event(event):
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
     if event_type == "animal_pack":
-        record.update({
-            "nominal": count,
-            "min_count": count,
-            "max_count": count,
-            "patch_existing_definition": True,
-        })
+        record.update({"nominal": count, "min_count": count, "max_count": count})
         warnings.append(
-            f"`{event.get('id')}` uses vanilla `{record_name}` herd behavior and adds only a WanderingBot-marked spawn position. "
-            "This avoids missing custom territory XML files and avoids custom herd-template event names."
+            f"`{event.get('id')}` uses a direct WanderingBot-owned `{record_name}` animal CE event with fixed X/Z position. "
+            "No vanilla animal event or territory file is modified."
         )
     records.append(record)
 
@@ -31382,6 +31500,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
+    removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
 
     records = []
     for event in native_ce_scenario_events(config):
@@ -31422,6 +31541,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             child_records=record.get("child_records"),
             remove_damaged=bool(record.get("remove_damaged")),
             empty_children=bool(record.get("empty_event_children")),
+            secondary=record.get("secondary", ""),
         )
     for record in records:
         if record.get("skip_spawn"):
@@ -31441,7 +31561,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     messages = [
         events_source,
         spawns_source,
-        f"Removed `{removed_events}` old WanderingBot event definition(s) and `{removed_spawns}` old spawn point block(s).",
+        f"Removed `{removed_events}` old WanderingBot event definition(s), `{removed_spawns}` old spawn point block(s), and `{removed_spawn_children}` old marked spawn child node(s).",
         f"Generated `{len(records)}` native CE spawn record(s) across `{len(definition_records)}` managed event definition(s).",
     ]
     if patched_existing_definitions:
@@ -31874,8 +31994,10 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         child_nodes = list(children.findall("child")) if children is not None else []
         if name.startswith("Static") and not child_nodes and not has_group_pos:
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
+        is_wandering_fixed_animal_event = name.startswith("Animal") and is_wandering_managed_name(name)
         if (
             console_ce_event_uses_zone_spawn(name)
+            and not is_wandering_fixed_animal_event
             and not spawn_node.findall("zone")
             and not has_group_pos
             and not is_animal_territory_event
