@@ -6962,16 +6962,18 @@ TRANSLATION_LANGUAGE_MARKERS = {
     "en": {
         "a", "about", "and", "are", "back", "be", "but", "can", "do", "for",
         "from", "get", "go", "have", "i", "im", "in", "is", "it", "its", "just",
-        "kind", "know", "like", "mind", "my", "of", "on", "see", "strange",
+        "kind", "know", "like", "lol", "looks", "me", "mind", "my", "of", "on",
+        "out", "outa", "really", "scared", "see", "shit", "sick", "strange",
         "that", "the", "this", "to", "up", "what", "why", "with", "you", "your",
         "youre",
     },
     "de": {
         "aber", "auf", "aus", "bin", "bist", "das", "dein", "den", "der", "die",
-        "du", "ein", "eine", "einfach", "er", "es", "geht", "hab", "habe",
-        "ich", "im", "in", "ist", "ja", "kein", "keine", "mein", "mit", "nicht",
-        "noch", "nur", "oder", "schon", "sie", "sind", "und", "verlierst",
-        "verstand", "was", "wie", "wir", "zu", "zur",
+        "du", "echt", "ein", "eine", "einfach", "er", "es", "geht", "hab", "habe",
+        "haftig", "heftig", "ich", "im", "in", "ist", "ja", "kein", "keine", "kopf",
+        "mein", "mhh", "mit", "nicht", "noch", "nur", "oder", "scheisse", "schon",
+        "sehr", "sie", "sieht", "sind", "und", "verlierst", "verstand", "voll",
+        "was", "wie", "wir", "zu", "zur",
     },
 }
 
@@ -7472,7 +7474,7 @@ async def maybe_translate_message(message):
 
         try:
             same_channel = int(getattr(target_channel, "id", 0) or 0) == int(getattr(message.channel, "id", -1) or -1)
-            send_kwargs = {"embed": embed if same_channel else style_embed(embed)}
+            send_kwargs = {"embed": style_embed(embed)}
             if same_channel:
                 send_kwargs.update({
                     "reference": message,
