@@ -43,6 +43,13 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 WANDERING_MARKER = "WanderingBot_"
+LEGACY_WANDERING_CE_NAMES = {
+    "Event_JINXADA",
+    "Event_JINXTruck",
+    "HordeTrigger",
+    "VehicleJINXADA",
+    "VehicleJINXTruck",
+}
 ALLOWED_FAMILIES = (
     "Ambient",
     "Animal",
@@ -101,7 +108,8 @@ def _parse_xml(path: str, fallback_root: str, report: ValidationReport) -> Optio
 
 
 def _is_wandering(name: str) -> bool:
-    return WANDERING_MARKER in str(name or "")
+    text = str(name or "").strip()
+    return text in LEGACY_WANDERING_CE_NAMES or WANDERING_MARKER in text
 
 
 def _has_zone_family(name: str) -> bool:

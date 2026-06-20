@@ -27867,10 +27867,15 @@ SCENARIO_START_SPEED_OPTIONS = {
     "normal": "Normal CE timing",
     "slow": "Delayed / cautious",
 }
+SCENARIO_CE_SCHEMA_REVISIONS = {
+    "airdrop": 12,
+    "loot_crate": 12,
+}
 CONSOLE_CE_ZONE_SPAWN_FAMILIES = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Trajectory")
 LEGACY_WANDERING_CE_NAMES = {
     "Event_JINXADA",
     "Event_JINXTruck",
+    "HordeTrigger",
     "VehicleJINXADA",
     "VehicleJINXTruck",
 }
@@ -28768,6 +28773,7 @@ def scenario_event_ce_revision_token(event):
     if event_type in STABLE_CONSOLE_EVENT_TYPES:
         return ""
     revision = max(
+        safe_int(SCENARIO_CE_SCHEMA_REVISIONS.get(event_type), 0),
         safe_int((event or {}).get("native_ce_revision"), 0),
         safe_int((event or {}).get("ce_revision"), 0),
         safe_int((event or {}).get("upload_revision"), 0),
@@ -31370,7 +31376,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     generated_events = {}
     for event_node in events_root.findall("event"):
         name = str(event_node.get("name") or "")
-        if CONSOLE_CE_EVENT_MARKER not in name:
+        if not is_wandering_managed_name(name):
             continue
         if not name.startswith(allowed_families):
             messages.append(
@@ -31408,7 +31414,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     generated_spawns = {
         str(event_node.get("name") or ""): event_node
         for event_node in spawns_root.findall("event")
-        if CONSOLE_CE_EVENT_MARKER in str(event_node.get("name") or "")
+        if is_wandering_managed_name(event_node.get("name") or "")
     }
 
     for name in generated_events:
@@ -31448,7 +31454,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     generated_groups = {
         str(group_node.get("name") or ""): group_node
         for group_node in eventgroups_root.findall("group")
-        if CONSOLE_CE_EVENT_MARKER in str(group_node.get("name") or "")
+        if is_wandering_managed_name(group_node.get("name") or "")
     }
     proto_nodes = {
         str(group_node.get("name") or "").strip(): group_node

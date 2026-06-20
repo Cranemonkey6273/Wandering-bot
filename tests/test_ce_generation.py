@@ -109,6 +109,7 @@ class AirdropEventGroupTests(unittest.TestCase):
 
         self.assertTrue(record.get("use_eventgroup"))
         self.assertTrue(record.get("empty_event_children"))
+        self.assertTrue(record["name"].endswith("_r12"))
         event_node = events_root.find("event")
         self.assertIsNotNone(event_node)
         children_node = event_node.find("children")
@@ -545,6 +546,51 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual(child.get("type"), "ZmbM_SoldierNormal")
         self.assertEqual(child.get("lootmin"), "0")
         self.assertEqual(child.get("lootmax"), "5")
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_legacy_hordetrigger_spawn_block_is_removed(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        legacy_spawns = (
+            '<eventposdef>'
+            '<event name="HordeTrigger"><pos x="1" z="2" a="0" /></event>'
+            '<event name="AnimalBear"><pos x="3" z="4" a="0" /></event>'
+            '</eventposdef>'
+        )
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": (legacy_spawns, f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    42,
+                    "zombie_horde",
+                    "ZmbM_SoldierNormal",
+                    preset="military_zombie",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertIsNone(spawns_root.find("./event[@name='HordeTrigger']"))
+        self.assertIsNotNone(spawns_root.find("./event[@name='AnimalBear']"))
+        self.assertIsNotNone(spawns_root.find("./event[@name='InfectedWanderingBot_horde_militaryzombie']"))
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 

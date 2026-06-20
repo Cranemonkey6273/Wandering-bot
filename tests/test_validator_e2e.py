@@ -240,6 +240,19 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             self.assertIn("missing from cfgeventspawns.xml", rendered)
             self.assertIn("missing from events.xml", rendered)
 
+    def test_validator_rejects_legacy_hordetrigger_orphan_spawn(self):
+        events = [_base_event(33, "zombie_horde", "ZmbM_SoldierNormal", preset="military_zombie")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        ET.SubElement(spawns_root, "event", {"name": "HordeTrigger"})
+        spawns_root.find("./event[@name='HordeTrigger']").append(
+            ET.Element("pos", {"x": "1", "z": "2", "a": "0"})
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("HordeTrigger" in err and "missing from events.xml" in err for err in report.errors))
+
 
 if __name__ == "__main__":
     unittest.main()
