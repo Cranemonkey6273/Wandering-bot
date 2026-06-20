@@ -618,7 +618,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_animal_pack_uses_direct_custom_event_with_spread_positions(self):
+    def test_animal_pack_reuses_vanilla_bear_event_with_marked_positions(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         vanilla_events = (
@@ -665,27 +665,23 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         spawns_root = ET.fromstring(built["spawns_text"])
         vanilla_event = spawns_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_event)
-        self.assertEqual([{"x": "1", "z": "2", "a": "0"}], [pos.attrib for pos in vanilla_event.findall("pos")])
-        custom_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(custom_spawn)
-        positions = custom_spawn.findall("pos")
+        self.assertTrue(any(pos.get("x") == "1" and pos.get("z") == "2" for pos in vanilla_event.findall("pos")))
+        positions = [pos for pos in vanilla_event.findall("pos") if pos.get("active") == "1"]
         self.assertEqual(2, len(positions))
-        self.assertTrue(all(pos.get("active") == "1" for pos in positions))
         self.assertTrue(any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions))
+        self.assertIsNone(spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']"))
+        self.assertFalse("HerdWanderingBot" in built["spawns_text"])
         events_root = ET.fromstring(built["events_text"])
         bear_event = events_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(bear_event)
-        self.assertEqual("0", bear_event.findtext("nominal"))
-        custom_event = events_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(custom_event)
-        self.assertEqual("2", custom_event.findtext("nominal"))
-        self.assertEqual("2", custom_event.findtext("min"))
-        self.assertEqual("2", custom_event.findtext("max"))
-        self.assertEqual("custom", custom_event.findtext("limit"))
-        child = custom_event.find("children/child")
+        self.assertEqual("2", bear_event.findtext("nominal"))
+        self.assertEqual("2", bear_event.findtext("min"))
+        self.assertEqual("8", bear_event.findtext("max"))
+        child = bear_event.find("children/child")
         self.assertIsNotNone(child)
         self.assertEqual("Animal_UrsusArctos", child.get("type"))
-        self.assertEqual("2", child.get("max"))
+        self.assertIsNone(events_root.find("./event[@name='AnimalWanderingBot_animal_bear']"))
+        self.assertFalse("HerdWanderingBot" in built["events_text"])
         self.assertFalse(built.get("cfgenvironment_text"))
         self.assertEqual([], built.get("animal_territory_files") or [])
         ok, messages = bot.validate_console_ce_xml_bundle(built)

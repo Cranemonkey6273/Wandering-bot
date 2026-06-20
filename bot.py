@@ -30615,6 +30615,9 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class
         for value_name in wanted_values:
             ET.SubElement(group_node, "value", {"name": value_name})
             changed = True
+    for point_node in list(group_node.findall("point")):
+        group_node.remove(point_node)
+        changed = True
 
     containers = list(group_node.findall("container"))
     container = next(
@@ -30872,6 +30875,17 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         }
         append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
         ET.SubElement(event_node, "pos", attrs)
+        return event_node
+
+    if event_name in VANILLA_ANIMAL_CE_EVENT_NAMES:
+        for pos_x, pos_z, pos_angle in console_ce_spread_positions(x, z, angle=angle, radius=radius or 45, count=count):
+            append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
+            ET.SubElement(event_node, "pos", {
+                "x": ce_decimal(pos_x),
+                "z": ce_decimal(pos_z),
+                "a": ce_decimal(pos_angle),
+                "active": "1",
+            })
         return event_node
 
     if console_ce_event_uses_zone_spawn(event_name) and not (
@@ -31268,16 +31282,16 @@ def console_ce_records_for_event(event):
         if not class_name.startswith("Animal_"):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
+        vanilla_event_name = vanilla_animal_ce_event_name(class_name)
+        if not vanilla_event_name:
+            warnings.append(
+                f"`{event.get('id')}` animal pack uses `{class_name}`, but no matching vanilla animal CE event is known. "
+                "Use bear, wolf, boar, deer, cow, sheep, goat, pig, or hen classes."
+            )
+            return records, warnings
         family = "Animal"
         limit_type = "custom"
-        child_records = [{
-            "type": class_name,
-            "count": count,
-            "min": count,
-            "max": count,
-            "lootmin": 0,
-            "lootmax": 0,
-        }]
+        child_records = None
     if event_type == "gas_zone":
         family = "ContaminatedArea"
         limit_type = "child"
@@ -31300,7 +31314,7 @@ def console_ce_records_for_event(event):
         if cleanupradius < speed_defaults["cleanupradius"]:
             cleanupradius = speed_defaults["cleanupradius"]
 
-    record_name = ce_event_name(event, family=family)
+    record_name = vanilla_animal_ce_event_name(class_name) if event_type == "animal_pack" else ce_event_name(event, family=family)
     record = {
         "name": record_name,
         "class_name": class_name,
@@ -31330,7 +31344,8 @@ def console_ce_records_for_event(event):
         "start_speed": scenario_start_speed_key(event),
         "remove_damaged": event_type == "vehicle_spawn",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
-        "use_existing_definition": False,
+        "use_existing_definition": event_type == "animal_pack",
+        "patch_existing_definition": event_type == "animal_pack",
         "mapgroupproto_classes": [class_name] if event_type in {"airdrop", "loot_crate"} else [],
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
@@ -31357,8 +31372,8 @@ def console_ce_records_for_event(event):
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
         warnings.append(
-            f"`{event.get('id')}` uses a direct WanderingBot-owned `{record_name}` animal CE event with fixed X/Z position. "
-            "No vanilla animal event or territory file is modified."
+            f"`{event.get('id')}` reuses vanilla `{record_name}` with WanderingBot-marked fixed spawn positions. "
+            "This avoids custom herd-template names such as `HerdWanderingBot_animal_bear`."
         )
     records.append(record)
 
