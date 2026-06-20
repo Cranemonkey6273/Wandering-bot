@@ -14307,6 +14307,46 @@ def normalize_uploaded_text_for_compare(value):
     return str(value or "").lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").rstrip()
 
 
+def protected_dayz_xml_node_signature(node):
+    text = str(node.text or "").strip()
+    children = [
+        protected_dayz_xml_node_signature(child)
+        for child in list(node)
+        if not is_xml_comment_node(child)
+    ]
+    return (
+        str(node.tag),
+        tuple(sorted((str(key), str(value)) for key, value in node.attrib.items())),
+        text,
+        tuple(children),
+    )
+
+
+def protected_dayz_xml_texts_equivalent(expected_text, actual_text):
+    try:
+        expected_root = ET.fromstring(str(expected_text or "").encode("utf-8"))
+        actual_root = ET.fromstring(str(actual_text or "").encode("utf-8"))
+    except Exception:
+        return False
+    return protected_dayz_xml_node_signature(expected_root) == protected_dayz_xml_node_signature(actual_root)
+
+
+def verify_protected_dayz_xml_content_matches(label, path, expected_text, content):
+    expected_root = protected_dayz_xml_root_for_path(path)
+    valid, validation_message = validate_protected_dayz_xml_upload(path, content)
+    if not valid:
+        return False, validation_message
+    if normalize_uploaded_text_for_compare(content) == normalize_uploaded_text_for_compare(expected_text):
+        return True, f"`{label}` post-upload re-download matched with <{expected_root}> root."
+    if protected_dayz_xml_texts_equivalent(expected_text, content):
+        return True, f"`{label}` post-upload re-download matched XML structure with <{expected_root}> root."
+    return False, (
+        f"`{label}` post-upload re-download did not match the uploaded content "
+        f"(uploaded {len(str(expected_text or '').encode('utf-8'))} bytes, "
+        f"downloaded {len(str(content or '').encode('utf-8'))} bytes)."
+    )
+
+
 def validate_protected_dayz_xml_upload(target_path, text_content):
     expected_root = protected_dayz_xml_root_for_path(target_path)
     if not expected_root:
@@ -14459,17 +14499,10 @@ def verify_uploaded_protected_dayz_xml_text(config, label, path, expected_text):
         if not ok:
             last_message = f"`{label}` post-upload re-download failed: {message}"
         else:
-            valid, validation_message = validate_protected_dayz_xml_upload(path, content)
-            if not valid:
-                last_message = validation_message
-            elif normalize_uploaded_text_for_compare(content) != normalize_uploaded_text_for_compare(expected_text):
-                last_message = (
-                    f"`{label}` post-upload re-download did not match the uploaded content "
-                    f"(uploaded {len(str(expected_text or '').encode('utf-8'))} bytes, "
-                    f"downloaded {len(str(content or '').encode('utf-8'))} bytes)."
-                )
-            else:
-                return True, f"`{label}` post-upload re-download matched with <{expected_root}> root."
+            matched, match_message = verify_protected_dayz_xml_content_matches(label, path, expected_text, content)
+            if matched:
+                return True, match_message
+            last_message = match_message
         if attempt < 2:
             time.sleep(1)
     return False, last_message
@@ -14507,6 +14540,99 @@ def upload_text_file_to_nitrado_ftp(config, target_path, text_content):
                 os.remove(temp_path)
             except Exception:
                 pass
+
+
+def delete_nitrado_ftp_temp_file(config, target_path):
+    try:
+        ftp, _ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            return False, ftp_error
+        errors = []
+        for candidate in dict.fromkeys([str(target_path or ""), str(target_path or "").lstrip("/")]):
+            if not candidate:
+                continue
+            try:
+                ftp.delete(candidate)
+                ftp.quit()
+                return True, "Deleted temporary upload file."
+            except Exception as error:
+                errors.append(str(error))
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+        return False, "; ".join(errors[-2:])
+    except Exception as error:
+        return False, str(error)
+
+
+def rename_nitrado_ftp_file(config, source_path, target_path):
+    try:
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            return False, ftp_error
+        errors = []
+        candidates = [
+            (str(source_path or ""), str(target_path or "")),
+            (str(source_path or "").lstrip("/"), str(target_path or "").lstrip("/")),
+        ]
+        for source, target in dict.fromkeys(candidates):
+            if not source or not target:
+                continue
+            try:
+                ftp.rename(source, target)
+                ftp.quit()
+                return True, f"Renamed verified temporary upload into place via {ftp_host}."
+            except Exception as error:
+                errors.append(str(error))
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+        return False, "; ".join(errors[-2:])
+    except Exception as error:
+        return False, str(error)
+
+
+def upload_protected_dayz_xml_to_nitrado_ftp_staged(config, target_path, text_content):
+    valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
+    if not valid_upload:
+        return False, validation_message
+
+    clean_target = canonical_remote_path(target_path)
+    temp_path = f"{clean_target}.wanderingbot-upload-tmp"
+    ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, temp_path, text_content)
+    if not ftp_success:
+        return False, f"Temporary FTP upload failed: {ftp_message}"
+
+    ok, download_message, temp_content = download_text_file_from_nitrado(config, temp_path)
+    if not ok or not str(temp_content or "").strip():
+        delete_nitrado_ftp_temp_file(config, temp_path)
+        return False, f"Temporary FTP upload could not be re-downloaded: {download_message}"
+    matched, match_message = verify_protected_dayz_xml_content_matches(
+        os.path.basename(str(target_path or "").replace("\\", "/")),
+        target_path,
+        text_content,
+        temp_content,
+    )
+    if not matched:
+        delete_nitrado_ftp_temp_file(config, temp_path)
+        return False, f"Temporary FTP upload failed verification before touching live XML: {match_message}"
+
+    rename_ok, rename_message = rename_nitrado_ftp_file(config, temp_path, clean_target)
+    if not rename_ok:
+        delete_nitrado_ftp_temp_file(config, temp_path)
+        return False, f"Temporary FTP upload verified but could not be renamed into live XML: {rename_message}"
+
+    verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
+        config,
+        os.path.basename(str(target_path or "").replace("\\", "/")),
+        target_path,
+        text_content,
+    )
+    if not verify_ok:
+        return False, f"{rename_message} Live verification failed after staged FTP upload: {verify_message}"
+    return True, f"{ftp_message} {rename_message} {verify_message}"
 
 
 def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
@@ -14551,10 +14677,14 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
                     return True, f"{api_message} {verify_message}"
                 return False, f"{api_message} Post-upload verification failed: {verify_message}"
 
-            return False, (
-                f"{api_message} Protected DayZ XML upload stopped before FTP fallback. "
-                "FTP can report success while changing protected CE XML bytes; fix the Nitrado API upload path/token instead."
+            staged_success, staged_message = upload_protected_dayz_xml_to_nitrado_ftp_staged(
+                config,
+                target_path,
+                text_content,
             )
+            if staged_success:
+                return True, f"{api_message} API upload failed, so staged FTP fallback was used. {staged_message}"
+            return False, f"{api_message} Staged FTP fallback also failed: {staged_message}"
 
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:
@@ -30754,6 +30884,28 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
     return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml."]
 
 
+def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content):
+    valid_upload, validation_message = validate_protected_dayz_xml_upload(backup_path, text_content)
+    if not valid_upload:
+        return False, validation_message
+
+    ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, backup_path, text_content)
+    if ftp_success:
+        verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, backup_path)
+        if verify_ok:
+            return True, f"{ftp_message} {verify_message}"
+        return False, f"{ftp_message} Backup verification failed: {verify_message}"
+
+    api_success, api_message = upload_text_file_to_nitrado_api(config, backup_path, text_content)
+    if api_success:
+        verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, backup_path)
+        if verify_ok:
+            return True, f"{api_message} {verify_message}"
+        return False, f"{api_message} Backup verification failed: {verify_message}"
+
+    return False, f"FTP backup upload failed: {ftp_message} API backup fallback also failed: {api_message}"
+
+
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     required_backups = {"events.xml", "cfgeventspawns.xml", "cfgspawnabletypes.xml"}
@@ -30782,7 +30934,7 @@ def backup_remote_ce_sources_before_upload(config, built):
             )
             continue
         backup_path = f"{path}.wanderingbot-backup-latest"
-        backup_ok, backup_message = upload_text_file_to_nitrado(config, backup_path, content)
+        backup_ok, backup_message = upload_ce_latest_backup_to_nitrado(config, label, backup_path, content)
         backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
         if not backup_ok:
             return False, backup_messages
