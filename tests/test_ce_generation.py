@@ -594,7 +594,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_animal_pack_uses_wandering_territory_without_touching_vanilla_spawns(self):
+    def test_animal_pack_reuses_vanilla_event_with_marked_spawn_position(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         sources = {
@@ -632,16 +632,20 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         spawns_root = ET.fromstring(built["spawns_text"])
         vanilla_event = spawns_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_event)
-        self.assertEqual(1, len(vanilla_event.findall("pos")))
-        self.assertEqual(vanilla_event.find("pos").attrib, {"x": "1", "z": "2", "a": "0"})
+        positions = vanilla_event.findall("pos")
+        zones = vanilla_event.findall("zone")
+        self.assertEqual({"x": "1", "z": "2", "a": "0"}, positions[0].attrib)
+        self.assertTrue(
+            any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions)
+            or any(zone.get("x") == "5000" and zone.get("z") == "5000" for zone in zones)
+        )
         self.assertFalse(built.get("events_text", "").count("AnimalBear"))
-        self.assertTrue(built.get("cfgenvironment_text"))
-        self.assertIn("wanderingbot_animal_bear", built["cfgenvironment_text"].lower())
-        self.assertEqual(1, len(built.get("animal_territory_files") or []))
-        self.assertIn("AnimalBear", built["animal_territory_files"][0].get("event_names") or [])
-        self.assertIn('<zone name="HuntingGround"', built["animal_territory_files"][0].get("text") or "")
+        self.assertFalse(built.get("cfgenvironment_text"))
+        self.assertEqual([], built.get("animal_territory_files") or [])
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
+        scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
+        self.assertTrue(scope_ok, "\n".join(scope_messages))
 
 
 if __name__ == "__main__":

@@ -29194,6 +29194,35 @@ def canonical_ce_scope_node_text(node):
     return ET.tostring(clone, encoding="unicode")
 
 
+def remove_wandering_marked_spawn_children(event_node):
+    removed = 0
+    pending_managed_spawn_comment = None
+    for child in list(event_node):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            if "wandering bot:" in text and "managed spawn position" in text:
+                pending_managed_spawn_comment = child
+                continue
+            pending_managed_spawn_comment = None
+            continue
+        if pending_managed_spawn_comment is not None and getattr(child, "tag", "") in {"pos", "zone"}:
+            event_node.remove(pending_managed_spawn_comment)
+            event_node.remove(child)
+            removed += 1
+        pending_managed_spawn_comment = None
+    return removed
+
+
+def canonical_ce_scope_node_text_without_wandering_spawn_children(node):
+    clone = parse_xml_root_preserving_comments(ET.tostring(node, encoding="unicode"))
+    remove_wandering_marked_spawn_children(clone)
+    try:
+        ET.indent(clone, space="    ")
+    except Exception:
+        pass
+    return ET.tostring(clone, encoding="unicode")
+
+
 def ce_scope_records(root):
     records = {}
     pending_owned_comment = False
@@ -29238,6 +29267,24 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text):
         if (original or {}).get("text") == (merged or {}).get("text"):
             continue
         owned = bool((original or {}).get("owned") or (merged or {}).get("owned"))
+        if not owned and label == "cfgeventspawns.xml":
+            original_node = None
+            merged_node = None
+            for child in list(original_root):
+                if not is_xml_comment_node(child) and ce_scope_node_key(child, 0)[:3] == key[:3]:
+                    original_node = child
+                    break
+            for child in list(merged_root):
+                if not is_xml_comment_node(child) and ce_scope_node_key(child, 0)[:3] == key[:3]:
+                    merged_node = child
+                    break
+            if (
+                original_node is not None
+                and merged_node is not None
+                and canonical_ce_scope_node_text_without_wandering_spawn_children(original_node)
+                == canonical_ce_scope_node_text_without_wandering_spawn_children(merged_node)
+            ):
+                continue
         if not owned:
             changed_unowned.append((merged or original or {}).get("display") or str(key))
     if changed_unowned:
@@ -30386,6 +30433,7 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         return event_node
     count = max(1, int(count or 1))
     radius = max(0, int(radius or 0))
+    remove_wandering_marked_spawn_children(event_node)
     remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
     # DayZ samples terrain height for cfgeventspawns positions; forcing y can reject spawns.
     if group_name:
@@ -30395,10 +30443,12 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "a": ce_decimal(angle),
             "group": str(group_name),
         }
+        append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
         ET.SubElement(event_node, "pos", attrs)
         return event_node
 
     if console_ce_event_uses_zone_spawn(event_name):
+        append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
         ET.SubElement(event_node, "zone", {
             "smin": "1",
             "smax": str(count),
@@ -30410,6 +30460,7 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         })
     if event_name.startswith("Vehicle") and CONSOLE_CE_EVENT_MARKER in event_name:
         for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(x, z, angle=angle, radius=radius or 45):
+            append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
             ET.SubElement(event_node, "pos", {
                 "x": ce_decimal(pos_x),
                 "z": ce_decimal(pos_z),
@@ -30421,6 +30472,7 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
         "z": ce_decimal(z),
         "a": ce_decimal(angle),
     }
+    append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
     ET.SubElement(event_node, "pos", attrs)
     return event_node
 
@@ -30871,18 +30923,10 @@ def console_ce_records_for_event(event):
             "max_count": count,
             "saferadius": 2,
             "cleanupradius": 100,
-            "animal_territory": True,
-            "skip_spawn": True,
         })
-        profile = animal_territory_profile(class_name)
-        record["animal_behavior"] = profile.get("behavior")
-        record["territory_zone"] = profile.get("zone")
-        record["territory_color"] = profile.get("color")
-        record["territory_file_key"] = stable_console_event_slug(event) or animal_territory_group_key(record)
-        record["territory_name"] = f"WanderingBot_{record['territory_file_key']}"
         warnings.append(
-            f"`{event.get('id')}` uses vanilla `{record_name}` herd behavior through a WanderingBot-owned animal territory. "
-            "This avoids custom herd-template errors without editing vanilla cfgeventspawns.xml nodes."
+            f"`{event.get('id')}` uses vanilla `{record_name}` herd behavior and adds only a WanderingBot-marked spawn position. "
+            "This avoids missing custom territory XML files and avoids custom herd-template event names."
         )
     records.append(record)
 
