@@ -30315,10 +30315,11 @@ def scenario_airdrop_direct_child_records(event, class_name):
 
 
 def scenario_airdrop_uses_eventgroup(event):
-    if not (event or {}).get("visual_marker"):
-        return False
-    scene = scenario_airdrop_scene_config(event or {})
-    return bool(scene.get("props"))
+    # Keep Native CE airdrops in the simple working shape:
+    # events.xml owns the real child classname, cfgeventspawns.xml owns the
+    # matching fixed position. Do not route airdrops through cfgeventgroups;
+    # mixed group/direct shapes are too easy to leave out of sync on live hosts.
+    return False
 
 
 def scenario_airdrop_secondary_infected(event):
@@ -30885,6 +30886,10 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     count = max(1, int(count or 1))
     radius = max(0, int(radius or 0))
     remove_wandering_marked_spawn_children(event_node)
+    if not group_name and event_name.startswith("Static") and is_wandering_managed_name(event_name):
+        for child in list(event_node):
+            if getattr(child, "tag", "") in {"pos", "zone"}:
+                event_node.remove(child)
     remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
     # DayZ samples terrain height for cfgeventspawns positions; forcing y can reject spawns.
     if group_name:

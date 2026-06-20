@@ -214,7 +214,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_convoy_airdrop_uses_eventgroup_with_loot_anchor_and_props(self):
+    def test_convoy_airdrop_uses_direct_child_not_eventgroup(self):
         event = _base_event(
             46,
             "airdrop",
@@ -225,22 +225,18 @@ class AirdropEventGroupTests(unittest.TestCase):
         )
         record, events_root, spawns_root, groups_root = self._build_airdrop_event_node(event)
 
-        self.assertTrue(record.get("use_eventgroup"))
-        self.assertTrue(record.get("empty_event_children"))
+        self.assertFalse(record.get("use_eventgroup"))
+        self.assertFalse(record.get("empty_event_children"))
         self.assertEqual(["StaticObj_Wreck_HMMWV_DE"], record.get("mapgroupproto_classes"))
-        self.assertEqual([], events_root.findall("event/children/child"))
+        children = events_root.findall("event/children/child")
+        self.assertEqual(1, len(children))
+        self.assertEqual("StaticObj_Wreck_HMMWV_DE", children[0].get("type"))
         pos = spawns_root.find("event/pos")
         self.assertIsNotNone(pos)
-        self.assertEqual(record["name"], pos.get("group"))
-        children = groups_root.findall("group/child")
-        self.assertGreaterEqual(len(children), 4)
-        anchor = children[0]
-        self.assertEqual("StaticObj_Wreck_HMMWV_DE", anchor.get("type"))
-        self.assertNotEqual("false", anchor.get("spawnsecondary"))
-        self.assertGreater(int(anchor.get("lootmax") or 0), 0)
-        self.assertTrue(any(child.get("spawnsecondary") == "false" for child in children[1:]))
+        self.assertIsNone(pos.get("group"))
+        self.assertIsNone(groups_root.find("group"))
 
-    def test_eventgroup_airdrop_replaces_stale_ungrouped_spawn_pos(self):
+    def test_airdrop_direct_spawn_replaces_stale_grouped_spawn_pos(self):
         event = _base_event(
             49,
             "airdrop",
@@ -250,11 +246,11 @@ class AirdropEventGroupTests(unittest.TestCase):
         )
         records, _warnings = bot.console_ce_records_for_event(event)
         record = records[0]
-        self.assertTrue(record.get("use_eventgroup"))
+        self.assertFalse(record.get("use_eventgroup"))
 
         spawns_root = ET.Element("eventposdef")
         stale_event = ET.SubElement(spawns_root, "event", {"name": record["name"]})
-        ET.SubElement(stale_event, "pos", {"x": "1", "z": "2", "a": "0"})
+        ET.SubElement(stale_event, "pos", {"x": "1", "z": "2", "a": "0", "group": record["name"]})
 
         bot.add_console_ce_event_spawn(
             spawns_root,
@@ -264,12 +260,12 @@ class AirdropEventGroupTests(unittest.TestCase):
             y=record.get("y"),
             count=record["count"],
             radius=record.get("radius") or 45,
-            group_name=record["name"],
+            group_name="",
         )
 
         positions = spawns_root.findall("event/pos")
         self.assertEqual(1, len(positions))
-        self.assertEqual(record["name"], positions[0].get("group"))
+        self.assertIsNone(positions[0].get("group"))
         self.assertEqual("5000", positions[0].get("x"))
 
     def test_gas_zone_uses_static_contaminated_area_shape(self):
