@@ -187,6 +187,30 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual(3, guard_children[0].get("max"))
         self.assertTrue(all(child.get("lootmax") == 0 for child in guard_children))
 
+    def test_direct_airdrop_with_guard_children_validates(self):
+        event = _base_event(
+            32,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+            guard_class="ZmbM_SoldierNormal",
+            guard_count=3,
+        )
+        record, events_root, spawns_root, _groups = self._build_airdrop_event_node(event)
+        proto_root = ET.Element("prototype")
+        for class_name in record.get("mapgroupproto_classes") or []:
+            bot.add_mapgroupproto_loot_group(proto_root, class_name, tags=record.get("mapgroupproto_tags"))
+        built = {
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": bot.xml_text_from_root(spawns_root),
+            "eventgroups_text": "",
+            "mapgroupproto_text": bot.xml_text_from_root(proto_root),
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
 
 class VehicleAndZombieSpawnTests(unittest.TestCase):
     """Vehicles and hordes do NOT use cfgeventgroups. Their <pos> blocks must

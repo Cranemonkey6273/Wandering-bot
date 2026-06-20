@@ -31550,24 +31550,31 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
     should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records)
     if eventgroup_records or mapgroupproto_records or should_cleanup_group_files:
-        eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
-            config,
-            guild_id,
-            "eventgroups_path",
-            ""
-        )
+        eventgroups_text = ""
+        resolved_eventgroups_path = console_ce_default_paths(guild_id)["eventgroups_path"]
+        eventgroups_source = "cfgeventgroups.xml unchanged; no direct eventgroup-routed event needed."
+        eventgroups_root = ET.Element("eventgroupdef")
+        eventgroups_parse_warning = ""
+        eventgroups_parse_blocker = ""
+        if eventgroup_records or cleanup_pending:
+            eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
+                config,
+                guild_id,
+                "eventgroups_path",
+                ""
+            )
+            eventgroups_root, eventgroups_parse_warning, eventgroups_parse_blocker = parse_console_ce_xml_source(
+                config,
+                "cfgeventgroups.xml",
+                eventgroups_text,
+                "eventgroupdef",
+                resolved_eventgroups_path,
+            )
         mapgroupproto_text, resolved_mapgroupproto_path, mapgroupproto_source = download_console_ce_source(
             config,
             guild_id,
             "mapgroupproto_path",
             ""
-        )
-        eventgroups_root, eventgroups_parse_warning, eventgroups_parse_blocker = parse_console_ce_xml_source(
-            config,
-            "cfgeventgroups.xml",
-            eventgroups_text,
-            "eventgroupdef",
-            resolved_eventgroups_path,
         )
         mapgroupproto_root, mapgroupproto_parse_warning = parse_xml_root_or_new(mapgroupproto_text, "prototype")
         if eventgroups_parse_blocker:
@@ -31775,7 +31782,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             child_type = str(child.get("type") or "").strip()
             if not child_type:
                 messages.append(f"`{name}` has a child with no `type` classname.")
-            if child_type.startswith(("ZmbM_", "ZmbF_")) and not name.startswith("Infected"):
+            if child_type.startswith(("ZmbM_", "ZmbF_")) and not (name.startswith("Infected") or name.startswith("Static")):
                 messages.append(f"`{name}` spawns infected child `{child_type}` but does not use the `Infected` CE family.")
             if name.startswith("Infected") and child_type.startswith("Animal_"):
                 messages.append(f"`{name}` is an infected event but has animal child `{child_type}`.")
@@ -31836,6 +31843,32 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
+    for name, event_node in generated_events.items():
+        if not name.startswith("Static"):
+            continue
+        spawn_node = generated_spawns.get(name)
+        has_group_pos = bool(spawn_node is not None and any(
+            str(pos.get("group") or "").strip()
+            for pos in spawn_node.findall("pos")
+        ))
+        if has_group_pos:
+            continue
+        for child in event_node.findall("children/child"):
+            child_type = str(child.get("type") or "").strip()
+            try:
+                child_lootmax = int(str(child.get("lootmax") or "0"))
+            except Exception:
+                child_lootmax = 0
+            if not child_type or child_lootmax <= 0:
+                continue
+            proto_node = proto_nodes.get(child_type)
+            if proto_node is None:
+                messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
+            elif not mapgroupproto_group_has_usable_loot_container(proto_node):
+                messages.append(
+                    f"`{child_type}` is used as a direct loot-bearing child by `{name}`, but its "
+                    "mapgroupproto group has no usable loot container/point."
+                )
     for name, event_node in generated_events.items():
         if not name.startswith("Static"):
             continue
