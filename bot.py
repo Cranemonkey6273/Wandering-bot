@@ -142,6 +142,9 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
+# Per-guild backoff after Nitrado/Cloudflare 429s. Without this the ADM loop
+# retries every 30s across many paths and can keep the service rate-limited.
+adm_rate_limit_backoff_until = {}
 # Runtime-only source metadata for the ADM file currently being parsed.
 # This lets the parser tell the difference between the latest live log and
 # an intentional cold-start history sweep.
@@ -11730,6 +11733,46 @@ def adm_scan_failure_summary(diagnostics, limit=5):
     return "; ".join(failures[-limit:])[:900]
 
 
+def adm_scan_diagnostic_is_rate_limited(item):
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "").strip()
+    text = str(item.get("error") or item.get("message") or "").lower()
+    return (
+        status == "429"
+        or "429" in text
+        or "cloudflare" in text
+        or "rate-limit" in text
+        or "just a moment" in text
+        or "<!doctype html" in text
+    )
+
+
+def adm_scan_diagnostics_rate_limited(diagnostics):
+    return any(adm_scan_diagnostic_is_rate_limited(item) for item in diagnostics or [])
+
+
+def adm_rate_limit_backoff_seconds():
+    try:
+        return max(60, min(900, int(os.getenv("WANDERING_ADM_RATE_LIMIT_BACKOFF_SECONDS", "180"))))
+    except Exception:
+        return 180
+
+
+def set_adm_rate_limit_backoff(guild_id):
+    seconds = adm_rate_limit_backoff_seconds()
+    adm_rate_limit_backoff_until[str(guild_id)] = time.time() + seconds
+    return seconds
+
+
+def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
+    seconds = int(backoff_seconds if backoff_seconds is not None else adm_rate_limit_backoff_seconds())
+    return (
+        f"Nitrado/Cloudflare rate-limited ADM {stage} (429). This is not a missing ADM file/path; "
+        f"backing off for about {seconds}s. Last checks: {adm_scan_failure_summary(diagnostics)}"
+    )
+
+
 def list_adm_logs(config, lookback_hours=None, diagnostics=None):
 
     token = config.get("nitrado_token")
@@ -11770,16 +11813,32 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None):
             adm_debug_log(f"[PING STATUS] {response.status_code}")
 
             if response.status_code != 200:
+                diagnostic = {
+                    "path": search_path,
+                    "status": response.status_code,
+                    "error": response.text[:300],
+                    "count": 0,
+                }
                 if isinstance(diagnostics, list):
-                    diagnostics.append({
-                        "path": search_path,
-                        "status": response.status_code,
-                        "error": response.text[:300],
-                        "count": 0,
-                    })
+                    diagnostics.append(diagnostic)
+                if adm_scan_diagnostic_is_rate_limited(diagnostic):
+                    break
                 continue
 
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception:
+                diagnostic = {
+                    "path": search_path,
+                    "status": response.status_code,
+                    "error": response.text[:300],
+                    "count": 0,
+                }
+                if isinstance(diagnostics, list):
+                    diagnostics.append(diagnostic)
+                if adm_scan_diagnostic_is_rate_limited(diagnostic):
+                    break
+                continue
 
             entries = (
                 data
@@ -17426,6 +17485,16 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if missing:
         return False, f"Missing setup values: {', '.join(missing)}"
 
+    backoff_until = float(adm_rate_limit_backoff_until.get(str(guild_id), 0) or 0)
+    if backoff_until > time.time() and not force:
+        remaining = max(1, int(backoff_until - time.time()))
+        return False, (
+            f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
+            "Waiting before the next ADM search so Nitrado can clear the 429."
+        )
+    if force:
+        adm_rate_limit_backoff_until.pop(str(guild_id), None)
+
     print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
 
     # 🗓️ First refresh after bot startup → also ingest the previous 24h
@@ -17435,18 +17504,26 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     # dedupe in parse_adm guarantees nothing is ever re-broadcast.
     cold_start = not bool(_adm_history_swept.get(str(guild_id)))
     if cold_start:
+        history_diagnostics = []
         try:
-            history_logs = await asyncio.to_thread(list_adm_logs, config, 24)
+            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics)
         except Exception as err:
             print(f"[ADM COLD-START] history listing failed: {err}")
             history_logs = []
+        if adm_scan_diagnostics_rate_limited(history_diagnostics):
+            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+            return False, adm_rate_limited_message("history search", history_diagnostics, backoff_seconds)
         # Walk oldest → newest so events arrive in chronological order.
         history_logs = list(reversed(history_logs))
         if history_logs:
             print(f"[ADM COLD-START] sweeping last 24h: {len(history_logs)} log(s) for {guild_display_name(guild_id)}")
         for older in history_logs[:-1]:
             try:
-                ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older)
+                older_download_diagnostics = []
+                ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older, older_download_diagnostics)
+                if not ok_dl and adm_scan_diagnostics_rate_limited(older_download_diagnostics):
+                    backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                    return False, adm_rate_limited_message("history download", older_download_diagnostics, backoff_seconds)
                 if ok_dl:
                     adm_parse_context[str(guild_id)] = {
                         "source_path": older.get("path") or "",
@@ -17470,6 +17547,9 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     )
 
     if not latest_log:
+        if adm_scan_diagnostics_rate_limited(adm_scan_diagnostics):
+            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+            return False, adm_rate_limited_message("search", adm_scan_diagnostics, backoff_seconds)
         return False, f"No ADM log found: {adm_scan_failure_summary(adm_scan_diagnostics)}"
 
     adm_download_diagnostics = []
@@ -17482,6 +17562,9 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     )
 
     if not success:
+        if adm_scan_diagnostics_rate_limited(adm_download_diagnostics):
+            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+            return False, adm_rate_limited_message("download", adm_download_diagnostics, backoff_seconds)
         return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
 
     adm_parse_context[str(guild_id)] = {
@@ -17499,6 +17582,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         adm_parse_context.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
+    adm_rate_limit_backoff_until.pop(str(guild_id), None)
     return True, "ADM feed refreshed"
 
 
