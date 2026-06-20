@@ -253,6 +253,8 @@ VISUAL_LOADOUT_CATEGORY_FILTERS = [
     {"key": "Ammunition", "label": "Ammo"},
     {"key": "Medical", "label": "Medical"},
     {"key": "Food/Drink", "label": "Food"},
+    {"key": "Navigation", "label": "Nav"},
+    {"key": "Tools", "label": "Tools"},
     {"key": "Misc", "label": "Misc"},
 ]
 VISUAL_LOADOUT_SLOT_RULES = {
@@ -373,7 +375,7 @@ VISUAL_LOADOUT_SLOT_FALLBACKS = {
         "DryBag_Green", "DryBag_Orange", "TaloonBag_Blue", "TaloonBag_Green", "TaloonBag_Orange", "HuntingBag",
         "TortillaBag", "CourierBag", "ImprovisedBag", "CoyoteBag_Brown", "CoyoteBag_Green",
     ],
-    "Hips": ["MilitaryBelt", "CivilianBelt", "HipPack_Black", "HipPack_Green", "KnifeSheath", "PistolHolster"],
+    "Hips": ["MilitaryBelt", "CivilianBelt", "HipPack_Black", "HipPack_Green", "LeatherKnifeSheath", "NylonKnifeSheath", "ChestHolster"],
     "Legs": [
         "CargoPants_Black", "CargoPants_Blue", "CargoPants_Green", "CargoPants_Grey", "Jeans_Black", "Jeans_Blue",
         "BDUPants", "CUCPants", "GorkaPants_Autumn", "GorkaPants_Flat", "GorkaPants_PautRev", "GorkaPants_Summer",
@@ -404,7 +406,9 @@ VISUAL_LOADOUT_GENERAL_FALLBACKS = [
     "NVGoggles", "NVGHeadstrap", "UniversalLight",
     "BandageDressing", "TetracyclineAntibiotics", "Morphine", "Epinephrine", "SalineBagIV", "BloodBagEmpty",
     "Canteen", "WaterBottle", "TacticalBaconCan", "BakedBeansCan", "PeachesCan", "SodaCan_Cola",
-    "Battery9V", "Rangefinder", "Binoculars", "Compass", "Matchbox", "Rope", "NailBox", "MetalWire",
+    "Battery9V", "ChernarusMap", "ChernarusMap_Open", "Compass", "OrienteeringCompass", "GPSReceiver",
+    "PersonalRadio", "FieldTransceiver", "Rangefinder", "Binoculars", "Pen_Black", "Pen_Blue",
+    "Matchbox", "Rope", "NailBox", "MetalWire",
 ]
 VISUAL_LOADOUT_CAPACITY_HINTS = {
     "alicebag": 90,
@@ -2717,6 +2721,20 @@ PAGE_TEMPLATE = """
     .loadout-item-card img { width: 2.7rem; height: 2.7rem; border-radius: .4rem; border: 1px solid var(--line); background: var(--panel-2); object-fit: contain; }
     .loadout-item-card strong { display: block; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .loadout-item-card small { color: var(--muted); }
+    .inspect-link { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 1.8rem; margin-top: .25rem; border: 1px solid var(--line); border-radius: .4rem; background: color-mix(in srgb, var(--panel-2) 62%, #000); color: var(--accent); font-size: .78rem; font-weight: 900; text-decoration: none; }
+    .inspect-link:hover, .inspect-link:focus-visible { border-color: var(--accent); outline: none; }
+    .loadout-reference-panel { display: grid; gap: .55rem; margin-top: .8rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+    .loadout-reference-panel h3 { margin: 0; }
+    .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: end; }
+    .reference-item-head { display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: .55rem; align-items: center; min-height: 3.4rem; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; padding: .45rem; }
+    .reference-item-head img { width: 3rem; height: 3rem; border: 1px solid var(--line); border-radius: .4rem; object-fit: contain; background: var(--panel-2); }
+    .reference-item-head strong { display: block; color: var(--text); overflow-wrap: anywhere; }
+    .reference-item-head small { color: var(--muted); }
+    .reference-section { display: grid; gap: .4rem; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; padding: .55rem; }
+    .reference-section details { border-top: 1px solid var(--line); padding-top: .4rem; }
+    .reference-section details:first-of-type { border-top: 0; padding-top: 0; }
+    .reference-section summary { cursor: pointer; color: var(--text); font-weight: 900; }
+    .helper-chip-row { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
     .visual-canvas { display: grid; gap: .75rem; }
     .loadout-slot-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; }
     .visual-slot { min-height: 5rem; display: grid; align-content: center; gap: .25rem; text-align: left; border-style: dashed; background: #070b08; overflow: hidden; }
@@ -6171,10 +6189,68 @@ PAGE_TEMPLATE = """
                 <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
                 <span><strong>{{ item.label or item.name }}</strong><small>{{ item.name }} - {{ item.category }}</small></span>
               </button>
+              <a class="inspect-link" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ visual_loadout_slot|urlencode }}{% if visual_loadout_category %}&loadout_category={{ visual_loadout_category|urlencode }}{% endif %}&loadout_ref={{ item.name|urlencode }}#loadout-reference">Inspect</a>
             </form>
             {% else %}
             <div class="embed-preview"><strong>No items found</strong><span>No matching items were found for this slot. Try Weapons, Clothing, or another slot.</span></div>
             {% endfor %}
+          </div>
+          <div class="loadout-reference-panel" id="loadout-reference">
+            <div class="row-between">
+              <h3>Pairing Helper</h3>
+              <span class="muted">Reference only</span>
+            </div>
+            <form class="inline-form" method="get" action="/admin#loadout-reference">
+              <input class="hidden-field" name="section" value="visual-loadout">
+              <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="loadout_slot" value="{{ visual_loadout_slot }}">
+              {% if visual_loadout_category %}<input class="hidden-field" name="loadout_category" value="{{ visual_loadout_category }}">{% endif %}
+              <select name="loadout_ref">
+                {% for option in visual_reference_options %}
+                <option value="{{ option.name }}" {{ 'selected' if option.name == visual_reference_name else '' }}>{{ option.name }} - {{ option.category }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit">Show</button>
+            </form>
+            {% if visual_reference_detail.item %}
+            <div class="reference-item-head">
+              <img src="{{ visual_reference_detail.item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ visual_reference_detail.item.fallback_image_url }}';" alt="">
+              <div>
+                <strong>{{ visual_reference_detail.item.name }}</strong>
+                <small>{{ visual_reference_detail.item.category }}{% if visual_reference_detail.item.capacity %} · {{ visual_reference_detail.item.capacity }} cargo slots estimate{% elif visual_reference_detail.item.size %} · uses {{ visual_reference_detail.item.size }} slots{% endif %}</small>
+              </div>
+            </div>
+            {% if visual_reference_detail.slots %}
+            <div class="helper-chip-row"><strong>Fits:</strong>{% for label in visual_reference_detail.slots %}<span class="cargo-chip">{{ label }}</span>{% endfor %}</div>
+            {% endif %}
+            {% if visual_reference_detail.child_slots %}
+            <div class="reference-section">
+              <strong>Pairs With</strong>
+              {% for child in visual_reference_detail.child_slots %}
+              <details>
+                <summary>{{ child.label }} <span class="muted">{{ child["items"]|length }} option{{ 's' if child["items"]|length != 1 else '' }}</span></summary>
+                <div class="helper-chip-row">
+                  {% for option in child["items"][:18] %}
+                  <span class="cargo-chip">{{ option.name }}</span>
+                  {% endfor %}
+                </div>
+              </details>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if visual_reference_detail.variants|length > 1 %}
+            <div class="reference-section">
+              <strong>Variants</strong>
+              <div class="helper-chip-row">
+                {% for variant in visual_reference_detail.variants[:24] %}
+                <span class="cargo-chip">{{ variant.name }}</span>
+                {% endfor %}
+              </div>
+            </div>
+            {% endif %}
+            {% else %}
+            <span class="muted">Pick an item to see matching attachments, cargo hints, and variants.</span>
+            {% endif %}
           </div>
         </aside>
         <article class="admin-panel visual-canvas">
@@ -17467,12 +17543,16 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
         add("battery", "Battery", ["Battery9V"], "Attachments")
     if "platecarrier" in text:
         add("pouches", "Pouches", ["PlateCarrierPouches"], "Attachments")
-        add("holster", "Holster", ["PlateCarrierHolster"], "Attachments")
+        add("holster", "Holster", ["PlateCarrierHolster", "PlateCarrierHolster_Black", "PlateCarrierHolster_Camo", "PlateCarrierHolster_Green", "PlateCarrierHolster_Winter"], "Attachments")
         add("grenades", "Grenades", ["M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red", "M18SmokeGrenade_Green"], "Explosives", "multi")
-    if "belt" in text or "holster" in text:
+    if "belt" in text:
         add("canteen", "Canteen", ["Canteen"], "Containers")
-        add("sheath", "Knife / sheath", ["CombatKnife", "HuntingKnife", "KitchenKnife", "StoneKnife"], "Tools")
-        add("holster", "Pistol / holster", ["MakarovIJ70", "FNX45", "Glock19", "Deagle", "CZ75", "Colt1911"], "Weapons")
+        add("sheath", "Knife sheath", ["LeatherKnifeSheath", "NylonKnifeSheath"], "Attachments")
+        add("holster", "Holster", ["ChestHolster"], "Attachments")
+    if "knifesheath" in text or text.endswith("sheath"):
+        add("knife", "Knife", ["CombatKnife", "HuntingKnife", "KitchenKnife", "StoneKnife"], "Tools")
+    if "holster" in text:
+        add("pistol", "Pistol", ["MakarovIJ70", "FNX45", "Glock19", "Deagle", "CZ75", "Colt1911"], "Weapons")
     if any(term in text for term in ("m4a1", "akm", "ak74", "ak101", "sks", "mosin", "svd", "fal", "vss", "aug", "pistol", "fnx", "glock", "deagle", "cz75", "1911")):
         if "m4a1" in text:
             add("magazine", "Magazine", ["Mag_STANAG_30Rnd", "Mag_STANAGCoupled_30Rnd", "Mag_CMAG_40Rnd"], "Ammunition")
@@ -17508,6 +17588,75 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
     if capacity > 0:
         add_player_cargo("cargo", f"Cargo ({capacity} slot estimate)")
     return slots
+
+
+def visual_item_variant_key(item_name: Any) -> str:
+    text = safe_dayz_class(item_name)
+    if not text:
+        return ""
+    color_suffixes = {
+        "black", "blue", "green", "red", "orange", "yellow", "white", "grey", "gray",
+        "brown", "tan", "beige", "khaki", "olive", "camo", "autumn", "spring", "summer",
+        "winter", "flat", "pautrev", "ttsko", "dpm", "woodland", "pink", "purple",
+    }
+    parts = text.split("_")
+    while len(parts) > 1 and parts[-1].lower() in color_suffixes:
+        parts.pop()
+    return "_".join(parts).lower()
+
+
+def visual_item_variant_rows(item_name: Any, groups: dict[str, Any], limit: int = 24) -> list[dict[str, Any]]:
+    key = visual_item_variant_key(item_name)
+    if not key:
+        return []
+    rows = []
+    for item in groups.get("all") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name and visual_item_variant_key(name) == key:
+            rows.append(item)
+    return unique_visual_items(rows, limit)
+
+
+def visual_item_slot_labels(item_name: Any, groups: dict[str, Any]) -> list[str]:
+    detail = visual_item_detail(item_name, groups)
+    labels = []
+    for slot in VISUAL_LOADOUT_SLOTS:
+        picker = str(slot.get("picker") or "")
+        if picker and visual_slot_rule_matches(detail, picker):
+            labels.append(str(slot.get("label") or slot.get("key")))
+    if detail and visual_item_allowed_for_slot(groups, "cargo:Backpack", str(detail.get("name") or "")):
+        labels.append("Cargo")
+    return labels[:10]
+
+
+def visual_loadout_reference_options(groups: dict[str, Any]) -> list[dict[str, Any]]:
+    priority_names = [
+        "M4A1", "AKM", "AK74", "SVD", "Mosin9130", "PlateCarrierVest", "BallisticHelmet_Green",
+        "NVGoggles", "ChernarusMap", "Compass", "OrienteeringCompass", "GPSReceiver",
+        "PersonalRadio", "Rangefinder", "Binoculars", "BandageDressing", "SalineBagIV",
+    ]
+    rows = visual_items_matching(groups, priority_names, "General")
+    rows.extend(groups.get("Hands") or [])
+    rows.extend(groups.get("Vest") or [])
+    rows.extend(groups.get("Head") or [])
+    rows.extend(groups.get("player_cargo") or [])
+    return unique_visual_items(rows, 260)
+
+
+def visual_loadout_reference_detail(item_name: Any, groups: dict[str, Any]) -> dict[str, Any]:
+    name = safe_dayz_class(item_name)
+    if not name:
+        return {}
+    detail = visual_item_detail(name, groups)
+    children = visual_compatible_child_slots(name, groups)
+    return {
+        "item": detail,
+        "slots": visual_item_slot_labels(name, groups),
+        "variants": visual_item_variant_rows(name, groups),
+        "child_slots": children,
+    }
 
 
 def visual_loadout_selected_rows(draft_value: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
@@ -19247,6 +19396,10 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             return "Medical"
         if any(term in lower for term in ("canteen", "waterbottle", "can", "soda")):
             return "Food/Drink"
+        if any(term in lower for term in ("map", "compass", "gps", "radio", "transceiver", "rangefinder", "binocular")):
+            return "Navigation"
+        if any(term in lower for term in ("matchbox", "rope", "pen_", "battery", "ducttape", "sewingkit")):
+            return "Tools"
         return "Misc"
 
     known_loadout_items: list[dict[str, Any]] = []
@@ -19734,14 +19887,16 @@ def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dash
     return notes[:10]
 
 
-def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
+def load_dashboard_state(active_section: str = "overview", selected_guild_id: str = "") -> dict[str, Any]:
     runtime_state = CUSTOM_STATE_PROVIDER() if CUSTOM_STATE_PROVIDER else {}
     if not isinstance(runtime_state, dict):
         runtime_state = {}
 
     active_section = str(active_section or "overview").strip().lower()
+    selected_guild_id = normalize_guild_id(selected_guild_id)
     full_sections = {"overview", "owner", "access"}
     needs_full = active_section in full_sections
+    selected_shop_sections = {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}
     needs_player_counts = True
     needs_shop_counts = True
     needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
@@ -19754,7 +19909,7 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
-    needs_discord_roles = needs_full or active_section in {"automations", "factions", "zones", "economy", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "shop", "access"}
+    needs_discord_roles = needs_full or active_section in {"automations", "factions", "zones", "economy", "xml-workshop", "loot-engine", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
     guild_configs = runtime_state.get("guild_configs") or load_store("guild_configs", {})
@@ -19818,10 +19973,11 @@ def load_dashboard_state(active_section: str = "overview") -> dict[str, Any]:
         if not isinstance(safe_zones, list):
             safe_zones = []
         server_shop = shop_for_guild(shop, guild_id) if needs_shop or needs_shop_counts else {}
-        server_shop_items = shop_catalog_items(server_shop) if needs_shop else []
-        server_shop_item_count = len(server_shop_items) if needs_shop else (count_shop_items(server_shop) if needs_shop_counts else 0)
-        server_shop_categories = shop_category_map_from_items(server_shop_items) if needs_shop else {}
-        server_shop_category_options = shop_category_options(server_shop_categories.keys()) if needs_shop else list(SHOP_CATEGORY_PRESETS)
+        build_shop_detail = needs_shop and (active_section not in selected_shop_sections or not selected_guild_id or guild_id == selected_guild_id)
+        server_shop_items = shop_catalog_items(server_shop) if build_shop_detail else []
+        server_shop_item_count = len(server_shop_items) if build_shop_detail else (count_shop_items(server_shop) if needs_shop_counts else 0)
+        server_shop_categories = shop_category_map_from_items(server_shop_items) if build_shop_detail else {}
+        server_shop_category_options = shop_category_options(server_shop_categories.keys()) if build_shop_detail else list(SHOP_CATEGORY_PRESETS)
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
         discord_members = discord_guild_members(guild_id) if needs_discord_members else []
@@ -19977,9 +20133,12 @@ def page(mode: str, auth: dict[str, Any]):
         active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
-    state = load_dashboard_state(active_section)
+    focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
+    selected_state_guild_id = focused_guild_id
+    if not selected_state_guild_id and auth.get("kind") != "owner":
+        selected_state_guild_id = normalize_guild_id(str(auth.get("guild_id") or ""))
+    state = load_dashboard_state(active_section, selected_state_guild_id)
     state = filter_state_for_auth(state, auth, mode)
-    focused_guild_id = str(request.args.get("guild_id") or "").strip()
     if focused_guild_id and mode in {"admin", "overview", "owner"}:
         state = dict(state)
         focused = [server for server in state["servers"] if str(server.get("guild_id")) == focused_guild_id]
@@ -20041,12 +20200,20 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
         visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups)
         visual_loadout_slot_card_rows = visual_loadout_slot_cards(visual_loadout_draft, picker_groups)
+        visual_reference_options = visual_loadout_reference_options(picker_groups)
+        visual_reference_name = safe_dayz_class(request.args.get("loadout_ref"))
+        if not visual_reference_name and visual_loadout_items:
+            visual_reference_name = str(visual_loadout_items[0].get("name") or "")
+        visual_reference_detail = visual_loadout_reference_detail(visual_reference_name, picker_groups)
     else:
         visual_loadout_items = []
         visual_loadout_draft = empty_visual_loadout_draft()
         visual_loadout_json_text = "{}"
         visual_loadout_equipped_rows = []
         visual_loadout_slot_card_rows = []
+        visual_reference_options = []
+        visual_reference_name = ""
+        visual_reference_detail = {}
     shop_bundle_rows = max(6, min(250, safe_int(request.args.get("bundle_rows"), 18)))
     restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
@@ -20086,6 +20253,9 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_json_text=visual_loadout_json_text,
         visual_loadout_selected_rows=visual_loadout_equipped_rows,
         visual_loadout_slot_cards=visual_loadout_slot_card_rows,
+        visual_reference_options=visual_reference_options,
+        visual_reference_name=visual_reference_name,
+        visual_reference_detail=visual_reference_detail,
         shop_bundle_rows=shop_bundle_rows,
         onboarding_reaction_options=ONBOARDING_REACTION_OPTIONS,
         restart_status=restart_status,

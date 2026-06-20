@@ -14122,7 +14122,7 @@ async def setup_command(
                 "`/buy item_name x y` - queue item delivery\n"
                 "`/addwage`, `/listwages`, `/removewage`, `/collectincome` - wages and income\n"
                 "`/tools rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
-                "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`\n"
+                "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`, `/server shopbackfill`, `/server bulkprice`\n"
                 "Admin rules: `/addreward`, `/addpunishment`"
             ),
             inline=False
@@ -19408,6 +19408,8 @@ async def helpme(ctx):
             "`/addreward keyword amount`\n"
             "`/addpunishment keyword amount`\n"
             "`/tools importtypesxml source_path default_price`\n"
+            "`/server shopbackfill default_price`\n"
+            "`/server bulkprice price category name_contains`\n"
             "`/addshopitem item_name price category`\n"
             "`/editshopitem item_name price category`\n"
             "`/toggleshopitem item_name`, `/removeshopitem item_name`\n"
@@ -27121,6 +27123,126 @@ SHOP_CATEGORY_TERMS = (
     ("Vehicle Parts", ("sparkplug", "radiator", "headlight", "carbattery", "truckbattery")),
 )
 
+SHOP_CATEGORY_EXACT_OVERRIDES = {
+    # Vanilla puts many build supplies in category="tools". These overrides
+    # keep the player shop useful for mass-pricing build gear separately.
+    "woodenlog": "Building",
+    "woodenplank": "Building",
+    "pileofwoodenplanks": "Building",
+    "nailbox": "Building",
+    "metalplate": "Building",
+    "metalwire": "Building",
+    "barbedwire": "Building",
+    "camonet": "Building",
+    "fencekit": "Building",
+    "watchtowerkit": "Building",
+    "territoryflag": "Building",
+    "territoryflagkit": "Building",
+    "combinationlock": "Building",
+    "combinationlock4": "Building",
+    "hatchet": "Tools",
+    "handsaw": "Tools",
+    "hacksaw": "Tools",
+    "pliers": "Tools",
+    "hammer": "Tools",
+    "sledgehammer": "Tools",
+    "crowbar": "Tools",
+    "shovel": "Tools",
+    "fieldshovel": "Tools",
+    "pickaxe": "Tools",
+    "woodaxe": "Tools",
+    "firefighteraxe": "Tools",
+    "firefighteraxe_black": "Tools",
+    "firefighteraxe_green": "Tools",
+    "wrench": "Tools",
+    "pipewrench": "Tools",
+    "lugwrench": "Tools",
+    "screwdriver": "Tools",
+    "lockpick": "Tools",
+    "ducttape": "Tools",
+    "epoxyputty": "Tools",
+    "sewingkit": "Tools",
+    "leathersewingkit": "Tools",
+    "electronicrepairkit": "Tools",
+    "bandagedressing": "Medical",
+    "bloodbagempty": "Medical",
+    "bloodbagfull": "Medical",
+    "bloodbagiv": "Medical",
+    "charcoaltablets": "Medical",
+    "chelatingtablets": "Medical",
+    "disinfectantalcohol": "Medical",
+    "disinfectantspray": "Medical",
+    "epinephrine": "Medical",
+    "iodinetincture": "Medical",
+    "morphine": "Medical",
+    "painkillertablets": "Medical",
+    "salinebag": "Medical",
+    "salinebagiv": "Medical",
+    "startkitiv": "Medical",
+    "tetracyclineantibiotics": "Medical",
+    "thermometer": "Medical",
+    "vitaminbottle": "Medical",
+}
+
+CURATED_SHOP_BACKFILL_ITEMS = {
+    "WoodenLog": "Building",
+    "WoodenPlank": "Building",
+    "PileOfWoodenPlanks": "Building",
+    "NailBox": "Building",
+    "MetalPlate": "Building",
+    "MetalWire": "Building",
+    "BarbedWire": "Building",
+    "Camonet": "Building",
+    "FenceKit": "Building",
+    "WatchtowerKit": "Building",
+    "TerritoryFlag": "Building",
+    "TerritoryFlagKit": "Building",
+    "CombinationLock": "Building",
+    "CombinationLock4": "Building",
+    "Hatchet": "Tools",
+    "HandSaw": "Tools",
+    "Hacksaw": "Tools",
+    "Pliers": "Tools",
+    "Hammer": "Tools",
+    "SledgeHammer": "Tools",
+    "Crowbar": "Tools",
+    "Shovel": "Tools",
+    "FieldShovel": "Tools",
+    "Pickaxe": "Tools",
+    "WoodAxe": "Tools",
+    "FirefighterAxe": "Tools",
+    "FirefighterAxe_Black": "Tools",
+    "FirefighterAxe_Green": "Tools",
+    "Wrench": "Tools",
+    "PipeWrench": "Tools",
+    "LugWrench": "Tools",
+    "Screwdriver": "Tools",
+    "Lockpick": "Tools",
+    "DuctTape": "Tools",
+    "EpoxyPutty": "Tools",
+    "SewingKit": "Tools",
+    "LeatherSewingKit": "Tools",
+    "ElectronicRepairKit": "Tools",
+    "BandageDressing": "Medical",
+    "BloodBagEmpty": "Medical",
+    "BloodBagFull": "Medical",
+    "BloodBagIV": "Medical",
+    "CharcoalTablets": "Medical",
+    "ChelatingTablets": "Medical",
+    "DisinfectantAlcohol": "Medical",
+    "DisinfectantSpray": "Medical",
+    "Epinephrine": "Medical",
+    "IodineTincture": "Medical",
+    "Morphine": "Medical",
+    "PainkillerTablets": "Medical",
+    "SalineBag": "Medical",
+    "SalineBagIV": "Medical",
+    "StartKitIV": "Medical",
+    "TetracyclineAntibiotics": "Medical",
+    "Thermometer": "Medical",
+    "VitaminBottle": "Medical",
+}
+
 
 def normalize_shop_category(value, fallback="General"):
     text = str(value or "").strip()
@@ -27188,6 +27310,10 @@ def find_types_xml(source_path=None):
 
 
 def guess_shop_category(item_name, xml_category=None, usage=None):
+    exact_category = SHOP_CATEGORY_EXACT_OVERRIDES.get(str(item_name or "").strip().lower())
+    if exact_category:
+        return exact_category
+
     if xml_category:
         return normalize_shop_category(xml_category)
 
@@ -27295,6 +27421,87 @@ def is_shop_item_record(value):
         key in value
         for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids", "type", "bundle_items")
     )
+
+
+def ensure_curated_shop_backfill(guild_id=None, default_price=100, repair_categories=True):
+    target_shop = guild_shop_items(guild_id) if guild_id else shop_items
+    try:
+        price = int(default_price)
+    except Exception:
+        price = 100
+    if price <= 0:
+        price = 100
+
+    added = 0
+    repaired = 0
+    for item_name, category in CURATED_SHOP_BACKFILL_ITEMS.items():
+        if not is_shop_sellable_item(item_name, category):
+            continue
+        existing = target_shop.get(item_name)
+        if not is_shop_item_record(existing):
+            target_shop[item_name] = {
+                "price": price,
+                "category": category,
+                "enabled": True,
+            }
+            added += 1
+            continue
+
+        if repair_categories:
+            current_category = normalize_shop_category(existing.get("category") or "")
+            if current_category != category:
+                existing["category"] = category
+                repaired += 1
+
+    if added or repaired:
+        save_shop()
+    return added, repaired
+
+
+def update_shop_prices_bulk(guild_id, price, category="", name_contains="", enabled=None):
+    items = guild_shop_items(guild_id)
+    try:
+        price = int(price)
+    except Exception:
+        raise ValueError("Price must be a whole number.")
+    if price < 0:
+        raise ValueError("Price cannot be negative.")
+
+    raw_category = str(category or "").strip()
+    category_filter = ""
+    if raw_category and raw_category.lower() not in {"all", "any", "*"}:
+        category_filter = normalize_shop_category(raw_category)
+
+    name_terms = [
+        term.strip().lower()
+        for term in re.split(r"[,;]", str(name_contains or ""))
+        if term.strip()
+    ]
+    if not category_filter and not name_terms:
+        raise ValueError("Choose a category or provide name_contains so the bulk edit has a safe scope.")
+
+    updated = 0
+    samples = []
+    for item_name, data in sorted(items.items(), key=lambda row: str(row[0]).lower()):
+        if not is_shop_item_record(data):
+            continue
+        item_category = normalize_shop_category(data.get("category") or guess_shop_category(item_name))
+        if category_filter and item_category != category_filter:
+            continue
+        lower_name = str(item_name).lower()
+        if name_terms and not any(term in lower_name for term in name_terms):
+            continue
+
+        data["price"] = price
+        if enabled is not None:
+            data["enabled"] = bool(enabled)
+        updated += 1
+        if len(samples) < 10:
+            samples.append(str(item_name))
+
+    if updated:
+        save_shop()
+    return updated, samples, category_filter or "Any", name_terms
 
 
 def legacy_shop_template():
@@ -27633,6 +27840,14 @@ def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrit
 
         target_shop[item_name] = item_data
         added += 1
+
+    backfill_added, backfill_repaired = ensure_curated_shop_backfill(
+        guild_id,
+        default_price,
+        repair_categories=True,
+    )
+    added += backfill_added
+    updated += backfill_repaired
 
     if added or updated:
         save_shop()
@@ -43002,6 +43217,86 @@ async def slash_server_setrestartstart(interaction: discord.Interaction, hour: i
 @app_commands.describe(timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York")
 async def slash_server_settimezone(interaction: discord.Interaction, timezone: str):
     await run_legacy_as_slash(interaction, "settimezone", timezone=timezone)
+
+
+@server_group.command(name="shopbackfill", description="Admin: add missing vanilla build/tool/medical shop items")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(default_price="Price for newly-added missing items")
+async def slash_server_shopbackfill(interaction: discord.Interaction, default_price: int = 100):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    added, repaired = ensure_curated_shop_backfill(
+        guild_id,
+        default_price=default_price,
+        repair_categories=True,
+    )
+    embed = discord.Embed(
+        title="SHOP CATALOG BACKFILLED",
+        description="Added/repaired vanilla build supplies, tools, and medical supplies.",
+        color=0x2ECC71,
+    )
+    embed.add_field(name="Items Added", value=str(added), inline=True)
+    embed.add_field(name="Categories Repaired", value=str(repaired), inline=True)
+    embed.add_field(name="Total Shop Items", value=str(len(guild_shop_items(guild_id))), inline=True)
+    embed.add_field(
+        name="Examples",
+        value="`WoodenLog`, `WoodenPlank`, `MetalWire`, `BarbedWire`, `Camonet`, `Hatchet`, `HandSaw`, `SalineBag`, `BandageDressing`",
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
+
+
+@server_group.command(name="bulkprice", description="Admin: mass update shop prices by category or item-name match")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    price="New price in pennies",
+    category="Optional category scope, e.g. Medical, Building, Tools",
+    name_contains="Optional comma-separated name match, e.g. plank,wire,bandage",
+    enabled="Optional: enable or disable all matched items",
+)
+@app_commands.autocomplete(category=shop_category_autocomplete)
+async def slash_server_bulkprice(
+    interaction: discord.Interaction,
+    price: int,
+    category: str = "",
+    name_contains: str = "",
+    enabled: bool = None,
+):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    try:
+        updated, samples, matched_category, name_terms = update_shop_prices_bulk(
+            guild_id,
+            price,
+            category=category,
+            name_contains=name_contains,
+            enabled=enabled,
+        )
+    except ValueError as error:
+        await interaction.response.send_message(str(error), ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="SHOP PRICES UPDATED",
+        color=0xF1C40F if updated else 0x95A5A6,
+    )
+    embed.add_field(name="Matched Category", value=f"`{matched_category}`", inline=True)
+    embed.add_field(name="Name Match", value=", ".join(f"`{term}`" for term in name_terms) or "Any", inline=True)
+    embed.add_field(name="New Price", value=f"`{price}` pennies", inline=True)
+    embed.add_field(name="Items Updated", value=str(updated), inline=True)
+    if enabled is not None:
+        embed.add_field(name="Enabled State", value="Enabled" if enabled else "Disabled", inline=True)
+    if samples:
+        embed.add_field(name="Sample Items", value=", ".join(f"`{item}`" for item in samples), inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
 @server_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
