@@ -30616,10 +30616,18 @@ def console_ce_records_for_event(event):
             "max_count": count,
             "saferadius": 2,
             "cleanupradius": 100,
+            "animal_territory": True,
+            "skip_spawn": True,
         })
+        profile = animal_territory_profile(class_name)
+        record["animal_behavior"] = profile.get("behavior")
+        record["territory_zone"] = profile.get("zone")
+        record["territory_color"] = profile.get("color")
+        record["territory_file_key"] = stable_console_event_slug(event) or animal_territory_group_key(record)
+        record["territory_name"] = f"WanderingBot_{record['territory_file_key']}"
         warnings.append(
-            f"`{event.get('id')}` uses vanilla `{record_name}` at the selected coordinates. "
-            "This avoids custom herd-template errors from AnimalWanderingBot event names."
+            f"`{event.get('id')}` uses vanilla `{record_name}` herd behavior through a WanderingBot-owned animal territory. "
+            "This avoids custom herd-template errors without editing vanilla cfgeventspawns.xml nodes."
         )
     records.append(record)
 
@@ -30928,6 +30936,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             empty_children=bool(record.get("empty_event_children")),
         )
     for record in records:
+        if record.get("skip_spawn"):
+            continue
         add_console_ce_event_spawn(
             spawns_root,
             record["name"],
@@ -30997,6 +31007,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     output["managed_spawn_names"] = sorted({
         str(record.get("name") or "").strip()
         for record in records
+        if not record.get("skip_spawn")
         if str(record.get("name") or "").strip()
     })[:24]
     output["restart_required"] = bool(records or config.get("scenario_events_cleanup_pending"))

@@ -511,6 +511,55 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_animal_pack_uses_wandering_territory_without_touching_vanilla_spawns(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": (vanilla_spawns, f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    20,
+                    "animal_pack",
+                    "Animal_UrsusArctos",
+                    preset="bear",
+                    count=2,
+                    radius=90,
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        spawns_root = ET.fromstring(built["spawns_text"])
+        vanilla_event = spawns_root.find("./event[@name='AnimalBear']")
+        self.assertIsNotNone(vanilla_event)
+        self.assertEqual(1, len(vanilla_event.findall("pos")))
+        self.assertEqual(vanilla_event.find("pos").attrib, {"x": "1", "z": "2", "a": "0"})
+        self.assertFalse(built.get("events_text", "").count("AnimalBear"))
+        self.assertTrue(built.get("cfgenvironment_text"))
+        self.assertIn("wanderingbot_animal_bear", built["cfgenvironment_text"].lower())
+        self.assertEqual(1, len(built.get("animal_territory_files") or []))
+        self.assertIn("AnimalBear", built["animal_territory_files"][0].get("event_names") or [])
+        self.assertIn('<zone name="HuntingGround"', built["animal_territory_files"][0].get("text") or "")
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
 
 if __name__ == "__main__":
     unittest.main()
