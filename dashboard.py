@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -16534,36 +16535,18 @@ def dashboard_nitrado_api_token_payload(data: dict[str, Any]) -> tuple[str | Non
 
 
 DASHBOARD_PROTECTED_DAYZ_XML_ROOTS = {
-    "events.xml": "events",
-    "cfgeventspawns.xml": "eventposdef",
-    "cfgeventgroups.xml": "eventgroupdef",
-    "mapgroupproto.xml": "prototype",
-    "cfgspawnabletypes.xml": "spawnabletypes",
-    "cfgenvironment.xml": "env",
-    "cfgareaeffects.xml": "areaeffects",
-    "messages.xml": "messages",
+    filename: spec.xml_root
+    for filename, spec in DAYZ_FILE_SPECS.items()
+    if spec.kind == "xml" and spec.xml_root
 }
 
 
 def dashboard_protected_dayz_xml_root_for_path(target_path: Any) -> str:
-    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
-    return DASHBOARD_PROTECTED_DAYZ_XML_ROOTS.get(filename, "")
+    return dayz_xml_root_for_path(target_path)
 
 
 def dashboard_validate_protected_dayz_xml_upload(target_path: Any, text_content: Any) -> tuple[bool, str]:
-    expected_root = dashboard_protected_dayz_xml_root_for_path(target_path)
-    if not expected_root:
-        return True, ""
-    text = str(text_content or "")
-    if not text.strip():
-        return False, f"Refusing to upload empty `{os.path.basename(str(target_path or 'file'))}` to `{target_path}`."
-    try:
-        root = ET.fromstring(text.encode("utf-8"))
-    except Exception as error:
-        return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
-    if root.tag != expected_root:
-        return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
-    return True, ""
+    return validate_dayz_upload_text(target_path, text_content)
 
 
 def dashboard_download_text_file_from_nitrado(config: dict[str, Any], target_path: Any) -> tuple[bool, str, str | None]:
@@ -16656,16 +16639,18 @@ def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: A
 
 
 def dashboard_verify_protected_dayz_xml_upload(config: dict[str, Any], label: str, target_path: Any) -> tuple[bool, str]:
-    expected_root = dashboard_protected_dayz_xml_root_for_path(target_path)
-    if not expected_root:
-        return True, f"{label} has no protected XML verifier."
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec:
+        return True, f"{label} has no protected structured-file verifier."
     ok, message, content = dashboard_download_text_file_from_nitrado(config, target_path)
     if not ok:
         return False, f"{label} verification failed after upload: {message}"
     valid, validation_message = dashboard_validate_protected_dayz_xml_upload(target_path, content)
     if not valid:
         return False, f"{label} verification failed after upload: {validation_message}"
-    return True, f"{label} verified after upload with <{expected_root}> root."
+    if spec.kind == "json":
+        return True, f"{label} verified after upload as valid JSON."
+    return True, f"{label} verified after upload with <{spec.xml_root}> root."
 
 
 def dashboard_restore_text_after_failed_upload(config: dict[str, Any], label: str, target_path: Any, restore_text: Any) -> str:

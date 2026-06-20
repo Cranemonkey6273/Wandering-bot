@@ -23,6 +23,14 @@ from ftplib import FTP_TLS
 import discord
 import socket
 
+from dayz_file_intelligence import (
+    DAYZ_FILE_SPECS,
+    dayz_filename_for_path,
+    dayz_file_spec_for_path,
+    dayz_is_backup_path,
+    dayz_xml_root_for_path,
+    validate_dayz_upload_text,
+)
 from datetime import datetime, UTC, timedelta
 from collections import OrderedDict, defaultdict, deque
 from discord.ext import commands, tasks
@@ -14528,22 +14536,15 @@ def nitrado_api_token_payload(data):
 
 
 PROTECTED_DAYZ_XML_ROOTS = {
-    "events.xml": "events",
-    "cfgeventspawns.xml": "eventposdef",
-    "cfgeventgroups.xml": "eventgroupdef",
-    "mapgroupproto.xml": "prototype",
-    "cfgspawnabletypes.xml": "spawnabletypes",
-    "cfgenvironment.xml": "env",
-    "cfgareaeffects.xml": "areaeffects",
-    "messages.xml": "messages",
+    filename: spec.xml_root
+    for filename, spec in DAYZ_FILE_SPECS.items()
+    if spec.kind == "xml" and spec.xml_root
 }
 
 PROTECTED_DAYZ_XML_REQUIRED_CHILDREN = {
-    "events.xml": "event",
-    "cfgeventspawns.xml": "event",
-    "cfgspawnabletypes.xml": "type",
-    "cfgeventgroups.xml": "group",
-    "mapgroupproto.xml": "group",
+    filename: spec.required_children[0]
+    for filename, spec in DAYZ_FILE_SPECS.items()
+    if spec.kind == "xml" and spec.required_children
 }
 
 
@@ -14554,21 +14555,15 @@ PROTECTED_DAYZ_XML_BACKUP_RE = re.compile(
 
 
 def protected_dayz_xml_filename_for_path(target_path):
-    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
-    match = PROTECTED_DAYZ_XML_BACKUP_RE.match(filename)
-    if match:
-        filename = match.group("filename").lower()
-    return filename
+    return dayz_filename_for_path(target_path)
 
 
 def protected_dayz_xml_is_backup_path(target_path):
-    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
-    return bool(PROTECTED_DAYZ_XML_BACKUP_RE.match(filename))
+    return dayz_is_backup_path(target_path)
 
 
 def protected_dayz_xml_root_for_path(target_path):
-    filename = protected_dayz_xml_filename_for_path(target_path)
-    return PROTECTED_DAYZ_XML_ROOTS.get(filename)
+    return dayz_xml_root_for_path(target_path)
 
 
 def normalize_uploaded_text_for_compare(value):
@@ -14600,10 +14595,24 @@ def protected_dayz_xml_texts_equivalent(expected_text, actual_text):
 
 
 def verify_protected_dayz_xml_content_matches(label, path, expected_text, content):
-    expected_root = protected_dayz_xml_root_for_path(path)
+    spec = dayz_file_spec_for_path(path)
     valid, validation_message = validate_protected_dayz_xml_upload(path, content)
     if not valid:
         return False, validation_message
+    if spec and spec.kind == "json":
+        try:
+            expected_payload = json.loads(str(expected_text or ""))
+            actual_payload = json.loads(str(content or ""))
+        except Exception as error:
+            return False, f"`{label}` post-upload JSON compare failed: {error}"
+        if expected_payload == actual_payload:
+            return True, f"`{label}` post-upload re-download matched JSON structure."
+        return False, (
+            f"`{label}` post-upload re-download did not match the uploaded JSON "
+            f"(uploaded {len(str(expected_text or '').encode('utf-8'))} bytes, "
+            f"downloaded {len(str(content or '').encode('utf-8'))} bytes)."
+        )
+    expected_root = protected_dayz_xml_root_for_path(path)
     if normalize_uploaded_text_for_compare(content) == normalize_uploaded_text_for_compare(expected_text):
         return True, f"`{label}` post-upload re-download matched with <{expected_root}> root."
     if protected_dayz_xml_texts_equivalent(expected_text, content):
@@ -14616,23 +14625,7 @@ def verify_protected_dayz_xml_content_matches(label, path, expected_text, conten
 
 
 def validate_protected_dayz_xml_upload(target_path, text_content):
-    expected_root = protected_dayz_xml_root_for_path(target_path)
-    if not expected_root:
-        return True, ""
-    text = str(text_content or "")
-    if not text.strip():
-        return False, f"Refusing to upload empty `{os.path.basename(str(target_path or 'file'))}` to `{target_path}`."
-    try:
-        root = ET.fromstring(text.encode("utf-8"))
-    except Exception as error:
-        return False, f"Refusing to upload invalid XML to `{target_path}`: {error}"
-    if root.tag != expected_root:
-        return False, f"Refusing to upload `{target_path}`: expected <{expected_root}> root, got <{root.tag}>."
-    filename = protected_dayz_xml_filename_for_path(target_path)
-    required_child = PROTECTED_DAYZ_XML_REQUIRED_CHILDREN.get(filename)
-    if required_child and not protected_dayz_xml_is_backup_path(target_path) and not root.findall(required_child):
-        return False, f"Refusing to upload `{target_path}`: <{expected_root}> has no <{required_child}> records, which looks like an empty/minimal live file."
-    return True, ""
+    return validate_dayz_upload_text(target_path, text_content)
 
 
 def download_text_file_from_nitrado_api(config, target_path):
@@ -14758,8 +14751,8 @@ def upload_text_file_to_nitrado_api(config, target_path, text_content):
 
 
 def verify_uploaded_protected_dayz_xml_text(config, label, path, expected_text):
-    expected_root = protected_dayz_xml_root_for_path(path)
-    if not expected_root:
+    spec = dayz_file_spec_for_path(path)
+    if not spec:
         return True, ""
     last_message = ""
     for attempt in range(3):
@@ -14859,8 +14852,8 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
         if not valid_upload:
             return False, validation_message
 
-        expected_root = protected_dayz_xml_root_for_path(target_path)
-        if expected_root:
+        protected_spec = dayz_file_spec_for_path(target_path)
+        if protected_spec:
             api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
             if api_success:
                 verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
@@ -31927,16 +31920,18 @@ def backup_remote_ce_sources_before_upload(config, built):
 
 
 def verify_remote_protected_dayz_xml(config, label, path):
-    expected_root = protected_dayz_xml_root_for_path(path)
-    if not expected_root:
-        return True, f"`{label}` has no protected XML verifier."
+    spec = dayz_file_spec_for_path(path)
+    if not spec:
+        return True, f"`{label}` has no protected structured-file verifier."
     ok, message, content = download_text_file_from_nitrado(config, path)
     if not ok:
         return False, f"`{label}` verification failed after upload: {message}"
     valid, validation_message = validate_protected_dayz_xml_upload(path, content)
     if not valid:
         return False, f"`{label}` verification failed after upload: {validation_message}"
-    return True, f"`{label}` verified after upload with <{expected_root}> root."
+    if spec.kind == "json":
+        return True, f"`{label}` verified after upload as valid JSON."
+    return True, f"`{label}` verified after upload with <{spec.xml_root}> root."
 
 
 def restore_remote_ce_file_from_text(config, label, path, restore_text, source_label):
@@ -31972,7 +31967,7 @@ def upload_protected_ce_file_to_nitrado(config, label, path, text_content, resto
         restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=restore_text)
         suffix = f" Restore attempted: {restore_message}" if restore_message else ""
         return False, f"{upload_message} Live verification after failure: {live_message}.{suffix}"
-    if protected_dayz_xml_root_for_path(path):
+    if dayz_file_spec_for_path(path):
         return True, upload_message
     verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
     if verify_ok:
