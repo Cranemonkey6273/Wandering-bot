@@ -28713,6 +28713,14 @@ def parse_console_ce_xml_source(config, label, text, fallback_root, resolved_pat
     return root, warning, f"{label}: {warning}"
 
 
+def parse_xml_root_preserving_comments(text):
+    try:
+        parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+        return ET.fromstring(str(text or "").encode("utf-8"), parser=parser)
+    except TypeError:
+        return ET.fromstring(str(text or "").encode("utf-8"))
+
+
 def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
@@ -28731,6 +28739,138 @@ def remove_wandering_ce_nodes(root):
             root.remove(child)
             removed += 1
     return removed
+
+
+def is_wandering_managed_name(value):
+    text = str(value or "").strip()
+    if not text:
+        return False
+    return (
+        text in LEGACY_WANDERING_CE_NAMES
+        or CONSOLE_CE_EVENT_MARKER in text
+        or text.startswith(CONSOLE_CE_EVENT_PREFIX)
+        or "wanderingbot" in normalize_discord_name(text)
+    )
+
+
+def is_wandering_scope_comment(node):
+    return is_xml_comment_node(node) and "wandering bot:" in str(node.text or "").lower()
+
+
+def is_wandering_scope_node(node):
+    for attr in ("name", "path", "usable"):
+        if is_wandering_managed_name(node.get(attr)):
+            return True
+    if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
+        return True
+    return False
+
+
+def ce_scope_node_key(node, fallback_index):
+    for attr in ("name", "path", "usable"):
+        value = str(node.get(attr) or "").strip()
+        if value:
+            return (str(node.tag), attr, value.lower())
+    return (str(node.tag), "index", str(fallback_index))
+
+
+def ce_scope_node_display(node, key):
+    tag = str(node.tag)
+    for attr in ("name", "path", "usable"):
+        value = str(node.get(attr) or "").strip()
+        if value:
+            return f"<{tag} {attr}=\"{value}\">"
+    return f"<{tag}> #{key[-1]}"
+
+
+def canonical_ce_scope_node_text(node):
+    clone = ET.fromstring(ET.tostring(node, encoding="utf-8"))
+    try:
+        ET.indent(clone, space="    ")
+    except Exception:
+        pass
+    return ET.tostring(clone, encoding="unicode")
+
+
+def ce_scope_records(root):
+    records = {}
+    pending_owned_comment = False
+    fallback_index = 0
+    for child in list(root):
+        if is_xml_comment_node(child):
+            pending_owned_comment = is_wandering_scope_comment(child)
+            continue
+        fallback_index += 1
+        key = ce_scope_node_key(child, fallback_index)
+        if key in records:
+            key = (key[0], key[1], key[2], str(fallback_index))
+        owned = pending_owned_comment or is_wandering_scope_node(child)
+        pending_owned_comment = False
+        records[key] = {
+            "text": canonical_ce_scope_node_text(child),
+            "owned": owned,
+            "display": ce_scope_node_display(child, key),
+        }
+    return records
+
+
+def validate_managed_ce_xml_scope(label, original_text, merged_text):
+    if not str(merged_text or "").strip():
+        return True, f"`{label}` snippet scope check skipped because no upload text was generated."
+    if not str(original_text or "").strip():
+        return False, f"`{label}` snippet scope guard blocked upload because the live source text was empty."
+    try:
+        original_root = parse_xml_root_preserving_comments(original_text)
+        merged_root = parse_xml_root_preserving_comments(merged_text)
+    except Exception as error:
+        return False, f"`{label}` snippet scope guard could not parse original/merged XML: {error}"
+    if str(original_root.tag) != str(merged_root.tag):
+        return False, f"`{label}` snippet scope guard blocked root change from <{original_root.tag}> to <{merged_root.tag}>."
+
+    original_records = ce_scope_records(original_root)
+    merged_records = ce_scope_records(merged_root)
+    changed_unowned = []
+    for key in sorted(set(original_records) | set(merged_records), key=str):
+        original = original_records.get(key)
+        merged = merged_records.get(key)
+        if (original or {}).get("text") == (merged or {}).get("text"):
+            continue
+        owned = bool((original or {}).get("owned") or (merged or {}).get("owned"))
+        if not owned:
+            changed_unowned.append((merged or original or {}).get("display") or str(key))
+    if changed_unowned:
+        sample = ", ".join(f"`{item}`" for item in changed_unowned[:8])
+        if len(changed_unowned) > 8:
+            sample += f", +{len(changed_unowned) - 8} more"
+        return False, (
+            f"`{label}` snippet scope guard blocked upload because it would change non-WanderingBot "
+            f"top-level XML node(s): {sample}. Fix or remove the generated WanderingBot snippet instead."
+        )
+    return True, f"`{label}` snippet scope guard confirmed only WanderingBot-managed XML nodes changed."
+
+
+def validate_console_ce_upload_scope(built):
+    targets = [
+        ("events.xml", "events_source_text", "events_text"),
+        ("cfgeventspawns.xml", "spawns_source_text", "spawns_text"),
+        ("cfgspawnabletypes.xml", "spawnabletypes_source_text", "spawnabletypes_text"),
+        ("cfgeventgroups.xml", "eventgroups_source_text", "eventgroups_text"),
+        ("mapgroupproto.xml", "mapgroupproto_source_text", "mapgroupproto_text"),
+        ("cfgenvironment.xml", "cfgenvironment_source_text", "cfgenvironment_text"),
+        ("cfgareaeffects.xml", "cfgareaeffects_source_text", "cfgareaeffects_text"),
+    ]
+    messages = []
+    for label, source_key, text_key in targets:
+        merged_text = built.get(text_key)
+        if not merged_text:
+            continue
+        if source_key not in built:
+            continue
+        ok, message = validate_managed_ce_xml_scope(label, built.get(source_key, ""), merged_text)
+        messages.append(message)
+        if not ok:
+            return False, messages
+    return True, messages
 
 
 def console_ce_needs_spawnabletypes(config):
@@ -30323,18 +30463,25 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     output = {
         "events_path": resolved_events_path,
         "events_text": xml_text_from_root(events_root),
+        "events_source_text": events_text,
         "spawns_path": resolved_spawns_path,
         "spawns_text": xml_text_from_root(spawns_root),
+        "spawns_source_text": spawns_text,
         "eventgroups_path": "",
         "eventgroups_text": "",
+        "eventgroups_source_text": "",
         "mapgroupproto_path": "",
         "mapgroupproto_text": "",
+        "mapgroupproto_source_text": "",
         "spawnabletypes_path": "",
         "spawnabletypes_text": "",
+        "spawnabletypes_source_text": "",
         "cfgenvironment_path": "",
         "cfgenvironment_text": "",
+        "cfgenvironment_source_text": "",
         "cfgareaeffects_path": "",
         "cfgareaeffects_text": "",
+        "cfgareaeffects_source_text": "",
         "cfgeffectarea_path": "",
         "cfgeffectarea_text": "",
         "animal_territory_files": [],
@@ -30391,6 +30538,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if animal_records or removed_files or removed_territories:
             output["cfgenvironment_path"] = resolved_env_path
             output["cfgenvironment_text"] = xml_text_from_root(env_root)
+            output["cfgenvironment_source_text"] = env_text
         output["messages"].append(env_source)
         source_text = str(env_source or "")
         if "Using bundled vanilla reference as fallback" in source_text or "minimal template" in source_text:
@@ -30506,9 +30654,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if removed_groups or eventgroup_records or cleanup_pending:
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
+            output["eventgroups_source_text"] = eventgroups_text
         if proto_changed or added_proto or eventgroup_records or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
+            output["mapgroupproto_source_text"] = mapgroupproto_text
         output["messages"].append(eventgroups_source)
         output["messages"].append(mapgroupproto_source)
         for label, source in (("cfgeventgroups.xml", eventgroups_source), ("mapgroupproto.xml", mapgroupproto_source)):
@@ -30552,6 +30702,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 changed_classes, cargo_blocks, preset_refs_removed = merge_airdrop_loot_into_spawnabletypes(spawnable_root, native_ce_scenario_events(config))
                 output["spawnabletypes_path"] = resolved_spawnable_path
                 output["spawnabletypes_text"] = xml_text_from_root(spawnable_root)
+                output["spawnabletypes_source_text"] = spawnable_text
                 output["messages"].append(spawnable_source)
                 output["messages"].append(
                     f"Updated `cfgspawnabletypes.xml` with `{cargo_blocks}` event cargo block(s) for: "
@@ -30582,6 +30733,11 @@ def validate_console_ce_xml_bundle(built):
             "Native CE XML upload blocked because the bot could not download the existing server file(s). "
             "Refusing to upload a fallback/minimal template over a live Nitrado XML file."
         ] + [str(item) for item in source_fallbacks[-6:]]
+
+    scope_ok, scope_messages = validate_console_ce_upload_scope(built)
+    messages.extend(scope_messages)
+    if not scope_ok:
+        return False, messages
 
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))

@@ -177,6 +177,44 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(any("in-memory restore copy" in message for message in messages))
         self.assertEqual(["download", "backup"], self.calls)
 
+    def test_scope_guard_allows_only_wanderingbot_event_changes(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+    <event name="StaticWanderingBot_old"><nominal>1</nominal></event>
+</events>
+"""
+        merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+    <!-- Wandering Bot: managed event definition StaticWanderingBot_new -->
+    <event name="StaticWanderingBot_new"><nominal>1</nominal></event>
+</events>
+"""
+
+        ok, message = bot.validate_managed_ce_xml_scope("events.xml", original, merged)
+
+        self.assertTrue(ok)
+        self.assertIn("only WanderingBot-managed", message)
+
+    def test_scope_guard_blocks_non_wanderingbot_event_changes(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+</events>
+"""
+        merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>2</nominal></event>
+</events>
+"""
+
+        ok, message = bot.validate_managed_ce_xml_scope("events.xml", original, merged)
+
+        self.assertFalse(ok)
+        self.assertIn("non-WanderingBot", message)
+        self.assertIn("StaticVanillaThing", message)
+
 
 if __name__ == "__main__":
     unittest.main()
