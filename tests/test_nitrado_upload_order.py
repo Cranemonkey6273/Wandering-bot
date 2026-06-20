@@ -436,11 +436,17 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
     def test_final_bundle_redownload_failure_is_warning_after_individual_verification(self):
         original_download = bot.download_text_file_from_nitrado
+        original_download_ftp = bot.download_text_file_from_nitrado_ftp
         try:
+            def ftp_download(*_args, **_kwargs):
+                self.calls.append("ftp")
+                return False, "FTP unavailable", ""
+
             def download(*_args):
                 self.calls.append("download")
                 return False, "Nitrado API download failed: 429 Cloudflare Just a moment", ""
 
+            bot.download_text_file_from_nitrado_ftp = ftp_download
             bot.download_text_file_from_nitrado = download
             built = {
                 "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
@@ -451,13 +457,18 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
             self.assertTrue(ok)
             self.assertTrue(any("re-download warning" in message for message in messages))
-            self.assertEqual(["download"], self.calls)
+            self.assertEqual(["ftp", "download"], self.calls)
         finally:
+            bot.download_text_file_from_nitrado_ftp = original_download_ftp
             bot.download_text_file_from_nitrado = original_download
 
     def test_final_bundle_check_skips_scope_guard_on_redownloaded_copy(self):
         original_download = bot.download_text_file_from_nitrado
+        original_download_ftp = bot.download_text_file_from_nitrado_ftp
         try:
+            def ftp_download(*_args, **_kwargs):
+                return False, "FTP unavailable", ""
+
             def download(_config, path):
                 self.calls.append(path)
                 if path.endswith("/cfgeventspawns.xml"):
@@ -472,6 +483,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 </events>
 """
 
+            bot.download_text_file_from_nitrado_ftp = ftp_download
             bot.download_text_file_from_nitrado = download
             built = {
                 "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
@@ -502,6 +514,65 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
             ], self.calls)
         finally:
+            bot.download_text_file_from_nitrado_ftp = original_download_ftp
+            bot.download_text_file_from_nitrado = original_download
+
+    def test_final_bundle_prefers_exact_ftp_over_stale_api_download(self):
+        original_download = bot.download_text_file_from_nitrado
+        original_download_ftp = bot.download_text_file_from_nitrado_ftp
+        events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticWanderingBot_48_gaszone_r4">
+        <nominal>1</nominal><min>1</min><max>1</max><lifetime>1800</lifetime>
+        <restock>0</restock><saferadius>0</saferadius><distanceradius>80</distanceradius><cleanupradius>180</cleanupradius>
+        <flags deletable="1" init_random="0" remove_damaged="0" />
+        <position>fixed</position><limit>parent</limit><active>1</active>
+        <children><child type="ContaminatedArea_Dynamic" min="1" max="1" lootmin="0" lootmax="0" /></children>
+    </event>
+</events>
+"""
+        spawns_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<eventposdef>
+    <event name="StaticWanderingBot_48_gaszone_r4">
+        <zone smin="0" smax="0" dmin="1" dmax="1" r="80" />
+        <pos x="5000" z="5000" a="0" />
+    </event>
+</eventposdef>
+"""
+        stale_spawns_xml = spawns_xml.replace("StaticWanderingBot_48_gaszone_r4", "StaticWanderingBot_48_gaszone_r2")
+        try:
+            def ftp_download(_config, path, exact_only=False):
+                self.calls.append(("ftp", path, exact_only))
+                if path.endswith("/cfgeventspawns.xml"):
+                    return True, "Downloaded via exact FTP.", spawns_xml
+                return True, "Downloaded via exact FTP.", events_xml
+
+            def generic_download(_config, path):
+                self.calls.append(("generic", path))
+                if path.endswith("/cfgeventspawns.xml"):
+                    return True, "Downloaded stale API copy.", stale_spawns_xml
+                return True, "Downloaded API copy.", events_xml
+
+            bot.download_text_file_from_nitrado_ftp = ftp_download
+            bot.download_text_file_from_nitrado = generic_download
+            built = {
+                "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                "events_text": events_xml,
+                "spawns_path": "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+                "spawns_text": spawns_xml,
+                "source_fallbacks": [],
+            }
+
+            ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
+
+            self.assertTrue(ok, messages)
+            self.assertTrue(any("Final remote CE bundle verified" in message for message in messages))
+            self.assertEqual([
+                ("ftp", "/dayzxb_missions/dayzOffline.enoch/db/events.xml", True),
+                ("ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
+            ], self.calls)
+        finally:
+            bot.download_text_file_from_nitrado_ftp = original_download_ftp
             bot.download_text_file_from_nitrado = original_download
 
     def test_successful_ftp_fallback_message_does_not_mark_upload_blocked(self):

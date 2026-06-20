@@ -32328,6 +32328,16 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     return True, scope_messages + [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
 
 
+def download_console_ce_final_verify_text(config, path):
+    ftp_ok, ftp_message, ftp_text = download_text_file_from_nitrado_ftp(config, path, exact_only=True)
+    if ftp_ok:
+        return True, ftp_message, ftp_text
+    generic_ok, generic_message, generic_text = download_text_file_from_nitrado(config, path)
+    if generic_ok:
+        return True, f"{generic_message} (FTP exact read unavailable first: {ftp_message})", generic_text
+    return False, f"FTP exact read failed: {ftp_message}; generic download failed: {generic_message}", None
+
+
 def verify_uploaded_console_ce_xml_bundle(config, built):
     remote_built = dict(built)
     remote_built["source_fallbacks"] = []
@@ -32347,7 +32357,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
         path = built.get(path_key)
         if not path:
             return False, [f"`{label}` final bundle check skipped because the remote path was missing."]
-        ok, message, text = download_text_file_from_nitrado(config, path)
+        ok, message, text = download_console_ce_final_verify_text(config, path)
         if not ok or not str(text or "").strip():
             detail = message
             if ok and not str(text or "").strip():
