@@ -213,6 +213,88 @@ class AirdropEventGroupTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_convoy_airdrop_uses_eventgroup_with_loot_anchor_and_props(self):
+        event = _base_event(
+            46,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="convoy_wreck",
+            loot_preset="military_high",
+        )
+        record, events_root, spawns_root, groups_root = self._build_airdrop_event_node(event)
+
+        self.assertTrue(record.get("use_eventgroup"))
+        self.assertTrue(record.get("empty_event_children"))
+        self.assertEqual(["StaticObj_Wreck_HMMWV_DE"], record.get("mapgroupproto_classes"))
+        self.assertEqual([], events_root.findall("event/children/child"))
+        pos = spawns_root.find("event/pos")
+        self.assertIsNotNone(pos)
+        self.assertEqual(record["name"], pos.get("group"))
+        children = groups_root.findall("group/child")
+        self.assertGreaterEqual(len(children), 4)
+        anchor = children[0]
+        self.assertEqual("StaticObj_Wreck_HMMWV_DE", anchor.get("type"))
+        self.assertNotEqual("false", anchor.get("spawnsecondary"))
+        self.assertGreater(int(anchor.get("lootmax") or 0), 0)
+        self.assertTrue(any(child.get("spawnsecondary") == "false" for child in children[1:]))
+
+    def test_gas_zone_uses_static_contaminated_area_shape(self):
+        event = _base_event(
+            48,
+            "gas_zone",
+            "ContaminatedArea_Dynamic",
+            radius=80,
+            gas_lifetime=1800,
+        )
+        records, _warnings = bot.console_ce_records_for_event(event)
+        self.assertEqual(1, len(records))
+        record = records[0]
+        self.assertTrue(record["name"].startswith("StaticWanderingBot_48_gaszone_"))
+        self.assertFalse(record["name"].startswith("ContaminatedAreaWanderingBot"))
+        self.assertEqual("parent", record.get("limit_type"))
+        self.assertEqual("ContaminatedArea_Dynamic", record["child_records"][0]["type"])
+
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record.get("event_child_type") or record["class_name"],
+            record["count"],
+            record["lifetime"],
+            limit_type=record.get("limit_type") or "child",
+            child_records=record.get("child_records"),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+        )
+        self.assertEqual("parent", events_root.findtext("event/limit"))
+
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+            radius=record.get("radius") or 45,
+        )
+        zone = spawns_root.find("event/zone")
+        pos = spawns_root.find("event/pos")
+        self.assertIsNotNone(zone)
+        self.assertEqual("80", zone.get("r"))
+        self.assertIsNone(zone.get("x"))
+        self.assertIsNotNone(pos)
+        self.assertEqual("5000", pos.get("x"))
+        built = {
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": bot.xml_text_from_root(spawns_root),
+            "eventgroups_text": "",
+            "mapgroupproto_text": "<prototype></prototype>",
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
 
 class VehicleAndZombieSpawnTests(unittest.TestCase):
     """Vehicles and hordes do NOT use cfgeventgroups. Their <pos> blocks must

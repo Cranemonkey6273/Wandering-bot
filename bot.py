@@ -28132,7 +28132,11 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("34", "18"),
         "ground_spread": 60,
         "marker": "Land_Wreck_C130J_Cargo",
-        "props": [],
+        "props": [
+            {"type": "StaticObj_Wreck_HMMWV_DE", "x": "18.0", "y": "0.0", "z": "-8.0", "a": "35.0"},
+            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-20.0", "y": "0.0", "z": "10.0", "a": "210.0"},
+            {"type": "StaticObj_Wreck_Ural_DE", "x": "32.0", "y": "0.0", "z": "20.0", "a": "95.0"},
+        ],
     },
     "convoy_wreck": {
         "label": "Convoy wreck",
@@ -28140,7 +28144,11 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("15", "-8"),
         "ground_spread": 32,
         "marker": "StaticObj_Wreck_HMMWV_DE",
-        "props": [],
+        "props": [
+            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-16.0", "y": "0.0", "z": "4.0", "a": "8.0"},
+            {"type": "StaticObj_Wreck_Ural_DE", "x": "15.0", "y": "0.0", "z": "-5.0", "a": "184.0"},
+            {"type": "Land_Wreck_Caravan_MRust", "x": "31.0", "y": "0.0", "z": "7.0", "a": "176.0"},
+        ],
     },
 }
 
@@ -29127,7 +29135,7 @@ def ce_event_family_for_record(event_type, class_name=""):
     class_name = str(class_name or "").strip()
     container_class = normalize_console_ce_container_class(class_name)
     if event_type == "gas_zone" or class_name.startswith("ContaminatedArea"):
-        return "ContaminatedArea"
+        return "Static"
     if class_name.startswith("Animal_") or event_type == "animal_pack":
         return "Animal"
     if class_name.startswith("Zmb") or event_type == "zombie_horde":
@@ -30229,6 +30237,8 @@ def scenario_airdrop_eventgroup_children(event, class_name):
 
     scene = scenario_airdrop_scene_config(event)
     marker_class = scenario_airdrop_anchor_class(event, class_name)
+    loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
+    loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
     guard_class = str(event.get("guard_class") or "").strip()
     guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
     guard_radius = max(5, min(500, safe_int(event.get("guard_radius"), event.get("radius") or 35)))
@@ -30254,16 +30264,8 @@ def scenario_airdrop_eventgroup_children(event, class_name):
             "y": "0.0",
             "min": 1,
             "max": 1,
-            "lootmin": 0,
-            "lootmax": 0,
-        })
-        children.append({
-            "type": marker_class,
-            "spawnsecondary": "false",
-            "x": "0.0",
-            "z": "0.0",
-            "a": "0.0",
-            "y": "0.0",
+            "lootmin": loot_min,
+            "lootmax": loot_count,
         })
         for scene_prop in scene.get("props") or SCENARIO_AIRDROP_SCENE_PROPS:
             children.append({
@@ -30307,6 +30309,13 @@ def scenario_airdrop_direct_child_records(event, class_name):
         "lootmin": loot_min,
         "lootmax": loot_count,
     }]
+
+
+def scenario_airdrop_uses_eventgroup(event):
+    if not (event or {}).get("visual_marker"):
+        return False
+    scene = scenario_airdrop_scene_config(event or {})
+    return bool(scene.get("props"))
 
 
 def scenario_airdrop_secondary_infected(event):
@@ -30771,6 +30780,15 @@ def console_ce_event_uses_zone_spawn(event_name):
     return name.startswith(CONSOLE_CE_ZONE_SPAWN_FAMILIES)
 
 
+def console_ce_event_is_static_gas_zone(event_name):
+    name = str(event_name or "").strip()
+    return (
+        name.startswith("Static")
+        and CONSOLE_CE_EVENT_MARKER in name
+        and "gaszone" in normalize_discord_name(name)
+    )
+
+
 def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45):
     base_x = parse_dayz_map_number(x)
     base_z = parse_dayz_map_number(z)
@@ -30886,6 +30904,23 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
                 "a": ce_decimal(pos_angle),
                 "active": "1",
             })
+        return event_node
+
+    if console_ce_event_is_static_gas_zone(event_name):
+        append_wandering_xml_comment(event_node, f"managed spawn radius {event_name}")
+        ET.SubElement(event_node, "zone", {
+            "smin": "0",
+            "smax": "0",
+            "dmin": "1",
+            "dmax": str(count),
+            "r": str(max(1, radius or 45)),
+        })
+        append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
+        ET.SubElement(event_node, "pos", {
+            "x": ce_decimal(x),
+            "z": ce_decimal(z),
+            "a": ce_decimal(angle),
+        })
         return event_node
 
     if console_ce_event_uses_zone_spawn(event_name) and not (
@@ -31274,9 +31309,9 @@ def console_ce_records_for_event(event):
         child_records = None
     if event_type in {"airdrop", "loot_crate"}:
         family = "Static"
-        use_eventgroup = False
-        eventgroup_children = None
-        child_records = scenario_airdrop_direct_child_records(event, class_name)
+        use_eventgroup = scenario_airdrop_uses_eventgroup(event)
+        eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name) if use_eventgroup else None
+        child_records = None if use_eventgroup else scenario_airdrop_direct_child_records(event, class_name)
         count = 1
     if event_type == "animal_pack":
         if not class_name.startswith("Animal_"):
@@ -31293,8 +31328,16 @@ def console_ce_records_for_event(event):
         limit_type = "custom"
         child_records = None
     if event_type == "gas_zone":
-        family = "ContaminatedArea"
-        limit_type = "child"
+        family = "Static"
+        limit_type = "parent"
+        child_records = [{
+            "type": "ContaminatedArea_Dynamic",
+            "count": 1,
+            "min": 1,
+            "max": 1,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
 
     speed_defaults = scenario_speed_defaults(event_type, event, use_eventgroup=use_eventgroup)
     restock = max(0, min(3888000, safe_int(event.get("restock"), speed_defaults["restock"])))
@@ -31346,7 +31389,15 @@ def console_ce_records_for_event(event):
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
         "use_existing_definition": event_type == "animal_pack",
         "patch_existing_definition": event_type == "animal_pack",
-        "mapgroupproto_classes": [class_name] if event_type in {"airdrop", "loot_crate"} else [],
+        "mapgroupproto_classes": (
+            [
+                str(child.get("type") or "").strip()
+                for child in (eventgroup_children or [])
+                if eventgroup_child_needs_mapgroupproto(child)
+            ]
+            if use_eventgroup
+            else ([class_name] if event_type in {"airdrop", "loot_crate"} else [])
+        ),
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
     if event_type == "gas_zone":
@@ -31363,6 +31414,7 @@ def console_ce_records_for_event(event):
             "cleanupradius": max(0, min(30000, safe_int(event.get("cleanupradius"), max(100, gas_radius + 100)))),
             "child_lootmin": 0,
             "child_lootmax": 0,
+            "child_records": child_records,
             "remove_damaged": False,
         })
         warnings.append(
@@ -32084,8 +32136,8 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if (event_node.findtext("position") or "").strip() != "fixed":
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
-        if limit_text not in {"child", "custom", "mixed"}:
-            messages.append(f"`{name}` must use `<limit>child</limit>`, `<limit>custom</limit>`, or `<limit>mixed</limit>`.")
+        if limit_text not in {"child", "custom", "mixed", "parent"}:
+            messages.append(f"`{name}` must use `<limit>child</limit>`, `<limit>custom</limit>`, `<limit>mixed</limit>`, or `<limit>parent</limit>`.")
         if limit_text == "mixed" and not name.startswith("Vehicle"):
             messages.append(f"`{name}` uses `<limit>mixed</limit>`, which is only allowed for vehicle CE events.")
         if (event_node.findtext("active") or "").strip() != "1":
