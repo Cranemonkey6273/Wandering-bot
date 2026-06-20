@@ -29014,6 +29014,20 @@ def vanilla_animal_ce_event_name(class_name):
     return ""
 
 
+VANILLA_ANIMAL_CE_EVENT_NAMES = {
+    "AmbientHen",
+    "AnimalBear",
+    "AnimalCow",
+    "AnimalDeer",
+    "AnimalGoat",
+    "AnimalPig",
+    "AnimalRoeDeer",
+    "AnimalSheep",
+    "AnimalWildBoar",
+    "AnimalWolf",
+}
+
+
 def ce_event_nominal_count(event, override_count=None):
     try:
         count = int(override_count if override_count is not None else event.get("count", 1))
@@ -29292,6 +29306,19 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text):
                 == canonical_ce_scope_node_text_without_wandering_spawn_children(merged_node)
             ):
                 continue
+        if not owned and label == "events.xml":
+            original_node = None
+            merged_node = None
+            for child in list(original_root):
+                if not is_xml_comment_node(child) and ce_scope_node_key(child, 0)[:3] == key[:3]:
+                    original_node = child
+                    break
+            for child in list(merged_root):
+                if not is_xml_comment_node(child) and ce_scope_node_key(child, 0)[:3] == key[:3]:
+                    merged_node = child
+                    break
+            if vanilla_animal_event_count_patch_is_safe(original_node, merged_node):
+                continue
         if not owned:
             changed_unowned.append((merged or original or {}).get("display") or str(key))
     if changed_unowned:
@@ -29303,6 +29330,40 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text):
             f"top-level XML node(s): {sample}. Fix or remove the generated WanderingBot snippet instead."
         )
     return True, f"`{label}` snippet scope guard confirmed only WanderingBot-managed XML nodes changed."
+
+
+def vanilla_animal_event_count_patch_is_safe(original_node, merged_node):
+    if original_node is None or merged_node is None:
+        return False
+    if getattr(original_node, "tag", None) != "event" or getattr(merged_node, "tag", None) != "event":
+        return False
+    original_name = str(original_node.get("name") or "").strip()
+    merged_name = str(merged_node.get("name") or "").strip()
+    if original_name != merged_name or original_name not in VANILLA_ANIMAL_CE_EVENT_NAMES:
+        return False
+    allowed_tags = {"nominal", "min", "max"}
+    original_children = [child for child in list(original_node) if not is_xml_comment_node(child)]
+    merged_children = [child for child in list(merged_node) if not is_xml_comment_node(child)]
+    if len(original_children) != len(merged_children):
+        return False
+    changed_allowed = False
+    for original_child, merged_child in zip(original_children, merged_children):
+        if getattr(original_child, "tag", None) != getattr(merged_child, "tag", None):
+            return False
+        tag = str(getattr(original_child, "tag", "") or "")
+        if tag in allowed_tags:
+            if dict(original_child.attrib) != dict(merged_child.attrib):
+                return False
+            original_text = str(original_child.text or "").strip()
+            merged_text = str(merged_child.text or "").strip()
+            if original_text != merged_text:
+                if not original_text.isdigit() or not merged_text.isdigit():
+                    return False
+                changed_allowed = True
+            continue
+        if canonical_ce_scope_node_text(original_child) != canonical_ce_scope_node_text(merged_child):
+            return False
+    return changed_allowed
 
 
 def validate_console_ce_upload_scope(built):
@@ -29852,6 +29913,52 @@ def add_console_ce_event_definition(
     return event_node
 
 
+def set_ce_event_text_value(event_node, tag_name, value):
+    child = event_node.find(tag_name)
+    if child is None:
+        child = ET.SubElement(event_node, tag_name)
+    wanted = str(int(value))
+    if str(child.text or "").strip() == wanted:
+        return False
+    child.text = wanted
+    return True
+
+
+def patch_existing_console_ce_event_definition(root, record):
+    event_name = str(record.get("name") or "").strip()
+    if not event_name:
+        return False
+    event_node = root.find(f"./event[@name='{event_name}']")
+    if event_node is None:
+        add_console_ce_event_definition(
+            root,
+            event_name,
+            record.get("event_child_type") or record.get("class_name"),
+            record.get("count", 1),
+            record.get("lifetime", 3600),
+            restock=record.get("restock", 0),
+            limit_type=record.get("limit_type") or "custom",
+            child_lootmin=record.get("child_lootmin", 0),
+            child_lootmax=record.get("child_lootmax", 0),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+            saferadius=record.get("saferadius", 0),
+            distanceradius=record.get("distanceradius", 0),
+            cleanupradius=record.get("cleanupradius", 100),
+            child_records=record.get("child_records"),
+            remove_damaged=bool(record.get("remove_damaged")),
+        )
+        return True
+    changed = False
+    count = max(1, safe_int(record.get("count"), 1))
+    current_max = safe_int(event_node.findtext("max"), count)
+    changed |= set_ce_event_text_value(event_node, "nominal", count)
+    changed |= set_ce_event_text_value(event_node, "min", count)
+    changed |= set_ce_event_text_value(event_node, "max", max(count, current_max))
+    return changed
+
+
 def scenario_airdrop_scene_type(event):
     scene_type = re.sub(r"[^a-z0-9_]+", "_", str((event or {}).get("scene_type") or "compact_crater").strip().lower()).strip("_")
     return scene_type if scene_type in SCENARIO_AIRDROP_SCENES else "compact_crater"
@@ -29975,6 +30082,32 @@ def scenario_airdrop_eventgroup_children(event, class_name):
     })
     append_guard_children()
     return children
+
+
+def scenario_airdrop_direct_child_records(event, class_name):
+    marker_class = scenario_airdrop_anchor_class(event, class_name)
+    loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
+    loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
+    records = [{
+        "type": marker_class,
+        "count": 1,
+        "min": 1,
+        "max": 1,
+        "lootmin": loot_min,
+        "lootmax": loot_count,
+    }]
+    guard_class = str(event.get("guard_class") or "").strip()
+    guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
+    if guard_class and guard_count:
+        records.append({
+            "type": guard_class,
+            "count": guard_count,
+            "min": max(1, min(guard_count, safe_int(event.get("guard_min"), max(1, guard_count // 2)))),
+            "max": guard_count,
+            "lootmin": 0,
+            "lootmax": 0,
+        })
+    return records
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
@@ -30828,16 +30961,9 @@ def console_ce_records_for_event(event):
         child_records = None
     if event_type in {"airdrop", "loot_crate"}:
         family = "Static"
-        use_eventgroup = True
-        eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name)
-        child_records = [{
-            "type": scenario_airdrop_primary_static_child(event, class_name),
-            "count": 1,
-            "min": 1,
-            "max": 1,
-            "lootmin": 0,
-            "lootmax": 0,
-        }]
+        use_eventgroup = False
+        eventgroup_children = None
+        child_records = scenario_airdrop_direct_child_records(event, class_name)
         count = 1
     if event_type == "animal_pack":
         vanilla_animal_name = vanilla_animal_ce_event_name(class_name)
@@ -30890,9 +31016,9 @@ def console_ce_records_for_event(event):
         "eventgroup_children": eventgroup_children,
         # Eventgroup-routed Static events resolve children from cfgeventgroups.xml.
         "empty_event_children": bool(use_eventgroup),
-        "nominal": 1 if use_eventgroup else None,
-        "min_count": 1 if use_eventgroup else None,
-        "max_count": 1 if use_eventgroup else None,
+        "nominal": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
+        "min_count": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
+        "max_count": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
         "restock": restock,
         "saferadius": saferadius,
         "distanceradius": distanceradius,
@@ -30901,7 +31027,8 @@ def console_ce_records_for_event(event):
         "remove_damaged": event_type == "vehicle_spawn",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
         "use_existing_definition": event_type == "animal_pack",
-        "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if use_eventgroup else {},
+        "mapgroupproto_classes": [class_name] if event_type in {"airdrop", "loot_crate"} else [],
+        "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
@@ -30928,8 +31055,7 @@ def console_ce_records_for_event(event):
             "nominal": count,
             "min_count": count,
             "max_count": count,
-            "saferadius": 2,
-            "cleanupradius": 100,
+            "patch_existing_definition": True,
         })
         warnings.append(
             f"`{event.get('id')}` uses vanilla `{record_name}` herd behavior and adds only a WanderingBot-marked spawn position. "
@@ -31219,6 +31345,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         record for record in records
         if not record.get("use_existing_definition")
     ])
+    patched_existing_definitions = 0
+    for record in records_reusing_existing_definitions:
+        if record.get("patch_existing_definition") and patch_existing_console_ce_event_definition(events_root, record):
+            patched_existing_definitions += 1
     for record in definition_records:
         add_console_ce_event_definition(
             events_root,
@@ -31262,6 +31392,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         f"Removed `{removed_events}` old WanderingBot event definition(s) and `{removed_spawns}` old spawn point block(s).",
         f"Generated `{len(records)}` native CE spawn record(s) across `{len(definition_records)}` managed event definition(s).",
     ]
+    if patched_existing_definitions:
+        messages.append(
+            f"Adjusted `{patched_existing_definitions}` reused vanilla animal event definition(s) so selected animal packs have a positive CE count."
+        )
     if records_reusing_existing_definitions:
         messages.append(
             "Reused vanilla CE definition(s) for: "
@@ -31409,9 +31543,13 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     )
 
     eventgroup_records = [record for record in records if record.get("use_eventgroup")]
+    mapgroupproto_records = [
+        record for record in records
+        if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
+    ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
-    should_cleanup_group_files = bool(eventgroup_records)
-    if eventgroup_records or should_cleanup_group_files:
+    should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records)
+    if eventgroup_records or mapgroupproto_records or should_cleanup_group_files:
         eventgroups_text, resolved_eventgroups_path, eventgroups_source = download_console_ce_source(
             config,
             guild_id,
@@ -31454,14 +31592,22 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 lootmax=record.get("child_lootmax", 80) or 80,
                 child_records=eventgroup_children,
             )
-            proto_classes = [record["class_name"]]
-            if eventgroup_children:
-                proto_classes = [
-                    str(child.get("type") or "").strip()
-                    for child in eventgroup_children
-                    if eventgroup_child_needs_mapgroupproto(child)
-                    if str(child.get("type") or "").strip()
-                ]
+        for record in mapgroupproto_records:
+            proto_classes = [
+                str(item or "").strip()
+                for item in (record.get("mapgroupproto_classes") or [])
+                if str(item or "").strip()
+            ]
+            eventgroup_children = record.get("eventgroup_children") if isinstance(record.get("eventgroup_children"), list) else None
+            if record.get("use_eventgroup") and not proto_classes:
+                proto_classes = [record["class_name"]]
+                if eventgroup_children:
+                    proto_classes = [
+                        str(child.get("type") or "").strip()
+                        for child in eventgroup_children
+                        if eventgroup_child_needs_mapgroupproto(child)
+                        if str(child.get("type") or "").strip()
+                    ]
             for proto_class in dict.fromkeys(proto_classes):
                 _, created = add_mapgroupproto_loot_group(
                     mapgroupproto_root,

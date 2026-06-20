@@ -74,21 +74,26 @@ def _emit_bundle(events):
         )
 
     for record in records:
-        if not record.get("use_eventgroup"):
-            continue
-        bot.add_console_ce_event_group(
-            eventgroups_root,
-            record["name"],
-            record["class_name"],
-            lootmin=record.get("child_lootmin", 40) or 40,
-            lootmax=record.get("child_lootmax", 80) or 80,
-            child_records=record.get("eventgroup_children"),
-        )
         proto_classes = [
-            (child.get("type") or "").strip()
-            for child in record.get("eventgroup_children", []) or []
-            if bot.eventgroup_child_needs_mapgroupproto(child)
+            str(item or "").strip()
+            for item in record.get("mapgroupproto_classes", []) or []
+            if str(item or "").strip()
         ]
+        if record.get("use_eventgroup"):
+            bot.add_console_ce_event_group(
+                eventgroups_root,
+                record["name"],
+                record["class_name"],
+                lootmin=record.get("child_lootmin", 40) or 40,
+                lootmax=record.get("child_lootmax", 80) or 80,
+                child_records=record.get("eventgroup_children"),
+            )
+            if not proto_classes:
+                proto_classes = [
+                    (child.get("type") or "").strip()
+                    for child in record.get("eventgroup_children", []) or []
+                    if bot.eventgroup_child_needs_mapgroupproto(child)
+                ]
         for proto in dict.fromkeys(proto_classes):
             if proto:
                 bot.add_mapgroupproto_loot_group(mapgroupproto_root, proto)
@@ -156,7 +161,11 @@ class GeneratorBundleValidationTests(unittest.TestCase):
     def test_validator_rejects_non_empty_children_with_group_pos(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
-        # Inject a regression: re-add a <child> to events.xml
+        # Inject the old regression: keep events.xml children while also
+        # routing cfgeventspawns through a group.
+        event_name = events_root.find("event").get("name")
+        spawns_root.find("event/pos").set("group", event_name)
+        ET.SubElement(eventgroups_root, "group", {"name": event_name})
         event_node = events_root.find("event")
         children = event_node.find("children")
         ET.SubElement(children, "child", {"type": "WoodenCrate", "max": "1", "min": "1", "lootmin": "0", "lootmax": "0"})
@@ -182,7 +191,7 @@ class GeneratorBundleValidationTests(unittest.TestCase):
     def test_validator_rejects_bare_mapgroupproto_entry(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
-        eventgroups_root.find("group/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
+        events_root.find("event/children/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
         for group in mapgroupproto_root.findall("group"):
             if (group.get("name") or "").strip() == "Wreck_Mi8_Crashed":
                 for child in list(group):
@@ -197,7 +206,7 @@ class GeneratorBundleValidationTests(unittest.TestCase):
     def test_validator_rejects_mapgroupproto_container_without_floor_tag(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
-        eventgroups_root.find("group/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
+        events_root.find("event/children/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
         for group in mapgroupproto_root.findall("group"):
             if (group.get("name") or "").strip() == "Wreck_Mi8_Crashed":
                 for tag in list(group.findall("./container/tag")):
@@ -213,13 +222,18 @@ class GeneratorBundleValidationTests(unittest.TestCase):
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
         # Inject the live RPT regression: every eventgroup child is marked as a
         # secondary scene prop, leaving DayZ with no positive child max/lootmax.
-        for child in eventgroups_root.findall("group/child"):
-            child.attrib.pop("min", None)
-            child.attrib.pop("max", None)
-            child.attrib.pop("lootmin", None)
-            child.attrib.pop("lootmax", None)
-            child.attrib.pop("deloot", None)
-            child.set("spawnsecondary", "false")
+        event_name = events_root.find("event").get("name")
+        events_root.find("event").find("children").clear()
+        spawns_root.find("event/pos").set("group", event_name)
+        group = ET.SubElement(eventgroups_root, "group", {"name": event_name})
+        ET.SubElement(group, "child", {
+            "type": "Wreck_Mi8_Crashed",
+            "x": "0",
+            "y": "0",
+            "z": "0",
+            "a": "0",
+            "spawnsecondary": "false",
+        })
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
             report = validate_bundle(tmpdir)

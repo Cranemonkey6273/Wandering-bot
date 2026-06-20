@@ -47,7 +47,7 @@ def _base_event(event_id, event_type, class_name, **overrides):
 
 
 class AirdropEventGroupTests(unittest.TestCase):
-    """Verify the events.xml/cfgeventspawns/cfgeventgroups linkage for airdrops."""
+    """Verify the events.xml/cfgeventspawns/mapgroupproto linkage for airdrops."""
 
     def _build_airdrop_event_node(self, event):
         records, _warnings = bot.console_ce_records_for_event(event)
@@ -98,32 +98,28 @@ class AirdropEventGroupTests(unittest.TestCase):
             )
         return record, events_root, spawns_root, eventgroups_root
 
-    def test_airdrop_events_xml_children_block_is_empty(self):
-        """events.xml `<children/>` must be empty when the event is bound to a
-        cfgeventgroups group via cfgeventspawns ``<pos group="...">``. Earlier
-        revisions emitted both the static ``<child type="WoodenCrate"/>`` AND a
-        ``group="..."`` reference, which caused DayZ to load the event but
-        never instantiate it (matches the RPT 0-spawn-line symptom)."""
+    def test_airdrop_events_xml_uses_direct_mi8_child(self):
+        """MI8 airdrops now follow the vanilla heli-crash shape: the real
+        crash child lives directly in events.xml, and cfgeventspawns only
+        carries the fixed x/z/a position."""
         event = _base_event(29, "airdrop", "WoodenCrate")
         record, events_root, _spawns, _groups = self._build_airdrop_event_node(event)
 
-        self.assertTrue(record.get("use_eventgroup"))
-        self.assertTrue(record.get("empty_event_children"))
+        self.assertFalse(record.get("use_eventgroup"))
+        self.assertFalse(record.get("empty_event_children"))
         self.assertTrue(record["name"].endswith("_r12"))
         event_node = events_root.find("event")
         self.assertIsNotNone(event_node)
         children_node = event_node.find("children")
         self.assertIsNotNone(children_node, "events.xml event must still carry a <children/> element")
-        self.assertEqual(
-            list(children_node.findall("child")),
-            [],
-            "events.xml <children/> must be empty for eventgroup-routed Static events; "
-            "otherwise DayZ refuses to instantiate the event.",
-        )
+        child = children_node.find("child")
+        self.assertIsNotNone(child)
+        self.assertEqual("Wreck_Mi8_Crashed", child.get("type"))
+        self.assertGreater(int(child.get("lootmax") or 0), 0)
 
     def test_airdrop_cfgeventspawns_pos_carries_group(self):
-        """cfgeventspawns.xml <pos> must reference the group by name and must
-        NOT contain a ``y`` attribute (vanilla DayZ only carries x, z, a)."""
+        """cfgeventspawns.xml <pos> must NOT contain ``y``. For direct MI8
+        airdrops it also does not reference a cfgeventgroups group."""
         event = _base_event(29, "airdrop", "WoodenCrate")
         record, _events, spawns_root, _groups = self._build_airdrop_event_node(event)
 
@@ -131,7 +127,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertIsNotNone(spawn_event)
         pos = spawn_event.find("pos")
         self.assertIsNotNone(pos)
-        self.assertEqual(pos.get("group"), record["name"])
+        self.assertIsNone(pos.get("group"))
         for attr in ("x", "z", "a"):
             self.assertIn(attr, pos.attrib)
         self.assertNotIn(
@@ -140,24 +136,15 @@ class AirdropEventGroupTests(unittest.TestCase):
             "terrain height itself, and forcing y=0 prevents the spawn.",
         )
 
-    def test_eventgroup_carries_real_object_class(self):
-        """The actual scene object must live in cfgeventgroups.xml,
-        keyed by the event name. That is the source DayZ uses to instantiate
-        the Static event scene."""
+    def test_airdrop_record_requests_mapgroupproto_for_crash_class(self):
+        """Ground loot comes from mapgroupproto lootFloor tags on the crash
+        class, not from WoodenCrate cargo."""
         event = _base_event(29, "airdrop", "WoodenCrate")
         record, _events, _spawns, groups_root = self._build_airdrop_event_node(event)
 
-        group = groups_root.find("group")
-        self.assertIsNotNone(group)
-        self.assertEqual(group.get("name"), record["name"])
-        children = group.findall("child")
-        self.assertTrue(children, "cfgeventgroups <group> must contain at least one <child>")
-        types_in_group = {child.get("type") for child in children}
-        self.assertIn("Wreck_Mi8_Crashed", types_in_group)
-        self.assertNotIn("WoodenCrate", types_in_group)
-        primary_child = next(child for child in children if child.get("type") == "Wreck_Mi8_Crashed" and "spawnsecondary" not in child.attrib)
-        self.assertEqual(primary_child.get("lootmax"), "0")
-        self.assertEqual(primary_child.get("lootmin"), "0")
+        self.assertIsNone(groups_root.find("group"))
+        self.assertEqual(["Wreck_Mi8_Crashed"], record.get("mapgroupproto_classes"))
+        self.assertEqual("Wreck_Mi8_Crashed", record.get("event_child_type"))
 
     def test_helicopter_airdrop_uses_crash_and_proto_tags_not_item_children(self):
         event = _base_event(
@@ -168,22 +155,14 @@ class AirdropEventGroupTests(unittest.TestCase):
             scene_type="helicopter_crash",
             loot_preset="military_high",
         )
-        record, _events, _spawns, groups_root = self._build_airdrop_event_node(event)
+        record, events_root, _spawns, groups_root = self._build_airdrop_event_node(event)
 
         self.assertEqual(record["event_child_type"], "Wreck_Mi8_Crashed")
-        group = groups_root.find("group")
-        children = group.findall("child")
-        types_in_group = [child.get("type") for child in children]
-        self.assertIn("Wreck_Mi8_Crashed", types_in_group)
-        self.assertNotIn("WoodenCrate", types_in_group)
-        crash_children = [child for child in children if child.get("type") == "Wreck_Mi8_Crashed"]
-        self.assertTrue(any("spawnsecondary" not in child.attrib and child.get("lootmax") == "0" for child in crash_children))
-        self.assertTrue(any(child.get("spawnsecondary") == "false" for child in crash_children))
-        non_crash_secondary_children = [
-            child for child in children
-            if child.get("spawnsecondary") == "false" and child.get("type") != "Wreck_Mi8_Crashed"
-        ]
-        self.assertEqual([], non_crash_secondary_children)
+        self.assertIsNone(groups_root.find("group"))
+        children = events_root.findall("event/children/child")
+        types_in_event = [child.get("type") for child in children]
+        self.assertIn("Wreck_Mi8_Crashed", types_in_event)
+        self.assertNotIn("WoodenCrate", types_in_event)
         self.assertFalse(any(child.get("type") in bot.SCENARIO_AIRDROP_GROUND_LOOT for child in children))
 
     def test_airdrop_guards_are_eventgroup_children(self):
@@ -201,11 +180,12 @@ class AirdropEventGroupTests(unittest.TestCase):
 
         self.assertEqual(1, len(records))
         guard_children = [
-            child for child in records[0]["eventgroup_children"]
+            child for child in records[0]["child_records"]
             if child.get("type") == "ZmbM_SoldierNormal"
         ]
-        self.assertEqual(3, len(guard_children))
-        self.assertTrue(all(child.get("spawnsecondary") == "false" for child in guard_children))
+        self.assertEqual(1, len(guard_children))
+        self.assertEqual(3, guard_children[0].get("max"))
+        self.assertTrue(all(child.get("lootmax") == 0 for child in guard_children))
 
 
 class VehicleAndZombieSpawnTests(unittest.TestCase):
@@ -346,7 +326,7 @@ class EventGroupChildPlacementTests(unittest.TestCase):
 
 
 class MapGroupProtoTests(unittest.TestCase):
-    """Each cfgeventgroups child type must have a mapgroupproto group entry,
+    """Each loot-bearing airdrop child type must have a mapgroupproto group entry,
     otherwise the live RPT prints ``No group configured for '<class>'``."""
 
     def test_proto_group_added_for_helicopter_crash_loot_floor(self):
@@ -361,9 +341,8 @@ class MapGroupProtoTests(unittest.TestCase):
         records, _ = bot.console_ce_records_for_event(event)
         record = records[0]
         proto_root = ET.Element("prototype")
-        for child in record["eventgroup_children"]:
-            if bot.eventgroup_child_needs_mapgroupproto(child):
-                bot.add_mapgroupproto_loot_group(proto_root, child["type"], tags=record.get("mapgroupproto_tags"))
+        for class_name in record.get("mapgroupproto_classes") or []:
+            bot.add_mapgroupproto_loot_group(proto_root, class_name, tags=record.get("mapgroupproto_tags"))
         names = {g.get("name") for g in proto_root.findall("group")}
         self.assertIn("Wreck_Mi8_Crashed", names)
         self.assertNotIn("WoodenCrate", names)
@@ -385,9 +364,10 @@ class MapGroupProtoTests(unittest.TestCase):
         event["guard_class"] = "ZmbM_SoldierNormal"
         event["guard_count"] = 2
         records, _ = bot.console_ce_records_for_event(event)
-        guard_child = next(child for child in records[0]["eventgroup_children"] if child.get("type") == "ZmbM_SoldierNormal")
+        guard_child = next(child for child in records[0]["child_records"] if child.get("type") == "ZmbM_SoldierNormal")
 
-        self.assertFalse(bot.eventgroup_child_needs_mapgroupproto(guard_child))
+        self.assertEqual(0, guard_child.get("lootmax"))
+        self.assertNotIn("ZmbM_SoldierNormal", records[0].get("mapgroupproto_classes") or [])
 
     def test_existing_unmarked_proto_group_is_left_alone_and_managed_group_appended(self):
         proto_root = ET.Element("prototype")
@@ -597,8 +577,17 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
     def test_animal_pack_reuses_vanilla_event_with_marked_spawn_position(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
+        vanilla_events = (
+            '<events><event name="AnimalBear"><nominal>0</nominal><min>5</min><max>8</max>'
+            '<lifetime>180</lifetime><restock>0</restock><saferadius>200</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>0</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="1" />'
+            '<position>fixed</position><limit>custom</limit><active>1</active>'
+            '<children><child lootmax="0" lootmin="0" max="1" min="1" type="Animal_UrsusArctos" /></children>'
+            '</event></events>'
+        )
         sources = {
-            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "events_path": (vanilla_events, f"{base_path}/db/events.xml"),
             "spawns_path": (vanilla_spawns, f"{base_path}/cfgeventspawns.xml"),
             "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
             "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
@@ -639,7 +628,12 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions)
             or any(zone.get("x") == "5000" and zone.get("z") == "5000" for zone in zones)
         )
-        self.assertFalse(built.get("events_text", "").count("AnimalBear"))
+        events_root = ET.fromstring(built["events_text"])
+        bear_event = events_root.find("./event[@name='AnimalBear']")
+        self.assertIsNotNone(bear_event)
+        self.assertEqual("2", bear_event.findtext("nominal"))
+        self.assertEqual("2", bear_event.findtext("min"))
+        self.assertEqual("8", bear_event.findtext("max"))
         self.assertFalse(built.get("cfgenvironment_text"))
         self.assertEqual([], built.get("animal_territory_files") or [])
         ok, messages = bot.validate_console_ce_xml_bundle(built)

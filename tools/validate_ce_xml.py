@@ -22,6 +22,8 @@ spawn it (the failure mode the live server was exhibiting):
   cfgeventgroups ``<group name="X">``.
 * Every ``<child type="C">`` inside cfgeventgroups has a matching
   ``<group name="C">`` in mapgroupproto.xml.
+* Every direct WanderingBot events.xml child with lootmax>0 on a static loot
+  anchor has a matching usable mapgroupproto group.
 * events.xml Static events that reference a group via cfgeventspawns leave
   ``<children/>`` empty (vanilla DayZ pattern). Otherwise DayZ loads the
   definition but never spawns the event.
@@ -308,6 +310,33 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
     if mapgroupproto_root is not None:
         for group_node in mapgroupproto_root.findall("group"):
             proto_groups[(group_node.get("name") or "").strip()] = group_node
+        for event_name, event_node in wandering_events.items():
+            if not _has_static_family(event_name):
+                continue
+            spawn_node = spawn_events.get(event_name)
+            has_group_pos = bool(
+                spawn_node is not None
+                and any((pos.get("group") or "").strip() for pos in spawn_node.findall("pos"))
+            )
+            if has_group_pos:
+                continue
+            for child in event_node.findall("children/child"):
+                child_type = (child.get("type") or "").strip()
+                child_lootmax = _positive_int(child.get("lootmax"))
+                if not child_type or child_lootmax <= 0:
+                    continue
+                if child_type not in proto_groups:
+                    report.fail(
+                        f"mapgroupproto.xml is missing <group name=\"{child_type}\"> ? required by "
+                        f"direct events.xml `{event_name}` child lootmax={child_lootmax}. DayZ will log "
+                        f"\"No group configured for '{child_type}'\" and skip the loot."
+                    )
+                    continue
+                if not _proto_group_has_usable_loot_container(proto_groups[child_type]):
+                    report.fail(
+                        f"mapgroupproto.xml <group name=\"{child_type}\"> has no usable loot "
+                        f"container/point for direct events.xml `{event_name}` child lootmax={child_lootmax}."
+                    )
         for group_name, group_node in eventgroup_nodes.items():
             for child in group_node.findall("child"):
                 child_type = (child.get("type") or "").strip()
