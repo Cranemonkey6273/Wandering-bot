@@ -215,6 +215,31 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("non-WanderingBot", message)
         self.assertIn("StaticVanillaThing", message)
 
+    def test_scope_guard_success_messages_do_not_fail_bundle_validation(self):
+        events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+</events>
+"""
+        spawns_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<eventposdef>
+    <event name="StaticVanillaThing"><pos x="1" z="2" a="0" /></event>
+</eventposdef>
+"""
+        built = {
+            "events_text": events_xml,
+            "events_source_text": events_xml,
+            "spawns_text": spawns_xml,
+            "spawns_source_text": spawns_xml,
+            "source_fallbacks": [],
+        }
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+
+        self.assertTrue(ok)
+        self.assertTrue(any("snippet scope guard confirmed" in message for message in messages))
+        self.assertTrue(any("Validated" in message for message in messages))
+
 
 if __name__ == "__main__":
     unittest.main()

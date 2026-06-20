@@ -30727,6 +30727,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
 def validate_console_ce_xml_bundle(built):
     messages = []
+    scope_messages = []
     source_fallbacks = built.get("source_fallbacks") if isinstance(built.get("source_fallbacks"), list) else []
     if source_fallbacks:
         return False, [
@@ -30735,9 +30736,8 @@ def validate_console_ce_xml_bundle(built):
         ] + [str(item) for item in source_fallbacks[-6:]]
 
     scope_ok, scope_messages = validate_console_ce_upload_scope(built)
-    messages.extend(scope_messages)
     if not scope_ok:
-        return False, messages
+        return False, scope_messages
 
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
@@ -30749,7 +30749,7 @@ def validate_console_ce_xml_bundle(built):
         if built.get("cfgeffectarea_text"):
             json.loads(str(built.get("cfgeffectarea_text") or ""))
     except Exception as error:
-        return False, [f"CE file validation failed before upload: {error}"]
+        return False, scope_messages + [f"CE file validation failed before upload: {error}"]
 
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
     for territory_file in territory_files:
@@ -30934,8 +30934,8 @@ def validate_console_ce_xml_bundle(built):
                     messages.append(f"`cfgenvironment.xml` is missing a territory using `{usable}`.")
 
     if messages:
-        return False, messages
-    return True, [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
+        return False, scope_messages + messages
+    return True, scope_messages + [f"Validated `{len(generated_events)}` Wandering Bot CE event record(s) before upload."]
 
 
 def verify_uploaded_console_ce_xml_bundle(config, built):
