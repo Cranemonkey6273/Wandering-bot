@@ -30890,6 +30890,7 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
 
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
+    restore_texts = built.setdefault("restore_texts", {})
     required_backups = {"events.xml", "cfgeventspawns.xml", "cfgspawnabletypes.xml"}
     targets = [
         ("events.xml", built.get("events_path")),
@@ -30915,11 +30916,21 @@ def backup_remote_ce_sources_before_upload(config, built):
                 f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}"
             )
             continue
+        valid_source, source_message = validate_protected_dayz_xml_upload(path, content)
+        if not valid_source:
+            if label in required_backups:
+                return False, backup_messages + [f"Backup blocked: live `{label}` at `{path}` is not valid before upload: {source_message}"]
+            backup_messages.append(f"`{label}` backup skipped: live source at `{path}` is not valid before upload: {source_message}")
+            continue
+        restore_texts[path] = content
         backup_path = f"{path}.wanderingbot-backup-latest"
         backup_ok, backup_message = upload_ce_latest_backup_to_nitrado(config, label, backup_path, content)
         backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
         if not backup_ok:
-            return False, backup_messages
+            backup_messages.append(
+                f"`{label}` remote latest backup failed verification, so this upload will use the freshly downloaded in-memory restore copy if rollback is needed."
+            )
+            continue
         deleted, failed = cleanup_wanderingbot_backups_for_path(config, path, keep_paths=[backup_path])
         if deleted:
             backup_messages.append(f"`{label}` old WanderingBot backups removed: {len(deleted)}")
@@ -30941,30 +30952,37 @@ def verify_remote_protected_dayz_xml(config, label, path):
     return True, f"`{label}` verified after upload with <{expected_root}> root."
 
 
-def restore_remote_ce_file_from_latest_backup(config, label, path):
+def restore_remote_ce_file_from_text(config, label, path, restore_text, source_label):
+    valid, validation_message = validate_protected_dayz_xml_upload(path, restore_text)
+    if not valid:
+        return False, f"`{label}` restore blocked: {source_label} is not valid for `{path}`: {validation_message}"
+    restore_ok, restore_message = upload_text_file_to_nitrado(config, path, restore_text)
+    if not restore_ok:
+        return False, f"`{label}` restore upload failed from {source_label}: {restore_message}"
+    verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
+    if not verify_ok:
+        return False, f"`{label}` restore verification failed from {source_label}: {verify_message}"
+    return True, f"`{label}` restored from {source_label}. {verify_message}"
+
+
+def restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=None):
+    if str(restore_text or "").strip():
+        return restore_remote_ce_file_from_text(config, label, path, restore_text, "in-memory pre-upload copy")
+
     backup_path = f"{path}.wanderingbot-backup-latest"
     ok, message, backup_text = download_text_file_from_nitrado(config, backup_path)
     if not ok:
         return False, f"`{label}` restore failed: could not download `{backup_path}`: {message}"
-    valid, validation_message = validate_protected_dayz_xml_upload(path, backup_text)
-    if not valid:
-        return False, f"`{label}` restore blocked: latest backup is not valid for `{path}`: {validation_message}"
-    restore_ok, restore_message = upload_text_file_to_nitrado(config, path, backup_text)
-    if not restore_ok:
-        return False, f"`{label}` restore upload failed: {restore_message}"
-    verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
-    if not verify_ok:
-        return False, f"`{label}` restore verification failed: {verify_message}"
-    return True, f"`{label}` restored from `{backup_path}`. {verify_message}"
+    return restore_remote_ce_file_from_text(config, label, path, backup_text, f"`{backup_path}`")
 
 
-def upload_protected_ce_file_to_nitrado(config, label, path, text_content):
+def upload_protected_ce_file_to_nitrado(config, label, path, text_content, restore_text=None):
     upload_ok, upload_message = upload_text_file_to_nitrado(config, path, text_content)
     if not upload_ok:
         live_ok, live_message = verify_remote_protected_dayz_xml(config, label, path)
         if live_ok:
             return False, f"{upload_message} Live `{label}` remained valid after failed upload. {live_message}"
-        restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path)
+        restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=restore_text)
         suffix = f" Restore attempted: {restore_message}" if restore_message else ""
         return False, f"{upload_message} Live verification after failure: {live_message}.{suffix}"
     if protected_dayz_xml_root_for_path(path):
@@ -30972,7 +30990,7 @@ def upload_protected_ce_file_to_nitrado(config, label, path, text_content):
     verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, path)
     if verify_ok:
         return True, f"{upload_message} {verify_message}"
-    restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path)
+    restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=restore_text)
     return False, f"{verify_message} Restore attempted: {restore_message}"
 
 
@@ -30989,8 +31007,22 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     if not backup_ok:
         return False, built, messages
 
-    events_ok, events_message = upload_protected_ce_file_to_nitrado(config, "events.xml", built["events_path"], built["events_text"])
-    spawns_ok, spawns_message = upload_protected_ce_file_to_nitrado(config, "cfgeventspawns.xml", built["spawns_path"], built["spawns_text"])
+    restore_texts = built.get("restore_texts") if isinstance(built.get("restore_texts"), dict) else {}
+
+    events_ok, events_message = upload_protected_ce_file_to_nitrado(
+        config,
+        "events.xml",
+        built["events_path"],
+        built["events_text"],
+        restore_text=restore_texts.get(built["events_path"]),
+    )
+    spawns_ok, spawns_message = upload_protected_ce_file_to_nitrado(
+        config,
+        "cfgeventspawns.xml",
+        built["spawns_path"],
+        built["spawns_text"],
+        restore_text=restore_texts.get(built["spawns_path"]),
+    )
     messages.append(f"`events.xml`: {events_message}")
     messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
 
@@ -31000,7 +31032,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             config,
             "cfgspawnabletypes.xml",
             built["spawnabletypes_path"],
-            built["spawnabletypes_text"]
+            built["spawnabletypes_text"],
+            restore_text=restore_texts.get(built["spawnabletypes_path"]),
         )
         messages.append(f"`cfgspawnabletypes.xml`: {spawnable_message}")
 
@@ -31010,7 +31043,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             config,
             "cfgeventgroups.xml",
             built["eventgroups_path"],
-            built["eventgroups_text"]
+            built["eventgroups_text"],
+            restore_text=restore_texts.get(built["eventgroups_path"]),
         )
         messages.append(f"`cfgeventgroups.xml`: {eventgroups_message}")
 
@@ -31020,7 +31054,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             config,
             "mapgroupproto.xml",
             built["mapgroupproto_path"],
-            built["mapgroupproto_text"]
+            built["mapgroupproto_text"],
+            restore_text=restore_texts.get(built["mapgroupproto_path"]),
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
@@ -31086,7 +31121,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 config,
                 "cfgenvironment.xml",
                 built["cfgenvironment_path"],
-                cfgenvironment_text
+                cfgenvironment_text,
+                restore_text=restore_texts.get(built["cfgenvironment_path"]),
             )
             messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
 
@@ -31096,7 +31132,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             config,
             "cfgareaeffects.xml",
             built["cfgareaeffects_path"],
-            built["cfgareaeffects_text"]
+            built["cfgareaeffects_text"],
+            restore_text=restore_texts.get(built["cfgareaeffects_path"]),
         )
         messages.append(f"`cfgareaeffects.xml`: {cfgareaeffects_message}")
 

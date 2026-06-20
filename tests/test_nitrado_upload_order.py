@@ -28,6 +28,9 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_prechecked_ftp = bot.upload_protected_dayz_xml_to_nitrado_ftp_prechecked
         self.original_verify = bot.verify_uploaded_protected_dayz_xml_text
         self.original_verify_remote = bot.verify_remote_protected_dayz_xml
+        self.original_download = bot.download_text_file_from_nitrado
+        self.original_backup = bot.upload_ce_latest_backup_to_nitrado
+        self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
         self.calls = []
 
     def tearDown(self):
@@ -36,6 +39,9 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.upload_protected_dayz_xml_to_nitrado_ftp_prechecked = self.original_prechecked_ftp
         bot.verify_uploaded_protected_dayz_xml_text = self.original_verify
         bot.verify_remote_protected_dayz_xml = self.original_verify_remote
+        bot.download_text_file_from_nitrado = self.original_download
+        bot.upload_ce_latest_backup_to_nitrado = self.original_backup
+        bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
 
     def test_protected_xml_uses_api_before_ftp(self):
         def api_upload(*_args):
@@ -143,6 +149,33 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertIn("matched XML structure", message)
+
+    def test_failed_remote_latest_backup_keeps_in_memory_restore_copy(self):
+        spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        built = {"spawns_path": spawns_path}
+
+        def download(*_args):
+            self.calls.append("download")
+            return True, "downloaded", SPAWNS_XML
+
+        def backup(*_args):
+            self.calls.append("backup")
+            return False, "Backup verification failed: invalid XML"
+
+        def cleanup(*_args, **_kwargs):
+            self.calls.append("cleanup")
+            return [], []
+
+        bot.download_text_file_from_nitrado = download
+        bot.upload_ce_latest_backup_to_nitrado = backup
+        bot.cleanup_wanderingbot_backups_for_path = cleanup
+
+        ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
+
+        self.assertTrue(ok)
+        self.assertEqual(SPAWNS_XML, built["restore_texts"][spawns_path])
+        self.assertTrue(any("in-memory restore copy" in message for message in messages))
+        self.assertEqual(["download", "backup"], self.calls)
 
 
 if __name__ == "__main__":
