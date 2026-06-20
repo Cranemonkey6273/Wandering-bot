@@ -14101,7 +14101,7 @@ async def setup_command(
             name="SERVER CONTROL & RADAR",
             value=(
                 "`/restartserver` - trigger a Nitrado restart\n"
-                "`/settimezone timezone` - set this server's local timezone for ADM logs and restarts\n"
+                "`/timezone timezone` - set this server's local timezone for ADM logs and restarts\n"
                 "`/setrestartinterval hours` - set restart interval\n"
                 "`/setrestartstart hour` - set local restart start hour\n"
                 "`/cancelrestarts` - disable recurring restart schedule\n"
@@ -19381,7 +19381,7 @@ async def helpme(ctx):
         name="Server Control",
         value=(
             "`/restartserver`, `/admstatus`, `/restartadm force`\n"
-            "`/server settimezone timezone` - set local server time for ADM logs and restarts\n"
+            "`/timezone timezone` - set local server time for ADM logs and restarts\n"
             "`/server setrestartinterval hours`, `/server setrestartstart hour`, `/server listrestarts`\n"
             "`/tools reloadguilds`\n"
             "`/setradarchannel channel`, `/radarping x y reason`\n"
@@ -42922,6 +42922,13 @@ async def slash_restartadm(interaction: discord.Interaction, force: bool = False
 @bot.tree.command(name="restartserver", description="Restart server")
 @app_commands.default_permissions(administrator=True)
 async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
+
+
+@bot.tree.command(name="timezone", description="Admin: set local server timezone for ADM logs and restart schedules")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York")
+async def slash_timezone(interaction: discord.Interaction, timezone: str):
+    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone)
 
 
 # =========================================================
