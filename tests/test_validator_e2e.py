@@ -192,6 +192,19 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             self.assertFalse(report.ok())
             self.assertTrue(any("No group configured for 'WoodenCrate'" in err for err in report.errors))
 
+    def test_validator_rejects_mapgroupproto_container_without_floor_tag(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        for group in mapgroupproto_root.findall("group"):
+            if (group.get("name") or "").strip() == "WoodenCrate":
+                for tag in list(group.findall("./container/tag")):
+                    group.find("container").remove(tag)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("no usable loot container/point" in err for err in report.errors))
+
     def test_validator_rejects_secondary_only_eventgroup_children(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)

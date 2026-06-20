@@ -29844,7 +29844,11 @@ def mapgroupproto_group_has_usable_loot_container(group_node):
     for container_node in group_node.findall("container"):
         if mapgroupproto_positive_int(container_node.get("lootmax")) <= 0:
             continue
-        if container_node.findall("point"):
+        if (
+            container_node.findall("category")
+            and container_node.findall("tag")
+            and container_node.findall("point")
+        ):
             return True
     return False
 
@@ -29920,11 +29924,12 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
     if container is None:
         container = containers[0] if containers else None
     if container is None:
-        container = ET.SubElement(group_node, "container", {"name": "lootfloor", "lootmax": target_lootmax})
+        container = ET.SubElement(group_node, "container", {"name": "lootFloor", "lootmax": target_lootmax})
         changed = True
     else:
-        if not str(container.get("name") or "").strip():
-            container.set("name", "lootfloor")
+        container_name = str(container.get("name") or "").strip()
+        if not container_name or (container_name.lower() == "lootfloor" and container_name != "lootFloor"):
+            container.set("name", "lootFloor")
             changed = True
         if mapgroupproto_positive_int(container.get("lootmax")) <= 0:
             container.set("lootmax", target_lootmax)
@@ -29934,20 +29939,29 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None):
         for category_name in wanted_categories:
             ET.SubElement(container, "category", {"name": category_name})
         changed = True
+    if not container.findall("tag"):
+        ET.SubElement(container, "tag", {"name": "floor"})
+        changed = True
     if not container.findall("point"):
         ET.SubElement(container, "point", {
             "pos": "0 0 0",
             "range": "0.5",
             "height": "0.5",
+            "flags": "32",
         })
         changed = True
+    else:
+        for point in container.findall("point"):
+            if not str(point.get("flags") or "").strip():
+                point.set("flags", "32")
+                changed = True
     return changed
 
 
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
     # Non-destructive: if a <group> with this name already exists, leave
     # it strictly alone (only the rogue Tier4 value is stripped). Earlier
-    # revisions wiped <usage>, <category> and <container name="lootfloor">
+    # revisions wiped <usage>, <category> and <container name="lootFloor">
     # off any matching group, which silently neutered community packs
     # that already populated mapgroupproto.xml with working military
     # loot tables.

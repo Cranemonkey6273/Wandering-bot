@@ -123,7 +123,11 @@ def _proto_group_has_usable_loot_container(group_node: ET.Element) -> bool:
     for container_node in group_node.findall("container"):
         if _positive_int(container_node.get("lootmax")) <= 0:
             continue
-        if container_node.findall("point"):
+        if (
+            container_node.findall("category")
+            and container_node.findall("tag")
+            and container_node.findall("point")
+        ):
             return True
     return False
 

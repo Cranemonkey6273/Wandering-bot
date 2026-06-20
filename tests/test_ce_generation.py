@@ -311,8 +311,13 @@ class MapGroupProtoTests(unittest.TestCase):
         crate_group = next(g for g in proto_root.findall("group") if g.get("name") == "WoodenCrate")
         container = crate_group.find("container")
         self.assertIsNotNone(container)
+        self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertIsNotNone(container.find("category"))
+        self.assertIsNotNone(container.find("tag"))
         self.assertIsNotNone(container.find("point"))
+        self.assertEqual(container.find("tag").get("name"), "floor")
+        self.assertEqual(container.find("point").get("flags"), "32")
 
     def test_existing_bare_proto_group_gets_repaired(self):
         proto_root = ET.Element("prototype")
@@ -325,8 +330,30 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIsNotNone(crate_group)
         container = crate_group.find("container")
         self.assertIsNotNone(container)
+        self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertIsNotNone(container.find("category"))
+        self.assertIsNotNone(container.find("tag"))
         self.assertIsNotNone(container.find("point"))
+        self.assertEqual(container.find("tag").get("name"), "floor")
+        self.assertEqual(container.find("point").get("flags"), "32")
+
+    def test_existing_top_level_point_proto_group_gets_lootfloor_repaired(self):
+        proto_root = ET.Element("prototype")
+        crate_group = ET.SubElement(proto_root, "group", {"name": "WoodenCrate", "lootmax": "80"})
+        ET.SubElement(crate_group, "usage", {"name": "Military"})
+        ET.SubElement(crate_group, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
+
+        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "WoodenCrate")
+
+        self.assertTrue(changed)
+        container = crate_group.find("container")
+        self.assertIsNotNone(container)
+        self.assertEqual(container.get("name"), "lootFloor")
+        self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertIsNotNone(container.find("category"))
+        self.assertEqual(container.find("tag").get("name"), "floor")
+        self.assertEqual(container.find("point").get("flags"), "32")
 
 
 class BuildConsoleCeEventFilesTests(unittest.TestCase):
