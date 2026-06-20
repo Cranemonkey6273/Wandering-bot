@@ -112,6 +112,22 @@ def _has_static_family(name: str) -> bool:
     return name.startswith("Static")
 
 
+def _positive_int(value: str, default: int = 0) -> int:
+    try:
+        return max(0, int(str(value or "").strip() or default))
+    except ValueError:
+        return max(0, default)
+
+
+def _proto_group_has_usable_loot_container(group_node: ET.Element) -> bool:
+    for container_node in group_node.findall("container"):
+        if _positive_int(container_node.get("lootmax")) <= 0:
+            continue
+        if container_node.findall("point"):
+            return True
+    return False
+
+
 def validate_bundle(mission_dir: str) -> ValidationReport:
     report = ValidationReport()
 
@@ -276,10 +292,10 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
                         )
 
     # mapgroupproto validation.
-    proto_groups: Set[str] = set()
+    proto_groups: Dict[str, ET.Element] = {}
     if mapgroupproto_root is not None:
         for group_node in mapgroupproto_root.findall("group"):
-            proto_groups.add((group_node.get("name") or "").strip())
+            proto_groups[(group_node.get("name") or "").strip()] = group_node
         for group_name, group_node in eventgroup_nodes.items():
             for child in group_node.findall("child"):
                 child_type = (child.get("type") or "").strip()
@@ -287,6 +303,21 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
                     report.fail(
                         f"mapgroupproto.xml is missing <group name=\"{child_type}\"> ? required by "
                         f"cfgeventgroups.xml `{group_name}`. DayZ will log "
+                        f"\"No group configured for '{child_type}'\" and skip the spawn."
+                    )
+                    continue
+                try:
+                    child_lootmax = int((child.get("lootmax") or "0").strip() or 0)
+                except ValueError:
+                    child_lootmax = 0
+                if (
+                    child_type
+                    and child_lootmax > 0
+                    and not _proto_group_has_usable_loot_container(proto_groups[child_type])
+                ):
+                    report.fail(
+                        f"mapgroupproto.xml <group name=\"{child_type}\"> has no usable loot "
+                        f"container/point for cfgeventgroups.xml `{group_name}`. DayZ will log "
                         f"\"No group configured for '{child_type}'\" and skip the spawn."
                     )
 

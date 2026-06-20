@@ -29360,6 +29360,74 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
     return changed, removed_groups, removed_values
 
 
+MAPGROUPPROTO_LOOT_CATEGORIES = ("weapons", "explosives", "tools", "clothes", "containers", "food")
+
+
+def mapgroupproto_positive_int(value, default=0):
+    try:
+        return max(0, int(str(value or "").strip() or default))
+    except Exception:
+        return max(0, int(default or 0))
+
+
+def mapgroupproto_group_has_usable_loot_container(group_node):
+    if group_node is None:
+        return False
+    for container_node in group_node.findall("container"):
+        if mapgroupproto_positive_int(container_node.get("lootmax")) <= 0:
+            continue
+        if container_node.findall("point"):
+            return True
+    return False
+
+
+def ensure_mapgroupproto_loot_container(group_node, lootmax=80):
+    target_lootmax = str(max(1, int(lootmax or 80)))
+    changed = False
+
+    if mapgroupproto_positive_int(group_node.get("lootmax")) <= 0:
+        group_node.set("lootmax", target_lootmax)
+        changed = True
+    if not group_node.findall("usage"):
+        ET.SubElement(group_node, "usage", {"name": "Military"})
+        changed = True
+
+    containers = list(group_node.findall("container"))
+    container = next(
+        (
+            node
+            for node in containers
+            if str(node.get("name") or "").strip().lower() == "lootfloor"
+        ),
+        None,
+    )
+    if container is None:
+        container = containers[0] if containers else None
+    if container is None:
+        container = ET.SubElement(group_node, "container", {"name": "lootfloor", "lootmax": target_lootmax})
+        changed = True
+    else:
+        if not str(container.get("name") or "").strip():
+            container.set("name", "lootfloor")
+            changed = True
+        if mapgroupproto_positive_int(container.get("lootmax")) <= 0:
+            container.set("lootmax", target_lootmax)
+            changed = True
+
+    if not container.findall("category"):
+        for category_name in MAPGROUPPROTO_LOOT_CATEGORIES:
+            ET.SubElement(container, "category", {"name": category_name})
+        changed = True
+    if not container.findall("point"):
+        ET.SubElement(container, "point", {
+            "pos": "0 0 0",
+            "range": "0.5",
+            "height": "0.5",
+        })
+        changed = True
+    return changed
+
+
 def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
     # Non-destructive: if a <group> with this name already exists, leave
     # it strictly alone (only the rogue Tier4 value is stripped). Earlier
@@ -29384,20 +29452,13 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80):
                 if str(value_node.get("name") or "").strip().lower() == "tier4":
                     group_node.remove(value_node)
                     changed = True
+            if not mapgroupproto_group_has_usable_loot_container(group_node):
+                changed = ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax) or changed
             return group_node, changed
 
-    target_lootmax = str(max(1, int(lootmax or 80)))
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
-    group_node = ET.SubElement(root, "group", {"name": wanted, "lootmax": target_lootmax})
-    ET.SubElement(group_node, "usage", {"name": "Military"})
-    container = ET.SubElement(group_node, "container", {"name": "lootfloor", "lootmax": target_lootmax})
-    for category_name in ("weapons", "explosives", "tools", "clothes", "containers", "food"):
-        ET.SubElement(container, "category", {"name": category_name})
-    ET.SubElement(container, "point", {
-        "pos": "0 0 0",
-        "range": "0.5",
-        "height": "0.5",
-    })
+    group_node = ET.SubElement(root, "group", {"name": wanted})
+    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax)
     return group_node, True
 
 
@@ -30577,8 +30638,8 @@ def validate_console_ce_xml_bundle(built):
         for group_node in eventgroups_root.findall("group")
         if CONSOLE_CE_EVENT_MARKER in str(group_node.get("name") or "")
     }
-    proto_names = {
-        str(group_node.get("name") or "").strip()
+    proto_nodes = {
+        str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
     for name, event_node in generated_events.items():
@@ -30612,7 +30673,7 @@ def validate_console_ce_xml_bundle(built):
             child_type = str(child.get("type") or "").strip()
             if not child_type:
                 messages.append(f"`{name}` has an eventgroup child with no type.")
-            elif child_type not in proto_names:
+            elif child_type not in proto_nodes:
                 messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
             for attr in ("x", "y", "z", "a"):
                 if str(child.get(attr) or "").strip() == "":
@@ -30629,6 +30690,13 @@ def validate_console_ce_xml_bundle(built):
             is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
             if group_lootmax <= 0 and not is_static_scene_prop:
                 messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
+            if group_lootmax > 0 and child_type in proto_nodes:
+                proto_node = proto_nodes[child_type]
+                if not mapgroupproto_group_has_usable_loot_container(proto_node):
+                    messages.append(
+                        f"`{child_type}` is used as a loot-bearing child by `{name}`, but its "
+                        "mapgroupproto group has no usable loot container/point."
+                    )
         if child_nodes and max(group_child_max_values or [0]) <= 0:
             messages.append(
                 f"`{name}` eventgroup children all have max/lootmax 0. DayZ disables child-limited Static events "

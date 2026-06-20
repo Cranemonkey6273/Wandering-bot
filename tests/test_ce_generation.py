@@ -296,6 +296,25 @@ class MapGroupProtoTests(unittest.TestCase):
         names = {g.get("name") for g in proto_root.findall("group")}
         self.assertIn("WoodenCrate", names)
         self.assertIn("Wreck_Mi8_Crashed", names)
+        crate_group = next(g for g in proto_root.findall("group") if g.get("name") == "WoodenCrate")
+        container = crate_group.find("container")
+        self.assertIsNotNone(container)
+        self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertIsNotNone(container.find("point"))
+
+    def test_existing_bare_proto_group_gets_repaired(self):
+        proto_root = ET.Element("prototype")
+        ET.SubElement(proto_root, "group", {"name": "WoodenCrate"})
+
+        _, changed = bot.add_mapgroupproto_loot_group(proto_root, "WoodenCrate")
+
+        self.assertTrue(changed)
+        crate_group = proto_root.find("./group[@name='WoodenCrate']")
+        self.assertIsNotNone(crate_group)
+        container = crate_group.find("container")
+        self.assertIsNotNone(container)
+        self.assertGreater(int(container.get("lootmax") or "0"), 0)
+        self.assertIsNotNone(container.find("point"))
 
 
 if __name__ == "__main__":
