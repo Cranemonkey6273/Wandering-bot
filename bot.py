@@ -31047,7 +31047,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     return output
 
 
-def validate_console_ce_xml_bundle(built):
+def validate_console_ce_xml_bundle(built, check_scope=True):
     messages = []
     scope_messages = []
     source_fallbacks = built.get("source_fallbacks") if isinstance(built.get("source_fallbacks"), list) else []
@@ -31057,9 +31057,10 @@ def validate_console_ce_xml_bundle(built):
             "Refusing to upload a fallback/minimal template over a live Nitrado XML file."
         ] + [str(item) for item in source_fallbacks[-6:]]
 
-    scope_ok, scope_messages = validate_console_ce_upload_scope(built)
-    if not scope_ok:
-        return False, scope_messages
+    if check_scope:
+        scope_ok, scope_messages = validate_console_ce_upload_scope(built)
+        if not scope_ok:
+            return False, scope_messages
 
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
@@ -31291,7 +31292,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
                 f"after individual upload verification already passed: {detail}"
             ]
         remote_built[text_key] = text
-    validation_ok, validation_messages = validate_console_ce_xml_bundle(remote_built)
+    validation_ok, validation_messages = validate_console_ce_xml_bundle(remote_built, check_scope=False)
     messages.extend(validation_messages)
     if not validation_ok:
         return False, ["Final remote CE bundle verification failed after upload."] + validation_messages

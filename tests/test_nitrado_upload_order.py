@@ -261,6 +261,55 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         finally:
             bot.download_text_file_from_nitrado = original_download
 
+    def test_final_bundle_check_skips_scope_guard_on_redownloaded_copy(self):
+        original_download = bot.download_text_file_from_nitrado
+        try:
+            def download(_config, path):
+                self.calls.append(path)
+                if path.endswith("/cfgeventspawns.xml"):
+                    return True, "downloaded", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<eventposdef>
+    <event name="StaticVanillaThing"><pos x="1" z="2" a="0" /></event>
+</eventposdef>
+"""
+                return True, "downloaded", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>2</nominal></event>
+</events>
+"""
+
+            bot.download_text_file_from_nitrado = download
+            built = {
+                "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                "events_text": """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+</events>
+""",
+                "events_source_text": """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<events>
+    <event name="StaticVanillaThing"><nominal>1</nominal></event>
+</events>
+""",
+                "spawns_path": "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+                "spawns_text": """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<eventposdef>
+    <event name="StaticVanillaThing"><pos x="1" z="2" a="0" /></event>
+</eventposdef>
+""",
+            }
+
+            ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
+
+            self.assertTrue(ok, messages)
+            self.assertTrue(any("Final remote CE bundle verified" in message for message in messages))
+            self.assertEqual([
+                "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            ], self.calls)
+        finally:
+            bot.download_text_file_from_nitrado = original_download
+
     def test_successful_ftp_fallback_message_does_not_mark_upload_blocked(self):
         messages = [
             "mapgroupproto.xml: Nitrado API upload token failed with status 429: Cloudflare. "
