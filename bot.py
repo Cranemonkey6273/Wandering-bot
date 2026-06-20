@@ -32532,7 +32532,14 @@ def restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=
     return restore_remote_ce_file_from_text(config, label, path, backup_text, f"`{backup_path}`")
 
 
-def upload_protected_ce_file_to_nitrado(config, label, path, text_content, restore_text=None):
+def upload_protected_ce_file_to_nitrado(config, label, path, text_content, restore_text=None, prefer_ftp=False):
+    if prefer_ftp:
+        ftp_ok, ftp_message = upload_protected_dayz_xml_to_nitrado_ftp_verified(config, path, text_content)
+        if ftp_ok:
+            return True, f"Verified FTP live write was used. {ftp_message}"
+        if "token" not in str(ftp_message).lower() and "missing" not in str(ftp_message).lower():
+            return False, f"Verified FTP live write failed: {ftp_message}"
+
     upload_ok, upload_message = upload_text_file_to_nitrado(config, path, text_content)
     if not upload_ok:
         live_ok, live_message = verify_remote_protected_dayz_xml(config, label, path)
@@ -32552,6 +32559,48 @@ def upload_protected_ce_file_to_nitrado(config, label, path, text_content, resto
         return True, f"{upload_message} {verify_message}"
     restore_ok, restore_message = restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=restore_text)
     return False, f"{verify_message} Restore attempted: {restore_message}"
+
+
+def restore_console_ce_bundle_from_memory(config, built):
+    restore_texts = built.get("restore_texts") if isinstance(built.get("restore_texts"), dict) else {}
+    targets = [
+        ("events.xml", "events_path"),
+        ("cfgeventspawns.xml", "spawns_path"),
+        ("cfgspawnabletypes.xml", "spawnabletypes_path"),
+        ("cfgeventgroups.xml", "eventgroups_path"),
+        ("mapgroupproto.xml", "mapgroupproto_path"),
+        ("cfgenvironment.xml", "cfgenvironment_path"),
+        ("cfgareaeffects.xml", "cfgareaeffects_path"),
+    ]
+    messages = []
+    restored = 0
+    failed = 0
+    for label, path_key in targets:
+        path = built.get(path_key)
+        if not path:
+            continue
+        restore_text = restore_texts.get(path)
+        if not str(restore_text or "").strip():
+            continue
+        ok, message = upload_protected_dayz_xml_to_nitrado_ftp_verified(config, path, restore_text)
+        if ok:
+            restored += 1
+            messages.append(f"`{label}` rollback restored from in-memory pre-upload copy. {message}")
+            continue
+        fallback_ok, fallback_message = restore_remote_ce_file_from_latest_backup(
+            config,
+            label,
+            path,
+            restore_text=restore_text,
+        )
+        if fallback_ok:
+            restored += 1
+            messages.append(f"`{label}` rollback restored via fallback. {fallback_message}")
+        else:
+            failed += 1
+            messages.append(f"`{label}` rollback failed. FTP: {message} Fallback: {fallback_message}")
+    messages.insert(0, f"Native CE rollback attempted after bundle mismatch: `{restored}` restored, `{failed}` failed.")
+    return failed == 0, messages
 
 
 def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
@@ -32575,6 +32624,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         built["events_path"],
         built["events_text"],
         restore_text=restore_texts.get(built["events_path"]),
+        prefer_ftp=True,
     )
     spawns_ok, spawns_message = upload_protected_ce_file_to_nitrado(
         config,
@@ -32582,6 +32632,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         built["spawns_path"],
         built["spawns_text"],
         restore_text=restore_texts.get(built["spawns_path"]),
+        prefer_ftp=True,
     )
     messages.append(f"`events.xml`: {events_message}")
     messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
@@ -32594,6 +32645,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             built["spawnabletypes_path"],
             built["spawnabletypes_text"],
             restore_text=restore_texts.get(built["spawnabletypes_path"]),
+            prefer_ftp=True,
         )
         messages.append(f"`cfgspawnabletypes.xml`: {spawnable_message}")
 
@@ -32605,6 +32657,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             built["eventgroups_path"],
             built["eventgroups_text"],
             restore_text=restore_texts.get(built["eventgroups_path"]),
+            prefer_ftp=True,
         )
         messages.append(f"`cfgeventgroups.xml`: {eventgroups_message}")
 
@@ -32616,6 +32669,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             built["mapgroupproto_path"],
             built["mapgroupproto_text"],
             restore_text=restore_texts.get(built["mapgroupproto_path"]),
+            prefer_ftp=True,
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
@@ -32683,6 +32737,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 built["cfgenvironment_path"],
                 cfgenvironment_text,
                 restore_text=restore_texts.get(built["cfgenvironment_path"]),
+                prefer_ftp=True,
             )
             messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
 
@@ -32694,6 +32749,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             built["cfgareaeffects_path"],
             built["cfgareaeffects_text"],
             restore_text=restore_texts.get(built["cfgareaeffects_path"]),
+            prefer_ftp=True,
         )
         messages.append(f"`cfgareaeffects.xml`: {cfgareaeffects_message}")
 
@@ -32710,6 +32766,11 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     if success:
         final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
         messages.extend(final_bundle_messages)
+        if not final_bundle_ok:
+            rollback_ok, rollback_messages = restore_console_ce_bundle_from_memory(config, built)
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore every linked XML file. Check Nitrado file manager before restarting.")
         success = success and final_bundle_ok
     if success:
         settings = console_ce_event_config(config)

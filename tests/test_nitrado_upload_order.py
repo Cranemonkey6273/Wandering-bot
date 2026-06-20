@@ -214,6 +214,78 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("Restore attempted", message)
         self.assertEqual(["upload", "verify", "restore"], self.calls)
 
+    def test_native_ce_upload_rolls_back_when_final_bundle_mismatches(self):
+        original_build = bot.build_console_ce_event_files
+        original_validate = bot.validate_console_ce_xml_bundle
+        original_backup = bot.backup_remote_ce_sources_before_upload
+        original_upload = bot.upload_protected_ce_file_to_nitrado
+        original_final = bot.verify_uploaded_console_ce_xml_bundle
+        original_rollback = bot.restore_console_ce_bundle_from_memory
+        try:
+            built = {
+                "messages": ["built"],
+                "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                "events_text": "<events></events>",
+                "spawns_path": "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+                "spawns_text": "<eventposdef></eventposdef>",
+                "restore_texts": {
+                    "/dayzxb_missions/dayzOffline.enoch/db/events.xml": "<events><event name=\"old\" /></events>",
+                    "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml": "<eventposdef><event name=\"old\" /></eventposdef>",
+                },
+            }
+
+            def build(*_args, **_kwargs):
+                self.calls.append("build")
+                return built
+
+            def validate(_built):
+                self.calls.append("validate")
+                return True, ["validated"]
+
+            def backup(*_args):
+                self.calls.append("backup")
+                return True, ["backed up"]
+
+            def upload(_config, label, _path, _text, restore_text=None, prefer_ftp=False):
+                self.calls.append(("upload", label, bool(restore_text), prefer_ftp))
+                return True, f"{label} uploaded"
+
+            def final_verify(*_args):
+                self.calls.append("final")
+                return False, ["Final remote CE bundle verification failed after upload.", "mixed names"]
+
+            def rollback(_config, _built):
+                self.calls.append("rollback")
+                return True, ["rollback restored"]
+
+            bot.build_console_ce_event_files = build
+            bot.validate_console_ce_xml_bundle = validate
+            bot.backup_remote_ce_sources_before_upload = backup
+            bot.upload_protected_ce_file_to_nitrado = upload
+            bot.verify_uploaded_console_ce_xml_bundle = final_verify
+            bot.restore_console_ce_bundle_from_memory = rollback
+
+            ok, _built, messages = bot.upload_console_ce_event_files(123, {})
+
+            self.assertFalse(ok)
+            self.assertIn("rollback restored", messages)
+            self.assertEqual([
+                "build",
+                "validate",
+                "backup",
+                ("upload", "events.xml", True, True),
+                ("upload", "cfgeventspawns.xml", True, True),
+                "final",
+                "rollback",
+            ], self.calls)
+        finally:
+            bot.build_console_ce_event_files = original_build
+            bot.validate_console_ce_xml_bundle = original_validate
+            bot.backup_remote_ce_sources_before_upload = original_backup
+            bot.upload_protected_ce_file_to_nitrado = original_upload
+            bot.verify_uploaded_console_ce_xml_bundle = original_final
+            bot.restore_console_ce_bundle_from_memory = original_rollback
+
     def test_verified_ftp_write_rechecks_same_file_via_ftp_not_api(self):
         def ftp_upload(_config, path, _text):
             self.calls.append(("upload_ftp", path))
