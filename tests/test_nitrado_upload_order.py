@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -242,6 +243,70 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertIn("only WanderingBot-managed", message)
+
+    def test_scope_guard_allows_old_tier4_airdrop_proto_replacement(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="WoodenCrate" lootmax="80">
+        <value name="Tier4" />
+        <container name="lootFloor" lootmax="0" />
+    </group>
+</prototype>
+"""
+        root = ET.fromstring(original)
+        _changed, removed_groups, removed_values = bot.cleanup_stale_mapgroupproto_airdrop_nodes(root)
+        self.assertEqual(1, removed_groups)
+        self.assertEqual(0, removed_values)
+
+        merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <!-- Wandering Bot: managed mapgroupproto group WoodenCrate -->
+    <group name="WoodenCrate">
+        <container name="lootFloor" lootmax="80">
+            <category name="weapons" />
+            <category name="explosives" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" flags="32" />
+        </container>
+    </group>
+</prototype>
+"""
+
+        ok, message = bot.validate_managed_ce_xml_scope("mapgroupproto.xml", original, merged)
+
+        self.assertTrue(ok)
+        self.assertIn("only WanderingBot-managed", message)
+
+    def test_scope_guard_blocks_real_woodencrate_proto_changes(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="WoodenCrate">
+        <container name="lootFloor" lootmax="80">
+            <category name="tools" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" flags="32" />
+        </container>
+    </group>
+</prototype>
+"""
+        merged = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="WoodenCrate">
+        <container name="lootFloor" lootmax="80">
+            <category name="tools" />
+            <category name="weapons" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" flags="32" />
+        </container>
+    </group>
+</prototype>
+"""
+
+        ok, message = bot.validate_managed_ce_xml_scope("mapgroupproto.xml", original, merged)
+
+        self.assertFalse(ok)
+        self.assertIn("non-WanderingBot", message)
+        self.assertIn("WoodenCrate", message)
 
     def test_scope_guard_success_messages_do_not_fail_bundle_validation(self):
         events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

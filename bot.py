@@ -28967,7 +28967,7 @@ def is_wandering_scope_node(node):
     for attr in ("name", "path", "usable"):
         if is_wandering_managed_name(node.get(attr)):
             return True
-    if mapgroupproto_group_looks_like_legacy_bare_airdrop_proto(node):
+    if mapgroupproto_group_looks_like_old_airdrop_proto(node):
         return True
     if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
         return True
