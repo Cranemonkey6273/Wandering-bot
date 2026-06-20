@@ -27862,6 +27862,11 @@ CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
 STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde", "vehicle_spawn"}
+SCENARIO_START_SPEED_OPTIONS = {
+    "fast": "Fast after restart",
+    "normal": "Normal CE timing",
+    "slow": "Delayed / cautious",
+}
 CONSOLE_CE_ZONE_SPAWN_FAMILIES = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Trajectory")
 LEGACY_WANDERING_CE_NAMES = {
     "Event_JINXADA",
@@ -30413,6 +30418,69 @@ def build_animal_territory_text(record):
     return xml_text_from_root(root)
 
 
+def scenario_start_speed_key(event):
+    key = normalize_discord_name((event or {}).get("start_speed") or (event or {}).get("spawn_delay") or "fast")
+    return key if key in SCENARIO_START_SPEED_OPTIONS else "fast"
+
+
+def scenario_start_speed_label(event):
+    key = scenario_start_speed_key(event)
+    return SCENARIO_START_SPEED_OPTIONS.get(key, SCENARIO_START_SPEED_OPTIONS["fast"])
+
+
+def scenario_speed_defaults(event_type, event, use_eventgroup=False):
+    speed = scenario_start_speed_key(event)
+    radius = safe_int((event or {}).get("radius"), 70)
+    if event_type in {"airdrop", "loot_crate"}:
+        normal = {
+            "restock": 0,
+            "saferadius": 0,
+            "distanceradius": 25,
+            "cleanupradius": max(100, min(1500, radius * 4)),
+        }
+    elif event_type == "vehicle_spawn":
+        normal = {
+            "restock": 0,
+            "saferadius": 500,
+            "distanceradius": 500,
+            "cleanupradius": 200,
+        }
+    elif event_type in {"zombie_horde", "animal_pack"}:
+        normal = {
+            "restock": 0,
+            "saferadius": 0,
+            "distanceradius": 0,
+            "cleanupradius": 100,
+        }
+    else:
+        normal = {
+            "restock": 3600 if use_eventgroup else 0,
+            "saferadius": 0,
+            "distanceradius": 1000 if use_eventgroup else 0,
+            "cleanupradius": 1500 if use_eventgroup else 100,
+        }
+
+    if speed == "normal":
+        return normal
+    if speed == "slow":
+        return {
+            **normal,
+            "restock": max(normal["restock"], 600),
+            "saferadius": max(normal["saferadius"], 250),
+            "distanceradius": max(normal["distanceradius"], 750),
+        }
+    fast = dict(normal)
+    fast["restock"] = 0
+    fast["saferadius"] = 0
+    if event_type == "vehicle_spawn":
+        fast["distanceradius"] = 25
+    elif event_type in {"zombie_horde", "animal_pack"}:
+        fast["distanceradius"] = 0
+    elif event_type in {"airdrop", "loot_crate"}:
+        fast["distanceradius"] = min(fast["distanceradius"], 25)
+    return fast
+
+
 def console_ce_records_for_event(event):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
@@ -30526,37 +30594,23 @@ def console_ce_records_for_event(event):
         family = "ContaminatedArea"
         limit_type = "child"
 
-    restock_default = 0 if event_type in {"airdrop", "loot_crate", "vehicle_spawn", "zombie_horde", "animal_pack"} else (3600 if use_eventgroup else 0)
-    restock = max(0, min(3888000, safe_int(event.get("restock"), restock_default)))
+    speed_defaults = scenario_speed_defaults(event_type, event, use_eventgroup=use_eventgroup)
+    restock = max(0, min(3888000, safe_int(event.get("restock"), speed_defaults["restock"])))
     if event_type in {"airdrop", "loot_crate"} and restock == 3600:
         restock = 0
-    saferadius_default = 500 if event_type == "vehicle_spawn" else 0
-    saferadius = max(0, min(5000, safe_int(event.get("saferadius"), saferadius_default)))
-    if event_type == "vehicle_spawn" and saferadius == 0:
-        saferadius = saferadius_default
-    if event_type in {"airdrop", "loot_crate"}:
-        distanceradius_default = 25
-        cleanupradius_default = max(100, min(1500, safe_int(event.get("radius"), 70) * 4))
-    elif event_type == "vehicle_spawn":
-        distanceradius_default = 500
-        cleanupradius_default = 200
-    else:
-        distanceradius_default = 1000 if use_eventgroup else 0
-        cleanupradius_default = 1500 if use_eventgroup else 100
-    distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), distanceradius_default)))
-    cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), cleanupradius_default)))
+    saferadius = max(0, min(5000, safe_int(event.get("saferadius"), speed_defaults["saferadius"])))
+    distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), speed_defaults["distanceradius"])))
+    cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), speed_defaults["cleanupradius"])))
     if event_type in {"airdrop", "loot_crate"}:
         if distanceradius in {0, 1000}:
-            distanceradius = distanceradius_default
+            distanceradius = speed_defaults["distanceradius"]
         if cleanupradius == 1500:
-            cleanupradius = cleanupradius_default
-    elif event_type == "vehicle_spawn" and distanceradius == 0:
-        distanceradius = distanceradius_default
+            cleanupradius = speed_defaults["cleanupradius"]
     elif event_type == "vehicle_spawn":
-        if distanceradius < distanceradius_default:
-            distanceradius = distanceradius_default
-        if cleanupradius < cleanupradius_default:
-            cleanupradius = cleanupradius_default
+        if scenario_start_speed_key(event) != "fast" and distanceradius < speed_defaults["distanceradius"]:
+            distanceradius = speed_defaults["distanceradius"]
+        if cleanupradius < speed_defaults["cleanupradius"]:
+            cleanupradius = speed_defaults["cleanupradius"]
 
     record_name = vanilla_animal_name if event_type == "animal_pack" else ce_event_name(event, family=family)
     record = {
@@ -30584,6 +30638,7 @@ def console_ce_records_for_event(event):
         "saferadius": saferadius,
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
+        "start_speed": scenario_start_speed_key(event),
         "remove_damaged": event_type == "vehicle_spawn",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES and event_type != "animal_pack",
         "use_existing_definition": event_type == "animal_pack",
@@ -38460,6 +38515,7 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
     spawn_preset="Specific infected, animal, loot, or custom classname",
     count="How many to spawn. Crates usually use 1.",
     radius="Spread spawns around the location in metres",
+    start_speed="How quickly CE should try this after restart",
     permanent="True keeps spawning every restart. False is one restart only.",
     loot_preset="Loot to put inside crates/airdrops where possible",
     custom_class="Required only if spawn_preset is custom",
@@ -38478,6 +38534,10 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
     loot_preset=[
         app_commands.Choice(name=label, value=value)
         for label, value in SCENARIO_LOOT_PRESET_OPTIONS
+    ],
+    start_speed=[
+        app_commands.Choice(name=label, value=value)
+        for value, label in SCENARIO_START_SPEED_OPTIONS.items()
     ]
 )
 @app_commands.autocomplete(
@@ -38491,6 +38551,7 @@ async def event_create(
     spawn_preset: str,
     count: int,
     radius: int = 25,
+    start_speed: str = "fast",
     permanent: bool = False,
     loot_preset: str = "none",
     custom_class: str = "",
@@ -38565,6 +38626,7 @@ async def event_create(
         "map": map_key,
         "count": count,
         "radius": radius,
+        "start_speed": scenario_start_speed_key({"start_speed": start_speed}),
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
         "gas_lifetime": 3888000 if permanent else 1800,
@@ -38587,6 +38649,7 @@ async def event_create(
     embed.add_field(name="Mode", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Class", value=f"`{class_name}`", inline=False)
     embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Start Speed", value=scenario_start_speed_label(event_record), inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
     embed.add_field(name="Loot", value=f"`{loot_key}`" if event_record["loot"] else "None", inline=True)
     embed.add_field(
@@ -38605,12 +38668,17 @@ async def event_create(
     zombie_preset="Zombie/infected class to spawn",
     count="How many infected to spawn",
     radius="Spread around the location in metres",
+    start_speed="How quickly CE should try this after restart",
     restarts="How many restarts to run. Use 0 for forever.",
     custom_class="Required only if zombie_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
     y="Optional height coordinate"
 )
+@app_commands.choices(start_speed=[
+    app_commands.Choice(name=label, value=value)
+    for value, label in SCENARIO_START_SPEED_OPTIONS.items()
+])
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
     zombie_preset=scenario_zombie_autocomplete,
@@ -38621,6 +38689,7 @@ async def event_horde(
     zombie_preset: str,
     count: int,
     radius: int = 45,
+    start_speed: str = "fast",
     restarts: int = 1,
     custom_class: str = "",
     x: str = "",
@@ -38666,6 +38735,7 @@ async def event_horde(
         "map": map_key,
         "count": count,
         "radius": radius,
+        "start_speed": scenario_start_speed_key({"start_speed": start_speed}),
         "loot_preset": "none",
         "loot": [],
         **restart_count_fields(restarts),
@@ -38687,6 +38757,7 @@ async def event_horde(
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Zombie Class", value=f"`{class_name}`", inline=False)
     embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Start Speed", value=scenario_start_speed_label(event_record), inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
@@ -38699,12 +38770,17 @@ async def event_horde(
     animal_preset="Animal class to spawn",
     count="How many animals to spawn",
     radius="Spread around the location in metres",
+    start_speed="How quickly the animal territory should become active after restart",
     restarts="How many restarts to run. Use 0 for forever.",
     custom_class="Required only if animal_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
     y="Optional height coordinate"
 )
+@app_commands.choices(start_speed=[
+    app_commands.Choice(name=label, value=value)
+    for value, label in SCENARIO_START_SPEED_OPTIONS.items()
+])
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
     animal_preset=scenario_animal_autocomplete,
@@ -38715,6 +38791,7 @@ async def event_animals(
     animal_preset: str,
     count: int,
     radius: int = 75,
+    start_speed: str = "fast",
     restarts: int = 1,
     custom_class: str = "",
     x: str = "",
@@ -38760,6 +38837,7 @@ async def event_animals(
         "map": map_key,
         "count": count,
         "radius": radius,
+        "start_speed": scenario_start_speed_key({"start_speed": start_speed}),
         "loot_preset": "none",
         "loot": [],
         **restart_count_fields(restarts),
@@ -38781,6 +38859,7 @@ async def event_animals(
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Animal Class", value=f"`{class_name}`", inline=False)
     embed.add_field(name="Count / Spread", value=f"`{count}` within `{radius}m`", inline=True)
+    embed.add_field(name="Start Speed", value=scenario_start_speed_label(event_record), inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
@@ -38792,6 +38871,7 @@ async def event_animals(
     location="Preset location or custom coordinates",
     vehicle_preset="Vehicle to spawn",
     condition="Whether the vehicle spawns full or without parts",
+    start_speed="How quickly CE should try this after restart",
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
     custom_class="Required only if vehicle_preset is custom",
@@ -38803,6 +38883,9 @@ async def event_animals(
     app_commands.Choice(name="Full vehicle", value="full"),
     app_commands.Choice(name="Without parts", value="no_parts"),
     app_commands.Choice(name="Random common parts", value="random_parts"),
+], start_speed=[
+    app_commands.Choice(name=label, value=value)
+    for value, label in SCENARIO_START_SPEED_OPTIONS.items()
 ])
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
@@ -38813,6 +38896,7 @@ async def event_vehicle(
     location: str,
     vehicle_preset: str,
     condition: str = "full",
+    start_speed: str = "fast",
     restarts: int = 1,
     permanent: bool = False,
     custom_class: str = "",
@@ -38855,9 +38939,7 @@ async def event_vehicle(
         "map": map_key,
         "count": 1,
         "radius": 45,
-        "saferadius": 500,
-        "distanceradius": 500,
-        "cleanupradius": 200,
+        "start_speed": scenario_start_speed_key({"start_speed": start_speed}),
         "loot_preset": "none",
         "loot": [],
         "vehicle_condition": condition,
@@ -38880,6 +38962,7 @@ async def event_vehicle(
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Vehicle", value=f"`{class_name}`", inline=False)
     embed.add_field(name="Condition", value=SCENARIO_VEHICLE_CONDITIONS[condition], inline=False)
+    embed.add_field(name="Start Speed", value=scenario_start_speed_label(event_record), inline=True)
     embed.add_field(name="Location", value=f"{location_data['name']}\n`{location_data['x']} {location_data['y']} {location_data['z']}`", inline=False)
     embed.add_field(name="Controls", value="Use `/events list`, `/events disable`, `/events enable`, or `/events delete`.", inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -38891,6 +38974,7 @@ async def event_vehicle(
 @app_commands.describe(
     location="Preset location or custom coordinates",
     loot_preset="Pick which CE loot tags/categories the airdrop should use.",
+    start_speed="How quickly CE should try this after restart",
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
     visual_marker="Spawn a crash/debris object with ground loot around it",
@@ -38908,6 +38992,9 @@ async def event_vehicle(
 @app_commands.choices(loot_preset=[
     app_commands.Choice(name=label, value=value)
     for label, value in SCENARIO_LOOT_PRESET_OPTIONS
+], start_speed=[
+    app_commands.Choice(name=label, value=value)
+    for value, label in SCENARIO_START_SPEED_OPTIONS.items()
 ])
 @app_commands.choices(scene_type=[
     app_commands.Choice(name="Compact crater", value="compact_crater"),
@@ -38924,6 +39011,7 @@ async def event_airdrop(
     interaction: discord.Interaction,
     location: str,
     loot_preset: str = "military_high",
+    start_speed: str = "fast",
     restarts: int = 1,
     permanent: bool = False,
     visual_marker: bool = True,
@@ -38989,6 +39077,7 @@ async def event_airdrop(
         "map": map_key,
         "count": 1,
         "radius": scene_radius,
+        "start_speed": scenario_start_speed_key({"start_speed": start_speed}),
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
         "visual_marker": bool(visual_marker),
@@ -39015,6 +39104,7 @@ async def event_airdrop(
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Ground loot anchor", value=f"`{airdrop_class}`", inline=True)
+    embed.add_field(name="Start Speed", value=scenario_start_speed_label(event_record), inline=True)
     embed.add_field(name="Loot", value=f"`{loot_key}` ({len(event_record['loot'])} item types)", inline=True)
     embed.add_field(name="Marker", value="On" if visual_marker else "Off", inline=True)
     embed.add_field(name="Scene", value=SCENARIO_AIRDROP_SCENES[scene_type]["label"] if visual_marker else "Off", inline=True)

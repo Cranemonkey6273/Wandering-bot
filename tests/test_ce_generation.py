@@ -260,8 +260,8 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         event_node = events_root.find("event")
         self.assertIsNotNone(event_node)
         self.assertEqual(event_node.findtext("limit"), "mixed")
-        self.assertEqual(event_node.findtext("saferadius"), "500")
-        self.assertEqual(event_node.findtext("distanceradius"), "500")
+        self.assertEqual(event_node.findtext("saferadius"), "0")
+        self.assertEqual(event_node.findtext("distanceradius"), "25")
         self.assertEqual(event_node.findtext("cleanupradius"), "200")
         self.assertEqual(event_node.find("flags").get("remove_damaged"), "1")
         child = event_node.find("children/child")
@@ -277,6 +277,17 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         self.assertGreater(len({(pos.get("x"), pos.get("z")) for pos in positions}), 1)
         for pos in positions:
             self.assertNotIn("y", pos.attrib)
+
+    def test_vehicle_start_speed_normal_keeps_cautious_distances(self):
+        event = _base_event(31, "vehicle_spawn", "Hatchback_02", start_speed="normal")
+        record, events_root, _spawns_root = self._build_event(event)
+
+        self.assertEqual(record.get("start_speed"), "normal")
+        event_node = events_root.find("event")
+        self.assertIsNotNone(event_node)
+        self.assertEqual(event_node.findtext("saferadius"), "500")
+        self.assertEqual(event_node.findtext("distanceradius"), "500")
+        self.assertEqual(event_node.findtext("cleanupradius"), "200")
 
     def test_zombie_horde_has_zone_block_no_y(self):
         event = _base_event(
