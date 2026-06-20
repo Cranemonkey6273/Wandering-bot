@@ -169,21 +169,22 @@ class GeneratorBundleValidationTests(unittest.TestCase):
     def test_validator_rejects_missing_mapgroupproto_entry(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
-        # Strip mapgroupproto group for WoodenCrate
+        # Strip mapgroupproto group for the retired-crate airdrop anchor.
         for group in list(mapgroupproto_root.findall("group")):
-            if (group.get("name") or "").strip() == "WoodenCrate":
+            if (group.get("name") or "").strip() == "Wreck_Mi8_Crashed":
                 mapgroupproto_root.remove(group)
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
             report = validate_bundle(tmpdir)
             self.assertFalse(report.ok())
-            self.assertTrue(any("No group configured for 'WoodenCrate'" in err for err in report.errors))
+            self.assertTrue(any("No group configured for 'Wreck_Mi8_Crashed'" in err for err in report.errors))
 
     def test_validator_rejects_bare_mapgroupproto_entry(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        eventgroups_root.find("group/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
         for group in mapgroupproto_root.findall("group"):
-            if (group.get("name") or "").strip() == "WoodenCrate":
+            if (group.get("name") or "").strip() == "Wreck_Mi8_Crashed":
                 for child in list(group):
                     group.remove(child)
                 group.attrib.pop("lootmax", None)
@@ -191,13 +192,14 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
             report = validate_bundle(tmpdir)
             self.assertFalse(report.ok())
-            self.assertTrue(any("No group configured for 'WoodenCrate'" in err for err in report.errors))
+            self.assertTrue(any("no usable loot container/point" in err for err in report.errors))
 
     def test_validator_rejects_mapgroupproto_container_without_floor_tag(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        eventgroups_root.find("group/child[@type='Wreck_Mi8_Crashed']").set("lootmax", "5")
         for group in mapgroupproto_root.findall("group"):
-            if (group.get("name") or "").strip() == "WoodenCrate":
+            if (group.get("name") or "").strip() == "Wreck_Mi8_Crashed":
                 for tag in list(group.findall("./container/tag")):
                     group.find("container").remove(tag)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -212,6 +214,8 @@ class GeneratorBundleValidationTests(unittest.TestCase):
         # Inject the live RPT regression: every eventgroup child is marked as a
         # secondary scene prop, leaving DayZ with no positive child max/lootmax.
         for child in eventgroups_root.findall("group/child"):
+            child.attrib.pop("min", None)
+            child.attrib.pop("max", None)
             child.attrib.pop("lootmin", None)
             child.attrib.pop("lootmax", None)
             child.attrib.pop("deloot", None)

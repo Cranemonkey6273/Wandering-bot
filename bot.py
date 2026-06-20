@@ -27653,13 +27653,13 @@ SCENARIO_SPAWN_PRESETS = {
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
-    "military_crate": {"label": "Military loot", "class": "WoodenCrate", "event_type": "airdrop"},
-    "wooden_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "military_crate": {"label": "Military ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
+    "wooden_crate": {"label": "Survival ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
     "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "airdrop"},
     "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "airdrop"},
-    "medical_crate": {"label": "Medical loot", "class": "WoodenCrate", "event_type": "airdrop"},
-    "survival_crate": {"label": "Survival loot", "class": "WoodenCrate", "event_type": "airdrop"},
-    "building_crate": {"label": "Building loot", "class": "WoodenCrate", "event_type": "airdrop"},
+    "medical_crate": {"label": "Medical ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
+    "survival_crate": {"label": "Survival ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
+    "building_crate": {"label": "Building ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
     "gas_temp": {"label": "Temporary gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120},
     "gas_permanent": {"label": "Permanent gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150},
     "gas_red_temp": {"label": "Temporary red gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 120, "gas_particle": "debug"},
@@ -27724,6 +27724,12 @@ SCENARIO_VEHICLE_CONDITIONS = {
 }
 
 SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
+SCENARIO_AIRDROP_RETIRED_ANCHOR_CLASSES = {
+    "staticobj_misc_woodencrate_5x",
+    "woodencrate",
+    "supplycrate",
+    "crate",
+}
 
 SCENARIO_AIRDROP_SCENES = {
     "compact_crater": {
@@ -29628,6 +29634,20 @@ def scenario_airdrop_primary_static_child(event, class_name):
     return str(class_name or "").strip()
 
 
+def scenario_airdrop_anchor_class(event, class_name):
+    class_name = str(class_name or "").strip()
+    marker_class = str(
+        scenario_airdrop_scene_config(event).get("marker")
+        or event.get("marker_class")
+        or SCENARIO_AIRDROP_MARKER_CLASS
+    ).strip()
+    if str(class_name or "").strip().lower() in SCENARIO_AIRDROP_RETIRED_ANCHOR_CLASSES:
+        return marker_class or SCENARIO_AIRDROP_MARKER_CLASS
+    if event.get("visual_marker") and marker_class:
+        return marker_class
+    return class_name or marker_class or SCENARIO_AIRDROP_MARKER_CLASS
+
+
 def scenario_airdrop_child_offsets(index, radius=35, max_spread=None):
     try:
         radius_value = float(radius or 35)
@@ -29646,7 +29666,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
     children = []
 
     scene = scenario_airdrop_scene_config(event)
-    marker_class = str(scene.get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
+    marker_class = scenario_airdrop_anchor_class(event, class_name)
     guard_class = str(event.get("guard_class") or "").strip()
     guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
     guard_radius = max(5, min(500, safe_int(event.get("guard_radius"), event.get("radius") or 35)))
@@ -29663,9 +29683,40 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "y": "0.0",
             })
 
+    def append_ground_loot_children():
+        ground_loot = scenario_airdrop_ground_loot_items(event)
+        if not ground_loot:
+            return
+        ground_spread = max(4, safe_int(scene.get("ground_spread"), max(12, min(35, safe_int(event.get("radius"), 18)))))
+        for index, item_name in enumerate(ground_loot[:36]):
+            item_name = str(item_name or "").strip()
+            if not item_name:
+                continue
+            loot_x, loot_z = scenario_airdrop_child_offsets(index, ground_spread, max_spread=ground_spread)
+            children.append({
+                "type": item_name,
+                "spawnsecondary": "false",
+                "x": ce_decimal(loot_x),
+                "z": ce_decimal(loot_z),
+                "a": "0.0",
+                "y": "0.0",
+            })
+
     if event.get("visual_marker") and marker_class:
         children.append({
             "type": marker_class,
+            "x": "0.0",
+            "z": "0.0",
+            "a": "0.0",
+            "y": "0.0",
+            "min": 1,
+            "max": 1,
+            "lootmin": 0,
+            "lootmax": 0,
+        })
+        children.append({
+            "type": marker_class,
+            "spawnsecondary": "false",
             "x": "0.0",
             "z": "0.0",
             "a": "0.0",
@@ -29680,6 +29731,7 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "z": scene_prop["z"],
                 "a": scene_prop["a"],
             })
+        append_ground_loot_children()
         append_guard_children()
         return children
 
@@ -29692,7 +29744,12 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "z": crate_z,
         "a": "0.0",
         "y": "0.0",
+        "min": 1,
+        "max": 1,
+        "lootmin": 0,
+        "lootmax": 0,
     })
+    append_ground_loot_children()
     append_guard_children()
     return children
 
@@ -29721,8 +29778,12 @@ def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax
             attrs["spawnsecondary"] = str(child_record.get("spawnsecondary"))
         else:
             attrs["deloot"] = "1"
+            if "min" in child_record:
+                attrs["min"] = str(max(0, int(child_record.get("min") or 0)))
+            if "max" in child_record:
+                attrs["max"] = str(max(0, int(child_record.get("max") or 0)))
             attrs["lootmin"] = str(max(0, int(child_record.get("lootmin", lootmin) or 0)))
-            attrs["lootmax"] = str(max(1, int(child_record.get("lootmax", lootmax) or 1)))
+            attrs["lootmax"] = str(max(0, int(child_record.get("lootmax", lootmax) or 0)))
         ET.SubElement(group_node, "child", attrs)
     return group_node
 
@@ -30387,6 +30448,8 @@ def console_ce_records_for_event(event):
 
     if event_type in {"airdrop", "loot_crate"}:
         class_name = scenario_container_class_for_ce(class_name)
+        if event_type == "airdrop":
+            class_name = scenario_airdrop_anchor_class(event, class_name)
         min_scene_radius = scenario_airdrop_scene_min_radius(event) if event.get("visual_marker") else 0
         if min_scene_radius:
             event["radius"] = max(safe_int(event.get("radius"), 35), min_scene_radius)
@@ -30566,7 +30629,7 @@ def console_ce_records_for_event(event):
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
             warnings.append(
                 f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
-                "Native CE will deploy the scene, lootFloor proto, and any infected guards through one fixed Static dynamic event."
+                "Native CE will deploy the terrain-aligned scene, direct ground loot, and any infected guards through one fixed Static dynamic event."
             )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
@@ -31356,7 +31419,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             except Exception:
                 group_child_max = 0
             group_child_max_values.append(max(group_lootmax, group_child_max))
-            if group_lootmax <= 0 and not is_static_scene_prop:
+            if group_lootmax <= 0 and group_child_max <= 0 and not is_static_scene_prop:
                 messages.append(f"`{name}` eventgroup child `{child_type or 'unknown'}` has `lootmax` 0.")
             if group_lootmax > 0 and not is_static_scene_prop and child_type in proto_nodes:
                 proto_node = proto_nodes[child_type]
@@ -38254,7 +38317,7 @@ events_group = app_commands.Group(
 )
 
 SCENARIO_LOOT_PRESET_OPTIONS = [
-    ("None - empty crate", "none"),
+    ("None - no ground loot", "none"),
     ("Military - balanced weapons/ammo/meds", "military"),
     ("Military high tier - rare weapons/armor/NVG", "military_high"),
     ("Medical - meds and healing supplies", "medical"),
@@ -38264,7 +38327,7 @@ SCENARIO_LOOT_PRESET_OPTIONS = [
 ]
 
 SCENARIO_CRATE_CLASS_OPTIONS = [
-    ("Wooden crate - default stash crate", "WoodenCrate"),
+    ("Helicopter wreck - ground loot anchor", "Wreck_Mi8_Crashed"),
     ("Sea chest - large storage chest", "SeaChest"),
     ("Barrel green - persistent barrel", "Barrel_Green"),
     ("Barrel blue - persistent barrel", "Barrel_Blue"),
@@ -38819,13 +38882,13 @@ async def event_vehicle(
     loot_preset="Pick which CE loot tags/categories the airdrop should use.",
     restarts="How many restarts to run. Use 0 for forever.",
     permanent="Legacy override: true means forever",
-    visual_marker="Spawn a crash/debris object as the lootFloor anchor",
+    visual_marker="Spawn a crash/debris object with ground loot around it",
     scene_type="Visual scene to place around the airdrop when marker is on",
     zombie_guards="Spawn infected guards around the airdrop",
     guard_preset="Guard infected type",
     guard_count="How many guards to spawn",
     guard_radius="Guard spread around the airdrop in metres",
-    crate_class="Container to spawn. WoodenCrate is safest unless you know another classname.",
+    crate_class="Optional non-crate anchor classname when the visual scene is off.",
     custom_guard_class="Required only if guard_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
@@ -38858,7 +38921,7 @@ async def event_airdrop(
     guard_preset: str = "military_zombie",
     guard_count: int = 8,
     guard_radius: int = 35,
-    crate_class: str = "WoodenCrate",
+    crate_class: str = "Wreck_Mi8_Crashed",
     custom_guard_class: str = "",
     x: str = "",
     z: str = "",
@@ -38877,9 +38940,9 @@ async def event_airdrop(
         await interaction.followup.send(location_error, ephemeral=True)
         return
 
-    crate_class = str(crate_class or "WoodenCrate").strip()[:80]
+    crate_class = str(crate_class or SCENARIO_AIRDROP_MARKER_CLASS).strip()[:80]
     if not crate_class:
-        await interaction.followup.send("Provide a crate/container classname.", ephemeral=True)
+        await interaction.followup.send("Provide an anchor classname.", ephemeral=True)
         return
 
     loot_key = loot_preset if loot_preset in SCENARIO_LOOT_PRESETS else "military_high"
@@ -38940,7 +39003,7 @@ async def event_airdrop(
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
-    embed.add_field(name="Loot anchor", value=f"`{airdrop_class}`", inline=True)
+    embed.add_field(name="Ground loot anchor", value=f"`{airdrop_class}`", inline=True)
     embed.add_field(name="Loot", value=f"`{loot_key}` ({len(event_record['loot'])} item types)", inline=True)
     embed.add_field(name="Marker", value="On" if visual_marker else "Off", inline=True)
     embed.add_field(name="Scene", value=SCENARIO_AIRDROP_SCENES[scene_type]["label"] if visual_marker else "Off", inline=True)

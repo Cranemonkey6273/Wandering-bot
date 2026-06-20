@@ -140,7 +140,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         )
 
     def test_eventgroup_carries_real_object_class(self):
-        """The actual crate / scene object must live in cfgeventgroups.xml,
+        """The actual scene object must live in cfgeventgroups.xml,
         keyed by the event name. That is the source DayZ uses to instantiate
         the Static event scene."""
         event = _base_event(29, "airdrop", "WoodenCrate")
@@ -152,28 +152,20 @@ class AirdropEventGroupTests(unittest.TestCase):
         children = group.findall("child")
         self.assertTrue(children, "cfgeventgroups <group> must contain at least one <child>")
         types_in_group = {child.get("type") for child in children}
-        self.assertIn(
-            "WoodenCrate", types_in_group,
-            "the real loot crate class must appear inside cfgeventgroups.xml, "
-            "not in events.xml <children>",
-        )
-        crate_child = next(child for child in children if child.get("type") == "WoodenCrate")
-        self.assertNotIn(
-            "spawnsecondary",
-            crate_child.attrib,
-            "the crate must be the primary loot-bearing eventgroup child; "
-            "secondary-only children make DayZ disable the Static event.",
-        )
-        self.assertGreater(int(crate_child.get("lootmax") or 0), 0)
-        self.assertGreaterEqual(int(crate_child.get("lootmin") or 0), 0)
+        self.assertIn("Wreck_Mi8_Crashed", types_in_group)
+        self.assertNotIn("WoodenCrate", types_in_group)
+        primary_child = next(child for child in children if child.get("type") == "Wreck_Mi8_Crashed" and "spawnsecondary" not in child.attrib)
+        self.assertEqual(primary_child.get("lootmax"), "0")
+        self.assertEqual(primary_child.get("lootmin"), "0")
 
-    def test_helicopter_airdrop_uses_crash_as_loot_child_not_crate(self):
+    def test_helicopter_airdrop_uses_secondary_crash_and_ground_loot_not_crate(self):
         event = _base_event(
             32,
             "airdrop",
             "WoodenCrate",
             visual_marker=True,
             scene_type="helicopter_crash",
+            loot_preset="military_high",
         )
         record, _events, _spawns, groups_root = self._build_airdrop_event_node(event)
 
@@ -183,9 +175,15 @@ class AirdropEventGroupTests(unittest.TestCase):
         types_in_group = [child.get("type") for child in children]
         self.assertIn("Wreck_Mi8_Crashed", types_in_group)
         self.assertNotIn("WoodenCrate", types_in_group)
-        crash_child = next(child for child in children if child.get("type") == "Wreck_Mi8_Crashed")
-        self.assertNotIn("spawnsecondary", crash_child.attrib)
-        self.assertGreater(int(crash_child.get("lootmax") or 0), 0)
+        crash_children = [child for child in children if child.get("type") == "Wreck_Mi8_Crashed"]
+        self.assertTrue(any("spawnsecondary" not in child.attrib and child.get("lootmax") == "0" for child in crash_children))
+        self.assertTrue(any(child.get("spawnsecondary") == "false" for child in crash_children))
+        ground_loot_children = [
+            child for child in children
+            if child.get("spawnsecondary") == "false" and child.get("type") != "Wreck_Mi8_Crashed"
+        ]
+        self.assertGreater(len(ground_loot_children), 0)
+        self.assertTrue(any(child.get("type") in bot.SCENARIO_AIRDROP_GROUND_LOOT for child in ground_loot_children))
 
     def test_airdrop_guards_are_eventgroup_children(self):
         event = _base_event(
