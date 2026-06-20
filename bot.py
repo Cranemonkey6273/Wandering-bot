@@ -28245,7 +28245,7 @@ dayz_reference_cache = {}
 
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
 CONSOLE_CE_EVENT_PREFIX = CONSOLE_CE_EVENT_MARKER
-STABLE_CONSOLE_EVENT_TYPES = {"animal_pack", "zombie_horde"}
+STABLE_CONSOLE_EVENT_TYPES = {"airdrop", "animal_pack", "gas_zone", "loot_crate", "vehicle_spawn", "zombie_horde"}
 DELIVERY_BRIDGE_SCENARIO_TYPES = {"airdrop", "loot_crate", "animal_pack", "zombie_horde", "vehicle_spawn"}
 SCENARIO_START_SPEED_OPTIONS = {
     "fast": "Fast after restart",
@@ -29187,6 +29187,10 @@ def stable_console_event_slug(event):
     event_type = str((event or {}).get("event_type") or "").strip().lower()
     if event_type not in STABLE_CONSOLE_EVENT_TYPES:
         return ""
+    if event_type in {"airdrop", "gas_zone", "loot_crate", "vehicle_spawn"}:
+        event_id = safe_int((event or {}).get("id"), 0)
+        if event_id > 0:
+            return f"{event_id}_{normalize_discord_name(event_type) or 'event'}"[:48]
     preset = normalize_discord_name(
         (event or {}).get("preset")
         or (event or {}).get("spawn_preset")

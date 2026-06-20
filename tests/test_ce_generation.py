@@ -108,7 +108,8 @@ class AirdropEventGroupTests(unittest.TestCase):
 
         self.assertFalse(record.get("use_eventgroup"))
         self.assertFalse(record.get("empty_event_children"))
-        self.assertTrue(record["name"].endswith("_r12"))
+        self.assertEqual("StaticWanderingBot_29_airdrop", record["name"])
+        self.assertNotIn("_r", record["name"])
         event_node = events_root.find("event")
         self.assertIsNotNone(event_node)
         children_node = event_node.find("children")
@@ -250,7 +251,8 @@ class AirdropEventGroupTests(unittest.TestCase):
         records, _warnings = bot.console_ce_records_for_event(event)
         self.assertEqual(1, len(records))
         record = records[0]
-        self.assertTrue(record["name"].startswith("StaticWanderingBot_48_gaszone_"))
+        self.assertEqual("StaticWanderingBot_48_gaszone", record["name"])
+        self.assertNotIn("_r", record["name"])
         self.assertFalse(record["name"].startswith("ContaminatedAreaWanderingBot"))
         self.assertEqual("parent", record.get("limit_type"))
         self.assertEqual("ContaminatedArea_Dynamic", record["child_records"][0]["type"])

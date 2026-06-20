@@ -522,7 +522,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         original_download_ftp = bot.download_text_file_from_nitrado_ftp
         events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <events>
-    <event name="StaticWanderingBot_48_gaszone_r4">
+    <event name="StaticWanderingBot_48_gaszone">
         <nominal>1</nominal><min>1</min><max>1</max><lifetime>1800</lifetime>
         <restock>0</restock><saferadius>0</saferadius><distanceradius>80</distanceradius><cleanupradius>180</cleanupradius>
         <flags deletable="1" init_random="0" remove_damaged="0" />
@@ -533,13 +533,13 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 """
         spawns_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <eventposdef>
-    <event name="StaticWanderingBot_48_gaszone_r4">
+    <event name="StaticWanderingBot_48_gaszone">
         <zone smin="0" smax="0" dmin="1" dmax="1" r="80" />
         <pos x="5000" z="5000" a="0" />
     </event>
 </eventposdef>
 """
-        stale_spawns_xml = spawns_xml.replace("StaticWanderingBot_48_gaszone_r4", "StaticWanderingBot_48_gaszone_r2")
+        stale_spawns_xml = spawns_xml.replace("StaticWanderingBot_48_gaszone", "StaticWanderingBot_48_gaszone_r2")
         try:
             def ftp_download(_config, path, exact_only=False):
                 self.calls.append(("ftp", path, exact_only))
