@@ -236,6 +236,11 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertIsNone(pos.get("group"))
         self.assertIsNone(groups_root.find("group"))
 
+    def test_airdrop_scenes_do_not_inject_extra_vehicle_wreck_props(self):
+        for scene_key in ("cargo_plane_wreck", "convoy_wreck"):
+            scene = bot.SCENARIO_AIRDROP_SCENES[scene_key]
+            self.assertEqual([], scene.get("props"))
+
     def test_airdrop_direct_spawn_replaces_stale_grouped_spawn_pos(self):
         event = _base_event(
             49,
@@ -499,6 +504,19 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.find("point").get("flags"), "32")
         self.assertGreaterEqual(len(container.findall("point")), 8)
 
+    def test_airdrop_proto_categories_never_include_containers_or_vehicles(self):
+        event = _base_event(
+            35,
+            "airdrop",
+            "WoodenCrate",
+            loot_preset="military",
+        )
+        tags = bot.scenario_mapgroupproto_loot_tags(event)
+        categories = {str(item).lower() for item in tags.get("category") or []}
+
+        self.assertNotIn("containers", categories)
+        self.assertNotIn("vehicles", categories)
+
     def test_airdrop_secondary_infected_does_not_need_mapgroupproto(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
         event["guard_class"] = "ZmbM_SoldierNormal"
@@ -562,6 +580,25 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIsNotNone(container.find("category"))
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
+
+    def test_existing_marked_proto_group_drops_vehicle_loot_categories(self):
+        proto_root = ET.Element("prototype")
+        bot.append_wandering_xml_comment(proto_root, "managed mapgroupproto group Wreck_Mi8_Crashed")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "80"})
+        container = ET.SubElement(crash_group, "container", {"name": "lootFloor", "lootmax": "80"})
+        ET.SubElement(container, "category", {"name": "containers"})
+        ET.SubElement(container, "category", {"name": "vehicles"})
+        ET.SubElement(container, "category", {"name": "weapons"})
+
+        _, changed = bot.add_mapgroupproto_loot_group(
+            proto_root,
+            "Wreck_Mi8_Crashed",
+            tags={"usage": ["Military"], "value": ["Tier4"], "category": ["weapons", "tools"]},
+        )
+
+        self.assertTrue(changed)
+        categories = [node.get("name") for node in container.findall("category")]
+        self.assertEqual(["weapons"], categories)
 
     def test_existing_marked_proto_group_drops_obsolete_crash_usage(self):
         proto_root = ET.Element("prototype")

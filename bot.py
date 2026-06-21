@@ -28131,11 +28131,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("34", "18"),
         "ground_spread": 60,
         "marker": "Land_Wreck_C130J_Cargo",
-        "props": [
-            {"type": "StaticObj_Wreck_HMMWV_DE", "x": "18.0", "y": "0.0", "z": "-8.0", "a": "35.0"},
-            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-20.0", "y": "0.0", "z": "10.0", "a": "210.0"},
-            {"type": "StaticObj_Wreck_Ural_DE", "x": "32.0", "y": "0.0", "z": "20.0", "a": "95.0"},
-        ],
+        "props": [],
     },
     "convoy_wreck": {
         "label": "Convoy wreck",
@@ -28143,11 +28139,7 @@ SCENARIO_AIRDROP_SCENES = {
         "crate_offset": ("15", "-8"),
         "ground_spread": 32,
         "marker": "StaticObj_Wreck_HMMWV_DE",
-        "props": [
-            {"type": "StaticObj_Wreck_Uaz_DE", "x": "-16.0", "y": "0.0", "z": "4.0", "a": "8.0"},
-            {"type": "StaticObj_Wreck_Ural_DE", "x": "15.0", "y": "0.0", "z": "-5.0", "a": "184.0"},
-            {"type": "Land_Wreck_Caravan_MRust", "x": "31.0", "y": "0.0", "z": "7.0", "a": "176.0"},
-        ],
+        "props": [],
     },
 }
 
@@ -30439,12 +30431,13 @@ def cleanup_stale_mapgroupproto_airdrop_nodes(root, map_key=""):
     return changed, removed_groups, removed_values
 
 
-MAPGROUPPROTO_LOOT_CATEGORIES = ("weapons", "explosives", "tools", "clothes", "containers", "food")
+MAPGROUPPROTO_BLOCKED_LOOT_CATEGORIES = {"containers", "vehicles"}
+MAPGROUPPROTO_LOOT_CATEGORIES = ("weapons", "explosives", "tools", "clothes", "food")
 MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "military": {
         "usage": ("Military",),
         "value": ("Tier3", "Tier4"),
-        "category": ("weapons", "explosives", "tools", "clothes", "containers", "food"),
+        "category": ("weapons", "explosives", "tools", "clothes", "food"),
     },
     "military_basic": {
         "usage": ("Military", "Police"),
@@ -30454,7 +30447,7 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "military_high": {
         "usage": ("Military",),
         "value": ("Tier4",),
-        "category": ("weapons", "explosives", "tools", "clothes", "containers"),
+        "category": ("weapons", "explosives", "tools", "clothes"),
     },
     "medical": {
         "usage": ("Medic",),
@@ -30464,12 +30457,12 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "survival": {
         "usage": ("Hunting", "Village", "Town"),
         "value": ("Tier1", "Tier2"),
-        "category": ("food", "tools", "containers", "clothes"),
+        "category": ("food", "tools", "clothes"),
     },
     "building": {
         "usage": ("Industrial", "Farm"),
         "value": ("Tier1", "Tier2"),
-        "category": ("tools", "containers"),
+        "category": ("tools",),
     },
     "food": {
         "usage": ("Town", "Village", "Farm"),
@@ -30479,17 +30472,17 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "vehicle": {
         "usage": ("Industrial", "Farm"),
         "value": ("Tier2", "Tier3"),
-        "category": ("tools", "containers"),
+        "category": ("tools",),
     },
     "vehicle_car": {
         "usage": ("Industrial", "Farm"),
         "value": ("Tier2", "Tier3"),
-        "category": ("tools", "containers"),
+        "category": ("tools",),
     },
     "vehicle_truck": {
         "usage": ("Industrial", "Farm"),
         "value": ("Tier2", "Tier3"),
-        "category": ("tools", "containers"),
+        "category": ("tools",),
     },
     "weapons": {
         "usage": ("Military",),
@@ -30509,7 +30502,7 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     "bags": {
         "usage": ("Military", "Hunting", "Town"),
         "value": ("Tier2", "Tier3"),
-        "category": ("containers", "clothes"),
+        "category": ("clothes",),
     },
     "utility": {
         "usage": ("Industrial", "Town", "Village"),
@@ -30576,6 +30569,11 @@ def scenario_mapgroupproto_loot_tags(event):
         add_unique(usages, tags.get("usage"))
         add_unique(values, tags.get("value"))
         add_unique(categories, tags.get("category"))
+    categories = [
+        name
+        for name in categories
+        if str(name or "").strip().lower() not in MAPGROUPPROTO_BLOCKED_LOOT_CATEGORIES
+    ]
     if not usages:
         usages = ["Military"]
     if not values:
@@ -30653,6 +30651,13 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class
             changed = True
         if mapgroupproto_positive_int(container.get("lootmax")) <= 0:
             container.set("lootmax", target_lootmax)
+            changed = True
+
+    wanted_category_set = {name.lower() for name in wanted_categories}
+    for category_node in list(container.findall("category")):
+        category_name = str(category_node.get("name") or "").strip().lower()
+        if category_name in MAPGROUPPROTO_BLOCKED_LOOT_CATEGORIES or category_name not in wanted_category_set:
+            container.remove(category_node)
             changed = True
 
     if not container.findall("category"):
