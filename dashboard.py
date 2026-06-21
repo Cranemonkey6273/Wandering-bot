@@ -110,30 +110,30 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
         {"name": "Zelenogorsk", "x": 2520, "z": 5140},
     ],
     "livonia": [
-        {"name": "Lukow Airfield", "x": 3800, "z": 11700},
-        {"name": "Brena", "x": 6700, "z": 11200},
-        {"name": "Nadbor", "x": 6100, "z": 4100},
-        {"name": "Topolin", "x": 10800, "z": 7900},
-        {"name": "Sobotka", "x": 6350, "z": 8200},
-        {"name": "Polana", "x": 10700, "z": 5400},
-        {"name": "Tarnow", "x": 9200, "z": 10450},
+        {"name": "Lukow Airfield", "x": 4064, "z": 10224},
+        {"name": "Brena", "x": 6600, "z": 11300},
+        {"name": "Nadbor", "x": 5306, "z": 3676},
+        {"name": "Topolin", "x": 1510, "z": 7660},
+        {"name": "Sobotka", "x": 6280, "z": 10330},
+        {"name": "Polana", "x": 3906, "z": 2211},
+        {"name": "Tarnow", "x": 9317, "z": 10861},
         {"name": "Dolnik", "x": 11350, "z": 11350},
     ],
 }
 DASHBOARD_MAP_LABELS = {
     "livonia": [
-        {"name": "Lukow", "x": 3560, "z": 11880, "kind": "major"},
-        {"name": "Brena", "x": 6660, "z": 11160, "kind": "major"},
-        {"name": "Tarnow", "x": 9200, "z": 10450, "kind": "major"},
+        {"name": "Lukow", "x": 3560, "z": 11900, "kind": "major"},
+        {"name": "Brena", "x": 6600, "z": 11300, "kind": "major"},
+        {"name": "Tarnow", "x": 9317, "z": 10861, "kind": "major"},
         {"name": "Dolnik", "x": 11350, "z": 11350, "kind": "major"},
-        {"name": "Sobotka", "x": 6350, "z": 8200, "kind": "major"},
-        {"name": "Topolin", "x": 10800, "z": 7900, "kind": "major"},
-        {"name": "Polana", "x": 10700, "z": 5400, "kind": "major"},
-        {"name": "Nadbor", "x": 6050, "z": 3920, "kind": "major"},
+        {"name": "Sobotka", "x": 6280, "z": 10330, "kind": "major"},
+        {"name": "Topolin", "x": 1510, "z": 7660, "kind": "major"},
+        {"name": "Polana", "x": 3906, "z": 2211, "kind": "major"},
+        {"name": "Nadbor", "x": 5306, "z": 3676, "kind": "major"},
         {"name": "Lembork", "x": 8500, "z": 8700, "kind": "minor"},
         {"name": "Radunin", "x": 9130, "z": 3500, "kind": "minor"},
-        {"name": "Swarog", "x": 4800, "z": 2270, "kind": "minor"},
-        {"name": "Lukow Airfield", "x": 3800, "z": 11700, "kind": "landmark"},
+        {"name": "Swarog", "x": 5424, "z": 1501, "kind": "minor"},
+        {"name": "Lukow Airfield", "x": 4064, "z": 10224, "kind": "landmark"},
     ],
     "chernarus": [
         {"name": "NWAF", "x": 4481, "z": 10355, "kind": "landmark"},
@@ -2665,7 +2665,7 @@ PAGE_TEMPLATE = """
     .flag-grid label { display: inline-flex; align-items: center; gap: .3rem; border: 1px solid var(--line); border-radius: .45rem; padding: .4rem .55rem; background: #070b08; color: var(--muted); }
     .flag-grid input { width: auto; min-height: 0; }
     .airdrop-map-tools { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
-    .airdrop-dot { position: absolute; transform: translate(-50%, -50%); z-index: 3; width: 1.4rem; height: 1.4rem; border-radius: 999px; display: grid; place-items: center; background: var(--gold); color: #080b06; border: 2px solid rgba(255,255,255,.78); font-size: .75rem; font-weight: 900; box-shadow: 0 .25rem .8rem rgba(0,0,0,.45); }
+    .airdrop-dot { position: absolute; transform: translate(-50%, -50%); z-index: 3; width: 1.4rem; height: 1.4rem; border-radius: 999px; display: grid; place-items: center; background: var(--gold); color: #080b06; border: 2px solid rgba(255,255,255,.78); font-size: .75rem; font-weight: 900; box-shadow: 0 .25rem .8rem rgba(0,0,0,.45); pointer-events: none; }
     .visual-select-grid { margin-top: .45rem; max-height: 16rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .45rem; }
     .visual-select-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; text-align: left; min-width: 0; }
     .visual-select-card.active, .visual-select-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -5682,81 +5682,104 @@ PAGE_TEMPLATE = """
         </article>
         {% endif %}
         {% if xml_tool == "airdrop" %}
+        {% set airdrop_recipe_name = request.args.get('recipe_name', 'Military Airdrop') %}
+        {% set airdrop_event_name = request.args.get('event_name', 'Static_WanderingAirdrop') %}
+        {% set airdrop_container_class = request.args.get('container_class', 'StaticObj_Misc_WoodenCrate_5x') %}
+        {% set airdrop_secondary_event = request.args.get('secondary_event', '') %}
+        {% set airdrop_duration_mode = request.args.get('duration_mode', 'permanent') %}
+        {% set airdrop_placement_mode = request.args.get('placement_mode', 'manual') %}
+        {% set airdrop_random_count = request.args.get('random_count', '2') %}
+        {% set airdrop_positions_value = request.args.get('positions', '') %}
+        {% set airdrop_items_value = request.args.get('items', '') %}
+        {% set airdrop_map_zoom = request.args.get('airdrop_map_zoom', 1)|float %}
+        {% if airdrop_map_zoom < 1 %}{% set airdrop_map_zoom = 1 %}{% endif %}
+        {% if airdrop_map_zoom > 3 %}{% set airdrop_map_zoom = 3 %}{% endif %}
+        {% set airdrop_map_display_size = (512 * airdrop_map_zoom)|int %}
         <article class="admin-panel full">
           <h3>Airdrop Builder</h3>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#airdrop-builder">
             <input class="hidden-field" name="recipe_kind" value="airdrop">
+            <input class="hidden-field" name="airdrop_map_zoom" value="{{ airdrop_map_zoom }}">
             <div class="full xml-tool-layout">
               <div class="stack">
-                <label>Recipe name <input name="recipe_name" value="Military Airdrop"></label>
+                <label>Recipe name <input name="recipe_name" value="{{ airdrop_recipe_name }}"></label>
                 <div class="mini-grid">
-                  <label>Event name <input name="event_name" value="Static_WanderingAirdrop"></label>
+                  <label>Event name <input name="event_name" value="{{ airdrop_event_name }}"></label>
                 </div>
                 <label>Container
                   <select class="picker-select" name="container_class" data-visual-select="containers">
-                    {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'StaticObj_Misc_WoodenCrate_5x' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                    {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == airdrop_container_class else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
                   </select>
                 </label>
                 <div class="mini-grid">
-                  <label>Nominal <input name="nominal" type="number" min="0" value="1"></label>
-                  <label>Min <input name="min_count" type="number" min="0" value="1"></label>
-                  <label>Max <input name="max_count" type="number" min="0" value="1"></label>
-                  <label>Lifetime seconds <input name="lifetime" type="number" min="1" value="1800"></label>
-                  <label>Restock seconds <input name="restock" type="number" min="0" value="3600"></label>
-                  <label>Safe radius <input name="saferadius" type="number" min="0" value="0"></label>
-                  <label>Distance radius <input name="distanceradius" type="number" min="0" value="1000"></label>
-                  <label>Cleanup radius <input name="cleanupradius" type="number" min="0" value="1500"></label>
-                  <label>Loot min <input name="lootmin" type="number" min="0" value="40"></label>
-                  <label>Loot max <input name="lootmax" type="number" min="0" value="40"></label>
-                  <label>Spawn radius <input name="spawn_radius" type="number" min="1" value="20"></label>
+                  <label>Nominal <input name="nominal" type="number" min="0" value="{{ request.args.get('nominal', '1') }}"></label>
+                  <label>Min <input name="min_count" type="number" min="0" value="{{ request.args.get('min_count', '1') }}"></label>
+                  <label>Max <input name="max_count" type="number" min="0" value="{{ request.args.get('max_count', '1') }}"></label>
+                  <label>Lifetime seconds <input name="lifetime" type="number" min="1" value="{{ request.args.get('lifetime', '1800') }}"></label>
+                  <label>Restock seconds <input name="restock" type="number" min="0" value="{{ request.args.get('restock', '3600') }}"></label>
+                  <label>Safe radius <input name="saferadius" type="number" min="0" value="{{ request.args.get('saferadius', '0') }}"></label>
+                  <label>Distance radius <input name="distanceradius" type="number" min="0" value="{{ request.args.get('distanceradius', '1000') }}"></label>
+                  <label>Cleanup radius <input name="cleanupradius" type="number" min="0" value="{{ request.args.get('cleanupradius', '1500') }}"></label>
+                  <label>Loot min <input name="lootmin" type="number" min="0" value="{{ request.args.get('lootmin', '40') }}"></label>
+                  <label>Loot max <input name="lootmax" type="number" min="0" value="{{ request.args.get('lootmax', '40') }}"></label>
+                  <label>Spawn radius <input name="spawn_radius" type="number" min="1" value="{{ request.args.get('spawn_radius', '20') }}"></label>
                   <label>Zombie guard event
                     <select name="secondary_event">
-                      <option value="">No guards</option>
-                      <option value="InfectedArmy">Military infected</option>
-                      <option value="InfectedPolice">Police infected</option>
-                      <option value="InfectedMedic">Medical infected</option>
+                      <option value="" {% if airdrop_secondary_event == '' %}selected{% endif %}>No guards</option>
+                      <option value="InfectedArmy" {% if airdrop_secondary_event == 'InfectedArmy' %}selected{% endif %}>Military infected</option>
+                      <option value="InfectedPolice" {% if airdrop_secondary_event == 'InfectedPolice' %}selected{% endif %}>Police infected</option>
+                      <option value="InfectedMedic" {% if airdrop_secondary_event == 'InfectedMedic' %}selected{% endif %}>Medical infected</option>
                     </select>
                   </label>
                 </div>
                 <div class="mini-grid">
                   <label>Duration
                     <select name="duration_mode">
-                      <option value="permanent">Permanent event</option>
-                      <option value="temporary">Temporary event</option>
+                      <option value="permanent" {% if airdrop_duration_mode == 'permanent' %}selected{% endif %}>Permanent event</option>
+                      <option value="temporary" {% if airdrop_duration_mode == 'temporary' %}selected{% endif %}>Temporary event</option>
                     </select>
                   </label>
-                  <label>Temporary restarts <input name="temporary_restarts" type="number" min="1" value="2"></label>
+                  <label>Temporary restarts <input name="temporary_restarts" type="number" min="1" value="{{ request.args.get('temporary_restarts', '2') }}"></label>
                   <label>Placement
                     <select name="placement_mode">
-                      <option value="manual">Use map-picked positions</option>
-                      <option value="random_inland">Random inland positions</option>
-                      <option value="random_military">Random military/high-tier positions</option>
+                      <option value="manual" {% if airdrop_placement_mode == 'manual' %}selected{% endif %}>Use map-picked positions</option>
+                      <option value="random_inland" {% if airdrop_placement_mode == 'random_inland' %}selected{% endif %}>Random inland positions</option>
+                      <option value="random_military" {% if airdrop_placement_mode == 'random_military' %}selected{% endif %}>Random military/high-tier positions</option>
                     </select>
                   </label>
                   <label>Random count
                     <select name="random_count">
-                      <option value="2">2 drops</option>
-                      <option value="4">4 drops</option>
-                      <option value="6">6 drops</option>
+                      <option value="2" {% if airdrop_random_count == '2' %}selected{% endif %}>2 drops</option>
+                      <option value="4" {% if airdrop_random_count == '4' %}selected{% endif %}>4 drops</option>
+                      <option value="6" {% if airdrop_random_count == '6' %}selected{% endif %}>6 drops</option>
                     </select>
                   </label>
                 </div>
                 <label>Spawn positions
-                  <textarea name="positions" placeholder="10869, 10937&#10;9621, 10184"></textarea>
+                  <textarea name="positions" placeholder="10869, 10937&#10;9621, 10184">{{ airdrop_positions_value }}</textarea>
                 </label>
-                <div class="full zone-map" data-airdrop-map data-map-size="{{ server.map_size if server else 15360 }}" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+                <div class="full zone-map-viewport">
+                <div class="zone-map-toolbar">
+                  <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="zoom_out" data-airdrop-map-control>Zoom -</button>
+                  <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="zoom_reset" data-airdrop-map-control>Reset</button>
+                  <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="zoom_in" data-airdrop-map-control>Zoom +</button>
+                  <span>{{ (airdrop_map_zoom * 100)|int }}%</span>
+                </div>
+                <div class="zone-map" data-airdrop-map data-map-size="{{ server.map_size if server else 15360 }}" style="--zone-map-display-size: {{ airdrop_map_display_size }}px;{% if server %} --map-image: url('/map-image/{{ server.map_key }}');{% endif %}">
                   {% if server and not server.map_image_available %}
                   <div class="map-missing">Real {{ server.map|upper }} map image is not installed yet. Add <code>{{ server.map_key }}_map.jpg</code> beside the bot, or set the Railway map image variable, and the airdrop picker will use it automatically.</div>
                   {% endif %}
+                  <input type="image" class="zone-map-hit-layer" name="airdrop_click" src="/map-image/{{ server.map_key if server else 'chernarus' }}" alt="Add airdrop location" width="{{ airdrop_map_display_size }}" height="{{ airdrop_map_display_size }}" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" data-airdrop-map-hit>
                   {% for label in (server.map_labels if server else []) %}
                   <span class="map-town-label {{ label.kind }}" style="left: {{ label.x_percent }}%; top: {{ label.y_percent }}%;">{{ label.name }}</span>
                   {% endfor %}
                 </div>
+                </div>
                 <div class="airdrop-map-tools">
-                  <button type="button" data-airdrop-clear>Clear Locations</button>
-                  <button type="button" data-airdrop-undo>Undo Location</button>
+                  <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="clear" data-airdrop-map-control>Clear Locations</button>
+                  <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="undo" data-airdrop-map-control>Undo Location</button>
                   <span class="muted" data-airdrop-readout>Click the map to add airdrop positions.</span>
                 </div>
                 <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
@@ -5776,7 +5799,7 @@ PAGE_TEMPLATE = """
                 </div>
                 <label>Fixed cargo draft
                   <div class="selected-items" data-selected-items data-empty-text="No fixed cargo added yet"></div>
-                  <textarea class="raw-output" name="items" data-picker-output placeholder="Ammo_762x39Tracer, 1, -1, pristine"></textarea>
+                  <textarea class="raw-output" name="items" data-picker-output placeholder="Ammo_762x39Tracer, 1, -1, pristine">{{ airdrop_items_value }}</textarea>
                 </label>
                 <div><button type="submit">Save Airdrop Package</button> <span class="result muted"></span></div>
               </div>
@@ -7648,7 +7671,7 @@ PAGE_TEMPLATE = """
     }
     window.wanderingDashboardSubmit = wanderingDashboardSubmit;
     document.addEventListener("submit", (event) => {
-      if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit]")) return;
+      if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit], [data-airdrop-map-hit], [data-airdrop-map-control]")) return;
       const form = event.target && event.target.closest ? event.target.closest(".admin-form") : null;
       const routePath = String(form?.dataset?.route || "").split("?")[0];
       if (!DIRECT_DASHBOARD_SAVE_ROUTES[routePath]) return;
@@ -8274,18 +8297,6 @@ PAGE_TEMPLATE = """
         const form = airdropUndo.closest("form");
         const positions = airdropPositions(form);
         positions.pop();
-        setAirdropPositions(form, positions);
-        return;
-      }
-      const airdropMap = event.target.closest("[data-airdrop-map]");
-      if (airdropMap) {
-        const form = airdropMap.closest("form");
-        const rect = airdropMap.getBoundingClientRect();
-        const size = airdropMapSize(airdropMap);
-        const x = Math.round(((event.clientX - rect.left) / Math.max(1, rect.width)) * size);
-        const z = Math.round((1 - ((event.clientY - rect.top) / Math.max(1, rect.height))) * size);
-        const positions = airdropPositions(form).filter((pos) => Number(pos.x) > 0 && Number(pos.z) > 0);
-        positions.push({x: Math.max(0, Math.min(size, x)), z: Math.max(0, Math.min(size, z))});
         setAirdropPositions(form, positions);
         return;
       }
@@ -10663,7 +10674,7 @@ PAGE_TEMPLATE = """
         if (!form.getAttribute("action")) form.setAttribute("action", secureDashboardUrl(form.dataset.route));
       }
       form.addEventListener("submit", async (event) => {
-        if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit]")) return;
+        if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit], [data-airdrop-map-hit], [data-airdrop-map-control]")) return;
         if (form.dataset.htmlSubmit === "true") return;
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
@@ -17168,6 +17179,38 @@ def parse_airdrop_positions(value: Any) -> list[dict[str, str]]:
     return rows
 
 
+AIRDROP_DRAFT_FIELDS = (
+    "recipe_name",
+    "event_name",
+    "container_class",
+    "nominal",
+    "min_count",
+    "max_count",
+    "lifetime",
+    "restock",
+    "saferadius",
+    "distanceradius",
+    "cleanupradius",
+    "lootmin",
+    "lootmax",
+    "spawn_radius",
+    "secondary_event",
+    "duration_mode",
+    "temporary_restarts",
+    "placement_mode",
+    "random_count",
+    "items",
+)
+
+
+def format_airdrop_positions(rows: list[dict[str, str]]) -> str:
+    return "\n".join(
+        f"{safe_int(row.get('x'))}, {safe_int(row.get('z'))}"
+        for row in rows
+        if isinstance(row, dict)
+    )
+
+
 def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if isinstance(value, list):
@@ -20587,6 +20630,70 @@ def admin_zone_draft():
 @APP.get("/owner/zone-draft")
 def owner_zone_draft():
     return zone_draft_from_image_click("owner")
+
+
+def airdrop_draft_from_image_click(mode: str):
+    auth, error = require_page_auth(owner_only=(mode == "owner"))
+    if error:
+        return error
+    requested_guild_id = normalize_guild_id(request.args.get("guild_id") or auth.get("guild_id"))
+    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth.get("guild_id")]) if item]
+    if auth.get("kind") != "owner" and requested_guild_id not in allowed_guild_ids:
+        requested_guild_id = normalize_guild_id(auth.get("guild_id"))
+    if auth.get("kind") == "owner" and allowed_guild_ids and requested_guild_id not in allowed_guild_ids:
+        requested_guild_id = allowed_guild_ids[0]
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(requested_guild_id) if isinstance(guild_configs, dict) else {}
+    if not isinstance(config, dict):
+        config = {}
+    map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    zoom = max(1.0, min(3.0, safe_float(request.args.get("airdrop_map_zoom"), 1.0)))
+    action = str(request.args.get("airdrop_map_action") or "").strip().lower()
+    if action == "zoom_in":
+        zoom = min(3.0, zoom + 0.25)
+    elif action == "zoom_out":
+        zoom = max(1.0, zoom - 0.25)
+    elif action == "zoom_reset":
+        zoom = 1.0
+    positions = parse_airdrop_positions(request.args.get("positions"))
+    if action == "clear":
+        positions = []
+    elif action == "undo":
+        positions = positions[:-1]
+    else:
+        click_x = safe_float(request.args.get("airdrop_click.x") or request.args.get("airdrop_click_x"), -1)
+        click_y = safe_float(request.args.get("airdrop_click.y") or request.args.get("airdrop_click_y"), -1)
+        if click_x >= 0 and click_y >= 0:
+            display_size = max(1.0, 512.0 * zoom)
+            click_space = display_size if click_x <= display_size + 2 and click_y <= display_size + 2 else float(map_size)
+            drop_x = max(0, min(map_size, round((click_x / click_space) * map_size)))
+            drop_z = max(0, min(map_size, round(map_size - ((click_y / click_space) * map_size))))
+            positions.append({"x": str(drop_x), "z": str(drop_z)})
+            positions = positions[-80:]
+    query: dict[str, Any] = {
+        "section": "xml-workshop",
+        "xml_tool": "airdrop",
+        "guild_id": requested_guild_id,
+        "airdrop_map_zoom": f"{zoom:g}",
+        "positions": format_airdrop_positions(positions),
+    }
+    for key in AIRDROP_DRAFT_FIELDS:
+        if key in request.args and key not in {"positions"}:
+            query[key] = request.args.get(key, "")
+    if request.args.get("token"):
+        query["token"] = request.args.get("token")
+    base_path = "/owner" if mode == "owner" else "/admin"
+    return redirect(f"{base_path}?{urllib.parse.urlencode(query)}#airdrop-builder")
+
+
+@APP.get("/admin/airdrop-draft")
+def admin_airdrop_draft():
+    return airdrop_draft_from_image_click("admin")
+
+
+@APP.get("/owner/airdrop-draft")
+def owner_airdrop_draft():
+    return airdrop_draft_from_image_click("owner")
 
 
 @APP.get("/")
