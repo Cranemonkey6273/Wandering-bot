@@ -28745,6 +28745,17 @@ DEFAULT_VEHICLE_RESET_CLASSES = [
     "M1025",
     "M1025_Black",
 ]
+VEHICLE_DELOOT_REPAIR_EXTRA_CLASSES = [
+    "Offroad_02",
+    "Offroad_02_Black",
+    "Offroad_02_Blue",
+    "Offroad_02_White",
+    "Truck_01_Cargo",
+    "Truck_01_Cargo_Blue",
+    "Truck_01_Cargo_Orange",
+    "Truck_01_Cargo_Camo",
+    "Truck_01_Cargo_Yellow",
+]
 
 SCENARIO_LOCATION_PRESETS = {
     "nwaf": {"name": "NWAF", "x": 4500, "y": 0, "z": 10300},
@@ -28938,6 +28949,7 @@ SCENARIO_AIRDROP_UNSAFE_SCENE_FALLBACKS = {
 }
 
 SCENARIO_AIRDROP_SCENE_PROPS = SCENARIO_AIRDROP_SCENES["compact_crater"]["props"]
+SCENARIO_AIRDROP_VEHICLE_CLEARANCE_PADDING = 140
 
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
     "M4A1": {
@@ -29657,6 +29669,7 @@ def console_ce_default_paths(guild_id):
         "spawns_path": f"{root}/{mission_folder}/cfgeventspawns.xml",
         "eventgroups_path": f"{root}/{mission_folder}/cfgeventgroups.xml",
         "mapgroupproto_path": f"{root}/{mission_folder}/mapgroupproto.xml",
+        "types_path": f"{root}/{mission_folder}/db/types.xml",
         "spawnabletypes_path": f"{root}/{mission_folder}/cfgspawnabletypes.xml",
         "cfgenvironment_path": f"{root}/{mission_folder}/cfgenvironment.xml",
         "cfgareaeffects_path": f"{root}/{mission_folder}/cfgareaeffects.xml",
@@ -29699,6 +29712,8 @@ def console_ce_path_suffix(key):
         return "cfgeventgroups.xml"
     if key == "mapgroupproto_path":
         return "mapgroupproto.xml"
+    if key == "types_path":
+        return "db/types.xml"
     if key == "cfgenvironment_path":
         return "cfgenvironment.xml"
     if key == "cfgareaeffects_path":
@@ -29904,6 +29919,7 @@ def console_ce_event_config(config):
     settings.setdefault("spawns_path", "")
     settings.setdefault("eventgroups_path", "")
     settings.setdefault("mapgroupproto_path", "")
+    settings.setdefault("types_path", "")
     settings.setdefault("spawnabletypes_path", "")
     settings.setdefault("cfgenvironment_path", "")
     settings.setdefault("cfgareaeffects_path", "")
@@ -29922,6 +29938,7 @@ def clear_console_ce_path_cache(config):
         "spawns_path",
         "eventgroups_path",
         "mapgroupproto_path",
+        "types_path",
         "spawnabletypes_path",
         "cfgenvironment_path",
         "cfgareaeffects_path",
@@ -30340,6 +30357,50 @@ def repair_cherno_revamp_backup_static_event_names(root):
     return renamed, merged, names
 
 
+def cleanup_cherno_revamp_backup_spawn_groups(spawns_root):
+    removed = 0
+    names = []
+    if spawns_root is None:
+        return removed, names
+    for event_node in spawns_root.findall("event"):
+        name = str(event_node.get("name") or "").strip()
+        if not is_cherno_revamp_backup_event_name(name):
+            continue
+        event_removed = 0
+        for pos_node in event_node.findall("pos"):
+            if "group" not in pos_node.attrib:
+                continue
+            pos_node.attrib.pop("group", None)
+            removed += 1
+            event_removed += 1
+        if event_removed:
+            names.append(name)
+    return removed, sorted(names)
+
+
+def collect_cherno_revamp_backup_mapgroupproto_classes(events_root):
+    classes = []
+    seen = set()
+    if events_root is None:
+        return classes
+    for event_node in events_root.findall("event"):
+        if not is_cherno_revamp_backup_event_name(event_node.get("name")):
+            continue
+        for child_node in event_node.findall("./children/child"):
+            child_type = str(child_node.get("type") or "").strip()
+            if not child_type or child_type.lower() in seen:
+                continue
+            try:
+                lootmax = int(str(child_node.get("lootmax") or "0"))
+            except Exception:
+                lootmax = 0
+            if lootmax <= 0 or dayz_class_looks_like_vehicle(child_type):
+                continue
+            classes.append(child_type)
+            seen.add(child_type.lower())
+    return classes
+
+
 def cleanup_stale_spawn_only_events(events_root, spawns_root):
     if spawns_root is None:
         return 0, []
@@ -30580,6 +30641,11 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text, map_key="")
             merged_node = ce_scope_find_top_level_node(merged_root, key)
             if mapgroupproto_invalid_usage_cleanup_change_is_safe(original_node, merged_node):
                 continue
+        if not owned and label == "types.xml":
+            original_node = ce_scope_find_top_level_node(original_root, key)
+            merged_node = ce_scope_find_top_level_node(merged_root, key)
+            if vehicle_types_xml_repair_change_is_safe(original_node, merged_node):
+                continue
         if not owned:
             changed_unowned.append((merged or original or {}).get("display") or str(key))
     if changed_unowned:
@@ -30631,6 +30697,7 @@ def validate_console_ce_upload_scope(built):
     targets = [
         ("events.xml", "events_source_text", "events_text"),
         ("cfgeventspawns.xml", "spawns_source_text", "spawns_text"),
+        ("types.xml", "types_source_text", "types_text"),
         ("cfgspawnabletypes.xml", "spawnabletypes_source_text", "spawnabletypes_text"),
         ("cfgeventgroups.xml", "eventgroups_source_text", "eventgroups_text"),
         ("mapgroupproto.xml", "mapgroupproto_source_text", "mapgroupproto_text"),
@@ -30672,6 +30739,102 @@ def console_ce_has_native_loot_intent(config):
         ):
             return True
     return False
+
+
+def console_ce_needs_vehicle_types_repair(config):
+    events = native_ce_scenario_events(config)
+    return any(
+        scenario_event_blocks_vehicle_classes(event)
+        or str((event or {}).get("event_type") or "").strip() == "vehicle_spawn"
+        for event in events
+    )
+
+
+def dayz_vehicle_types_repair_class_names():
+    names = set(DEFAULT_VEHICLE_RESET_CLASSES)
+    names.update(VEHICLE_DELOOT_REPAIR_EXTRA_CLASSES)
+    for preset in SCENARIO_VEHICLE_PRESETS.values():
+        class_name = str((preset or {}).get("class") or "").strip()
+        if class_name and class_name.lower() != "custom":
+            names.add(class_name)
+    return {str(name).strip() for name in names if str(name).strip()}
+
+
+def find_type_text_child(type_node, tag_name):
+    child = type_node.find(tag_name)
+    if child is None:
+        children = list(type_node)
+        insert_at = 0
+        order = ("nominal", "lifetime", "restock", "min")
+        try:
+            wanted_index = order.index(tag_name)
+        except ValueError:
+            wanted_index = 0
+        for index, existing in enumerate(children):
+            existing_tag = str(getattr(existing, "tag", "") or "")
+            if existing_tag in order and order.index(existing_tag) < wanted_index:
+                insert_at = index + 1
+        child = ET.Element(tag_name)
+        type_node.insert(insert_at, child)
+    return child
+
+
+def set_type_text_child_value(type_node, tag_name, value):
+    child = find_type_text_child(type_node, tag_name)
+    wanted = str(value)
+    if str(child.text or "").strip() == wanted:
+        return False
+    child.text = wanted
+    return True
+
+
+def repair_vehicle_types_xml_values(root):
+    if root is None:
+        return []
+    vehicle_lookup = {
+        name.lower(): name
+        for name in dayz_vehicle_types_repair_class_names()
+    }
+    repaired = []
+    for type_node in root.findall("type"):
+        type_name = str(type_node.get("name") or "").strip()
+        if type_name.lower() not in vehicle_lookup:
+            continue
+        changed = False
+        changed |= set_type_text_child_value(type_node, "nominal", "0")
+        changed |= set_type_text_child_value(type_node, "min", "0")
+        flags_node = type_node.find("flags")
+        if flags_node is None:
+            flags_node = ET.Element("flags")
+            insert_at = len(list(type_node))
+            type_node.insert(insert_at, flags_node)
+            changed = True
+        if flags_node.get("deloot") != "0":
+            flags_node.set("deloot", "0")
+            changed = True
+        if changed:
+            repaired.append(type_name)
+    return repaired
+
+
+def vehicle_types_xml_repair_change_is_safe(original_node, merged_node):
+    if original_node is None or merged_node is None:
+        return False
+    if getattr(original_node, "tag", None) != "type" or getattr(merged_node, "tag", None) != "type":
+        return False
+    original_name = str(original_node.get("name") or "").strip()
+    merged_name = str(merged_node.get("name") or "").strip()
+    if original_name != merged_name:
+        return False
+    if original_name.lower() not in {name.lower() for name in dayz_vehicle_types_repair_class_names()}:
+        return False
+    clone = ET.fromstring(ET.tostring(original_node, encoding="utf-8"))
+    wrapper = ET.Element("types")
+    wrapper.append(clone)
+    repaired = repair_vehicle_types_xml_values(wrapper)
+    if not repaired:
+        return False
+    return canonical_ce_scope_node_text(clone) == canonical_ce_scope_node_text(merged_node)
 
 
 def normalize_gas_particle_mode(value):
@@ -31820,11 +31983,7 @@ DROP_CONTEXT_VEHICLE_BLOCK_SCENE_TYPES = {
 
 
 def dayz_vehicle_class_keys():
-    classes = set(DEFAULT_VEHICLE_RESET_CLASSES)
-    for preset in SCENARIO_VEHICLE_PRESETS.values():
-        class_name = str(preset.get("class") or "").strip()
-        if class_name:
-            classes.add(class_name)
+    classes = dayz_vehicle_types_repair_class_names()
     return {normalize_discord_name(item) for item in classes if normalize_discord_name(item)}
 
 
@@ -31832,9 +31991,7 @@ def dayz_class_looks_like_vehicle(class_name):
     key = normalize_discord_name(class_name)
     if not key:
         return False
-    if key in dayz_vehicle_class_keys():
-        return True
-    return any(key.startswith(normalize_discord_name(prefix)) for prefix in DAYZ_VEHICLE_CLASS_PREFIXES)
+    return key in dayz_vehicle_class_keys()
 
 
 def scenario_context_key(value):
@@ -32657,7 +32814,7 @@ def apply_console_ce_scene_spawn_clearance(records, spawns_root):
         if not xy:
             continue
         center_x, center_z = xy
-        clearance = max(55, min(500, scene_radius + 25))
+        clearance = max(55, min(500, scene_radius + SCENARIO_AIRDROP_VEHICLE_CLEARANCE_PADDING))
         moved_from = None
         moved_for = None
         for _attempt in range(4):
@@ -32708,7 +32865,7 @@ def apply_console_ce_scene_spawn_clearance(records, spawns_root):
             continue
         for scene_record in scene_points:
             scene_xy = console_ce_record_xy(scene_record)
-            scene_radius = max(55, safe_int(scene_record.get("scene_clearance_radius"), 0) + 25)
+            scene_radius = max(55, safe_int(scene_record.get("scene_clearance_radius"), 0) + SCENARIO_AIRDROP_VEHICLE_CLEARANCE_PADDING)
             if math.hypot(xy[0] - scene_xy[0], xy[1] - scene_xy[1]) > scene_radius:
                 continue
             record["vehicle_exclusion_center"] = scene_xy
@@ -33427,6 +33584,9 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     elif key == "mapgroupproto_path":
         reference_parts = ("mapgroupproto.xml",)
         fallback_root = "map"
+    elif key == "types_path":
+        reference_parts = ("db", "types.xml")
+        fallback_root = "types"
     elif key == "cfgenvironment_path":
         reference_parts = ("cfgenvironment.xml",)
         fallback_root = "env"
@@ -33549,6 +33709,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     )
     repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = repair_cherno_revamp_backup_static_event_names(events_root)
     repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = repair_cherno_revamp_backup_static_event_names(spawns_root)
+    removed_revamp_spawn_groups, removed_revamp_spawn_group_names = cleanup_cherno_revamp_backup_spawn_groups(spawns_root)
+    revamp_mapgroupproto_classes = collect_cherno_revamp_backup_mapgroupproto_classes(events_root)
     removed_stale_spawn_only, removed_stale_spawn_names = cleanup_stale_spawn_only_events(events_root, spawns_root)
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
@@ -33632,6 +33794,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"`{merged_revamp_event_children + merged_revamp_spawn_children}` merged child node(s). "
             + ", ".join(f"`{name}`" for name in repaired_names)
         )
+    if removed_revamp_spawn_groups:
+        messages.append(
+            f"Removed `{removed_revamp_spawn_groups}` obsolete cfgeventgroups reference(s) from Charnarus revamp backup spawn point(s): "
+            + ", ".join(f"`{name}`" for name in removed_revamp_spawn_group_names[:12])
+        )
     if removed_stale_spawn_only:
         messages.append(
             "Removed stale cfgeventspawns.xml block(s) whose events.xml definition is missing: "
@@ -33666,6 +33833,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "mapgroupproto_path": "",
         "mapgroupproto_text": "",
         "mapgroupproto_source_text": "",
+        "types_path": "",
+        "types_text": "",
+        "types_source_text": "",
         "spawnabletypes_path": "",
         "spawnabletypes_text": "",
         "spawnabletypes_source_text": "",
@@ -33701,10 +33871,42 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         or config.get("scenario_events_cleanup_pending")
         or repaired_revamp_events
         or repaired_revamp_spawns
+        or removed_revamp_spawn_groups
         or removed_stale_spawn_only
         or removed_revamp_events
         or removed_revamp_spawns
     )
+
+    if console_ce_needs_vehicle_types_repair(config):
+        types_text, resolved_types_path, types_source = download_console_ce_source(
+            config,
+            guild_id,
+            "types_path",
+            ""
+        )
+        output["messages"].append(types_source)
+        if console_ce_source_is_fallback(types_source):
+            output.setdefault("source_fallbacks", []).append(f"types.xml: {types_source}")
+        else:
+            types_root, types_parse_warning = parse_xml_root_or_new(types_text, "types")
+            if types_parse_warning:
+                output.setdefault("source_fallbacks", []).append(f"types.xml: {types_parse_warning}")
+            else:
+                repaired_vehicle_types = repair_vehicle_types_xml_values(types_root)
+                if repaired_vehicle_types:
+                    output["types_path"] = resolved_types_path
+                    output["types_text"] = xml_text_from_root(types_root)
+                    output["types_source_text"] = types_text
+                    output["messages"].append(
+                        "Repaired `types.xml` vehicle economy controls for "
+                        + ", ".join(f"`{name}`" for name in repaired_vehicle_types[:18])
+                        + (f", +{len(repaired_vehicle_types) - 18} more" if len(repaired_vehicle_types) > 18 else "")
+                        + ": set `nominal=0`, `min=0`, and `deloot=0`. Vehicle quantities must be controlled by `events.xml`."
+                    )
+                else:
+                    output["messages"].append(
+                        "`types.xml` vehicle economy controls already had `nominal=0`, `min=0`, and `deloot=0` for known vehicle classes."
+                    )
 
     animal_records = [record for record in records if record.get("animal_territory")]
     should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
@@ -33803,7 +34005,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
     repair_static_helicrash_proto = bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
-    should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records)
+    should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records or revamp_mapgroupproto_classes)
     if eventgroup_records or mapgroupproto_records or repair_static_helicrash_proto or should_cleanup_group_files:
         eventgroups_text = ""
         resolved_eventgroups_path = console_ce_default_paths(guild_id)["eventgroups_path"]
@@ -33887,11 +34089,19 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 )
                 if created:
                     added_proto += 1
+        for proto_class in revamp_mapgroupproto_classes:
+            _, created = add_mapgroupproto_loot_group(
+                mapgroupproto_root,
+                proto_class,
+                map_key=ce_map_key,
+            )
+            if created:
+                added_proto += 1
         if removed_groups or eventgroup_records or cleanup_pending:
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or repaired_static_proto_classes or removed_invalid_usages or eventgroup_records or cleanup_pending:
+        if proto_changed or added_proto or repaired_static_proto_classes or removed_invalid_usages or eventgroup_records or revamp_mapgroupproto_classes or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
@@ -34009,6 +34219,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
+        types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
         mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<prototype></prototype>").encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
@@ -34032,6 +34243,22 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     valid_category_flags = dayz_reference_category_flags(map_key)
     valid_tag_flags = dayz_reference_tag_flags(map_key)
     valid_reference_classes = dayz_reference_class_names(map_key)
+
+    if built.get("types_text"):
+        vehicle_type_names = {name.lower() for name in dayz_vehicle_types_repair_class_names()}
+        for type_node in types_root.findall("type"):
+            type_name = str(type_node.get("name") or "").strip()
+            if type_name.lower() not in vehicle_type_names:
+                continue
+            nominal = str(type_node.findtext("nominal") or "").strip()
+            minimum = str(type_node.findtext("min") or "").strip()
+            flags_node = type_node.find("flags")
+            deloot = str(flags_node.get("deloot") if flags_node is not None else "").strip()
+            if nominal != "0" or minimum != "0" or deloot != "0":
+                messages.append(
+                    f"`{type_name}` in `types.xml` must use `nominal=0`, `min=0`, and `deloot=0`; "
+                    "vehicle quantities belong in `events.xml`."
+                )
 
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
     for territory_file in territory_files:
@@ -34337,6 +34564,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
     targets = [
         ("events.xml", "events_path", "events_text"),
         ("cfgeventspawns.xml", "spawns_path", "spawns_text"),
+        ("types.xml", "types_path", "types_text"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path", "spawnabletypes_text"),
         ("cfgeventgroups.xml", "eventgroups_path", "eventgroups_text"),
         ("mapgroupproto.xml", "mapgroupproto_path", "mapgroupproto_text"),
@@ -34433,10 +34661,11 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     restore_texts = built.setdefault("restore_texts", {})
-    required_backups = {"events.xml", "cfgeventspawns.xml", "cfgspawnabletypes.xml"}
+    required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml"}
     targets = [
         ("events.xml", built.get("events_path")),
         ("cfgeventspawns.xml", built.get("spawns_path")),
+        ("types.xml", built.get("types_path") if built.get("types_text") else ""),
         ("cfgspawnabletypes.xml", built.get("spawnabletypes_path") if built.get("spawnabletypes_text") else ""),
         ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
@@ -34554,6 +34783,7 @@ def restore_console_ce_bundle_from_memory(config, built):
     targets = [
         ("events.xml", "events_path"),
         ("cfgeventspawns.xml", "spawns_path"),
+        ("types.xml", "types_path"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
         ("cfgeventgroups.xml", "eventgroups_path"),
         ("mapgroupproto.xml", "mapgroupproto_path"),
@@ -34624,6 +34854,18 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
     )
     messages.append(f"`events.xml`: {events_message}")
     messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
+
+    types_ok = True
+    if built.get("types_text"):
+        types_ok, types_message = upload_protected_ce_file_to_nitrado(
+            config,
+            "types.xml",
+            built["types_path"],
+            built["types_text"],
+            restore_text=restore_texts.get(built["types_path"]),
+            prefer_ftp=True,
+        )
+        messages.append(f"`types.xml`: {types_message}")
 
     spawnable_ok = True
     if built.get("spawnabletypes_text"):
@@ -34750,7 +34992,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`cfgEffectArea.json`: {cfgeffectarea_message}")
 
-    success = events_ok and spawns_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
+    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
     if success:
         final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
         messages.extend(final_bundle_messages)
@@ -34769,6 +35011,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             settings["eventgroups_path"] = built["eventgroups_path"]
         if built.get("mapgroupproto_path"):
             settings["mapgroupproto_path"] = built["mapgroupproto_path"]
+        if built.get("types_path"):
+            settings["types_path"] = built["types_path"]
         if built.get("spawnabletypes_path"):
             settings["spawnabletypes_path"] = built["spawnabletypes_path"]
         if built.get("cfgenvironment_path"):
@@ -34858,6 +35102,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "spawns_path": str((built or {}).get("spawns_path") or ""),
         "eventgroups_path": str((built or {}).get("eventgroups_path") or ""),
         "mapgroupproto_path": str((built or {}).get("mapgroupproto_path") or ""),
+        "types_path": str((built or {}).get("types_path") or ""),
         "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
         "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
         "cfgareaeffects_path": str((built or {}).get("cfgareaeffects_path") or ""),
@@ -34956,6 +35201,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         ("cfgeventspawns.xml", "spawns_path"),
         ("eventgroups.xml", "eventgroups_path"),
         ("mapgroupproto.xml", "mapgroupproto_path"),
+        ("types.xml", "types_path"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
         ("cfgareaeffects.xml", "cfgareaeffects_path"),
@@ -35098,6 +35344,7 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
     event["native_ce_spawns_path"] = built.get("spawns_path", "")
     event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
     event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+    event["native_ce_types_path"] = built.get("types_path", "")
     event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
     event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
     event["native_ce_mission_base"] = mission_base
@@ -42256,6 +42503,13 @@ async def event_exportce(
         discord.File(io.BytesIO(built["events_text"].encode("utf-8")), filename="events.xml"),
         discord.File(io.BytesIO(built["spawns_text"].encode("utf-8")), filename="cfgeventspawns.xml"),
     ]
+    if built.get("types_text"):
+        files.append(
+            discord.File(
+                io.BytesIO(built["types_text"].encode("utf-8")),
+                filename="types.xml"
+            )
+        )
     if built.get("spawnabletypes_text"):
         files.append(
             discord.File(
@@ -42268,6 +42522,8 @@ async def event_exportce(
         f"`events.xml` -> `{built['events_path']}`",
         f"`cfgeventspawns.xml` -> `{built['spawns_path']}`",
     ]
+    if built.get("types_path"):
+        file_targets.append(f"`types.xml` -> `{built['types_path']}`")
     if built.get("spawnabletypes_path"):
         file_targets.append(f"`cfgspawnabletypes.xml` -> `{built['spawnabletypes_path']}`")
 
@@ -42325,6 +42581,7 @@ async def event_uploadce(
         f"Console CE event upload `{status}`.\n"
         f"`events.xml`: `{built['events_path']}`\n"
         f"`cfgeventspawns.xml`: `{built['spawns_path']}`\n"
+        + (f"`types.xml`: `{built['types_path']}`\n" if built.get("types_path") else "")
         + (f"`cfgspawnabletypes.xml`: `{built['spawnabletypes_path']}`\n" if built.get("spawnabletypes_path") else "")
         + f"Records generated: `{built['record_count']}`\n\n"
         + discord_safe_content(summary, 1200)
@@ -46985,7 +47242,7 @@ async def slash_cleanupbackups(interaction: discord.Interaction, folder: str = "
     else:
         ce_paths = console_ce_default_paths(guild_id)
         ce_settings = console_ce_event_config(config)
-        for key in ("events_path", "spawns_path", "spawnabletypes_path", "eventgroups_path", "mapgroupproto_path", "cfgenvironment_path"):
+        for key in ("events_path", "spawns_path", "types_path", "spawnabletypes_path", "eventgroups_path", "mapgroupproto_path", "cfgenvironment_path"):
             path = ce_settings.get(key) or ce_paths.get(key)
             if path:
                 folders.append(os.path.dirname(canonical_remote_path(path)) or "/")

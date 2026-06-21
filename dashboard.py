@@ -5276,14 +5276,15 @@ PAGE_TEMPLATE = """
                     {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
                     {% if event.native_ce_restart_required %}<span class="event-chip-warn"><strong>Restart</strong> one server restart needed</span>{% endif %}
                     {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names|length }} managed</span>{% endif %}
-                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths %}<span class="event-chip-path"><strong>Files</strong> open details</span>{% endif %}
+                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_types_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths %}<span class="event-chip-path"><strong>Files</strong> open details</span>{% endif %}
                     {% if event.upload_error %}<span class="event-chip-bad"><strong>Error</strong> open details</span>{% endif %}
-                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths or event.upload_error %}
+                    {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_types_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths or event.upload_error %}
                     <details class="event-upload-technical">
                       <summary>File paths and technical details</summary>
                       <pre>{% if event.bridge_delivery_path %}deliveries.xml: {{ event.bridge_delivery_path }}
 {% endif %}{% if event.native_ce_events_path %}events.xml: {{ event.native_ce_events_path }}
 {% endif %}{% if event.native_ce_spawns_path %}cfgeventspawns.xml: {{ event.native_ce_spawns_path }}
+{% endif %}{% if event.native_ce_types_path %}types.xml: {{ event.native_ce_types_path }}
 {% endif %}{% if event.native_ce_spawnabletypes_path %}cfgspawnabletypes.xml: {{ event.native_ce_spawnabletypes_path }}
 {% endif %}{% if event.native_ce_cfgenvironment_path %}cfgenvironment.xml: {{ event.native_ce_cfgenvironment_path }}
 {% endif %}{% if event.native_ce_territory_paths %}territory files: {{ event.native_ce_territory_paths|length }}
@@ -9840,6 +9841,7 @@ PAGE_TEMPLATE = """
       if (eventData.bridge_delivery_path) fileLines.push(`deliveries.xml: ${eventData.bridge_delivery_path}`);
       if (eventData.native_ce_events_path) fileLines.push(`events.xml: ${eventData.native_ce_events_path}`);
       if (eventData.native_ce_spawns_path) fileLines.push(`cfgeventspawns.xml: ${eventData.native_ce_spawns_path}`);
+      if (eventData.native_ce_types_path) fileLines.push(`types.xml: ${eventData.native_ce_types_path}`);
       if (eventData.native_ce_spawnabletypes_path) fileLines.push(`cfgspawnabletypes.xml: ${eventData.native_ce_spawnabletypes_path}`);
       if (eventData.native_ce_cfgenvironment_path) fileLines.push(`cfgenvironment.xml: ${eventData.native_ce_cfgenvironment_path}`);
       if (Array.isArray(eventData.native_ce_territory_paths) && eventData.native_ce_territory_paths.length) fileLines.push(`territory files: ${eventData.native_ce_territory_paths.length}`);
@@ -12313,6 +12315,7 @@ SCENARIO_UPLOAD_RESET_FIELDS = {
     "native_ce_spawns_path",
     "native_ce_eventgroups_path",
     "native_ce_mapgroupproto_path",
+    "native_ce_types_path",
     "native_ce_spawnabletypes_path",
     "native_ce_cfgenvironment_path",
     "native_ce_mission_base",
@@ -12762,6 +12765,7 @@ def apply_dashboard_native_ce_upload_metadata(event: dict[str, Any], built: dict
     event["native_ce_spawns_path"] = built.get("spawns_path", "")
     event["native_ce_eventgroups_path"] = built.get("eventgroups_path", "")
     event["native_ce_mapgroupproto_path"] = built.get("mapgroupproto_path", "")
+    event["native_ce_types_path"] = built.get("types_path", "")
     event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
     event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
     event["native_ce_mission_base"] = mission_base
@@ -22546,6 +22550,7 @@ def api_scenario_event_status():
                 "bridge_delivery_path": event.get("bridge_delivery_path") or "",
                 "native_ce_events_path": event.get("native_ce_events_path") or "",
                 "native_ce_spawns_path": event.get("native_ce_spawns_path") or "",
+                "native_ce_types_path": event.get("native_ce_types_path") or "",
                 "native_ce_spawnabletypes_path": event.get("native_ce_spawnabletypes_path") or "",
                 "native_ce_cfgenvironment_path": event.get("native_ce_cfgenvironment_path") or "",
                 "native_ce_mission_base": event.get("native_ce_mission_base") or "",

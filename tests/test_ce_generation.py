@@ -861,6 +861,14 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertNotIn("containers", categories)
         self.assertNotIn("vehicles", categories)
 
+    def test_vehicle_detector_allows_bags_storage_and_vehicle_parts(self):
+        self.assertTrue(bot.dayz_class_looks_like_vehicle("Hatchback_02"))
+        self.assertTrue(bot.dayz_class_looks_like_vehicle("CivilianSedan"))
+        self.assertTrue(bot.dayz_class_looks_like_vehicle("Offroad_02"))
+        self.assertFalse(bot.dayz_class_looks_like_vehicle("AliceBag_Green"))
+        self.assertFalse(bot.dayz_class_looks_like_vehicle("SeaChest"))
+        self.assertFalse(bot.dayz_class_looks_like_vehicle("Truck_01_Wheel"))
+
     def test_invalid_crash_usage_cleanup_is_scope_safe(self):
         original = (
             '<prototype>'
@@ -880,6 +888,51 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(1, removed)
         self.assertNotIn('usage name="Crash"', merged)
         ok, message = bot.validate_managed_ce_xml_scope("mapgroupproto.xml", original, merged)
+        self.assertTrue(ok, message)
+
+    def test_vehicle_types_repair_zeroes_vehicle_bodies_only(self):
+        original = (
+            '<types>'
+            '<type name="Hatchback_02"><nominal>9</nominal><lifetime>3</lifetime><restock>1800</restock>'
+            '<min>6</min><flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="1" /></type>'
+            '<type name="CivilianSedan"><nominal>7</nominal><lifetime>3</lifetime><restock>1800</restock>'
+            '<min>4</min><flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="0" /></type>'
+            '<type name="Truck_01_Wheel"><nominal>111</nominal><lifetime>28800</lifetime>'
+            '<restock>0</restock><min>96</min><flags count_in_cargo="0" count_in_hoarder="0" '
+            'count_in_map="1" count_in_player="0" crafted="0" deloot="0" /></type>'
+            '<type name="AliceBag_Green"><nominal>30</nominal><min>20</min>'
+            '<flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="0" /></type>'
+            '</types>'
+        )
+        root = ET.fromstring(original)
+
+        repaired = bot.repair_vehicle_types_xml_values(root)
+        merged = bot.xml_text_from_root(root)
+
+        self.assertEqual(["Hatchback_02", "CivilianSedan"], repaired)
+        repaired_root = ET.fromstring(merged)
+        hatchback = repaired_root.find("./type[@name='Hatchback_02']")
+        self.assertIsNotNone(hatchback)
+        self.assertEqual("0", hatchback.findtext("nominal"))
+        self.assertEqual("0", hatchback.findtext("min"))
+        self.assertEqual("0", hatchback.find("flags").get("deloot"))
+        sedan = repaired_root.find("./type[@name='CivilianSedan']")
+        self.assertIsNotNone(sedan)
+        self.assertEqual("0", sedan.findtext("nominal"))
+        self.assertEqual("0", sedan.findtext("min"))
+        wheel = repaired_root.find("./type[@name='Truck_01_Wheel']")
+        self.assertIsNotNone(wheel)
+        self.assertEqual("111", wheel.findtext("nominal"))
+        self.assertEqual("96", wheel.findtext("min"))
+        bag = repaired_root.find("./type[@name='AliceBag_Green']")
+        self.assertIsNotNone(bag)
+        self.assertEqual("30", bag.findtext("nominal"))
+        self.assertEqual("20", bag.findtext("min"))
+
+        ok, message = bot.validate_managed_ce_xml_scope("types.xml", original, merged)
         self.assertTrue(ok, message)
 
     def test_airdrop_guard_event_does_not_need_mapgroupproto(self):
@@ -1027,6 +1080,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1071,6 +1126,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1117,6 +1174,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1171,6 +1230,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1199,13 +1260,86 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIsNotNone(airdrop_pos)
         self.assertNotEqual(("5000", "5000"), (airdrop_pos.get("x"), airdrop_pos.get("z")))
         distance = math.hypot(float(airdrop_pos.get("x")) - 5000, float(airdrop_pos.get("z")) - 5000)
-        self.assertGreaterEqual(distance, 125)
+        self.assertGreaterEqual(distance, 240)
         self.assertTrue(
             any("overlapped `VehicleHatchback02`" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
+
+    def test_airdrop_build_repairs_vehicle_types_economy(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        bad_types = (
+            '<types>'
+            '<type name="Hatchback_02"><nominal>9</nominal><lifetime>3</lifetime><restock>1800</restock>'
+            '<min>6</min><flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="1" /></type>'
+            '<type name="Truck_01_Wheel"><nominal>111</nominal><lifetime>28800</lifetime>'
+            '<restock>0</restock><min>96</min><flags count_in_cargo="0" count_in_hoarder="0" '
+            'count_in_map="1" count_in_player="0" crafted="0" deloot="0" /></type>'
+            '<type name="SeaChest"><nominal>20</nominal><min>10</min>'
+            '<flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="0" /></type>'
+            '</types>'
+        )
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "types_path": (bad_types, f"{base_path}/db/types.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    57,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        self.assertEqual(f"{base_path}/db/types.xml", built.get("types_path"))
+        types_root = ET.fromstring(built["types_text"])
+        hatchback = types_root.find("./type[@name='Hatchback_02']")
+        self.assertIsNotNone(hatchback)
+        self.assertEqual("0", hatchback.findtext("nominal"))
+        self.assertEqual("0", hatchback.findtext("min"))
+        self.assertEqual("0", hatchback.find("flags").get("deloot"))
+        wheel = types_root.find("./type[@name='Truck_01_Wheel']")
+        self.assertIsNotNone(wheel)
+        self.assertEqual("111", wheel.findtext("nominal"))
+        self.assertEqual("96", wheel.findtext("min"))
+        chest = types_root.find("./type[@name='SeaChest']")
+        self.assertIsNotNone(chest)
+        self.assertEqual("20", chest.findtext("nominal"))
+        self.assertEqual("10", chest.findtext("min"))
+        self.assertTrue(
+            any("Repaired `types.xml` vehicle economy controls" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+        scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
+        self.assertTrue(scope_ok, "\n".join(scope_messages))
 
     def test_zombie_horde_uses_native_infected_loot_not_spawnabletypes(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
@@ -1222,6 +1356,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1272,6 +1408,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1335,6 +1473,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1383,6 +1523,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         legacy_events = (
             '<events>'
+            '<event name="StaticChernoRevampBackupLoot_23"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="StaticObj_Wreck_HMMWV_DE" lootmin="7" lootmax="15" min="1" max="1" /></children>'
+            '</event>'
             '<event name="ChernoRevampBackupLoot_26"><nominal>1</nominal><min>1</min><max>1</max>'
             '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
             '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
@@ -1394,6 +1541,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         )
         legacy_spawns = (
             '<eventposdef>'
+            '<event name="StaticChernoRevampBackupLoot_23"><pos x="4770" z="7950" a="0" group="ChernoRevampBackupLootGrp_23" /></event>'
             '<event name="ChernoRevampBackupLoot_26"><pos x="4776.79" z="7951.65" a="0" group="ChernoRevampBackupLootGrp_26" /></event>'
             '<event name="StaticAirplaneCrate"><pos x="1" z="2" a="0" /></event>'
             '<event name="Static_NewAirDrops"><pos x="3" z="4" a="0" /></event>'
@@ -1409,6 +1557,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
@@ -1437,12 +1587,21 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIsNotNone(events_root.find("./event[@name='StaticChernoRevampBackupLoot_26']"))
         repaired_spawn = spawns_root.find("./event[@name='StaticChernoRevampBackupLoot_26']/pos")
         self.assertIsNotNone(repaired_spawn)
-        self.assertEqual("ChernoRevampBackupLootGrp_26", repaired_spawn.get("group"))
+        self.assertIsNone(repaired_spawn.get("group"))
+        already_static_spawn = spawns_root.find("./event[@name='StaticChernoRevampBackupLoot_23']/pos")
+        self.assertIsNotNone(already_static_spawn)
+        self.assertIsNone(already_static_spawn.get("group"))
         self.assertIsNone(spawns_root.find("./event[@name='StaticAirplaneCrate']"))
         self.assertIsNone(spawns_root.find("./event[@name='Static_NewAirDrops']"))
         self.assertIsNone(spawns_root.find("./event[@name='VehicleTransitBus']"))
+        proto_root = ET.fromstring(built["mapgroupproto_text"])
+        self.assertIsNotNone(proto_root.find("./group[@name='StaticObj_Wreck_HMMWV_DE']"))
         self.assertTrue(
             any("Repaired Charnarus revamp backup" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        self.assertTrue(
+            any("obsolete cfgeventgroups reference" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
         events_scope_ok, events_scope_message = bot.validate_managed_ce_xml_scope(
@@ -1457,6 +1616,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             built["spawns_text"],
         )
         self.assertTrue(spawns_scope_ok, spawns_scope_message)
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
 
     def test_animal_pack_uses_custom_event_without_touching_vanilla_animalbear(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
@@ -1479,6 +1640,8 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         }
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
             text, path = sources[key]
             return text, path, f"{key} source"
 
