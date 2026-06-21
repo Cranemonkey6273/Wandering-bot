@@ -4980,7 +4980,7 @@ PAGE_TEMPLATE = """
           {% set edit_event.id = event.id %}
           {% set edit_event.name = event.name %}
           {% set edit_event.event_type = event.event_type %}
-          {% set edit_event.preset = event.preset or event.spawn_preset or '' %}
+          {% set edit_event.preset = dashboard_scenario_preset(event) %}
           {% set edit_event.class_name = event.class_name %}
           {% set edit_event.x = event.x %}
           {% set edit_event.y = event.y %}
@@ -5062,29 +5062,29 @@ PAGE_TEMPLATE = """
             </label>
             <label>Spawn type
               <select name="spawn_preset" data-scenario-preset data-current-preset="{{ edit_event.preset }}">
-                <option value="military_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="35" data-loot="military_high">Military ground loot</option>
-                <option value="wooden_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="survival">Survival ground loot</option>
-                <option value="medical_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="medical">Medical ground loot</option>
-                <option value="building_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="building">Building ground loot</option>
-                <option value="food_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="food">Food ground loot</option>
-                <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90">Bears</option>
-                <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120">Wolves</option>
-                <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120">Deer</option>
-                <option value="boar" data-type="animal_pack" data-class="Animal_SusScrofa" data-count="4" data-radius="80">Boar</option>
-                <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55">Civilian infected</option>
-                <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60">Military infected</option>
-                <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55">Heavy military infected</option>
-                <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="0" data-loot="vehicle_car">Ada 4x4</option>
-                <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="0" data-loot="vehicle_car">Gunter 2</option>
-                <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="0" data-loot="vehicle_car">Sarka 120</option>
-                <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="0" data-loot="vehicle_car">Olga 24</option>
-                <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="0" data-loot="vehicle_truck">M3S covered truck</option>
-                <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="0" data-loot="vehicle_car">Custom vehicle classname</option>
-                <option value="gas_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-permanent="false">Temporary gas zone</option>
-                <option value="gas_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-permanent="true">Permanent gas zone</option>
-                <option value="gas_red_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-gas-particle="debug" data-permanent="false">Temporary red gas zone</option>
-                <option value="gas_red_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-gas-particle="debug" data-permanent="true">Permanent red gas zone</option>
-                <option value="custom">Custom classname</option>
+                <option value="military_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="35" data-loot="military_high" {% if edit_event.preset == 'military_crate' %}selected{% endif %}>Military ground loot</option>
+                <option value="wooden_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="survival" {% if edit_event.preset == 'wooden_crate' %}selected{% endif %}>Survival ground loot</option>
+                <option value="medical_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="medical" {% if edit_event.preset == 'medical_crate' %}selected{% endif %}>Medical ground loot</option>
+                <option value="building_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="building" {% if edit_event.preset == 'building_crate' %}selected{% endif %}>Building ground loot</option>
+                <option value="food_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="food" {% if edit_event.preset == 'food_crate' %}selected{% endif %}>Food ground loot</option>
+                <option value="bear" data-type="animal_pack" data-class="Animal_UrsusArctos" data-count="3" data-radius="90" {% if edit_event.preset == 'bear' %}selected{% endif %}>Bears</option>
+                <option value="wolf" data-type="animal_pack" data-class="Animal_CanisLupus_Grey" data-count="6" data-radius="120" {% if edit_event.preset == 'wolf' %}selected{% endif %}>Wolves</option>
+                <option value="deer" data-type="animal_pack" data-class="Animal_CervusElaphus" data-count="5" data-radius="120" {% if edit_event.preset == 'deer' %}selected{% endif %}>Deer</option>
+                <option value="boar" data-type="animal_pack" data-class="Animal_SusScrofa" data-count="4" data-radius="80" {% if edit_event.preset == 'boar' %}selected{% endif %}>Boar</option>
+                <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55" {% if edit_event.preset == 'civilian_zombie' %}selected{% endif %}>Civilian infected</option>
+                <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60" {% if edit_event.preset == 'military_zombie' %}selected{% endif %}>Military infected</option>
+                <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55" {% if edit_event.preset == 'heavy_military_zombie' %}selected{% endif %}>Heavy military infected</option>
+                <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="0" data-loot="vehicle_car" {% if edit_event.preset == 'ada' %}selected{% endif %}>Ada 4x4</option>
+                <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="0" data-loot="vehicle_car" {% if edit_event.preset == 'gunter' %}selected{% endif %}>Gunter 2</option>
+                <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="0" data-loot="vehicle_car" {% if edit_event.preset == 'sarka' %}selected{% endif %}>Sarka 120</option>
+                <option value="olga" data-type="vehicle_spawn" data-class="Sedan_02" data-count="1" data-radius="0" data-loot="vehicle_car" {% if edit_event.preset == 'olga' %}selected{% endif %}>Olga 24</option>
+                <option value="m3s" data-type="vehicle_spawn" data-class="Truck_01_Covered" data-count="1" data-radius="0" data-loot="vehicle_truck" {% if edit_event.preset == 'm3s' %}selected{% endif %}>M3S covered truck</option>
+                <option value="custom_vehicle" data-type="vehicle_spawn" data-count="1" data-radius="0" data-loot="vehicle_car" {% if edit_event.preset == 'custom_vehicle' %}selected{% endif %}>Custom vehicle classname</option>
+                <option value="gas_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-permanent="false" {% if edit_event.preset == 'gas_temp' %}selected{% endif %}>Temporary gas zone</option>
+                <option value="gas_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-permanent="true" {% if edit_event.preset == 'gas_permanent' %}selected{% endif %}>Permanent gas zone</option>
+                <option value="gas_red_temp" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="120" data-gas-lifetime="1800" data-gas-particle="debug" data-permanent="false" {% if edit_event.preset == 'gas_red_temp' %}selected{% endif %}>Temporary red gas zone</option>
+                <option value="gas_red_permanent" data-type="gas_zone" data-class="ContaminatedArea_Dynamic" data-count="1" data-radius="150" data-gas-lifetime="3888000" data-gas-particle="debug" data-permanent="true" {% if edit_event.preset == 'gas_red_permanent' %}selected{% endif %}>Permanent red gas zone</option>
+                <option value="custom" {% if edit_event.preset == 'custom' %}selected{% endif %}>Custom classname</option>
               </select>
             </label>
             <label>Event name <input name="name" value="{{ edit_event.name }}" placeholder="Optional display name"><small class="field-help">🏷️ Name shown in Live Events.</small></label>
@@ -5232,7 +5232,7 @@ PAGE_TEMPLATE = """
                 <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{{ event.x }}, {{ event.z }}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ event.preset or event.spawn_preset or '' }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ dashboard_scenario_preset(event) }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or event.upload_status in ['failed', 'blocked', 'uploaded', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -12074,6 +12074,59 @@ def scenario_event_key(event: Any) -> str:
     if not isinstance(event, dict):
         return ""
     return str(event.get("id") or event.get("name") or "").strip()
+
+
+def normalize_dashboard_scenario_type(value: Any) -> str:
+    event_type = str(value or "").strip().lower()
+    return "airdrop" if event_type == "loot_crate" else event_type
+
+
+def dashboard_scenario_preset_for_event(event: Any) -> str:
+    if not isinstance(event, dict):
+        return ""
+    event_type = normalize_dashboard_scenario_type(event.get("event_type"))
+    class_name = str(event.get("class_name") or "").strip().lower()
+    stored_preset = str(event.get("preset") or event.get("spawn_preset") or "").strip()
+
+    def preset_type_for(key: str, preset: dict[str, Any]) -> str:
+        if key in SCENARIO_VEHICLE_PRESETS:
+            return "vehicle_spawn"
+        return normalize_dashboard_scenario_type(preset.get("event_type"))
+
+    def preset_matches(key: str, preset: dict[str, Any]) -> bool:
+        if key in {"custom", "custom_vehicle"}:
+            return True
+        if preset_type_for(key, preset) != event_type:
+            return False
+        preset_class = str(preset.get("class") or "").strip().lower()
+        if event_type in {"animal_pack", "zombie_horde", "vehicle_spawn"} and class_name and preset_class and preset_class != class_name:
+            return False
+        return True
+
+    preset_sources = [SCENARIO_SPAWN_PRESETS]
+    if event_type == "vehicle_spawn":
+        preset_sources.append(SCENARIO_VEHICLE_PRESETS)
+    for source in preset_sources:
+        preset = source.get(stored_preset)
+        if isinstance(preset, dict) and preset_matches(stored_preset, preset):
+            return stored_preset
+    if class_name:
+        for source in preset_sources:
+            for key, preset in source.items():
+                if key in {"custom", "custom_vehicle"} or not isinstance(preset, dict):
+                    continue
+                if preset_type_for(key, preset) != event_type:
+                    continue
+                if str(preset.get("class") or "").strip().lower() == class_name:
+                    return key
+    defaults = {
+        "airdrop": "military_crate",
+        "animal_pack": "bear",
+        "zombie_horde": "civilian_zombie",
+        "vehicle_spawn": "m3s",
+        "gas_zone": "gas_temp",
+    }
+    return defaults.get(event_type, stored_preset or "custom")
 
 
 MANAGED_SINGLE_SCENARIO_TYPES = {"animal_pack", "zombie_horde"}
@@ -20348,6 +20401,7 @@ def page(mode: str, auth: dict[str, Any]):
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
+        dashboard_scenario_preset=dashboard_scenario_preset_for_event,
         loot_mix_fields=SCENARIO_LOOT_MIX_FIELDS,
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
         visual_loadout_cargo_slots=VISUAL_LOADOUT_CARGO_SLOTS,
