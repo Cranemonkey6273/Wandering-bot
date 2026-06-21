@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import unittest
@@ -129,6 +130,31 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertTrue(ok, message)
 
+    def test_cfggameplay_rejects_known_stale_containerbase_spawner_ref(self):
+        text = """{
+          "version": 129,
+          "WorldsData": {"objectSpawnersArr": ["./custom/newcontainerbase.json"]}
+        }"""
+
+        ok, message = validate_dayz_upload_text("/mission/cfggameplay.json", text)
+
+        self.assertFalse(ok)
+        self.assertIn("newcontainerbase.json", message)
+
+    def test_cfggameplay_update_removes_known_stale_containerbase_spawner_ref(self):
+        text = """{
+          "version": 129,
+          "WorldsData": {"objectSpawnersArr": ["./custom/newcontainerbase.json"]}
+        }"""
+
+        updated, changed = bot.update_cfggameplay_object_spawner(text, bot.CONSOLE_OBJECT_SPAWNER_REF)
+        payload = json.loads(updated)
+        spawners = payload["WorldsData"]["objectSpawnersArr"]
+
+        self.assertTrue(changed)
+        self.assertNotIn("./custom/newcontainerbase.json", spawners)
+        self.assertIn(bot.CONSOLE_OBJECT_SPAWNER_REF, spawners)
+
     def test_custom_messages_xml_with_comments_and_multiline_text_is_valid(self):
         text = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <messages>
@@ -183,6 +209,14 @@ https://discord.gg/U2sfF55rSD</text>
 
         self.assertFalse(ok)
         self.assertIn("pos must be an array of 3 numbers", message)
+
+    def test_custom_object_spawner_rejects_crash_prone_weapon_classes(self):
+        text = """{"Objects": [{"name": "Shockpistol_Black", "pos": [1, 2, 3]}]}"""
+
+        ok, message = validate_dayz_upload_text("/mission/custom/CranesBaseLIVO.json", text)
+
+        self.assertFalse(ok)
+        self.assertIn("unsafe weapon class", message)
 
     def test_live_style_custom_types_and_events_roots_are_valid(self):
         types_text = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

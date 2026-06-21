@@ -50,6 +50,15 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgplayerspawn.json": DayZFileSpec("cfgplayerspawn.json", "json", json_root_types=("object",), description="fresh spawn loadouts"),
 }
 
+DAYZ_BLOCKED_OBJECT_SPAWNER_REF_FILENAMES = {
+    "newcontainerbase.json",
+}
+
+DAYZ_UNSAFE_OBJECT_SPAWNER_CLASS_KEYS = {
+    "shockpistol",
+    "shockpistolblack",
+}
+
 
 def dayz_filename_for_path(target_path: Any) -> str:
     filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
@@ -112,6 +121,13 @@ def _validate_object_spawner_payload(payload: Any, target_path: Any) -> tuple[bo
             return False, f"Refusing to upload `{target_path}`: Objects[{index}] must be an object."
         if not str(item.get("name") or "").strip():
             return False, f"Refusing to upload `{target_path}`: Objects[{index}] is missing `name`."
+        class_name = str(item.get("name") or "").strip()
+        class_key = re.sub(r"[^a-z0-9]+", "", class_name.lower())
+        if class_key in DAYZ_UNSAFE_OBJECT_SPAWNER_CLASS_KEYS:
+            return False, (
+                f"Refusing to upload `{target_path}`: Objects[{index}] uses unsafe weapon class "
+                f"`{class_name}`. Put weapons in CE loot/types, not ObjectSpawner JSON."
+            )
         pos_error = _validate_number_triplet(item.get("pos"), f"Objects[{index}].pos")
         if pos_error:
             return False, f"Refusing to upload `{target_path}`: {pos_error}"
@@ -122,6 +138,11 @@ def _validate_object_spawner_payload(payload: Any, target_path: Any) -> tuple[bo
         if "scale" in item and not _is_number(item.get("scale")):
             return False, f"Refusing to upload `{target_path}`: Objects[{index}].scale must be a number."
     return True, ""
+
+
+def dayz_object_spawner_ref_is_blocked(value: Any) -> bool:
+    filename = os.path.basename(str(value or "").replace("\\", "/")).lower()
+    return filename in DAYZ_BLOCKED_OBJECT_SPAWNER_REF_FILENAMES
 
 
 def _validate_cfggameplay_payload(payload: Any, target_path: Any) -> tuple[bool, str]:
@@ -136,6 +157,12 @@ def _validate_cfggameplay_payload(payload: Any, target_path: Any) -> tuple[bool,
             return False, f"Refusing to upload `{target_path}`: WorldsData.objectSpawnersArr must be an array."
         if spawners is not None and not all(isinstance(item, str) and item.strip() for item in spawners):
             return False, f"Refusing to upload `{target_path}`: WorldsData.objectSpawnersArr must contain string paths."
+        for item in spawners or []:
+            if dayz_object_spawner_ref_is_blocked(item):
+                return False, (
+                    f"Refusing to upload `{target_path}`: WorldsData.objectSpawnersArr still references "
+                    f"`{item}`, which is a known crash-causing stale object-spawner file."
+                )
     player = payload.get("PlayerData")
     if player is not None:
         if not isinstance(player, dict):

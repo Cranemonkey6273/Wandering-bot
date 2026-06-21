@@ -28,6 +28,7 @@ from dayz_file_intelligence import (
     dayz_filename_for_path,
     dayz_file_spec_for_path,
     dayz_is_backup_path,
+    dayz_object_spawner_ref_is_blocked,
     dayz_xml_root_for_path,
     validate_dayz_upload_text,
 )
@@ -3186,6 +3187,86 @@ def linked_gamertag_index_record(guild_id, gamertag):
             return linked_gamertag_index_bucket(config).get(key)
         return {"gamertag": gamertag, "normalized_gamertag": key, "guild_id": str(guild_id)}
     return None
+
+
+def linked_gamertag_verified_anywhere_record(gamertag):
+    key = normalize_discord_name(gamertag)
+    if not key:
+        return None
+    if isinstance(guild_configs, dict):
+        for indexed_guild_id, indexed_config in guild_configs.items():
+            if not isinstance(indexed_config, dict):
+                continue
+            record = linked_gamertag_index_bucket(indexed_config).get(key)
+            if isinstance(record, dict):
+                return {
+                    **record,
+                    "matched_guild_id": str(indexed_guild_id),
+                    "protection_source": record.get("source") or "server_index",
+                }
+    if isinstance(linked_player_claims, dict):
+        claim = linked_player_claims.get(key)
+        if isinstance(claim, dict) and linked_player_claim_owner_id(claim):
+            status = str(claim.get("status") or "active").lower()
+            if status == "active":
+                return {
+                    "gamertag": claim.get("gamertag") or gamertag,
+                    "normalized_gamertag": key,
+                    "discord_id": linked_player_claim_owner_id(claim),
+                    "discord_name": linked_player_claim_owner_label(claim),
+                    "guild_id": str(claim.get("guild_id") or ""),
+                    "account_type": str(claim.get("account_type") or "primary"),
+                    "protection_source": claim.get("source") or "linked_player_claims",
+                }
+    if isinstance(linked_players, dict):
+        for user_id, data in linked_players.items():
+            if not isinstance(data, dict):
+                continue
+            candidates = []
+            if linked_player_matches_gamertag(data, key):
+                candidates.append(data)
+            guild_links = data.get("guild_links")
+            if isinstance(guild_links, dict):
+                candidates.extend(guild_data for guild_data in guild_links.values() if isinstance(guild_data, dict))
+            for candidate in candidates:
+                if not linked_player_matches_gamertag(candidate, key):
+                    continue
+                names = linked_player_gamertags(candidate)
+                matched_name = next((name for name in names if normalize_discord_name(name) == key), gamertag)
+                account_type = "alt" if names and normalize_discord_name(names[0]) != key else "primary"
+                return {
+                    "gamertag": matched_name,
+                    "normalized_gamertag": key,
+                    "discord_id": str(candidate.get("discord_id") or data.get("discord_id") or user_id),
+                    "discord_name": str(candidate.get("discord_name") or data.get("discord_name") or user_id),
+                    "guild_id": str(candidate.get("guild_id") or data.get("guild_id") or ""),
+                    "account_type": account_type,
+                    "protection_source": "linked_players",
+                }
+    return None
+
+
+def link_enforcement_protected_gamertag_record(guild_id, gamertag):
+    record = linked_gamertag_index_record(guild_id, gamertag)
+    if isinstance(record, dict):
+        return record
+    record = linked_gamertag_verified_anywhere_record(gamertag)
+    if not isinstance(record, dict):
+        return None
+    config = guild_configs.get(str(guild_id), {}) if isinstance(guild_configs, dict) else {}
+    matched_name = record.get("gamertag") or gamertag
+    if isinstance(config, dict) and remember_linked_gamertag_for_server(
+        guild_id,
+        config,
+        record.get("discord_id") or "",
+        record.get("discord_name") or "",
+        matched_name,
+        account_type=record.get("account_type") or "primary",
+        source=f"link_enforcement_{record.get('protection_source') or 'verified_backfill'}",
+    ):
+        save_guild_configs()
+        return linked_gamertag_index_bucket(config).get(normalize_discord_name(matched_name)) or record
+    return record
 
 
 def gamertag_claimed_to_other_user(gamertag, user_id):
@@ -21410,8 +21491,8 @@ async def post_nitrado_banlist_log(
 
 async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
-    if str(source or "").strip().lower() == "discord_link_enforcement" and has_known_linked_gamertag(guild_id, clean_name):
-        return False, f"Skipped link-enforcement ban: `{clean_name}` is already linked for this Discord server."
+    if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
+        return False, f"Skipped link-enforcement ban: `{clean_name}` is already linked."
     ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, clean_name)
     await post_nitrado_banlist_log(
         guild_id,
@@ -21708,6 +21789,10 @@ def has_known_linked_gamertag(guild_id, gamertag):
     return linked_gamertag_index_record(guild_id, gamertag) is not None
 
 
+def has_link_enforcement_protected_gamertag(guild_id, gamertag):
+    return link_enforcement_protected_gamertag_record(guild_id, gamertag) is not None
+
+
 def link_enforcement_pending_key(player_name):
     return normalize_discord_name(player_name)
 
@@ -21742,7 +21827,7 @@ def record_link_enforcement_join(guild_id, player_name):
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return False
-    if has_known_linked_gamertag(guild_id, player_name):
+    if has_link_enforcement_protected_gamertag(guild_id, player_name):
         changed = clear_link_enforcement_pending(config, player_name)
         if changed:
             save_guild_configs()
@@ -21825,7 +21910,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
     if player_name not in online_players.get(guild_id, set()):
         return False
     guild = bot.get_guild(int(guild_id))
-    if await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
+    if has_link_enforcement_protected_gamertag(guild_id, player_name) or await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
         clear_link_enforcement_pending(config, player_name)
         save_guild_configs()
         return True
@@ -21861,7 +21946,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         return True
 
     if action in {"temp_ban", "perm_ban"}:
-        if has_known_linked_gamertag(guild_id, player_name) or await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
+        if has_link_enforcement_protected_gamertag(guild_id, player_name) or await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
             clear_link_enforcement_pending(config, player_name)
             if isinstance(pending_record, dict):
                 pending_record["status"] = "linked"
@@ -21871,7 +21956,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
                 guild,
                 config,
                 "Link Enforcement Skipped",
-                f"**{player_name}** is already linked for this Discord server. No Nitrado ban was written.",
+                f"**{player_name}** is already linked. No Nitrado ban was written.",
                 0x2ECC71,
             )
             return True
@@ -21891,7 +21976,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
                 guild,
                 config,
                 "Link Enforcement Skipped" if skipped else "Nitrado Ban Failed",
-                (f"**{player_name}** is already linked for this Discord server. No Nitrado ban was written." if skipped else base_message + f"\n{msg}"),
+                (f"**{player_name}** is already linked. No Nitrado ban was written." if skipped else base_message + f"\n{msg}"),
                 0x2ECC71 if skipped else 0xE74C3C,
             )
             if skipped:
@@ -21966,7 +22051,7 @@ async def process_link_enforcement_deadlines():
                 pending.pop(key, None)
                 changed = True
                 continue
-            if has_known_linked_gamertag(guild_id, player_name):
+            if has_link_enforcement_protected_gamertag(guild_id, player_name):
                 record["status"] = "linked"
                 record["linked_ts"] = now_ts
                 pending.pop(key, None)
@@ -29109,8 +29194,18 @@ def update_cfggameplay_object_spawner(cfggameplay_text, spawner_ref):
         worlds["objectSpawnersArr"] = spawners
 
     wanted = str(spawner_ref or CONSOLE_OBJECT_SPAWNER_REF).strip()
-    normalized_existing = {str(item).replace("\\", "/").lower() for item in spawners}
     changed = False
+    filtered_spawners = []
+    for item in spawners:
+        if dayz_object_spawner_ref_is_blocked(item):
+            changed = True
+            continue
+        filtered_spawners.append(item)
+    if len(filtered_spawners) != len(spawners):
+        worlds["objectSpawnersArr"] = filtered_spawners
+        spawners = filtered_spawners
+
+    normalized_existing = {str(item).replace("\\", "/").lower() for item in spawners}
     if wanted.replace("\\", "/").lower() not in normalized_existing:
         spawners.append(wanted)
         changed = True

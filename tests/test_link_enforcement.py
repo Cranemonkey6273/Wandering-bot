@@ -14,17 +14,20 @@ bot = import_bot_module()
 class LinkEnforcementTests(unittest.TestCase):
     def setUp(self):
         self.original_linked_players = bot.linked_players
+        self.original_linked_player_claims = bot.linked_player_claims
         self.original_guild_configs = bot.guild_configs
         self.original_online_players = bot.online_players
         self.original_save_guild_configs = bot.save_guild_configs
         self.original_add_ban = bot.add_player_to_nitrado_banlist
         bot.save_guild_configs = lambda: None
         bot.linked_players = {}
+        bot.linked_player_claims = {}
         bot.guild_configs = {}
         bot.online_players = {}
 
     def tearDown(self):
         bot.linked_players = self.original_linked_players
+        bot.linked_player_claims = self.original_linked_player_claims
         bot.guild_configs = self.original_guild_configs
         bot.online_players = self.original_online_players
         bot.save_guild_configs = self.original_save_guild_configs
@@ -156,6 +159,37 @@ class LinkEnforcementTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("already linked", message)
 
+    def test_link_enforcement_ban_writer_uses_verified_claims(self):
+        bot.linked_player_claims = {
+            "cranemonkey6273": {
+                "current_user_id": "100",
+                "current_discord_name": "Cranemonkey",
+                "guild_id": "livo",
+                "gamertag": "CraneMonkey6273",
+                "status": "active",
+            }
+        }
+
+        def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("Nitrado ban writer should not be called for an active linked claim")
+
+        bot.add_player_to_nitrado_banlist = fail_if_called
+
+        ok, message = asyncio.run(
+            bot.add_player_to_nitrado_banlist_async(
+                "cherno",
+                {},
+                "CraneMonkey6273",
+                ban_type="temp",
+                reason="Discord link required",
+                source="discord_link_enforcement",
+                minutes=60,
+            )
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("already linked", message)
+
     def test_sync_linked_gamertag_index_backfills_existing_links(self):
         bot.guild_configs = {"1504": {"guild_name": "Livonia"}}
         bot.linked_players = {
@@ -198,6 +232,35 @@ class LinkEnforcementTests(unittest.TestCase):
 
         self.assertFalse(queued)
         self.assertEqual({}, bot.guild_configs["1504"].get("discord_link_enforcement_state", {}).get("pending", {}))
+
+    def test_link_enforcement_join_uses_verified_link_from_other_server(self):
+        bot.guild_configs = {
+            "cherno": {
+                "discord_link_enforcement": {"enabled": True, "grace_minutes": 1},
+            }
+        }
+        bot.linked_players = {
+            "100": {
+                "discord_name": "Cranemonkey",
+                "discord_id": "100",
+                "guild_links": {
+                    "livo": {
+                        "discord_name": "Cranemonkey",
+                        "discord_id": "100",
+                        "guild_id": "livo",
+                        "gamertag": "CraneMonkey6273",
+                        "verified_by": "ADM",
+                    }
+                },
+            }
+        }
+
+        queued = bot.record_link_enforcement_join("cherno", "CraneMonkey6273")
+
+        self.assertFalse(queued)
+        index = bot.guild_configs["cherno"]["linked_gamertag_index"]
+        self.assertEqual("CraneMonkey6273", index["cranemonkey6273"]["gamertag"])
+        self.assertEqual({}, bot.guild_configs["cherno"].get("discord_link_enforcement_state", {}).get("pending", {}))
 
 
 if __name__ == "__main__":
