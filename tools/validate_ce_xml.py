@@ -466,13 +466,13 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
             for child in group_node.findall("child"):
                 child_type = (child.get("type") or "").strip()
                 is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
-                if is_static_scene_prop:
-                    continue
                 if _looks_like_vehicle_class(child_type):
                     report.fail(
                         f"cfgeventgroups.xml `{group_name}` uses working vehicle `{child_type}` as a Static child. "
                         "Use a Vehicle CE event for vehicles, not eventgroup loot."
                     )
+                    continue
+                if is_static_scene_prop:
                     continue
                 if child_type and child_type not in proto_groups:
                     report.fail(

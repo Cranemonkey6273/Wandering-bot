@@ -260,6 +260,28 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             self.assertFalse(report.ok())
             self.assertTrue(any("working vehicle `Sedan_02` as Static loot" in err for err in report.errors))
 
+    def test_validator_rejects_working_vehicle_as_eventgroup_scene_prop(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        event_node = events_root.find("event")
+        event_name = event_node.get("name")
+        event_node.find("children").clear()
+        spawns_root.find("event/pos").set("group", event_name)
+        group = ET.SubElement(eventgroups_root, "group", {"name": event_name})
+        ET.SubElement(group, "child", {
+            "type": "Truck_01_Covered",
+            "spawnsecondary": "false",
+            "x": "0",
+            "y": "0",
+            "z": "0",
+            "a": "0",
+        })
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("working vehicle `Truck_01_Covered` as a Static child" in err for err in report.errors))
+
     def test_validator_rejects_bare_mapgroupproto_entry(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]
         events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)

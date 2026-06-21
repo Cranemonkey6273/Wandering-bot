@@ -30180,7 +30180,7 @@ def scenario_container_class_for_ce(class_name):
     return normalize_console_ce_container_class(class_name)
 
 
-def scenario_loot_items(event):
+def scenario_loot_items(event, block_vehicle_classes=True):
     loot = event.get("loot") or []
     if isinstance(loot, str):
         loot = [item.strip() for item in loot.split(",") if item.strip()]
@@ -30190,13 +30190,21 @@ def scenario_loot_items(event):
         if str(item).strip()
     ]
     if clean:
-        return clean
-    preset_key = str(event.get("loot_preset") or "none").strip()
-    return [
-        str(item).strip()
-        for item in SCENARIO_LOOT_PRESETS.get(preset_key, [])
-        if str(item).strip()
-    ]
+        items = clean
+    else:
+        preset_key = str(event.get("loot_preset") or "none").strip()
+        items = [
+            str(item).strip()
+            for item in SCENARIO_LOOT_PRESETS.get(preset_key, [])
+            if str(item).strip()
+        ]
+    if block_vehicle_classes and scenario_event_blocks_vehicle_classes(event):
+        return [
+            item
+            for item in items
+            if not dayz_class_looks_like_vehicle(item)
+        ]
+    return items
 
 
 def scenario_event_random(event, salt=""):
@@ -31131,6 +31139,25 @@ DAYZ_VEHICLE_CLASS_PREFIXES = (
     "Truck_01",
     "M1025",
 )
+DROP_CONTEXT_VEHICLE_BLOCK_EVENT_TYPES = {
+    "airdrop",
+    "cargoplane",
+    "cargoplanewreck",
+    "convoywreck",
+    "helicrash",
+    "helicoptercrash",
+    "lootcrate",
+    "lootdrop",
+    "trainwreck",
+}
+DROP_CONTEXT_VEHICLE_BLOCK_SCENE_TYPES = {
+    "cargoplane",
+    "cargoplanewreck",
+    "convoywreck",
+    "helicrash",
+    "helicoptercrash",
+    "trainwreck",
+}
 
 
 def dayz_vehicle_class_keys():
@@ -31149,6 +31176,67 @@ def dayz_class_looks_like_vehicle(class_name):
     if key in dayz_vehicle_class_keys():
         return True
     return any(key.startswith(normalize_discord_name(prefix)) for prefix in DAYZ_VEHICLE_CLASS_PREFIXES)
+
+
+def scenario_context_key(value):
+    return normalize_discord_name(value)
+
+
+def scenario_event_blocks_vehicle_classes(event):
+    event = event or {}
+    event_type = scenario_context_key(event.get("event_type"))
+    if event_type == "vehiclespawn":
+        return False
+    scene_type = scenario_context_key(event.get("scene_type"))
+    return (
+        event_type in DROP_CONTEXT_VEHICLE_BLOCK_EVENT_TYPES
+        or scene_type in DROP_CONTEXT_VEHICLE_BLOCK_SCENE_TYPES
+    )
+
+
+def scenario_blocked_vehicle_classes(event, class_names):
+    if not scenario_event_blocks_vehicle_classes(event):
+        return []
+    blocked = []
+    seen = set()
+    for class_name in class_names or []:
+        text = str(class_name or "").strip()
+        key = text.lower()
+        if text and key not in seen and dayz_class_looks_like_vehicle(text):
+            blocked.append(text)
+            seen.add(key)
+    return blocked
+
+
+def filter_vehicle_classes_for_drop_event(event, class_names):
+    if not scenario_event_blocks_vehicle_classes(event):
+        return [
+            str(item or "").strip()
+            for item in class_names or []
+            if str(item or "").strip()
+        ]
+    filtered = []
+    seen = set()
+    for class_name in class_names or []:
+        text = str(class_name or "").strip()
+        key = text.lower()
+        if not text or key in seen or dayz_class_looks_like_vehicle(text):
+            continue
+        filtered.append(text)
+        seen.add(key)
+    return filtered
+
+
+def filter_drop_event_child_records(event, child_records):
+    if not scenario_event_blocks_vehicle_classes(event):
+        return child_records
+    filtered = []
+    for child_record in child_records or []:
+        child_type = str((child_record or {}).get("type") or "").strip()
+        if child_type and dayz_class_looks_like_vehicle(child_type):
+            continue
+        filtered.append(child_record)
+    return filtered
 
 
 def mapgroupproto_class_allowed_for_loot(class_name):
@@ -32243,6 +32331,24 @@ def console_ce_records_for_event(event, map_key=""):
         lifetime = max(60, min(3888000, safe_int(event.get("gas_lifetime"), 3888000 if event.get("permanent") else 1800)))
     lifetime = max(60, min(3888000, safe_int(event.get("lifetime"), lifetime)))
 
+    if scenario_event_blocks_vehicle_classes(event):
+        blocked_loot_classes = scenario_blocked_vehicle_classes(
+            event,
+            scenario_loot_items(event, block_vehicle_classes=False),
+        )
+        if blocked_loot_classes:
+            warnings.append(
+                f"`{event.get('id')}` had vehicle classname(s) in a drop loot list; removed "
+                + ", ".join(f"`{item}`" for item in blocked_loot_classes[:12])
+                + ". Use a vehicle spawn event for actual vehicles."
+            )
+        if event_type not in {"airdrop", "loot_crate"} and dayz_class_looks_like_vehicle(class_name):
+            warnings.append(
+                f"`{event.get('id')}` tried to use vehicle classname `{class_name}` in a drop-style event. "
+                f"Using `{SCENARIO_AIRDROP_MARKER_CLASS}` instead. Use a vehicle spawn event for actual vehicles."
+            )
+            class_name = SCENARIO_AIRDROP_MARKER_CLASS
+
     if event_type in {"airdrop", "loot_crate"}:
         requested_scene_type = scenario_airdrop_requested_scene_type(event)
         safe_scene_type = scenario_airdrop_scene_type(event)
@@ -32314,7 +32420,31 @@ def console_ce_records_for_event(event, map_key=""):
         family = "Static"
         use_eventgroup = scenario_airdrop_uses_eventgroup(event)
         eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name) if use_eventgroup else None
+        if eventgroup_children:
+            blocked_group_children = scenario_blocked_vehicle_classes(
+                event,
+                [child.get("type") for child in eventgroup_children],
+            )
+            eventgroup_children = filter_drop_event_child_records(event, eventgroup_children)
+            if blocked_group_children:
+                warnings.append(
+                    f"`{event.get('id')}` had vehicle classname(s) in cfgeventgroups child props; removed "
+                    + ", ".join(f"`{item}`" for item in blocked_group_children[:12])
+                    + ". Use a vehicle spawn event for actual vehicles."
+                )
         child_records = None if use_eventgroup else scenario_airdrop_direct_child_records(event, class_name)
+        if child_records:
+            blocked_event_children = scenario_blocked_vehicle_classes(
+                event,
+                [child.get("type") for child in child_records],
+            )
+            child_records = filter_drop_event_child_records(event, child_records)
+            if blocked_event_children:
+                warnings.append(
+                    f"`{event.get('id')}` had vehicle classname(s) in events.xml children; removed "
+                    + ", ".join(f"`{item}`" for item in blocked_event_children[:12])
+                    + ". Use a vehicle spawn event for actual vehicles."
+                )
         count = 1
     if event_type == "animal_pack":
         if not class_name.startswith("Animal_"):
@@ -32360,6 +32490,23 @@ def console_ce_records_for_event(event, map_key=""):
         if cleanupradius < speed_defaults["cleanupradius"]:
             cleanupradius = speed_defaults["cleanupradius"]
 
+    if use_eventgroup:
+        mapgroupproto_classes = [
+            str(child.get("type") or "").strip()
+            for child in (eventgroup_children or [])
+            if eventgroup_child_needs_mapgroupproto(child)
+        ]
+    else:
+        mapgroupproto_classes = [class_name] if event_type in {"airdrop", "loot_crate"} else []
+    blocked_proto_classes = scenario_blocked_vehicle_classes(event, mapgroupproto_classes)
+    mapgroupproto_classes = filter_vehicle_classes_for_drop_event(event, mapgroupproto_classes)
+    if blocked_proto_classes:
+        warnings.append(
+            f"`{event.get('id')}` had vehicle classname(s) in mapgroupproto loot groups; removed "
+            + ", ".join(f"`{item}`" for item in blocked_proto_classes[:12])
+            + ". Use a vehicle spawn event for actual vehicles."
+        )
+
     record_name = ce_event_name(event, family=family)
     record = {
         "name": record_name,
@@ -32397,15 +32544,7 @@ def console_ce_records_for_event(event, map_key=""):
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
         "use_existing_definition": False,
         "patch_existing_definition": False,
-        "mapgroupproto_classes": (
-            [
-                str(child.get("type") or "").strip()
-                for child in (eventgroup_children or [])
-                if eventgroup_child_needs_mapgroupproto(child)
-            ]
-            if use_eventgroup
-            else ([class_name] if event_type in {"airdrop", "loot_crate"} else [])
-        ),
+        "mapgroupproto_classes": mapgroupproto_classes,
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event, map_key=map_key) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
     if event_type == "gas_zone":
@@ -33013,6 +33152,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                         if eventgroup_child_needs_mapgroupproto(child)
                         if str(child.get("type") or "").strip()
                     ]
+            proto_classes = filter_vehicle_classes_for_drop_event(record, proto_classes)
             for proto_class in dict.fromkeys(proto_classes):
                 _, created = add_mapgroupproto_loot_group(
                     mapgroupproto_root,

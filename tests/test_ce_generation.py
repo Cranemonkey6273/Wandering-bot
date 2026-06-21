@@ -186,6 +186,85 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertFalse(any(child.get("type") == "Sedan_02" for child in record["child_records"]))
         self.assertTrue(any("vehicle classname `Sedan_02`" in message for message in warnings))
 
+    def test_drop_loot_list_strips_vehicle_classnames(self):
+        event = _base_event(
+            53,
+            "airdrop",
+            "WoodenCrate",
+            loot=["M4A1", "Sedan_02", "Truck_01_Covered", "CarBattery"],
+        )
+
+        loot = bot.scenario_loot_items(event)
+        records, warnings = bot.console_ce_records_for_event(event, map_key="livonia")
+
+        self.assertIn("M4A1", loot)
+        self.assertIn("CarBattery", loot)
+        self.assertNotIn("Sedan_02", loot)
+        self.assertNotIn("Truck_01_Covered", loot)
+        self.assertEqual(["Wreck_Mi8_Crashed"], records[0].get("mapgroupproto_classes"))
+        self.assertTrue(any("vehicle classname(s) in a drop loot list" in message for message in warnings))
+
+    def test_drop_eventgroup_children_strip_vehicle_classnames(self):
+        event = _base_event(54, "airdrop", "WoodenCrate", visual_marker=True)
+        original_uses_eventgroup = bot.scenario_airdrop_uses_eventgroup
+        original_eventgroup_children = bot.scenario_airdrop_eventgroup_children
+        try:
+            bot.scenario_airdrop_uses_eventgroup = lambda _event: True
+            bot.scenario_airdrop_eventgroup_children = lambda _event, _class_name: [
+                {
+                    "type": "Sedan_02",
+                    "x": "0.0",
+                    "y": "0.0",
+                    "z": "0.0",
+                    "a": "0.0",
+                    "min": 1,
+                    "max": 1,
+                    "lootmin": 1,
+                    "lootmax": 5,
+                },
+                {
+                    "type": "Truck_01_Covered",
+                    "spawnsecondary": "false",
+                    "x": "1.0",
+                    "y": "0.0",
+                    "z": "1.0",
+                    "a": "0.0",
+                },
+                {
+                    "type": "Wreck_Mi8_Crashed",
+                    "x": "2.0",
+                    "y": "0.0",
+                    "z": "2.0",
+                    "a": "0.0",
+                    "min": 1,
+                    "max": 1,
+                    "lootmin": 1,
+                    "lootmax": 5,
+                },
+            ]
+
+            records, warnings = bot.console_ce_records_for_event(event, map_key="livonia")
+        finally:
+            bot.scenario_airdrop_uses_eventgroup = original_uses_eventgroup
+            bot.scenario_airdrop_eventgroup_children = original_eventgroup_children
+
+        self.assertEqual(1, len(records))
+        record = records[0]
+        child_types = [child.get("type") for child in record.get("eventgroup_children") or []]
+        self.assertEqual(["Wreck_Mi8_Crashed"], child_types)
+        self.assertEqual(["Wreck_Mi8_Crashed"], record.get("mapgroupproto_classes"))
+        self.assertTrue(any("cfgeventgroups child props" in message for message in warnings))
+
+    def test_old_drop_event_type_replaces_vehicle_classname(self):
+        event = _base_event(55, "convoy_wreck", "Sedan_02")
+
+        records, warnings = bot.console_ce_records_for_event(event, map_key="livonia")
+
+        self.assertEqual(1, len(records))
+        self.assertEqual("Wreck_Mi8_Crashed", records[0]["class_name"])
+        self.assertEqual("Wreck_Mi8_Crashed", records[0]["event_child_type"])
+        self.assertTrue(any("drop-style event" in message for message in warnings))
+
     def test_airdrop_guards_are_direct_event_children(self):
         event = _base_event(
             32,
