@@ -119,6 +119,86 @@ class LinkEnforcementTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("already linked", message)
 
+    def test_link_enforcement_ban_writer_uses_server_link_index(self):
+        bot.linked_players = {}
+        bot.guild_configs = {
+            "1504": {
+                "linked_gamertag_index": {
+                    "cranemonkey6273": {
+                        "gamertag": "CraneMonkey6273",
+                        "normalized_gamertag": "cranemonkey6273",
+                        "discord_id": "100",
+                        "discord_name": "Cranemonkey",
+                        "guild_id": "1504",
+                        "source": "linkgamer",
+                    }
+                }
+            }
+        }
+
+        def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("Nitrado ban writer should not be called for a server-indexed linked player")
+
+        bot.add_player_to_nitrado_banlist = fail_if_called
+
+        ok, message = asyncio.run(
+            bot.add_player_to_nitrado_banlist_async(
+                "1504",
+                bot.guild_configs["1504"],
+                "CraneMonkey6273",
+                ban_type="temp",
+                reason="Discord link required",
+                source="discord_link_enforcement",
+                minutes=60,
+            )
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("already linked", message)
+
+    def test_sync_linked_gamertag_index_backfills_existing_links(self):
+        bot.guild_configs = {"1504": {"guild_name": "Livonia"}}
+        bot.linked_players = {
+            "100": {
+                "discord_name": "Cranemonkey",
+                "discord_id": "100",
+                "guild_links": {
+                    "1504": {
+                        "discord_name": "Cranemonkey",
+                        "discord_id": "100",
+                        "guild_id": "1504",
+                        "gamertag": "CraneMonkey6273",
+                        "alt_gamertags": ["CraneAlt"],
+                    }
+                },
+            }
+        }
+
+        self.assertTrue(bot.sync_linked_gamertag_index_from_linked_players())
+        index = bot.guild_configs["1504"]["linked_gamertag_index"]
+        self.assertEqual("CraneMonkey6273", index["cranemonkey6273"]["gamertag"])
+        self.assertEqual("CraneAlt", index["cranealt"]["gamertag"])
+
+    def test_link_enforcement_join_does_not_queue_indexed_link(self):
+        bot.guild_configs = {
+            "1504": {
+                "discord_link_enforcement": {"enabled": True, "grace_minutes": 1},
+                "linked_gamertag_index": {
+                    "cranemonkey6273": {
+                        "gamertag": "CraneMonkey6273",
+                        "normalized_gamertag": "cranemonkey6273",
+                        "discord_id": "100",
+                        "guild_id": "1504",
+                    }
+                },
+            }
+        }
+
+        queued = bot.record_link_enforcement_join("1504", "CraneMonkey6273")
+
+        self.assertFalse(queued)
+        self.assertEqual({}, bot.guild_configs["1504"].get("discord_link_enforcement_state", {}).get("pending", {}))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3067,6 +3067,127 @@ def migrate_linked_player_guild_links_from_legacy():
     return changed
 
 
+def linked_gamertag_index_bucket(config):
+    if not isinstance(config, dict):
+        return {}
+    index = config.setdefault("linked_gamertag_index", {})
+    if isinstance(index, list):
+        converted = {}
+        for item in index:
+            name = normalize_nitrado_banlist_name(item)
+            key = normalize_discord_name(name)
+            if key:
+                converted[key] = {
+                    "gamertag": name,
+                    "normalized_gamertag": key,
+                    "source": "legacy_list",
+                    "updated_at": datetime.now(UTC).isoformat(),
+                }
+        config["linked_gamertag_index"] = converted
+        return converted
+    if not isinstance(index, dict):
+        index = {}
+        config["linked_gamertag_index"] = index
+    return index
+
+
+def remember_linked_gamertag_for_server(guild_id, config, user_id, discord_name, gamertag, *, account_type="primary", source="linkgamer"):
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    key = normalize_discord_name(clean_name)
+    if not key or not isinstance(config, dict):
+        return False
+    index = linked_gamertag_index_bucket(config)
+    now_text = datetime.now(UTC).isoformat()
+    record = {
+        "gamertag": clean_name,
+        "normalized_gamertag": key,
+        "discord_id": str(user_id or ""),
+        "discord_name": str(discord_name or ""),
+        "guild_id": str(guild_id or ""),
+        "account_type": str(account_type or "primary"),
+        "source": str(source or "linkgamer"),
+        "updated_at": now_text,
+    }
+    previous = index.get(key)
+    if isinstance(previous, dict):
+        created_at = previous.get("created_at")
+        if created_at:
+            record["created_at"] = created_at
+    record.setdefault("created_at", now_text)
+    if previous == record:
+        return False
+    index[key] = record
+    return True
+
+
+def remove_linked_gamertag_from_server(config, gamertag):
+    key = normalize_discord_name(gamertag)
+    if not key or not isinstance(config, dict):
+        return False
+    index = linked_gamertag_index_bucket(config)
+    return index.pop(key, None) is not None
+
+
+def sync_linked_gamertag_index_from_linked_players():
+    changed = False
+    if not isinstance(guild_configs, dict) or not isinstance(linked_players, dict):
+        return False
+    for guild_id, config in guild_configs.items():
+        if not isinstance(config, dict):
+            continue
+        for user_id, data in linked_players.items():
+            if not isinstance(data, dict):
+                continue
+            guild_data = linked_player_data_for_guild(data, guild_id)
+            if not guild_data:
+                continue
+            discord_name = guild_data.get("discord_name") or data.get("discord_name") or user_id
+            names = linked_player_gamertags(guild_data)
+            for index, gamertag in enumerate(names[:2]):
+                changed = remember_linked_gamertag_for_server(
+                    guild_id,
+                    config,
+                    user_id,
+                    discord_name,
+                    gamertag,
+                    account_type="primary" if index == 0 else "alt",
+                    source="linked_players_sync",
+                ) or changed
+    return changed
+
+
+def linked_gamertag_index_record(guild_id, gamertag):
+    key = normalize_discord_name(gamertag)
+    if not key:
+        return None
+    config = guild_configs.get(str(guild_id), {}) if isinstance(guild_configs, dict) else {}
+    if isinstance(config, dict):
+        record = linked_gamertag_index_bucket(config).get(key)
+        if isinstance(record, dict):
+            return record
+    for user_id, data in linked_players.items():
+        if not linked_player_matches_gamertag_for_guild(data, guild_id, key):
+            continue
+        guild_data = linked_player_data_for_guild(data, guild_id)
+        if isinstance(config, dict) and guild_data:
+            names = linked_player_gamertags(guild_data)
+            matched_name = next((name for name in names if normalize_discord_name(name) == key), gamertag)
+            account_type = "alt" if names and normalize_discord_name(names[0]) != key else "primary"
+            if remember_linked_gamertag_for_server(
+                guild_id,
+                config,
+                user_id,
+                guild_data.get("discord_name") or data.get("discord_name") or user_id,
+                matched_name,
+                account_type=account_type,
+                source="linked_players_backfill",
+            ):
+                save_guild_configs()
+            return linked_gamertag_index_bucket(config).get(key)
+        return {"gamertag": gamertag, "normalized_gamertag": key, "guild_id": str(guild_id)}
+    return None
+
+
 def gamertag_claimed_to_other_user(gamertag, user_id):
     key = linked_player_claim_key(gamertag)
     if not key:
@@ -3516,6 +3637,15 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             source="linkaltgamer",
             account_type="alt",
         )
+        index_changed = remember_linked_gamertag_for_server(
+            guild_id,
+            config,
+            user_id,
+            str(member),
+            verified_name,
+            account_type="alt",
+            source="linkaltgamer",
+        )
         account_label = "Alt gamertag"
     else:
         alt_gamertags = [
@@ -3540,10 +3670,31 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             source="linkgamer",
             account_type="primary",
         )
+        index_changed = remember_linked_gamertag_for_server(
+            guild_id,
+            config,
+            user_id,
+            str(member),
+            verified_name,
+            account_type="primary",
+            source="linkgamer",
+        )
+        for alt in alt_gamertags:
+            index_changed = remember_linked_gamertag_for_server(
+                guild_id,
+                config,
+                user_id,
+                str(member),
+                alt,
+                account_type="alt",
+                source="linkgamer_existing_alt",
+            ) or index_changed
         account_label = "Primary gamertag"
 
     save_linked_players()
     save_linked_player_claims()
+    if index_changed:
+        save_guild_configs()
     await cleanup_link_enforcement_after_link(
         guild_id,
         config,
@@ -10740,10 +10891,13 @@ def load_linked_players():
         linked_player_claims = {}
     links_changed = migrate_linked_player_guild_links_from_legacy()
     claims_changed = migrate_linked_player_claims_from_links()
+    index_changed = sync_linked_gamertag_index_from_linked_players()
     if links_changed:
         save_linked_players()
     if claims_changed:
         save_linked_player_claims()
+    if index_changed:
+        save_guild_configs()
 
 
 def save_linked_players():
@@ -21551,13 +21705,7 @@ async def has_linked_discord_member_for_gamertag(guild, guild_id, gamertag):
 
 
 def has_known_linked_gamertag(guild_id, gamertag):
-    wanted = normalize_discord_name(gamertag)
-    if not wanted:
-        return False
-    for _user_id, data in linked_players.items():
-        if linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
-            return True
-    return False
+    return linked_gamertag_index_record(guild_id, gamertag) is not None
 
 
 def link_enforcement_pending_key(player_name):
@@ -26130,6 +26278,7 @@ def unlink_alt_gamertag_for_member(member):
         return False, "No linked gamertag found."
     guild = getattr(member, "guild", None)
     guild_id = str(getattr(guild, "id", "") or data.get("guild_id") or "")
+    config = guild_configs.get(guild_id, {})
     guild_data = linked_player_data_for_guild(data, guild_id)
     alt_gamertags = linked_player_alt_gamertags(guild_data)
     if not alt_gamertags:
@@ -26149,6 +26298,8 @@ def unlink_alt_gamertag_for_member(member):
     linked_players[user_id] = set_linked_player_guild_data(data, guild_id, guild_data)
     save_linked_players()
     save_linked_player_claims()
+    if remove_linked_gamertag_from_server(config, removed):
+        save_guild_configs()
     return True, removed
 
 
@@ -26226,6 +26377,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         return False, "Gamertag cannot be empty."
 
     wanted = normalize_discord_name(verified_name)
+    index_changed = False
     for linked_user_id, data in list(linked_players.items()):
         if str(linked_user_id) == str(target_member.id) or not linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
             continue
@@ -26239,6 +26391,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
                 source="forcelinkgamer",
                 reason="admin_reassigned",
             )
+            index_changed = remove_linked_gamertag_from_server(config, verified_name) or index_changed
             if isinstance(data.get("guild_links"), dict):
                 data["guild_links"].pop(guild_id, None)
             if str(data.get("guild_id") or "").strip() == str(guild_id):
@@ -26254,6 +26407,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
             guild_data.pop("alt_verified_by", None)
             guild_data.pop("alt_linked_at", None)
             linked_players[str(linked_user_id)] = set_linked_player_guild_data(data, guild_id, guild_data)
+            index_changed = remove_linked_gamertag_from_server(config, verified_name) or index_changed
             reserve_removed_linked_player_claim(
                 guild_id,
                 linked_user_id,
@@ -26275,6 +26429,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
                 source="forcelinkgamer",
                 reason="replaced_by_force_link",
             )
+            index_changed = remove_linked_gamertag_from_server(config, old_name) or index_changed
     alt_gamertags = [
         alt for alt in linked_player_alt_gamertags(existing_guild_link)
         if normalize_discord_name(alt) != wanted
@@ -26299,8 +26454,29 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         account_type="primary",
         override=True,
     )
+    index_changed = remember_linked_gamertag_for_server(
+        guild_id,
+        config,
+        target_member.id,
+        str(target_member),
+        verified_name,
+        account_type="primary",
+        source=f"forcelinkgamer:{admin_member.id}",
+    ) or index_changed
+    for alt in alt_gamertags:
+        index_changed = remember_linked_gamertag_for_server(
+            guild_id,
+            config,
+            target_member.id,
+            str(target_member),
+            alt,
+            account_type="alt",
+            source=f"forcelinkgamer_existing_alt:{admin_member.id}",
+        ) or index_changed
     save_linked_players()
     save_linked_player_claims()
+    if index_changed:
+        save_guild_configs()
 
     stats = ensure_player_stats_record(guild_id, verified_name)
     if stats:
@@ -26474,8 +26650,11 @@ async def unlinkgamer(ctx, member: discord.Member):
 
     data = linked_players.get(user_id, {})
     guild_id = str(getattr(ctx.guild, "id", "") or (data.get("guild_id") if isinstance(data, dict) else "") or "")
+    config = guild_configs.get(guild_id, {})
+    index_changed = False
     if isinstance(data, dict):
-        for gamertag in linked_player_gamertags(data):
+        guild_data = linked_player_data_for_guild(data, guild_id)
+        for gamertag in linked_player_gamertags(guild_data or data):
             reserve_removed_linked_player_claim(
                 guild_id,
                 user_id,
@@ -26484,11 +26663,14 @@ async def unlinkgamer(ctx, member: discord.Member):
                 source="unlinkgamer",
                 reason="staff_unlinked",
             )
+            index_changed = remove_linked_gamertag_from_server(config, gamertag) or index_changed
 
     del linked_players[user_id]
 
     save_linked_players()
     save_linked_player_claims()
+    if index_changed:
+        save_guild_configs()
 
     await ctx.send(
         f"🗑️ Removed linked gamertag for {member.mention}"
