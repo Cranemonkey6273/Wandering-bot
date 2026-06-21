@@ -767,7 +767,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_animal_pack_reuses_vanilla_bear_event_with_marked_positions(self):
+    def test_animal_pack_adds_managed_animal_event_without_touching_vanilla(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         vanilla_events = (
@@ -815,21 +815,32 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         vanilla_event = spawns_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_event)
         self.assertTrue(any(pos.get("x") == "1" and pos.get("z") == "2" for pos in vanilla_event.findall("pos")))
-        positions = [pos for pos in vanilla_event.findall("pos") if pos.get("active") == "1"]
+        self.assertEqual(1, len(vanilla_event.findall("pos")))
+        managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
+        self.assertIsNotNone(managed_spawn)
+        positions = [pos for pos in managed_spawn.findall("pos") if pos.get("active") == "1"]
         self.assertEqual(2, len(positions))
         self.assertTrue(any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions))
-        self.assertIsNone(spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']"))
         self.assertFalse("HerdWanderingBot" in built["spawns_text"])
         events_root = ET.fromstring(built["events_text"])
-        bear_event = events_root.find("./event[@name='AnimalBear']")
-        self.assertIsNotNone(bear_event)
-        self.assertEqual("2", bear_event.findtext("nominal"))
-        self.assertEqual("2", bear_event.findtext("min"))
-        self.assertEqual("8", bear_event.findtext("max"))
-        child = bear_event.find("children/child")
+        vanilla_bear = events_root.find("./event[@name='AnimalBear']")
+        self.assertIsNotNone(vanilla_bear)
+        self.assertEqual("0", vanilla_bear.findtext("nominal"))
+        managed_event = events_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
+        self.assertIsNotNone(managed_event)
+        self.assertEqual("2", managed_event.findtext("nominal"))
+        self.assertEqual("2", managed_event.findtext("min"))
+        self.assertEqual("2", managed_event.findtext("max"))
+        self.assertEqual("child", managed_event.findtext("limit"))
+        flags = managed_event.find("flags")
+        self.assertIsNotNone(flags)
+        self.assertEqual("0", flags.get("deletable"))
+        self.assertEqual("1", flags.get("remove_damaged"))
+        child = managed_event.find("children/child")
         self.assertIsNotNone(child)
         self.assertEqual("Animal_UrsusArctos", child.get("type"))
-        self.assertIsNone(events_root.find("./event[@name='AnimalWanderingBot_animal_bear']"))
+        self.assertEqual("1", child.get("min"))
+        self.assertEqual("1", child.get("max"))
         self.assertFalse("HerdWanderingBot" in built["events_text"])
         self.assertFalse(built.get("cfgenvironment_text"))
         self.assertEqual([], built.get("animal_territory_files") or [])

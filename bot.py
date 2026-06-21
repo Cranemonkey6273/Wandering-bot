@@ -30170,6 +30170,7 @@ def add_console_ce_event_definition(
     cleanupradius=100,
     child_records=None,
     remove_damaged=False,
+    deletable=True,
     empty_children=False,
     secondary="",
 ):
@@ -30195,7 +30196,7 @@ def add_console_ce_event_definition(
         secondary_node.text = secondary
 
     flags = ET.SubElement(event_node, "flags")
-    flags.set("deletable", "1")
+    flags.set("deletable", "1" if deletable else "0")
     flags.set("init_random", "0")
     flags.set("remove_damaged", "1" if remove_damaged else "0")
 
@@ -31446,16 +31447,16 @@ def console_ce_records_for_event(event):
         if not class_name.startswith("Animal_"):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
-        vanilla_event_name = vanilla_animal_ce_event_name(class_name)
-        if not vanilla_event_name:
-            warnings.append(
-                f"`{event.get('id')}` animal pack uses `{class_name}`, but no matching vanilla animal CE event is known. "
-                "Use bear, wolf, boar, deer, cow, sheep, goat, pig, or hen classes."
-            )
-            return records, warnings
         family = "Animal"
-        limit_type = "custom"
-        child_records = None
+        limit_type = "child"
+        child_records = [{
+            "type": class_name,
+            "count": 1,
+            "min": 1,
+            "max": 1,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
     if event_type == "gas_zone":
         family = "Static"
         limit_type = "parent"
@@ -31486,7 +31487,7 @@ def console_ce_records_for_event(event):
         if cleanupradius < speed_defaults["cleanupradius"]:
             cleanupradius = speed_defaults["cleanupradius"]
 
-    record_name = vanilla_animal_ce_event_name(class_name) if event_type == "animal_pack" else ce_event_name(event, family=family)
+    record_name = ce_event_name(event, family=family)
     record = {
         "name": record_name,
         "class_name": class_name,
@@ -31514,10 +31515,11 @@ def console_ce_records_for_event(event):
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
         "start_speed": scenario_start_speed_key(event),
-        "remove_damaged": event_type == "vehicle_spawn",
+        "remove_damaged": event_type in {"animal_pack", "vehicle_spawn"},
+        "deletable": event_type != "animal_pack",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
-        "use_existing_definition": event_type == "animal_pack",
-        "patch_existing_definition": event_type == "animal_pack",
+        "use_existing_definition": False,
+        "patch_existing_definition": False,
         "mapgroupproto_classes": (
             [
                 str(child.get("type") or "").strip()
@@ -31553,8 +31555,8 @@ def console_ce_records_for_event(event):
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
         warnings.append(
-            f"`{event.get('id')}` reuses vanilla `{record_name}` with WanderingBot-marked fixed spawn positions. "
-            "This avoids custom herd-template names such as `HerdWanderingBot_animal_bear`."
+            f"`{event.get('id')}` creates managed animal CE event `{record_name}` with matching fixed spawn positions. "
+            "The event name starts with `Animal` and only WanderingBot-marked nodes are changed."
         )
     records.append(record)
 
@@ -31865,6 +31867,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
             remove_damaged=bool(record.get("remove_damaged")),
+            deletable=bool(record.get("deletable", True)),
             empty_children=bool(record.get("empty_event_children")),
             secondary=record.get("secondary", ""),
         )
