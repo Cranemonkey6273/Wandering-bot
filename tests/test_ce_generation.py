@@ -1126,6 +1126,85 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_legacy_livonia_revamp_wooden_crate_events_are_removed(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        legacy_events = (
+            '<events>'
+            '<event name="StaticLivoniaRevampLoot_01"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="StaticObj_Misc_WoodenCrate_5x" lootmin="20" lootmax="40" min="1" max="1" /></children>'
+            '</event>'
+            '<event name="StaticLivoniaRevampLoot_99"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="Wreck_Mi8_Crashed" lootmin="20" lootmax="40" min="1" max="1" /></children>'
+            '</event>'
+            '</events>'
+        )
+        legacy_spawns = (
+            '<eventposdef>'
+            '<event name="StaticLivoniaRevampLoot_01"><pos x="1000" z="2000" a="0" /></event>'
+            '<event name="StaticLivoniaRevampLoot_99"><pos x="3000" z="4000" a="0" /></event>'
+            '</eventposdef>'
+        )
+        sources = {
+            "events_path": (legacy_events, f"{base_path}/db/events.xml"),
+            "spawns_path": (legacy_spawns, f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    42,
+                    "zombie_horde",
+                    "ZmbM_SoldierNormal",
+                    preset="military_zombie",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertIsNone(events_root.find("./event[@name='StaticLivoniaRevampLoot_01']"))
+        self.assertIsNone(spawns_root.find("./event[@name='StaticLivoniaRevampLoot_01']"))
+        self.assertIsNotNone(events_root.find("./event[@name='StaticLivoniaRevampLoot_99']"))
+        self.assertIsNotNone(spawns_root.find("./event[@name='StaticLivoniaRevampLoot_99']"))
+        self.assertTrue(
+            any("stale Livonia revamp wooden-crate" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        events_scope_ok, events_scope_message = bot.validate_managed_ce_xml_scope(
+            "events.xml",
+            built["events_source_text"],
+            built["events_text"],
+        )
+        self.assertTrue(events_scope_ok, events_scope_message)
+        spawns_scope_ok, spawns_scope_message = bot.validate_managed_ce_xml_scope(
+            "cfgeventspawns.xml",
+            built["spawns_source_text"],
+            built["spawns_text"],
+        )
+        self.assertTrue(spawns_scope_ok, spawns_scope_message)
+
     def test_animal_pack_adds_custom_animal_event_without_territory_file(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'

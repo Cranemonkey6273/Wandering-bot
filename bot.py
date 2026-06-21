@@ -28567,6 +28567,7 @@ LEGACY_WANDERING_CE_NAMES = {
     "VehicleJINXADA",
     "VehicleJINXTruck",
 }
+LEGACY_REVAMP_WOODEN_CRATE_CLASS = "StaticObj_Misc_WoodenCrate_5x"
 VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES = {"Wreck_Mi8_Crashed"}
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
@@ -29747,6 +29748,41 @@ def parse_xml_root_preserving_comments(text):
         return ET.fromstring(str(text or "").encode("utf-8"))
 
 
+def is_legacy_revamp_wooden_crate_event_name(value):
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"StaticLivoniaRevampLoot_\d+", text))
+
+
+def is_legacy_revamp_wooden_crate_event_node(node):
+    if getattr(node, "tag", None) != "event":
+        return False
+    if not is_legacy_revamp_wooden_crate_event_name(node.get("name")):
+        return False
+    wanted = LEGACY_REVAMP_WOODEN_CRATE_CLASS.lower()
+    for child in node.findall("./children/child"):
+        if str(child.get("type") or "").strip().lower() == wanted:
+            return True
+    return False
+
+
+def cleanup_legacy_revamp_wooden_crate_events(events_root, spawns_root):
+    removed_event_names = []
+    if events_root is not None:
+        for child in list(events_root):
+            if is_legacy_revamp_wooden_crate_event_node(child):
+                removed_event_names.append(str(child.get("name") or "").strip())
+                events_root.remove(child)
+
+    removed_spawns = 0
+    removed_names = {name for name in removed_event_names if name}
+    if spawns_root is not None and removed_names:
+        for child in list(spawns_root):
+            if getattr(child, "tag", None) == "event" and str(child.get("name") or "").strip() in removed_names:
+                spawns_root.remove(child)
+                removed_spawns += 1
+    return len(removed_event_names), removed_spawns, sorted(removed_names)
+
+
 def remove_wandering_ce_nodes(root):
     removed = 0
     for child in list(root):
@@ -29787,6 +29823,8 @@ def is_wandering_scope_node(node):
     for attr in ("name", "path", "usable"):
         if is_wandering_managed_name(node.get(attr)):
             return True
+    if getattr(node, "tag", None) == "event" and is_legacy_revamp_wooden_crate_event_name(node.get("name")):
+        return True
     if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
         return True
     return False
@@ -32667,6 +32705,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
     removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
+    removed_revamp_events, removed_revamp_spawns, removed_revamp_names = cleanup_legacy_revamp_wooden_crate_events(
+        events_root,
+        spawns_root,
+    )
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
     records = []
@@ -32735,6 +32777,12 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         f"Removed `{removed_events}` old WanderingBot event definition(s), `{removed_spawns}` old spawn point block(s), and `{removed_spawn_children}` old marked spawn child node(s).",
         f"Generated `{len(records)}` native CE spawn record(s) across `{len(definition_records)}` managed event definition(s).",
     ]
+    if removed_revamp_events or removed_revamp_spawns:
+        messages.append(
+            f"Removed `{removed_revamp_events}` stale Livonia revamp wooden-crate event definition(s) and "
+            f"`{removed_revamp_spawns}` matching spawn block(s): "
+            + ", ".join(f"`{name}`" for name in removed_revamp_names[:12])
+        )
     if patched_existing_definitions:
         messages.append(
             f"Adjusted `{patched_existing_definitions}` reused vanilla animal event definition(s) so selected animal packs have a positive CE count."
