@@ -504,6 +504,28 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.find("point").get("flags"), "32")
         self.assertGreaterEqual(len(container.findall("point")), 8)
 
+    def test_livonia_proto_values_do_not_generate_tier4(self):
+        event = _base_event(
+            34,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+            loot_preset="military_high",
+        )
+        tags = bot.scenario_mapgroupproto_loot_tags(event, map_key="livonia")
+        self.assertEqual(["Tier3"], tags.get("value"))
+
+        proto_root = ET.Element("prototype")
+        bot.add_mapgroupproto_loot_group(
+            proto_root,
+            "Wreck_Mi8_Crashed",
+            tags=tags,
+            map_key="livonia",
+        )
+        crash_group = next(g for g in proto_root.findall("group") if g.get("name") == "Wreck_Mi8_Crashed")
+        self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier3"])
+
     def test_airdrop_proto_categories_never_include_containers_or_vehicles(self):
         event = _base_event(
             35,

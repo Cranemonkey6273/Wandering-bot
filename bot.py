@@ -28466,6 +28466,8 @@ def load_dayz_reference(map_key):
         "zombies": [],
         "animals": [],
         "containers": [],
+        "values": set(),
+        "usages": set(),
     }
 
     types_path = dayz_reference_path(map_key, "db", "types.xml")
@@ -28495,6 +28497,23 @@ def load_dayz_reference(map_key):
         reference["available"] = True
     except Exception as error:
         print(f"DAYZ REFERENCE LOAD ERROR {map_key}: {error}")
+
+    try:
+        limits_path = dayz_reference_path(map_key, "cfglimitsdefinition.xml")
+        if limits_path and os.path.exists(limits_path):
+            limits_root = ET.parse(limits_path).getroot()
+            reference["values"] = {
+                str(node.get("name") or "").strip()
+                for node in limits_root.findall(".//valueflags/value")
+                if str(node.get("name") or "").strip()
+            }
+            reference["usages"] = {
+                str(node.get("name") or "").strip()
+                for node in limits_root.findall(".//usageflags/usage")
+                if str(node.get("name") or "").strip()
+            }
+    except Exception as error:
+        print(f"DAYZ LIMITS REFERENCE LOAD ERROR {map_key}: {error}")
 
     dayz_reference_cache[map_key] = reference
     return reference
@@ -30626,6 +30645,68 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
 }
 
 
+def dayz_reference_value_flags(map_key):
+    reference = load_dayz_reference(map_key)
+    values = reference.get("values") if isinstance(reference, dict) else None
+    if isinstance(values, (set, list, tuple)):
+        return {str(value).strip() for value in values if str(value).strip()}
+    return set()
+
+
+def highest_dayz_tier_value(values):
+    best_name = ""
+    best_tier = -1
+    for value in values or ():
+        match = re.fullmatch(r"Tier(\d+)", str(value or "").strip(), flags=re.IGNORECASE)
+        if not match:
+            continue
+        tier = safe_int(match.group(1), -1)
+        if tier > best_tier:
+            best_tier = tier
+            best_name = str(value).strip()
+    return best_name
+
+
+def filter_mapgroupproto_values_for_map(values, map_key=""):
+    cleaned = []
+    for value in values or ():
+        value = str(value or "").strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    if not cleaned:
+        return cleaned
+
+    valid_values = dayz_reference_value_flags(map_key or "chernarus")
+    if not valid_values:
+        return cleaned
+
+    canonical_by_lower = {value.lower(): value for value in valid_values}
+    filtered = [
+        canonical_by_lower[str(value).lower()]
+        for value in cleaned
+        if str(value).lower() in canonical_by_lower
+    ]
+    if filtered:
+        return filtered
+
+    fallback = highest_dayz_tier_value(valid_values)
+    if fallback:
+        return [fallback]
+    return cleaned
+
+
+def infer_map_key_from_ce_paths(guild_id, *paths):
+    for path in paths or ():
+        normalized = normalize_discord_name(path)
+        if "dayzofflineenoch" in normalized or "enoch" in normalized:
+            return "livonia"
+        if "dayzofflinesakhal" in normalized or "sakhal" in normalized:
+            return "sakhal"
+        if "dayzofflinechernarusplus" in normalized or "chernarusplus" in normalized:
+            return "chernarus"
+    return server_map_key(guild_id)
+
+
 def mapgroupproto_positive_int(value, default=0):
     try:
         return max(0, int(str(value or "").strip() or default))
@@ -30667,7 +30748,7 @@ def scenario_mapgroupproto_loot_tag_keys(event):
     return keys
 
 
-def scenario_mapgroupproto_loot_tags(event):
+def scenario_mapgroupproto_loot_tags(event, map_key=""):
     usages = []
     values = []
     categories = []
@@ -30692,6 +30773,7 @@ def scenario_mapgroupproto_loot_tags(event):
         usages = ["Military"]
     if not values:
         values = ["Tier3", "Tier4"]
+    values = filter_mapgroupproto_values_for_map(values, map_key)
     if not categories:
         categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
     return {"usage": usages, "value": values, "category": categories}
@@ -30705,7 +30787,7 @@ def mapgroupproto_uses_generic_single_point(container_node):
     return str(point.get("pos") or "").strip() in {"0 0 0", "0.0 0.0 0.0"}
 
 
-def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class_name=""):
+def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class_name="", map_key=""):
     target_lootmax = str(max(1, int(lootmax or 80)))
     tags = tags if isinstance(tags, dict) else {}
     wanted_usages = [str(item).strip() for item in tags.get("usage", []) if str(item).strip()]
@@ -30715,6 +30797,7 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class
         wanted_usages = ["Military"]
     if not wanted_values:
         wanted_values = ["Tier3", "Tier4"]
+    wanted_values = filter_mapgroupproto_values_for_map(wanted_values, map_key)
     if not wanted_categories:
         wanted_categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
     changed = False
@@ -30864,7 +30947,7 @@ def find_usable_unmanaged_mapgroupproto_group(root, class_name):
     return None
 
 
-def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
+def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_key=""):
     # Non-destructive: unmarked live groups stay byte-for-byte under the
     # snippet scope guard. If WanderingBot needs a proto, append its own marked
     # group at the end and only refresh that marked block on later retries.
@@ -30876,7 +30959,13 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
         return None, False
     managed_group = find_managed_mapgroupproto_group(root, wanted)
     if managed_group is not None:
-        changed = ensure_mapgroupproto_loot_container(managed_group, lootmax=lootmax, tags=tags, class_name=wanted)
+        changed = ensure_mapgroupproto_loot_container(
+            managed_group,
+            lootmax=lootmax,
+            tags=tags,
+            class_name=wanted,
+            map_key=map_key,
+        )
         return managed_group, changed
     usable_unmanaged = find_usable_unmanaged_mapgroupproto_group(root, wanted)
     if usable_unmanaged is not None:
@@ -30884,7 +30973,7 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None):
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
     group_node = ET.SubElement(root, "group", {"name": wanted})
-    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags, class_name=wanted)
+    ensure_mapgroupproto_loot_container(group_node, lootmax=lootmax, tags=tags, class_name=wanted, map_key=map_key)
     return group_node, True
 
 
@@ -31351,7 +31440,7 @@ def scenario_speed_defaults(event_type, event, use_eventgroup=False):
     return fast
 
 
-def console_ce_records_for_event(event):
+def console_ce_records_for_event(event, map_key=""):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
     records = []
@@ -31529,7 +31618,7 @@ def console_ce_records_for_event(event):
             if use_eventgroup
             else ([class_name] if event_type in {"airdrop", "loot_crate"} else [])
         ),
-        "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
+        "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event, map_key=map_key) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
@@ -31828,10 +31917,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
     removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
+    ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
     records = []
     for event in native_ce_scenario_events(config):
-        event_records, event_warnings = console_ce_records_for_event(event)
+        event_records, event_warnings = console_ce_records_for_event(event, map_key=ce_map_key)
         records.extend(event_records)
         warnings.extend(event_warnings)
 
@@ -32120,6 +32210,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     mapgroupproto_root,
                     proto_class,
                     tags=record.get("mapgroupproto_tags") if proto_class == record["class_name"] else {},
+                    map_key=ce_map_key,
                 )
                 if created:
                     added_proto += 1
