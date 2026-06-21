@@ -62,7 +62,6 @@ SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
 SCENARIO_AIRDROP_SCENE_MARKERS = {
     "compact_crater": SCENARIO_AIRDROP_MARKER_CLASS,
     "helicopter_crash": "Wreck_Mi8_Crashed",
-    "cargo_plane_wreck": "Land_Wreck_C130J_Cargo",
     "convoy_wreck": "StaticObj_Wreck_HMMWV_DE",
 }
 SCENARIO_AIRDROP_LEGACY_CRATE_CLASSES = {
@@ -4993,7 +4992,7 @@ PAGE_TEMPLATE = """
           {% set edit_event.loot_count_range = event.loot_count_range or 'default' %}
           {% set edit_event.loot_mix = event.loot_mix or {} %}
           {% set edit_event.visual_marker = 'true' if event.visual_marker else 'false' %}
-          {% set edit_event.scene_type = event.scene_type or 'compact_crater' %}
+          {% set edit_event.scene_type = 'compact_crater' if event.scene_type == 'cargo_plane_wreck' else (event.scene_type or 'compact_crater') %}
           {% set edit_event.guard_class = event.guard_class or '' %}
           {% set edit_event.guard_count = event.guard_count or 0 %}
           {% set edit_event.guard_radius = event.guard_radius or 35 %}
@@ -5179,10 +5178,9 @@ PAGE_TEMPLATE = """
               <select name="scene_type">
                 <option value="compact_crater" {% if edit_event.scene_type == 'compact_crater' %}selected{% endif %}>Compact crater</option>
                 <option value="helicopter_crash" {% if edit_event.scene_type == 'helicopter_crash' %}selected{% endif %}>Helicopter crash</option>
-                <option value="cargo_plane_wreck" {% if edit_event.scene_type == 'cargo_plane_wreck' %}selected{% endif %}>Cargo plane wreck</option>
                 <option value="convoy_wreck" {% if edit_event.scene_type == 'convoy_wreck' %}selected{% endif %}>Convoy wreck</option>
               </select>
-              <small class="field-help">🚁 Marker scenes. Heli min 100m, plane min 120m.</small>
+              <small class="field-help">🚁 Marker scenes. Heli min 100m, convoy min 80m.</small>
             </label>
             <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
@@ -10996,7 +10994,10 @@ PAGE_TEMPLATE = """
           if (field) field.value = button.dataset[`lootMix${key.charAt(0).toUpperCase()}${key.slice(1)}`] || 0;
         });
         form.elements.visual_marker.value = button.dataset.marker || "true";
-        if (form.elements.scene_type) form.elements.scene_type.value = button.dataset.scene || "compact_crater";
+        if (form.elements.scene_type) {
+          const sceneValue = button.dataset.scene === "cargo_plane_wreck" ? "compact_crater" : (button.dataset.scene || "compact_crater");
+          form.elements.scene_type.value = sceneValue;
+        }
         form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
@@ -22067,9 +22068,10 @@ def api_scenario_event():
     scene_min_radius = {
         "compact_crater": 35,
         "helicopter_crash": 100,
-        "cargo_plane_wreck": 120,
         "convoy_wreck": 80,
     }
+    if scene_type == "cargo_plane_wreck":
+        scene_type = "compact_crater"
     if scene_type not in scene_min_radius:
         scene_type = "compact_crater"
     scene_marker_class = SCENARIO_AIRDROP_SCENE_MARKERS.get(scene_type, SCENARIO_AIRDROP_MARKER_CLASS)

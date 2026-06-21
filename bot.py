@@ -28447,6 +28447,13 @@ SCENARIO_AIRDROP_SCENES = {
     },
 }
 
+SCENARIO_AIRDROP_UNSAFE_SCENE_FALLBACKS = {
+    # The C130 interior can enclose existing vehicle spawns when dropped on live
+    # server coordinates, so keep old saved events working by falling back to
+    # the open helicopter scene instead of emitting Land_Wreck_C130J_Cargo.
+    "cargo_plane_wreck": "compact_crater",
+}
+
 SCENARIO_AIRDROP_SCENE_PROPS = SCENARIO_AIRDROP_SCENES["compact_crater"]["props"]
 
 SCENARIO_AIRDROP_WEAPON_RECIPES = {
@@ -30580,9 +30587,18 @@ def patch_existing_console_ce_event_definition(root, record):
     return changed
 
 
-def scenario_airdrop_scene_type(event):
-    scene_type = re.sub(r"[^a-z0-9_]+", "_", str((event or {}).get("scene_type") or "compact_crater").strip().lower()).strip("_")
+def scenario_airdrop_requested_scene_type(event):
+    scene_type = re.sub(
+        r"[^a-z0-9_]+",
+        "_",
+        str((event or {}).get("scene_type") or "compact_crater").strip().lower(),
+    ).strip("_")
     return scene_type if scene_type in SCENARIO_AIRDROP_SCENES else "compact_crater"
+
+
+def scenario_airdrop_scene_type(event):
+    scene_type = scenario_airdrop_requested_scene_type(event)
+    return SCENARIO_AIRDROP_UNSAFE_SCENE_FALLBACKS.get(scene_type, scene_type)
 
 
 def scenario_airdrop_scene_config(event):
@@ -31566,40 +31582,42 @@ def console_ce_event_is_static_gas_zone(event_name):
     )
 
 
-def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45):
+def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, exclusion_center=None, exclusion_radius=0):
     base_x = parse_dayz_map_number(x)
     base_z = parse_dayz_map_number(z)
     base_angle = parse_dayz_map_number(angle) or 0
     if base_x is None or base_z is None:
         return [(x, z, base_angle)]
 
-    try:
-        spread = int(radius or 45)
-    except Exception:
-        spread = 45
-    spread = max(12, min(75, spread or 45))
-    diagonal = round(spread * 0.7, 3)
-    offsets = [
-        (0, 0),
-        (spread, 0),
-        (-spread, 0),
-        (0, spread),
-        (0, -spread),
-        (diagonal, diagonal),
-        (-diagonal, diagonal),
-        (diagonal, -diagonal),
-        (-diagonal, -diagonal),
-    ]
+    spread = max(35, min(250, safe_int(radius, 45) or 45))
+    exclude_x = None
+    exclude_z = None
+    if isinstance(exclusion_center, (tuple, list)) and len(exclusion_center) >= 2:
+        exclude_x = parse_dayz_map_number(exclusion_center[0])
+        exclude_z = parse_dayz_map_number(exclusion_center[1])
+    exclusion_radius = max(0, min(500, safe_int(exclusion_radius, 0)))
+    if exclude_x is not None and exclude_z is not None and exclusion_radius:
+        spread = max(spread, min(300, exclusion_radius + 25))
+
+    candidate_angles = (0, 45, 90, 135, 180, 225, 270, 315, 22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5)
     positions = []
     seen = set()
-    for dx, dz in offsets:
-        pos_x = round(base_x + dx, 3)
-        pos_z = round(base_z + dz, 3)
-        key = (pos_x, pos_z)
-        if key in seen:
-            continue
-        seen.add(key)
-        positions.append((pos_x, pos_z, base_angle))
+    for ring in (spread, min(350, spread + 35), min(400, spread + 70)):
+        for offset_angle in candidate_angles:
+            radians = math.radians(offset_angle)
+            pos_x = round(base_x + (math.cos(radians) * ring), 3)
+            pos_z = round(base_z + (math.sin(radians) * ring), 3)
+            if exclude_x is not None and exclude_z is not None and exclusion_radius:
+                distance = math.hypot(pos_x - exclude_x, pos_z - exclude_z)
+                if distance < exclusion_radius:
+                    continue
+            key = (pos_x, pos_z)
+            if key in seen:
+                continue
+            seen.add(key)
+            positions.append((pos_x, pos_z, base_angle))
+        if len(positions) >= 8:
+            break
     return positions
 
 
@@ -31652,7 +31670,7 @@ def cleanup_wandering_marked_spawn_children(root):
     return removed
 
 
-def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False):
+def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=45, y=None, group_name="", empty=False, vehicle_exclusion_center=None, vehicle_exclusion_radius=0):
     event_node, _ = find_or_create_named_child(root, "event", event_name, f"managed spawn block {event_name}")
     if empty:
         return event_node
@@ -31721,7 +31739,14 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "r": str(max(1, radius or 45)),
         })
     if event_name.startswith("Vehicle") and CONSOLE_CE_EVENT_MARKER in event_name:
-        for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(x, z, angle=angle, radius=radius or 45):
+        for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(
+            x,
+            z,
+            angle=angle,
+            radius=radius or 45,
+            exclusion_center=vehicle_exclusion_center,
+            exclusion_radius=vehicle_exclusion_radius,
+        ):
             append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
             ET.SubElement(event_node, "pos", {
                 "x": ce_decimal(pos_x),
@@ -31746,6 +31771,138 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
     ET.SubElement(event_node, "pos", attrs)
     return event_node
+
+
+def console_ce_record_xy(record):
+    x = parse_dayz_map_number((record or {}).get("x"))
+    z = parse_dayz_map_number((record or {}).get("z"))
+    if x is None or z is None:
+        return None
+    return x, z
+
+
+def console_ce_existing_vehicle_spawn_points(spawns_root):
+    points = []
+    if spawns_root is None:
+        return points
+    for event_node in spawns_root.findall("event"):
+        event_name = str(event_node.get("name") or "").strip()
+        if not event_name.startswith("Vehicle"):
+            continue
+        if is_wandering_managed_name(event_name):
+            continue
+        for pos_node in event_node.findall("pos"):
+            x = parse_dayz_map_number(pos_node.get("x"))
+            z = parse_dayz_map_number(pos_node.get("z"))
+            if x is None or z is None:
+                continue
+            points.append({"name": event_name, "x": x, "z": z})
+    return points
+
+
+def console_ce_shift_point_outside(center_x, center_z, blocked_x, blocked_z, clearance, salt=""):
+    distance = math.hypot(center_x - blocked_x, center_z - blocked_z)
+    if distance > 0.01:
+        unit_x = (center_x - blocked_x) / distance
+        unit_z = (center_z - blocked_z) / distance
+    else:
+        seed = int(hashlib.sha256(str(salt or "wanderingbot").encode("utf-8", errors="ignore")).hexdigest()[:8], 16)
+        radians = math.radians(seed % 360)
+        unit_x = math.cos(radians)
+        unit_z = math.sin(radians)
+    target_distance = max(1, float(clearance or 1)) + 15.0
+    return (
+        round(max(0.0, blocked_x + (unit_x * target_distance)), 3),
+        round(max(0.0, blocked_z + (unit_z * target_distance)), 3),
+    )
+
+
+def apply_console_ce_scene_spawn_clearance(records, spawns_root):
+    warnings = []
+    vehicle_points = console_ce_existing_vehicle_spawn_points(spawns_root)
+    for record in records or []:
+        if not isinstance(record, dict) or record.get("event_type") != "vehicle_spawn":
+            continue
+        xy = console_ce_record_xy(record)
+        if xy:
+            vehicle_points.append({"name": record.get("name") or "managed vehicle", "x": xy[0], "z": xy[1]})
+
+    if not vehicle_points:
+        return warnings
+
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        if record.get("event_type") not in {"airdrop", "loot_crate"}:
+            continue
+        scene_radius = max(safe_int(record.get("scene_clearance_radius"), 0), safe_int(record.get("radius"), 0))
+        if scene_radius <= 0:
+            continue
+        xy = console_ce_record_xy(record)
+        if not xy:
+            continue
+        center_x, center_z = xy
+        clearance = max(55, min(500, scene_radius + 25))
+        moved_from = None
+        moved_for = None
+        for _attempt in range(4):
+            moved_this_round = False
+            for point in vehicle_points:
+                blocked_x = parse_dayz_map_number(point.get("x"))
+                blocked_z = parse_dayz_map_number(point.get("z"))
+                if blocked_x is None or blocked_z is None:
+                    continue
+                if math.hypot(center_x - blocked_x, center_z - blocked_z) >= clearance:
+                    continue
+                if moved_from is None:
+                    moved_from = (center_x, center_z)
+                    moved_for = point.get("name") or "vehicle spawn"
+                center_x, center_z = console_ce_shift_point_outside(
+                    center_x,
+                    center_z,
+                    blocked_x,
+                    blocked_z,
+                    clearance,
+                    salt=record.get("name") or record.get("source_id") or "",
+                )
+                moved_this_round = True
+            if not moved_this_round:
+                break
+        if moved_from is not None:
+            record["x"] = center_x
+            record["z"] = center_z
+            warnings.append(
+                f"`{record.get('source_id') or record.get('name')}` visual airdrop scene was moved from "
+                f"`{ce_decimal(moved_from[0])}, {ce_decimal(moved_from[1])}` to "
+                f"`{ce_decimal(center_x)}, {ce_decimal(center_z)}` because it overlapped `{moved_for}`."
+            )
+
+    scene_points = [
+        record
+        for record in records or []
+        if isinstance(record, dict)
+        and record.get("event_type") in {"airdrop", "loot_crate"}
+        and safe_int(record.get("scene_clearance_radius"), 0) > 0
+        and console_ce_record_xy(record)
+    ]
+    for record in records or []:
+        if not isinstance(record, dict) or record.get("event_type") != "vehicle_spawn":
+            continue
+        xy = console_ce_record_xy(record)
+        if not xy:
+            continue
+        for scene_record in scene_points:
+            scene_xy = console_ce_record_xy(scene_record)
+            scene_radius = max(55, safe_int(scene_record.get("scene_clearance_radius"), 0) + 25)
+            if math.hypot(xy[0] - scene_xy[0], xy[1] - scene_xy[1]) > scene_radius:
+                continue
+            record["vehicle_exclusion_center"] = scene_xy
+            record["vehicle_exclusion_radius"] = scene_radius
+            warnings.append(
+                f"`{record.get('source_id') or record.get('name')}` vehicle spawn positions were kept outside nearby visual airdrop scene `{scene_record.get('name')}`."
+            )
+            break
+    return warnings
 
 
 ANIMAL_TERRITORY_PROFILES = {
@@ -32049,6 +32206,14 @@ def console_ce_records_for_event(event, map_key=""):
     lifetime = max(60, min(3888000, safe_int(event.get("lifetime"), lifetime)))
 
     if event_type in {"airdrop", "loot_crate"}:
+        requested_scene_type = scenario_airdrop_requested_scene_type(event)
+        safe_scene_type = scenario_airdrop_scene_type(event)
+        if event.get("visual_marker") and requested_scene_type != safe_scene_type:
+            requested_label = SCENARIO_AIRDROP_SCENES.get(requested_scene_type, {}).get("label") or requested_scene_type
+            safe_label = SCENARIO_AIRDROP_SCENES.get(safe_scene_type, {}).get("label") or safe_scene_type
+            warnings.append(
+                f"`{event.get('id')}` requested unsafe visual scene `{requested_label}`; using `{safe_label}` so enclosed wrecks do not trap vehicles."
+            )
         class_name = scenario_container_class_for_ce(class_name)
         if event_type == "airdrop":
             class_name = scenario_airdrop_anchor_class(event, class_name)
@@ -32160,6 +32325,8 @@ def console_ce_records_for_event(event, map_key=""):
     record_name = ce_event_name(event, family=family)
     record = {
         "name": record_name,
+        "source_id": event.get("id"),
+        "event_type": event_type,
         "class_name": class_name,
         "event_child_type": scenario_airdrop_primary_static_child(event, class_name) if use_eventgroup else class_name,
         "count": count,
@@ -32185,6 +32352,8 @@ def console_ce_records_for_event(event, map_key=""):
         "distanceradius": distanceradius,
         "cleanupradius": cleanupradius,
         "start_speed": scenario_start_speed_key(event),
+        "visual_marker": bool(event.get("visual_marker")),
+        "scene_clearance_radius": scenario_airdrop_scene_min_radius(event) if event_type in {"airdrop", "loot_crate"} and event.get("visual_marker") else 0,
         "remove_damaged": event_type in {"animal_pack", "vehicle_spawn"},
         "deletable": event_type != "animal_pack",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
@@ -32505,6 +32674,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         event_records, event_warnings = console_ce_records_for_event(event, map_key=ce_map_key)
         records.extend(event_records)
         warnings.extend(event_warnings)
+    warnings.extend(apply_console_ce_scene_spawn_clearance(records, spawns_root))
 
     records_reusing_existing_definitions = [
         record for record in records
@@ -32555,6 +32725,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             radius=record.get("radius") or 45,
             group_name=record["name"] if record.get("use_eventgroup") else "",
             empty=bool(record.get("empty_spawn")),
+            vehicle_exclusion_center=record.get("vehicle_exclusion_center"),
+            vehicle_exclusion_radius=record.get("vehicle_exclusion_radius", 0),
         )
 
     messages = [
@@ -40779,7 +40951,6 @@ async def event_vehicle(
 @app_commands.choices(scene_type=[
     app_commands.Choice(name="Compact crater", value="compact_crater"),
     app_commands.Choice(name="Helicopter crash", value="helicopter_crash"),
-    app_commands.Choice(name="Cargo plane wreck", value="cargo_plane_wreck"),
     app_commands.Choice(name="Convoy wreck", value="convoy_wreck"),
 ])
 @app_commands.autocomplete(
@@ -40838,6 +41009,7 @@ async def event_airdrop(
     scene_type = re.sub(r"[^a-z0-9_]+", "_", str(scene_type or "compact_crater").strip().lower()).strip("_")
     if scene_type not in SCENARIO_AIRDROP_SCENES:
         scene_type = "helicopter_crash"
+    scene_type = SCENARIO_AIRDROP_UNSAFE_SCENE_FALLBACKS.get(scene_type, scene_type)
     scene_radius = scenario_airdrop_scene_min_radius({"scene_type": scene_type}) if visual_marker else 35
     airdrop_class = crate_class
     if visual_marker:

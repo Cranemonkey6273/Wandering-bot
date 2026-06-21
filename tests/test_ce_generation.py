@@ -18,6 +18,7 @@ makes vehicles and static crates fail to spawn on Livonia terrain.
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import unittest
@@ -261,6 +262,22 @@ class AirdropEventGroupTests(unittest.TestCase):
         for scene_key in ("cargo_plane_wreck", "convoy_wreck"):
             scene = bot.SCENARIO_AIRDROP_SCENES[scene_key]
             self.assertEqual([], scene.get("props"))
+
+    def test_vehicle_spawn_positions_skip_exact_center_and_scene_exclusion(self):
+        positions = bot.console_ce_vehicle_spawn_positions(5000, 5000, radius=45)
+        self.assertGreaterEqual(len(positions), 8)
+        self.assertNotIn((5000, 5000), [(x, z) for x, z, _angle in positions])
+
+        protected = bot.console_ce_vehicle_spawn_positions(
+            5000,
+            5000,
+            radius=45,
+            exclusion_center=(5000, 5000),
+            exclusion_radius=125,
+        )
+        self.assertGreaterEqual(len(protected), 8)
+        for pos_x, pos_z, _angle in protected:
+            self.assertGreaterEqual(math.hypot(pos_x - 5000, pos_z - 5000), 125)
 
     def test_airdrop_direct_spawn_replaces_stale_grouped_spawn_pos(self):
         event = _base_event(
@@ -914,7 +931,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_livonia_cargo_plane_airdrop_uses_valid_tags_and_c130_points(self):
+    def test_livonia_cargo_plane_airdrop_falls_back_to_open_scene(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         sources = {
             "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
@@ -950,13 +967,69 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         built = bot.build_console_ce_event_files(self.guild_id, config)
 
         proto_root = ET.fromstring(built["mapgroupproto_text"])
-        c130_group = proto_root.find("./group[@name='Land_Wreck_C130J_Cargo']")
-        self.assertIsNotNone(c130_group)
-        self.assertNotIn("Tier4", [node.get("name") for node in c130_group.findall("value")])
-        self.assertNotIn("Historical", [node.get("name") for node in c130_group.findall("usage")])
-        container = c130_group.find("container")
-        self.assertIsNotNone(container)
-        self.assertGreater(len(container.findall("point")), 20)
+        self.assertIsNone(proto_root.find("./group[@name='Land_Wreck_C130J_Cargo']"))
+        self.assertIsNotNone(proto_root.find("./group[@name='Wreck_Mi8_Crashed']"))
+        events_root = ET.fromstring(built["events_text"])
+        child = events_root.find("./event[@name='StaticWanderingBot_52_airdrop']/children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual("Wreck_Mi8_Crashed", child.get("type"))
+        self.assertTrue(
+            any("unsafe visual scene" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        self.assertNotIn("Land_Wreck_C130J_Cargo", built["events_text"])
+        self.assertNotIn("Land_Wreck_C130J_Cargo", built["spawns_text"])
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_visual_airdrop_moves_clear_of_existing_vehicle_spawn(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": (
+                '<eventposdef><event name="VehicleHatchback02"><pos x="5000" z="5000" a="0" /></event></eventposdef>',
+                f"{base_path}/cfgeventspawns.xml",
+            ),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    53,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        spawns_root = ET.fromstring(built["spawns_text"])
+        airdrop_pos = spawns_root.find("./event[@name='StaticWanderingBot_53_airdrop']/pos")
+        self.assertIsNotNone(airdrop_pos)
+        self.assertNotEqual(("5000", "5000"), (airdrop_pos.get("x"), airdrop_pos.get("z")))
+        distance = math.hypot(float(airdrop_pos.get("x")) - 5000, float(airdrop_pos.get("z")) - 5000)
+        self.assertGreaterEqual(distance, 125)
+        self.assertTrue(
+            any("overlapped `VehicleHatchback02`" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
