@@ -3038,6 +3038,35 @@ def migrate_linked_player_claims_from_links():
     return changed
 
 
+def migrate_linked_player_guild_links_from_legacy():
+    changed = False
+    for user_id, data in list(linked_players.items()):
+        if not isinstance(data, dict):
+            continue
+        guild_id = str(data.get("guild_id") or "").strip()
+        if not guild_id or not linked_player_gamertags(data):
+            continue
+        guild_links = data.get("guild_links")
+        if not isinstance(guild_links, dict):
+            guild_links = {}
+            data["guild_links"] = guild_links
+            changed = True
+        existing_guild_data = guild_links.get(guild_id)
+        if isinstance(existing_guild_data, dict) and linked_player_gamertags(existing_guild_data):
+            continue
+        guild_links[guild_id] = {
+            "discord_name": str(data.get("discord_name") or user_id),
+            "discord_id": str(data.get("discord_id") or user_id),
+            "guild_id": guild_id,
+            "gamertag": linked_player_primary_gamertag(data),
+            "alt_gamertags": linked_player_alt_gamertags(data),
+            "verified_by": data.get("verified_by"),
+            "linked_at": data.get("linked_at"),
+        }
+        changed = True
+    return changed
+
+
 def gamertag_claimed_to_other_user(gamertag, user_id):
     key = linked_player_claim_key(gamertag)
     if not key:
@@ -10709,7 +10738,11 @@ def load_linked_players():
     linked_player_claims = load_json(LINKED_PLAYER_CLAIMS_FILE)
     if not isinstance(linked_player_claims, dict):
         linked_player_claims = {}
-    if migrate_linked_player_claims_from_links():
+    links_changed = migrate_linked_player_guild_links_from_legacy()
+    claims_changed = migrate_linked_player_claims_from_links()
+    if links_changed:
+        save_linked_players()
+    if claims_changed:
         save_linked_player_claims()
 
 

@@ -60,6 +60,28 @@ class LinkEnforcementTests(unittest.TestCase):
         self.assertTrue(bot.has_known_linked_gamertag("cherno", "ChernoMonkey"))
         self.assertFalse(bot.has_known_linked_gamertag("livo", "ChernoMonkey"))
 
+    def test_legacy_link_records_are_migrated_into_guild_links(self):
+        bot.linked_players = {
+            "100": {
+                "discord_name": "Cranemonkey",
+                "discord_id": "100",
+                "guild_id": "1504",
+                "gamertag": "CraneMonkey6273",
+                "alt_gamertags": ["CraneAlt"],
+                "verified_by": "ADM",
+            }
+        }
+
+        changed = bot.migrate_linked_player_guild_links_from_legacy()
+
+        self.assertTrue(changed)
+        self.assertTrue(bot.has_known_linked_gamertag("1504", "CraneMonkey6273"))
+        self.assertEqual(
+            "CraneMonkey6273",
+            bot.linked_players["100"]["guild_links"]["1504"]["gamertag"],
+        )
+        self.assertEqual(["CraneAlt"], bot.linked_players["100"]["guild_links"]["1504"]["alt_gamertags"])
+
     def test_link_enforcement_ban_writer_skips_linked_gamertag(self):
         bot.linked_players = {
             "100": {
