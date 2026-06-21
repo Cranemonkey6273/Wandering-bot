@@ -5435,7 +5435,9 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "shop" %}
     {% set edit_shop_key = request.args.get('edit_shop', '') %}
+    {% set edit_bundle_key = request.args.get('edit_bundle', '') %}
     {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids=[], blocked_user_ids='') %}
+    {% set edit_bundle = namespace(bundle_name=(edit_bundle_key or 'Flagpole Kit'), price=2500, category='Bundles', enabled='true', daily_limit=0, allowed_role_ids=[], blocked_user_ids='', bundle_items=[]) %}
     {% set category_options = server.shop_category_options if server and server.shop_category_options else shop_category_options %}
     {% set shop_item_options = server.shop_items if server else [] %}
     <datalist id="shop-item-datalist">
@@ -5445,7 +5447,7 @@ PAGE_TEMPLATE = """
     </datalist>
     {% if server and edit_shop_key %}
       {% for item in server.shop_items %}
-        {% if item.name == edit_shop_key %}
+        {% if item.name == edit_shop_key and item.type != 'bundle' %}
           {% set edit_shop.item_name = item.name %}
           {% set edit_shop.price = item.price %}
           {% set edit_shop.category = item.category %}
@@ -5453,6 +5455,20 @@ PAGE_TEMPLATE = """
           {% set edit_shop.daily_limit = item.daily_limit or 0 %}
           {% set edit_shop.allowed_role_ids = item.allowed_role_ids if item.allowed_role_ids else [] %}
           {% set edit_shop.blocked_user_ids = item.blocked_user_ids|join(',') if item.blocked_user_ids else '' %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {% if server and edit_bundle_key %}
+      {% for item in server.shop_items %}
+        {% if item.name == edit_bundle_key and item.type == 'bundle' %}
+          {% set edit_bundle.bundle_name = item.name %}
+          {% set edit_bundle.price = item.price %}
+          {% set edit_bundle.category = item.category %}
+          {% set edit_bundle.enabled = 'true' if item.enabled else 'false' %}
+          {% set edit_bundle.daily_limit = item.daily_limit or 0 %}
+          {% set edit_bundle.allowed_role_ids = item.allowed_role_ids if item.allowed_role_ids else [] %}
+          {% set edit_bundle.blocked_user_ids = item.blocked_user_ids|join(',') if item.blocked_user_ids else '' %}
+          {% set edit_bundle.bundle_items = item.bundle_items if item.bundle_items else [] %}
         {% endif %}
       {% endfor %}
     {% endif %}
@@ -5495,48 +5511,77 @@ PAGE_TEMPLATE = """
           </form>
         </article>
         <article class="admin-panel">
-          <h3>Build Shop Bundle</h3>
-          <form class="admin-form" method="post" action="/api/admin/shop-bundle" data-route="/api/admin/shop-bundle" data-html-submit="true" id="shop-bundle-form">
+          <h3>{{ 'Edit Shop Bundle' if edit_bundle_key else 'Build Shop Bundle' }}</h3>
+          <form class="admin-form {% if edit_bundle_key %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/shop-bundle" data-route="/api/admin/shop-bundle" data-html-submit="true" id="shop-bundle-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
-            <label>Bundle name <input name="bundle_name" value="Flagpole Kit"></label>
-            <label>Price <input name="price" type="number" value="2500"></label>
+            <input class="hidden-field" name="original_bundle_name" value="{{ edit_bundle_key }}">
+            <label>Bundle name <input name="bundle_name" value="{{ edit_bundle.bundle_name }}"></label>
+            <label>Price <input name="price" type="number" value="{{ edit_bundle.price }}"></label>
             <label>Category
               <select name="category">
                 {% for category in category_options %}
-                <option value="{{ category }}" {% if category == 'Bundles' %}selected{% endif %}>{{ category }}</option>
+                <option value="{{ category }}" {% if edit_bundle.category == category %}selected{% endif %}>{{ category }}</option>
                 {% endfor %}
               </select>
             </label>
-            <label>Available <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Daily purchase limit <input name="daily_limit" type="number" value="0" placeholder="0 = server default"></label>
+            <label>Available <select name="enabled"><option value="true" {% if edit_bundle.enabled == 'true' %}selected{% endif %}>On</option><option value="false" {% if edit_bundle.enabled == 'false' %}selected{% endif %}>Off</option></select></label>
+            <label>Daily purchase limit <input name="daily_limit" type="number" value="{{ edit_bundle.daily_limit }}" placeholder="0 = server default"></label>
             <label>Roles allowed
               <input class="hidden-field" name="allowed_role_ids" value="">
               <select name="allowed_role_ids" multiple size="5">
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}">{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id in edit_bundle.allowed_role_ids %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
               </select>
               <small class="field-help">Leave empty to let everyone buy this bundle.</small>
             </label>
             <div class="full">
               <div class="bundle-row-grid">
                 {% for row_index in range(shop_bundle_rows) %}
+                {% set bundle_row = edit_bundle.bundle_items[row_index] if row_index < edit_bundle.bundle_items|length else none %}
                 <div class="bundle-row">
                   <label>Item {{ loop.index }}
-                    <input name="bundle_item" list="shop-item-datalist" autocomplete="off" placeholder="Start typing a classname">
+                    <input name="bundle_item" list="shop-item-datalist" value="{{ bundle_row.item if bundle_row else '' }}" autocomplete="off" placeholder="Start typing a classname">
                   </label>
-                  <label>Qty <input name="bundle_quantity" type="number" min="1" max="999" value="1"></label>
+                  <label>Qty <input name="bundle_quantity" type="number" min="1" max="999" value="{{ bundle_row.quantity if bundle_row else 1 }}"></label>
                 </div>
                 {% endfor %}
               </div>
               <div class="inline-actions" style="margin-top:.65rem">
-                <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&bundle_rows={{ shop_bundle_rows + 18 }}#shop-bundle-form">Add 18 More Rows</a>
+                <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}{% if edit_bundle_key %}&edit_bundle={{ edit_bundle_key|urlencode }}{% endif %}&bundle_rows={{ shop_bundle_rows + 18 }}#shop-bundle-form">Add 18 More Rows</a>
                 <span class="muted">{{ shop_bundle_rows }} bundle item rows shown.</span>
               </div>
             </div>
-            <label class="full">Blocked player IDs <input name="blocked_user_ids" placeholder="optional comma-separated Discord user IDs"></label>
-            <div class="full"><button type="submit">Save Bundle</button> <span class="result muted"></span></div>
+            <label class="full">Blocked player IDs <input name="blocked_user_ids" value="{{ edit_bundle.blocked_user_ids }}" placeholder="optional comma-separated Discord user IDs"></label>
+            <div class="full modal-actions"><button type="submit">{{ 'Update Bundle' if edit_bundle_key else 'Save Bundle' }}</button>{% if edit_bundle_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}#shop-bundles">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Players buy the bundle name once. The bot charges once, then queues each listed item for the next restart delivery.</p>
+        </article>
+        <article class="admin-panel full" id="shop-bundles">
+          <h3>Saved Bundles</h3>
+          <div class="mini-grid">
+            {% for item in shop_item_options if item.type == 'bundle' %}
+            <div class="mini-card">
+              <span class="muted">{{ item.category }} - {{ 'On' if item.enabled else 'Off' }}</span>
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.price }} pennies{% if item.daily_limit %} - Limit {{ item.daily_limit }}{% endif %}</span>
+              <span class="muted">{{ item.bundle_summary or 'No bundle items listed' }}</span>
+              <div class="inline-actions" style="margin-top:.65rem">
+                <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_bundle={{ item.name|urlencode }}&bundle_rows={{ shop_bundle_rows if shop_bundle_rows > (item.bundle_items|length) else (item.bundle_items|length) }}#shop-bundle-form">Edit</a>
+                <form class="admin-form inline-action" method="post" action="/api/admin/shop-bulk" data-route="/api/admin/shop-bulk" data-html-submit="true" data-confirm="Delete bundle {{ item.name }}?">
+                  <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+                  <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}#shop-bundles">
+                  <input class="hidden-field" name="scope" value="selected">
+                  <input class="hidden-field" name="action" value="delete">
+                  <input class="hidden-field" name="item_names" value="{{ item.name }}">
+                  <button type="submit">Delete</button>
+                </form>
+              </div>
+            </div>
+            {% else %}
+            <p class="muted">No saved bundles for this server yet.</p>
+            {% endfor %}
+          </div>
         </article>
         <article class="admin-panel full" data-shop-list>
           <h3>All Shop Items</h3>
@@ -5622,7 +5667,11 @@ PAGE_TEMPLATE = """
                         {% if not item.configured %}<span>catalog</span>{% endif %}
                       </div>
                     </div>
+                    {% if item.type == 'bundle' %}
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_bundle={{ item.name|urlencode }}&bundle_rows={{ shop_bundle_rows if shop_bundle_rows > (item.bundle_items|length) else (item.bundle_items|length) }}#shop-bundle-form">Edit</a>
+                    {% else %}
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a>
+                    {% endif %}
                   </div>
                   {% endfor %}
                   <p class="shop-empty" data-shop-empty hidden>No items match this search.</p>
@@ -5661,7 +5710,11 @@ PAGE_TEMPLATE = """
                         {% if not item.configured %}<span>catalog</span>{% endif %}
                       </div>
                     </div>
+                    {% if item.type == 'bundle' %}
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_bundle={{ item.name|urlencode }}&bundle_rows={{ shop_bundle_rows if shop_bundle_rows > (item.bundle_items|length) else (item.bundle_items|length) }}#shop-bundle-form">Edit</a>
+                    {% else %}
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a>
+                    {% endif %}
                   </div>
                   {% endfor %}
                   <p class="shop-empty" data-shop-empty hidden>No items match this search.</p>
@@ -8555,10 +8608,10 @@ PAGE_TEMPLATE = """
       if (!panel) return;
       panel.querySelectorAll("[data-shop-category-box]").forEach(syncShopCategorySelectAll);
     }
-    function setShopItemChecked(panel, value, checked) {
-      if (!panel) return;
-      panel.querySelectorAll("input[name='item_names']").forEach((check) => {
-        if (check.value === value) check.checked = checked;
+    function setVisibleShopBoxChecked(box, checked) {
+      if (!box) return;
+      box.querySelectorAll("[data-shop-row]:not([hidden]) input[name='item_names']").forEach((check) => {
+        check.checked = checked;
       });
     }
     window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]") || document.querySelector("[data-shop-list]"));
@@ -8575,14 +8628,11 @@ PAGE_TEMPLATE = """
         const box = event.target.closest("[data-shop-category-box]");
         if (!box) return;
         const panel = box.closest("[data-shop-list]");
-        box.querySelectorAll("[data-shop-row]:not([hidden]) input[name='item_names']").forEach((check) => {
-          setShopItemChecked(panel, check.value, event.target.checked);
-        });
+        setVisibleShopBoxChecked(box, event.target.checked);
         syncShopSelectAllControls(panel);
       }
       if (event.target.matches("[data-shop-row] input[name='item_names']")) {
         const panel = event.target.closest("[data-shop-list]");
-        setShopItemChecked(panel, event.target.value, event.target.checked);
         syncShopSelectAllControls(panel);
       }
     });
@@ -20548,6 +20598,16 @@ def page(mode: str, auth: dict[str, Any]):
         visual_reference_name = ""
         visual_reference_detail = {}
     shop_bundle_rows = max(6, min(250, safe_int(request.args.get("bundle_rows"), 18)))
+    edit_bundle_key = str(request.args.get("edit_bundle") or "").strip()
+    if edit_bundle_key and isinstance(selected_server, dict):
+        for item in selected_server.get("shop_items", []):
+            if (
+                isinstance(item, dict)
+                and str(item.get("name") or "") == edit_bundle_key
+                and str(item.get("type") or "").lower() == "bundle"
+            ):
+                shop_bundle_rows = min(250, max(shop_bundle_rows, len(item.get("bundle_items") or []), 6))
+                break
     restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
         PAGE_TEMPLATE,
@@ -21477,6 +21537,7 @@ def api_shop_bundle():
     bundle_name = str(payload.get("bundle_name") or payload.get("item_name") or payload.get("name") or "").strip()
     if not bundle_name:
         return jsonify({"ok": False, "error": "bundle_name is required"}), 400
+    original_bundle_name = str(payload.get("original_bundle_name") or "").strip()
     bundle_items = parse_shop_bundle_payload(payload)
     if not bundle_items:
         return jsonify({"ok": False, "error": "add at least one valid bundle item"}), 400
@@ -21488,7 +21549,23 @@ def api_shop_bundle():
     if not isinstance(guild_shop, dict) or is_shop_record(guild_shop):
         guild_shop = {}
         shop[guild_id] = guild_shop
-    existing = guild_shop.get(bundle_name, {}) if isinstance(guild_shop.get(bundle_name), dict) else {}
+    target_record = guild_shop.get(bundle_name)
+    target_type = str(target_record.get("type") or "item").lower() if isinstance(target_record, dict) else ""
+    if isinstance(target_record, dict) and target_type != "bundle":
+        return jsonify({"ok": False, "error": "that name is already a shop item"}), 400
+    if original_bundle_name and original_bundle_name != bundle_name and isinstance(target_record, dict):
+        return jsonify({"ok": False, "error": "that bundle name already exists"}), 400
+    source_record = guild_shop.get(original_bundle_name)
+    if (
+        original_bundle_name
+        and original_bundle_name != bundle_name
+        and isinstance(source_record, dict)
+        and str(source_record.get("type") or "").lower() == "bundle"
+    ):
+        existing = dict(source_record)
+        guild_shop.pop(original_bundle_name, None)
+    else:
+        existing = target_record if isinstance(target_record, dict) else {}
     existing.update(
         {
             "type": "bundle",
@@ -21509,7 +21586,7 @@ def api_shop_bundle():
         raw_payload,
         {"ok": True, "bundle": {bundle_name: existing}, "note": "Saved shop bundle."},
         "shop",
-        "#shop-bundle-form",
+        "#shop-bundles",
     )
 
 
