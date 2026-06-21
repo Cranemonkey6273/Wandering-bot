@@ -18439,6 +18439,150 @@ def format_dashboard_audit_details(payload):
     return "\n".join(lines) if lines else "No extra details were supplied."
 
 
+def dashboard_payload_list(value):
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                pass
+        return [item.strip() for item in text.split(",") if item.strip()]
+    return [value]
+
+
+def dashboard_bool_label(value):
+    if isinstance(value, bool):
+        return "On" if value else "Off"
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled"}:
+        return "On"
+    if text in {"0", "false", "no", "off", "disabled"}:
+        return "Off"
+    return "On" if value else "Off"
+
+
+def dashboard_role_names(guild, role_ids):
+    ids = [str(item).strip() for item in dashboard_payload_list(role_ids) if str(item).strip()]
+    ids = [item for item in ids if not item.startswith("...")]
+    if not ids:
+        return "Everyone"
+    names = []
+    for role_id in ids[:12]:
+        role = None
+        if guild and role_id.isdigit():
+            role = guild.get_role(int(role_id))
+        if role is None and guild:
+            wanted = normalize_discord_name(role_id)
+            role = next((item for item in getattr(guild, "roles", []) if normalize_discord_name(getattr(item, "name", "")) == wanted), None)
+        names.append(f"@{role.name}" if role else "Unknown role")
+    if len(ids) > 12:
+        names.append(f"+ {len(ids) - 12} more")
+    return ", ".join(names) or "Everyone"
+
+
+def dashboard_shop_bundle_rows(payload):
+    if not isinstance(payload, dict):
+        return []
+    rows = []
+    bundle_items = dashboard_payload_list(payload.get("bundle_items"))
+    if bundle_items:
+        for raw in bundle_items:
+            if isinstance(raw, dict):
+                item_name = str(raw.get("item") or raw.get("name") or "").strip()
+                quantity = safe_int(raw.get("quantity"), 1)
+            else:
+                text = str(raw or "").strip()
+                if not text or text.startswith("..."):
+                    continue
+                match = re.match(r"^(?:(\d+)\s*[xX]\s*)?([A-Za-z0-9_]+)(?:\s*(?:[,xX:])\s*(\d+))?$", text)
+                if not match:
+                    continue
+                quantity = safe_int(match.group(1) or match.group(3), 1)
+                item_name = match.group(2).strip()
+            if item_name:
+                rows.append({"item": item_name, "quantity": max(1, min(999, quantity))})
+        return rows
+
+    item_values = dashboard_payload_list(payload.get("bundle_item"))
+    quantity_values = dashboard_payload_list(payload.get("bundle_quantity"))
+    for index, raw_item in enumerate(item_values):
+        item_name = str(raw_item or "").strip()
+        if not item_name or item_name.startswith("..."):
+            continue
+        quantity = safe_int(quantity_values[index] if index < len(quantity_values) else 1, 1)
+        rows.append({"item": item_name, "quantity": max(1, min(999, quantity))})
+    return rows
+
+
+def dashboard_shop_bundle_items_value(payload, limit=8):
+    rows = dashboard_shop_bundle_rows(payload)
+    if not rows:
+        return "No bundle items listed."
+    lines = [f"`{row['quantity']}x` {row['item']}" for row in rows[:limit]]
+    total = safe_int((payload or {}).get("bundle_item_count"), len(rows))
+    hidden = max(0, total - len(rows[:limit]))
+    if hidden:
+        lines.append(f"+ {hidden} more item(s)")
+    return "\n".join(lines)
+
+
+def dashboard_money_feed_payload(event, guild):
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    route = str(event.get("route") or "").rstrip("/")
+    actor = event.get("actor") or "Dashboard"
+    server_name = getattr(guild, "name", "") or "Server"
+    common_fields = [
+        {"name": "🖥️ Server", "value": server_name, "inline": True},
+        {"name": "👤 By", "value": actor, "inline": True},
+    ]
+
+    if route == "/api/admin/shop-bundle":
+        bundle_name = str(payload.get("bundle_name") or payload.get("name") or "Shop bundle").strip()
+        fields = common_fields + [
+            {"name": "🎁 Bundle", "value": f"`{bundle_name}`", "inline": False},
+            {"name": "💰 Price", "value": f"{safe_int(payload.get('price'), 0)} pennies", "inline": True},
+            {"name": "✅ Status", "value": dashboard_bool_label(payload.get("enabled", True)), "inline": True},
+            {"name": "📦 Category", "value": dashboard_audit_line_value(payload.get("category") or "Bundles"), "inline": True},
+            {"name": "🛂 Roles", "value": dashboard_role_names(guild, payload.get("allowed_role_ids")), "inline": False},
+            {"name": "📅 Daily Limit", "value": str(safe_int(payload.get("daily_limit"), 0) or "No limit"), "inline": True},
+            {"name": "🧰 Items", "value": dashboard_shop_bundle_items_value(payload), "inline": False},
+        ]
+        return "🎁 Shop Bundle Saved", "Bundle pricing and delivery list updated from the dashboard.", fields, 0xD5B45F
+
+    if route == "/api/admin/shop-item":
+        item_name = str(payload.get("item_name") or payload.get("name") or "Shop item").strip()
+        fields = common_fields + [
+            {"name": "🛒 Item", "value": f"`{item_name}`", "inline": False},
+            {"name": "💰 Price", "value": f"{safe_int(payload.get('price'), 0)} pennies", "inline": True},
+            {"name": "✅ Status", "value": dashboard_bool_label(payload.get("enabled", True)), "inline": True},
+            {"name": "📦 Category", "value": dashboard_audit_line_value(payload.get("category") or "General"), "inline": True},
+            {"name": "🛂 Roles", "value": dashboard_role_names(guild, payload.get("allowed_role_ids")), "inline": False},
+            {"name": "📅 Daily Limit", "value": str(safe_int(payload.get("daily_limit"), 0) or "No limit"), "inline": True},
+        ]
+        return "🛒 Shop Item Saved", "Shop pricing and access updated from the dashboard.", fields, 0xD5B45F
+
+    return (
+        "💰 Dashboard Money Change",
+        event.get("title") or "Dashboard money setting updated.",
+        common_fields + [
+            {"name": "📍 Route", "value": f"{event.get('method', 'POST')} {event.get('route', '')}", "inline": True},
+            {"name": "🧾 Details", "value": format_dashboard_audit_details(payload), "inline": False},
+        ],
+        0xD5B45F,
+    )
+
+
 def money_event_value(value, limit=260):
     text = discord.utils.escape_mentions(str(value or ""))
     text = text.replace("\n", " ").strip()
@@ -18558,17 +18702,14 @@ async def dashboard_audit_loop():
                 allowed_mentions=discord.AllowedMentions.none(),
             )
             if str(event.get("route") or "") in MONEY_DASHBOARD_ROUTES:
+                money_title, money_description, money_fields, money_color = dashboard_money_feed_payload(event, guild)
                 await send_money_feed(
                     guild,
                     config,
-                    "🧾 DASHBOARD MONEY CHANGE",
-                    event.get("title") or "Dashboard money setting updated.",
-                    [
-                        {"name": "By", "value": event.get("actor"), "inline": True},
-                        {"name": "Route", "value": f"{event.get('method', 'POST')} {event.get('route', '')}", "inline": True},
-                        {"name": "Details", "value": format_dashboard_audit_details(event.get("payload")), "inline": False},
-                    ],
-                    color=0xD5B45F,
+                    money_title,
+                    money_description,
+                    money_fields,
+                    color=money_color,
                     footer="Money Feed - Dashboard",
                 )
             sent_ids.add(event_id)
@@ -33298,6 +33439,13 @@ def console_ce_records_for_event(event, map_key=""):
         if not class_name.startswith("Animal_"):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
+        event_name_override = vanilla_animal_ce_event_name(class_name)
+        if not event_name_override:
+            warnings.append(
+                f"`{event.get('id')}` animal pack uses `{class_name}`, but WanderingBot cannot map that class to a vanilla "
+                "Animal CE event/herd template. Skipped to avoid DayZ rejecting it with a missing AI Template error."
+            )
+            return records, warnings
         family = "Animal"
         limit_type = "child"
         child_records = [{
@@ -33419,8 +33567,8 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
         warnings.append(
-            f"`{event.get('id')}` creates custom animal CE event `{record_name}` with real animal children "
-            "and fixed cfgeventspawns.xml positions."
+            f"`{event.get('id')}` reuses vanilla animal CE event `{record_name}` with fixed cfgeventspawns.xml positions "
+            "so DayZ uses the built-in herd template."
         )
     records.append(record)
 
@@ -34309,6 +34457,18 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             messages.append(f"`{name}` uses `<limit>mixed</limit>`, which is only allowed for vehicle CE events.")
         if (event_node.findtext("active") or "").strip() != "1":
             messages.append(f"`{name}` is not active.")
+        if (
+            name.startswith("Animal")
+            and is_wandering_managed_name(name)
+            and name not in VANILLA_ANIMAL_CE_EVENT_NAMES
+            and name not in territory_event_names
+        ):
+            territory_name = animal_territory_name_for_event(name)
+            if territory_name not in environment_herd_names:
+                messages.append(
+                    f"`{name}` is a custom animal event but is missing Herd territory `{territory_name}` in `cfgenvironment.xml`; "
+                    "use the vanilla AnimalBear/AnimalWolf event or generate a matching animal territory file."
+                )
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
         if not child_nodes and not name.startswith("Static"):

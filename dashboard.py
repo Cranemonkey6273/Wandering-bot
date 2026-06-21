@@ -2687,6 +2687,14 @@ PAGE_TEMPLATE = """
     .shop-picker-card span { color: var(--muted); font-size: .78rem; }
     .bundle-row-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .55rem; max-height: 28rem; overflow: auto; padding: .15rem; }
     .bundle-row { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; gap: .45rem; align-items: end; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; }
+    .bundle-manager-toolbar { display: grid; grid-template-columns: minmax(14rem, 1fr) minmax(9rem, .35fr) auto; gap: .55rem; align-items: end; margin-bottom: .65rem; }
+    .bundle-manager-list { max-height: 24rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; display: grid; gap: .35rem; padding: .55rem; }
+    .bundle-manager-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .65rem; align-items: center; border: 1px solid rgba(116, 209, 222, .14); border-radius: .45rem; padding: .55rem; background: rgba(4, 10, 10, .78); }
+    .bundle-manager-row[hidden] { display: none !important; }
+    .bundle-manager-main { min-width: 0; display: grid; gap: .18rem; }
+    .bundle-manager-main strong { color: var(--gold); overflow-wrap: anywhere; font-size: 1.02rem; }
+    .bundle-manager-meta { display: flex; flex-wrap: wrap; gap: .45rem; color: var(--muted); font-size: .82rem; }
+    .bundle-manager-summary { color: var(--muted); overflow-wrap: anywhere; font-size: .86rem; }
     .shop-bulk-form { grid-template-columns: 1fr; }
     .shop-bulk-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .55rem; align-items: end; margin-bottom: .65rem; }
     .shop-bulk-controls button { align-self: end; }
@@ -2879,7 +2887,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
       .ai-codex-side { position: static; max-height: none; overflow: visible; }
@@ -2920,6 +2928,7 @@ PAGE_TEMPLATE = """
       .shop-category-grid { grid-template-columns: 1fr; }
       .shop-item-card { grid-template-columns: auto 2rem minmax(0, 1fr); }
       .shop-item-card .button { grid-column: 2 / -1; width: 100%; }
+      .bundle-manager-row { grid-template-columns: 1fr; align-items: stretch; }
       .scenario-actions, .owner-server-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; width: 100%; }
       .scenario-actions .inline-action, .owner-server-actions .inline-action { width: 100%; }
       .scenario-actions button, .owner-server-actions button, .owner-server-actions .button { width: 100%; white-space: normal; }
@@ -5558,13 +5567,31 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel full" id="shop-bundles">
           <h3>Saved Bundles</h3>
-          <div class="mini-grid">
+          <div class="bundle-manager-toolbar">
+            <label>Search bundles <input data-bundle-search placeholder="bundle name, category, item"></label>
+            <label>Status
+              <select data-bundle-status>
+                <option value="">All bundles</option>
+                <option value="on">Available</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <span class="pill"><span data-bundle-visible>0</span> bundle(s)</span>
+          </div>
+          <div class="bundle-manager-list" data-bundle-list>
             {% for item in shop_item_options if item.type == 'bundle' %}
-            <div class="mini-card">
-              <span class="muted">{{ item.category }} - {{ 'On' if item.enabled else 'Off' }}</span>
-              <strong>{{ item.name }}</strong>
-              <span>{{ item.price }} pennies{% if item.daily_limit %} - Limit {{ item.daily_limit }}{% endif %}</span>
-              <span class="muted">{{ item.bundle_summary or 'No bundle items listed' }}</span>
+            <div class="bundle-manager-row" data-bundle-row data-status="{{ 'on' if item.enabled else 'off' }}" data-search="{{ (item.name ~ ' ' ~ item.category ~ ' ' ~ (item.bundle_summary or '') ~ ' ' ~ ('on' if item.enabled else 'off'))|lower }}">
+              <div class="bundle-manager-main">
+                <strong>{{ item.name }}</strong>
+                <div class="bundle-manager-meta">
+                  <span>{{ item.category }}</span>
+                  <span>{{ 'On' if item.enabled else 'Off' }}</span>
+                  <span>{{ item.price }} pennies</span>
+                  <span>{{ item.bundle_items|length }} item(s)</span>
+                  {% if item.daily_limit %}<span>Limit {{ item.daily_limit }}</span>{% endif %}
+                </div>
+                <div class="bundle-manager-summary">{{ item.bundle_summary or 'No bundle items listed' }}</div>
+              </div>
               <div class="inline-actions" style="margin-top:.65rem">
                 <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_bundle={{ item.name|urlencode }}&bundle_rows={{ shop_bundle_rows if shop_bundle_rows > (item.bundle_items|length) else (item.bundle_items|length) }}#shop-bundle-form">Edit</a>
                 <form class="admin-form inline-action" method="post" action="/api/admin/shop-bulk" data-route="/api/admin/shop-bulk" data-html-submit="true" data-confirm="Delete bundle {{ item.name }}?">
@@ -8614,15 +8641,37 @@ PAGE_TEMPLATE = """
         check.checked = checked;
       });
     }
+    function filterBundleManager(root) {
+      const section = root?.closest?.("#shop-bundles") || document.querySelector("#shop-bundles");
+      if (!section) return;
+      const query = (section.querySelector("[data-bundle-search]")?.value || "").trim().toLowerCase();
+      const status = (section.querySelector("[data-bundle-status]")?.value || "").trim().toLowerCase();
+      let visible = 0;
+      section.querySelectorAll("[data-bundle-row]").forEach((row) => {
+        const matchesText = !query || (row.dataset.search || "").includes(query);
+        const matchesStatus = !status || (row.dataset.status || "") === status;
+        const show = matchesText && matchesStatus;
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      const count = section.querySelector("[data-bundle-visible]");
+      if (count) count.textContent = visible;
+    }
     window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]") || document.querySelector("[data-shop-list]"));
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-shop-search], [data-shop-category-search]")) {
         filterShopPanel(event.target.closest("[data-shop-list]"));
       }
+      if (event.target.matches("[data-bundle-search]")) {
+        filterBundleManager(event.target);
+      }
     });
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-shop-category]")) {
         filterShopPanel(event.target.closest("[data-shop-list]"));
+      }
+      if (event.target.matches("[data-bundle-status]")) {
+        filterBundleManager(event.target);
       }
       if (event.target.matches("[data-shop-category-select-all]")) {
         const box = event.target.closest("[data-shop-category-box]");
@@ -8637,6 +8686,7 @@ PAGE_TEMPLATE = """
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
+    document.querySelectorAll("#shop-bundles").forEach(filterBundleManager);
     const PLAYER_CARGO_NAMES = new Set({{ visual_player_cargo_names|tojson }});
     const FALLBACK_LOADOUT_DB = [
       {classname: "M4A1", readable: "M4A1 Assault Rifle", category: "Weapons"},
@@ -21519,6 +21569,16 @@ def api_shop_item():
     )
     guild_shop[item_name] = existing
     save_store("shop", shop)
+    g.dashboard_audit_payload = {
+        "guild_id": guild_id,
+        "item_name": item_name,
+        "price": existing.get("price", 0),
+        "category": existing.get("category", category),
+        "enabled": bool(existing.get("enabled", True)),
+        "daily_limit": existing.get("daily_limit", 0),
+        "allowed_role_ids": existing.get("allowed_role_ids", []),
+        "blocked_user_ids": existing.get("blocked_user_ids", []),
+    }
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "item": {item_name: existing}, "note": "Saved shop item."},
@@ -21582,6 +21642,18 @@ def api_shop_bundle():
     )
     guild_shop[bundle_name] = existing
     save_store("shop", shop)
+    g.dashboard_audit_payload = {
+        "guild_id": guild_id,
+        "bundle_name": bundle_name,
+        "price": existing.get("price", 0),
+        "category": existing.get("category", "Bundles"),
+        "enabled": bool(existing.get("enabled", True)),
+        "daily_limit": existing.get("daily_limit", 0),
+        "allowed_role_ids": existing.get("allowed_role_ids", []),
+        "blocked_user_ids": existing.get("blocked_user_ids", []),
+        "bundle_items": bundle_items,
+        "bundle_item_count": len(bundle_items),
+    }
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "bundle": {bundle_name: existing}, "note": "Saved shop bundle."},

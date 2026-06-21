@@ -1619,7 +1619,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_animal_pack_uses_custom_event_without_touching_vanilla_animalbear(self):
+    def test_animal_pack_reuses_vanilla_animalbear_for_herd_template(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         vanilla_events = (
@@ -1669,52 +1669,41 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         vanilla_spawn = spawns_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_spawn)
         vanilla_positions = vanilla_spawn.findall("pos")
-        self.assertEqual(1, len(vanilla_positions))
+        self.assertEqual(3, len(vanilla_positions))
         self.assertEqual("1", vanilla_positions[0].get("x"))
         self.assertEqual("2", vanilla_positions[0].get("z"))
+        self.assertTrue(any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in vanilla_positions))
+        for pos in vanilla_positions:
+            self.assertNotIn("y", pos.attrib)
 
         managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(managed_spawn)
-        positions = managed_spawn.findall("pos")
-        self.assertEqual(2, len(positions))
-        self.assertTrue(any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions))
-        for pos in positions:
-            self.assertNotIn("y", pos.attrib)
+        self.assertIsNone(managed_spawn)
         self.assertFalse("HerdWanderingBot" in built["spawns_text"])
         events_root = ET.fromstring(built["events_text"])
         vanilla_bear = events_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_bear)
-        self.assertEqual("0", vanilla_bear.findtext("nominal"))
-        self.assertEqual("5", vanilla_bear.findtext("min"))
+        self.assertEqual("2", vanilla_bear.findtext("nominal"))
+        self.assertEqual("2", vanilla_bear.findtext("min"))
         self.assertEqual("8", vanilla_bear.findtext("max"))
         self.assertEqual("custom", vanilla_bear.findtext("limit"))
 
         custom_bear = events_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(custom_bear)
-        self.assertEqual("2", custom_bear.findtext("nominal"))
-        self.assertEqual("2", custom_bear.findtext("min"))
-        self.assertEqual("2", custom_bear.findtext("max"))
-        self.assertEqual("child", custom_bear.findtext("limit"))
-        flags = custom_bear.find("flags")
-        self.assertIsNotNone(flags)
-        self.assertEqual("0", flags.get("deletable"))
-        self.assertEqual("1", flags.get("remove_damaged"))
-        child = custom_bear.find("children/child")
-        self.assertIsNotNone(child)
-        self.assertEqual("Animal_UrsusArctos", child.get("type"))
-        self.assertEqual("1", child.get("min"))
-        self.assertEqual("1", child.get("max"))
+        self.assertIsNone(custom_bear)
         self.assertFalse("HerdWanderingBot" in built["events_text"])
-        self.assertIn("AnimalWanderingBot_animal_bear", built["events_text"])
-        self.assertIn("AnimalWanderingBot_animal_bear", built["spawns_text"])
+        self.assertNotIn("AnimalWanderingBot_animal_bear", built["events_text"])
+        self.assertNotIn("AnimalWanderingBot_animal_bear", built["spawns_text"])
         self.assertEqual("", built.get("cfgenvironment_text"))
         self.assertEqual([], built.get("animal_territory_files") or [])
+        self.assertTrue(
+            any("reuses vanilla animal CE event `AnimalBear`" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
         self.assertTrue(scope_ok, "\n".join(scope_messages))
 
-    def test_animal_pack_validation_allows_custom_animal_event_without_territory_file(self):
+    def test_animal_pack_validation_rejects_custom_animal_event_without_territory_file(self):
         event_name = "AnimalWanderingBot_animal_bear"
         built = {
             "map_key": "livonia",
@@ -1736,7 +1725,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         ok, messages = bot.validate_console_ce_xml_bundle(built)
 
-        self.assertTrue(ok, "\n".join(messages))
+        self.assertFalse(ok, "\n".join(messages))
+        rendered = "\n".join(messages)
+        self.assertIn("missing Herd territory", rendered)
+        self.assertIn("WanderingBot_animal_bear", rendered)
 
 
 if __name__ == "__main__":
