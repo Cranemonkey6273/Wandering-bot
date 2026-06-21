@@ -2696,6 +2696,10 @@ PAGE_TEMPLATE = """
     .shop-category-title { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-width: 0; }
     .shop-category-title h4 { margin: 0; color: var(--text); font-size: .98rem; overflow-wrap: anywhere; }
     .shop-category-title .pill { white-space: nowrap; }
+    .shop-category-actions { display: flex; align-items: center; justify-content: space-between; gap: .55rem; flex-wrap: wrap; }
+    .shop-category-select-all { display: inline-flex; align-items: center; gap: .4rem; margin: 0; color: var(--text); font-size: .84rem; }
+    .shop-category-select-all input { min-height: 0; width: 1rem; height: 1rem; }
+    .shop-category-actions label:not(.shop-category-select-all) { flex: 1 1 12rem; min-width: 0; }
     .shop-category-list { max-height: 24rem; overflow: auto; display: grid; gap: .35rem; padding: .55rem; }
     .shop-item-card { display: grid; grid-template-columns: auto 2rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; min-width: 0; border: 1px solid rgba(116, 209, 222, .14); border-radius: .45rem; padding: .45rem; background: rgba(4, 10, 10, .78); }
     .shop-item-card[hidden], .shop-category-box[hidden] { display: none !important; }
@@ -5585,6 +5589,45 @@ PAGE_TEMPLATE = """
               <span class="result muted"></span>
             </div>
             <div class="shop-category-grid full">
+              {% for status_name, items in (server.shop_status_groups.items() if server else []) %}
+              <section class="shop-category-box shop-status-box" data-shop-category-box data-shop-status-box data-category="" data-status="{{ status_name|lower }}">
+                <div class="shop-category-head">
+                  <div class="shop-category-title">
+                    <h4>{{ status_name }}</h4>
+                    <span class="pill"><span data-shop-category-visible>{{ items|length }}</span>/<span data-shop-category-total>{{ items|length }}</span></span>
+                  </div>
+                  <div class="shop-category-actions">
+                    <label class="shop-category-select-all">
+                      <input type="checkbox" data-shop-category-select-all aria-label="Select all visible {{ status_name }} items">
+                      <span>Select all</span>
+                    </label>
+                    <label>Search {{ status_name }}
+                      <input data-shop-category-search placeholder="filter this box">
+                    </label>
+                  </div>
+                </div>
+                <div class="shop-category-list">
+                  {% for item in items %}
+                  <div class="shop-item-card" data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'configured' if item.configured else 'catalog' }} {{ 'on' if item.enabled else 'off' }}">
+                    <label class="shop-item-check" title="Select {{ item.name }}"><input type="checkbox" name="item_names" value="{{ item.name }}" aria-label="Select {{ item.name }}"></label>
+                    <img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
+                    <div class="shop-item-main">
+                      <strong>{{ item.name }}</strong>
+                      {% if item.type == 'bundle' %}<small class="muted">{{ item.bundle_summary }}</small>{% endif %}
+                      <div class="shop-item-meta">
+                        <span>{{ item.price }} pennies</span>
+                        <span>{{ 'On' if item.enabled else 'Off' }}</span>
+                        <span>Limit {{ item.daily_limit if item.daily_limit else 'default' }}</span>
+                        {% if not item.configured %}<span>catalog</span>{% endif %}
+                      </div>
+                    </div>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a>
+                  </div>
+                  {% endfor %}
+                  <p class="shop-empty" data-shop-empty hidden>No items match this search.</p>
+                </div>
+              </section>
+              {% endfor %}
               {% for category, items in (server.shop_categories.items() if server else []) %}
               <section class="shop-category-box" data-shop-category-box data-category="{{ category|lower }}">
                 <div class="shop-category-head">
@@ -5592,9 +5635,15 @@ PAGE_TEMPLATE = """
                     <h4>{{ category }}</h4>
                     <span class="pill"><span data-shop-category-visible>{{ items|length }}</span>/<span data-shop-category-total>{{ items|length }}</span></span>
                   </div>
-                  <label>Search {{ category }}
-                    <input data-shop-category-search placeholder="filter this box">
-                  </label>
+                  <div class="shop-category-actions">
+                    <label class="shop-category-select-all">
+                      <input type="checkbox" data-shop-category-select-all aria-label="Select all visible {{ category }} items">
+                      <span>Select all</span>
+                    </label>
+                    <label>Search {{ category }}
+                      <input data-shop-category-search placeholder="filter this box">
+                    </label>
+                  </div>
                 </div>
                 <div class="shop-category-list">
                   {% for item in items %}
@@ -8456,25 +8505,29 @@ PAGE_TEMPLATE = """
       const boxes = panel.querySelectorAll("[data-shop-category-box]");
       if (boxes.length) {
         boxes.forEach((box) => {
+          const isStatusBox = box.matches("[data-shop-status-box]");
           const boxCategory = box.dataset.category || "";
           const boxInput = box.querySelector("[data-shop-category-search]");
           const boxQuery = boxInput ? boxInput.value.trim().toLowerCase() : "";
-          const categoryMatches = !categoryValue || boxCategory === categoryValue;
+          const boxMatchesCategory = !categoryValue || isStatusBox || boxCategory === categoryValue;
           let boxVisible = 0;
           box.querySelectorAll("[data-shop-row]").forEach((row) => {
             const search = row.dataset.search || "";
-            const show = categoryMatches && (!query || search.includes(query)) && (!boxQuery || search.includes(boxQuery));
+            const rowCategory = row.dataset.category || "";
+            const rowMatchesCategory = !categoryValue || (isStatusBox ? rowCategory === categoryValue : boxCategory === categoryValue);
+            const show = boxMatchesCategory && rowMatchesCategory && (!query || search.includes(query)) && (!boxQuery || search.includes(boxQuery));
             row.hidden = !show;
             if (show) {
-              visible += 1;
+              if (!isStatusBox) visible += 1;
               boxVisible += 1;
             }
           });
-          box.hidden = !categoryMatches;
+          box.hidden = !boxMatchesCategory;
           const boxCount = box.querySelector("[data-shop-category-visible]");
           if (boxCount) boxCount.textContent = boxVisible;
           const empty = box.querySelector("[data-shop-empty]");
-          if (empty) empty.hidden = !categoryMatches || boxVisible > 0;
+          if (empty) empty.hidden = !boxMatchesCategory || boxVisible > 0;
+          syncShopCategorySelectAll(box);
         });
       } else {
         panel.querySelectorAll("[data-shop-row]").forEach((row) => {
@@ -8487,6 +8540,26 @@ PAGE_TEMPLATE = """
       }
       if (count) count.textContent = visible;
     }
+    function syncShopCategorySelectAll(box) {
+      if (!box) return;
+      const control = box.querySelector("[data-shop-category-select-all]");
+      if (!control) return;
+      const checks = Array.from(box.querySelectorAll("[data-shop-row]:not([hidden]) input[name='item_names']"));
+      const checkedCount = checks.filter((check) => check.checked).length;
+      control.disabled = checks.length === 0;
+      control.checked = checks.length > 0 && checkedCount === checks.length;
+      control.indeterminate = checkedCount > 0 && checkedCount < checks.length;
+    }
+    function syncShopSelectAllControls(panel) {
+      if (!panel) return;
+      panel.querySelectorAll("[data-shop-category-box]").forEach(syncShopCategorySelectAll);
+    }
+    function setShopItemChecked(panel, value, checked) {
+      if (!panel) return;
+      panel.querySelectorAll("input[name='item_names']").forEach((check) => {
+        if (check.value === value) check.checked = checked;
+      });
+    }
     window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]") || document.querySelector("[data-shop-list]"));
     document.addEventListener("input", (event) => {
       if (event.target.matches("[data-shop-search], [data-shop-category-search]")) {
@@ -8496,6 +8569,20 @@ PAGE_TEMPLATE = """
     document.addEventListener("change", (event) => {
       if (event.target.matches("[data-shop-category]")) {
         filterShopPanel(event.target.closest("[data-shop-list]"));
+      }
+      if (event.target.matches("[data-shop-category-select-all]")) {
+        const box = event.target.closest("[data-shop-category-box]");
+        if (!box) return;
+        const panel = box.closest("[data-shop-list]");
+        box.querySelectorAll("[data-shop-row]:not([hidden]) input[name='item_names']").forEach((check) => {
+          setShopItemChecked(panel, check.value, event.target.checked);
+        });
+        syncShopSelectAllControls(panel);
+      }
+      if (event.target.matches("[data-shop-row] input[name='item_names']")) {
+        const panel = event.target.closest("[data-shop-list]");
+        setShopItemChecked(panel, event.target.value, event.target.checked);
+        syncShopSelectAllControls(panel);
       }
     });
     document.querySelectorAll("[data-shop-list]").forEach(filterShopPanel);
@@ -19380,6 +19467,25 @@ def shop_category_map_from_items(items: Any) -> dict[str, list[dict[str, Any]]]:
     return dict(sorted(categories.items(), key=lambda item: item[0].lower()))
 
 
+def shop_status_map_from_items(items: Any) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {"Available Items": [], "Turned Off": []}
+    if not isinstance(items, list):
+        return groups
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        status = "Available Items" if safe_bool(item.get("enabled"), True) else "Turned Off"
+        groups[status].append(dict(item))
+
+    for status_items in groups.values():
+        status_items.sort(key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
+    return groups
+
+
 def count_shop_items(shop: Any) -> int:
     if not isinstance(shop, dict):
         return 0
@@ -20158,6 +20264,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
     shop_items = shop_catalog_items({}) if needs_shop else []
     shop_categories = shop_category_map_from_items(shop_items) if needs_shop else {}
+    shop_status_groups = shop_status_map_from_items(shop_items) if needs_shop else {}
 
     if not isinstance(guild_configs, dict):
         guild_configs = {}
@@ -20196,6 +20303,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         server_shop_items = shop_catalog_items(server_shop) if build_shop_detail else []
         server_shop_item_count = len(server_shop_items) if build_shop_detail else (count_shop_items(server_shop) if needs_shop_counts else 0)
         server_shop_categories = shop_category_map_from_items(server_shop_items) if build_shop_detail else {}
+        server_shop_status_groups = shop_status_map_from_items(server_shop_items) if build_shop_detail else {}
         server_shop_category_options = shop_category_options(server_shop_categories.keys()) if build_shop_detail else list(SHOP_CATEGORY_PRESETS)
         server_wallets = wallet_records_for_guild(wallets, guild_id) if needs_wallets else []
         discord_roles = discord_guild_roles(guild_id) if needs_discord_roles else []
@@ -20254,6 +20362,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "shop_items": redact(server_shop_items),
                 "shop_item_count": server_shop_item_count,
                 "shop_categories": redact(server_shop_categories),
+                "shop_status_groups": redact(server_shop_status_groups),
                 "shop_category_options": server_shop_category_options,
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
@@ -20299,6 +20408,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         "shop": redact(shop),
         "shop_items": redact(shop_items),
         "shop_categories": redact(shop_categories),
+        "shop_status_groups": redact(shop_status_groups),
         "shop_category_options": shop_category_options(shop_categories.keys()),
         "wallets": redact(wallets),
         "delivery_queue": redact(delivery_queue),
