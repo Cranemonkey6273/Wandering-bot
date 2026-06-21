@@ -2824,6 +2824,43 @@ def linked_player_matches_gamertag(data, gamertag):
     return any(normalize_discord_name(name) == wanted for name in linked_player_gamertags(data))
 
 
+def linked_player_data_for_guild(data, guild_id):
+    if not isinstance(data, dict):
+        return {}
+    guild_id = str(guild_id or "").strip()
+    guild_links = data.get("guild_links")
+    if isinstance(guild_links, dict) and guild_id:
+        guild_data = guild_links.get(guild_id)
+        if isinstance(guild_data, dict):
+            merged = {**data, **guild_data}
+            merged["guild_id"] = guild_id
+            return merged
+    legacy_guild_id = str(data.get("guild_id") or "").strip()
+    if guild_id and legacy_guild_id and legacy_guild_id != guild_id:
+        return {}
+    if legacy_guild_id or not isinstance(guild_links, dict):
+        return data
+    return {}
+
+
+def linked_player_matches_gamertag_for_guild(data, guild_id, gamertag):
+    guild_data = linked_player_data_for_guild(data, guild_id)
+    return linked_player_matches_gamertag(guild_data, gamertag)
+
+
+def set_linked_player_guild_data(existing, guild_id, guild_data):
+    existing = existing if isinstance(existing, dict) else {}
+    guild_id = str(guild_id or "").strip()
+    guild_data = guild_data if isinstance(guild_data, dict) else {}
+    guild_links = existing.get("guild_links")
+    if not isinstance(guild_links, dict):
+        guild_links = {}
+    stored = {**guild_data, "guild_id": guild_id}
+    if guild_id:
+        guild_links[guild_id] = stored
+    return {**existing, **stored, "guild_links": guild_links}
+
+
 def linked_player_primary_gamertag(data):
     names = linked_player_gamertags(data)
     return names[0] if names else ""
@@ -3034,10 +3071,12 @@ def active_manual_ban_record_for_gamertag(guild_id, gamertag):
     return None
 
 
-def gamertag_linked_to_other_user(gamertag, user_id):
+def gamertag_linked_to_other_user(gamertag, user_id, guild_id=None):
     wanted = normalize_discord_name(gamertag)
     _claim_key, claim = gamertag_claimed_to_other_user(gamertag, user_id)
-    if claim:
+    claim_guild_id = str((claim or {}).get("guild_id") or "").strip()
+    wanted_guild_id = str(guild_id or "").strip()
+    if claim and (not wanted_guild_id or not claim_guild_id or claim_guild_id == wanted_guild_id):
         return linked_player_claim_owner_id(claim), {
             "discord_name": linked_player_claim_owner_label(claim),
             "gamertag": claim.get("gamertag") or gamertag,
@@ -3046,7 +3085,11 @@ def gamertag_linked_to_other_user(gamertag, user_id):
     for linked_user_id, data in linked_players.items():
         if str(linked_user_id) == str(user_id):
             continue
-        if linked_player_matches_gamertag(data, wanted):
+        if guild_id is not None:
+            guild_data = linked_player_data_for_guild(data, guild_id)
+            if linked_player_matches_gamertag(guild_data, wanted):
+                return linked_user_id, guild_data
+        elif linked_player_matches_gamertag(data, wanted):
             return linked_user_id, data
     return None, None
 
@@ -3266,6 +3309,7 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     await add_onboarding_role(member, settings.get("rules_role_id"), "Wandering Bot rules accepted")
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
     linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
+    linked_data = linked_player_data_for_guild(linked_data, getattr(guild, "id", ""))
     if linked_player_primary_gamertag(linked_data):
         await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag already linked when rules were accepted")
     channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
@@ -3399,7 +3443,7 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             "If the name has spaces or symbols, type it exactly as it appears in the ADM log. Staff can run `/admplayers` to see names I have learned."
         )
 
-    linked_user_id, linked_data = gamertag_linked_to_other_user(verified_name, member.id)
+    linked_user_id, linked_data = gamertag_linked_to_other_user(verified_name, member.id, guild_id)
     if linked_user_id:
         return False, f"`{verified_name}` is already linked to `{linked_data.get('discord_name', linked_user_id)}`. Ask staff if this needs correcting."
 
@@ -3413,8 +3457,9 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
 
     user_id = str(member.id)
     existing = linked_players.get(user_id, {}) if isinstance(linked_players.get(user_id), dict) else {}
-    primary_name = linked_player_primary_gamertag(existing)
-    existing_alt = linked_player_alt_gamertags(existing)
+    existing_guild_link = linked_player_data_for_guild(existing, guild_id)
+    primary_name = linked_player_primary_gamertag(existing_guild_link)
+    existing_alt = linked_player_alt_gamertags(existing_guild_link)
     verified_key = normalize_discord_name(verified_name)
 
     if is_alt:
@@ -3424,8 +3469,8 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             return False, f"`{verified_name}` is already your primary linked gamertag."
         if existing_alt and normalize_discord_name(existing_alt[0]) != verified_key:
             return False, f"You already have one alt linked: `{existing_alt[0]}`. Remove it with `/mylink remove_alt:True` before linking a different alt."
-        linked_players[user_id] = {
-            **existing,
+        linked_players[user_id] = set_linked_player_guild_data(existing, guild_id, {
+            **existing_guild_link,
             "discord_name": str(member),
             "discord_id": user_id,
             "guild_id": guild_id,
@@ -3433,7 +3478,7 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             "alt_gamertags": [verified_name],
             "alt_verified_by": "ADM",
             "alt_linked_at": str(datetime.now(UTC)),
-        }
+        })
         record_linked_player_claim(
             guild_id,
             user_id,
@@ -3448,8 +3493,8 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             alt for alt in existing_alt
             if normalize_discord_name(alt) != verified_key
         ][:1]
-        linked_players[user_id] = {
-            **existing,
+        linked_players[user_id] = set_linked_player_guild_data(existing, guild_id, {
+            **existing_guild_link,
             "discord_name": str(member),
             "discord_id": user_id,
             "guild_id": guild_id,
@@ -3457,7 +3502,7 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
             "alt_gamertags": alt_gamertags,
             "verified_by": "ADM",
             "linked_at": str(datetime.now(UTC))
-        }
+        })
         record_linked_player_claim(
             guild_id,
             user_id,
@@ -21169,6 +21214,8 @@ async def post_nitrado_banlist_log(
 
 async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
+    if str(source or "").strip().lower() == "discord_link_enforcement" and has_known_linked_gamertag(guild_id, clean_name):
+        return False, f"Skipped link-enforcement ban: `{clean_name}` is already linked for this Discord server."
     ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, clean_name)
     await post_nitrado_banlist_log(
         guild_id,
@@ -21434,9 +21481,7 @@ def linked_discord_member_for_gamertag(guild, guild_id, gamertag):
     if not wanted:
         return None
     for user_id, data in linked_players.items():
-        if str(data.get("guild_id") or guild_id) != str(guild_id):
-            continue
-        if not linked_player_matches_gamertag(data, wanted):
+        if not linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
             continue
         member = guild.get_member(int(user_id)) if guild else None
         if member:
@@ -21449,9 +21494,7 @@ async def has_linked_discord_member_for_gamertag(guild, guild_id, gamertag):
     if not wanted:
         return False
     for user_id, data in linked_players.items():
-        if str(data.get("guild_id") or guild_id) != str(guild_id):
-            continue
-        if not linked_player_matches_gamertag(data, wanted):
+        if not linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
             continue
         if not guild:
             return True
@@ -21470,9 +21513,7 @@ def has_known_linked_gamertag(guild_id, gamertag):
     if not wanted:
         return False
     for _user_id, data in linked_players.items():
-        if str(data.get("guild_id") or guild_id) != str(guild_id):
-            continue
-        if linked_player_matches_gamertag(data, wanted):
+        if linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
             return True
     return False
 
@@ -21630,6 +21671,20 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         return True
 
     if action in {"temp_ban", "perm_ban"}:
+        if has_known_linked_gamertag(guild_id, player_name) or await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
+            clear_link_enforcement_pending(config, player_name)
+            if isinstance(pending_record, dict):
+                pending_record["status"] = "linked"
+                pending_record["linked_ts"] = datetime.now(UTC).timestamp()
+            save_guild_configs()
+            await _post_link_enforcement_notice(
+                guild,
+                config,
+                "Link Enforcement Skipped",
+                f"**{player_name}** is already linked for this Discord server. No Nitrado ban was written.",
+                0x2ECC71,
+            )
+            return True
         minutes = max(1, int(settings.get("temp_ban_minutes") or 60)) if action == "temp_ban" else None
         ok, msg = await add_player_to_nitrado_banlist_async(
             guild_id,
@@ -21641,7 +21696,18 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             minutes=minutes,
         )
         if not ok:
-            await _post_link_enforcement_notice(guild, config, "Nitrado Ban Failed", base_message + f"\n{msg}", 0xE74C3C)
+            skipped = "skipped link-enforcement ban" in str(msg or "").lower()
+            await _post_link_enforcement_notice(
+                guild,
+                config,
+                "Link Enforcement Skipped" if skipped else "Nitrado Ban Failed",
+                (f"**{player_name}** is already linked for this Discord server. No Nitrado ban was written." if skipped else base_message + f"\n{msg}"),
+                0x2ECC71 if skipped else 0xE74C3C,
+            )
+            if skipped:
+                clear_link_enforcement_pending(config, player_name)
+                save_guild_configs()
+                return True
             return False
         if action == "temp_ban":
             config.setdefault("nitrado_temp_bans", []).append({
@@ -26020,12 +26086,13 @@ def unlink_alt_gamertag_for_member(member):
     data = linked_players.get(user_id)
     if not isinstance(data, dict):
         return False, "No linked gamertag found."
-    alt_gamertags = linked_player_alt_gamertags(data)
+    guild = getattr(member, "guild", None)
+    guild_id = str(getattr(guild, "id", "") or data.get("guild_id") or "")
+    guild_data = linked_player_data_for_guild(data, guild_id)
+    alt_gamertags = linked_player_alt_gamertags(guild_data)
     if not alt_gamertags:
         return False, "You do not have an alt gamertag linked."
     removed = alt_gamertags[0]
-    guild = getattr(member, "guild", None)
-    guild_id = str(getattr(guild, "id", "") or data.get("guild_id") or "")
     reserve_removed_linked_player_claim(
         guild_id,
         member.id,
@@ -26034,9 +26101,10 @@ def unlink_alt_gamertag_for_member(member):
         source="unlinkaltgamer",
         reason="alt_removed",
     )
-    data["alt_gamertags"] = []
-    data.pop("alt_verified_by", None)
-    data.pop("alt_linked_at", None)
+    guild_data["alt_gamertags"] = []
+    guild_data.pop("alt_verified_by", None)
+    guild_data.pop("alt_linked_at", None)
+    linked_players[user_id] = set_linked_player_guild_data(data, guild_id, guild_data)
     save_linked_players()
     save_linked_player_claims()
     return True, removed
@@ -26117,39 +26185,45 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
 
     wanted = normalize_discord_name(verified_name)
     for linked_user_id, data in list(linked_players.items()):
-        if str(linked_user_id) == str(target_member.id) or not linked_player_matches_gamertag(data, wanted):
+        if str(linked_user_id) == str(target_member.id) or not linked_player_matches_gamertag_for_guild(data, guild_id, wanted):
             continue
-        if normalize_discord_name(data.get("gamertag", "")) == wanted:
+        guild_data = linked_player_data_for_guild(data, guild_id)
+        if normalize_discord_name(guild_data.get("gamertag", "")) == wanted:
             reserve_removed_linked_player_claim(
                 guild_id,
                 linked_user_id,
-                data.get("discord_name") or linked_user_id,
+                guild_data.get("discord_name") or data.get("discord_name") or linked_user_id,
                 verified_name,
                 source="forcelinkgamer",
                 reason="admin_reassigned",
             )
-            linked_players.pop(linked_user_id, None)
+            if isinstance(data.get("guild_links"), dict):
+                data["guild_links"].pop(guild_id, None)
+            if str(data.get("guild_id") or "").strip() == str(guild_id):
+                data.pop("gamertag", None)
+                data.pop("alt_gamertags", None)
             continue
         if isinstance(data, dict):
             remaining_alts = [
-                alt for alt in linked_player_alt_gamertags(data)
+                alt for alt in linked_player_alt_gamertags(guild_data)
                 if normalize_discord_name(alt) != wanted
             ]
-            data["alt_gamertags"] = remaining_alts
-            if not remaining_alts:
-                data.pop("alt_verified_by", None)
-                data.pop("alt_linked_at", None)
+            guild_data["alt_gamertags"] = remaining_alts
+            guild_data.pop("alt_verified_by", None)
+            guild_data.pop("alt_linked_at", None)
+            linked_players[str(linked_user_id)] = set_linked_player_guild_data(data, guild_id, guild_data)
             reserve_removed_linked_player_claim(
                 guild_id,
                 linked_user_id,
-                data.get("discord_name") or linked_user_id,
+                guild_data.get("discord_name") or data.get("discord_name") or linked_user_id,
                 verified_name,
                 source="forcelinkgamer",
                 reason="admin_reassigned",
             )
 
     existing = linked_players.get(str(target_member.id), {}) if isinstance(linked_players.get(str(target_member.id)), dict) else {}
-    for old_name in linked_player_gamertags(existing):
+    existing_guild_link = linked_player_data_for_guild(existing, guild_id)
+    for old_name in linked_player_gamertags(existing_guild_link):
         if normalize_discord_name(old_name) != wanted:
             reserve_removed_linked_player_claim(
                 guild_id,
@@ -26160,12 +26234,12 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
                 reason="replaced_by_force_link",
             )
     alt_gamertags = [
-        alt for alt in linked_player_alt_gamertags(existing)
+        alt for alt in linked_player_alt_gamertags(existing_guild_link)
         if normalize_discord_name(alt) != wanted
     ][:1]
 
-    linked_players[str(target_member.id)] = {
-        **existing,
+    linked_players[str(target_member.id)] = set_linked_player_guild_data(existing, guild_id, {
+        **existing_guild_link,
         "discord_name": str(target_member),
         "discord_id": str(target_member.id),
         "guild_id": guild_id,
@@ -26173,7 +26247,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
         "alt_gamertags": alt_gamertags,
         "verified_by": f"FORCED_BY_ADMIN:{admin_member.id}",
         "linked_at": str(datetime.now(UTC))
-    }
+    })
     record_linked_player_claim(
         guild_id,
         target_member.id,
@@ -26316,6 +26390,12 @@ async def mylink(ctx):
         return
 
     data = linked_players[user_id]
+    data = linked_player_data_for_guild(data, getattr(ctx.guild, "id", ""))
+    if not linked_player_gamertags(data):
+        await ctx.send(
+            "âŒ No linked gamertag found for this Discord server. Use `/linkgamer gamertag:YourName`"
+        )
+        return
 
     embed = discord.Embed(
         title="🎮 LINKED SURVIVOR PROFILE",
