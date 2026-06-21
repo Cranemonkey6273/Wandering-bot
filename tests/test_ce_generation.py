@@ -794,6 +794,23 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual([node.get("name") for node in crash_group.findall("usage")], ["Military"])
         self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier4"])
 
+    def test_livonia_static_helicrash_proto_repair_restores_one_vanilla_group(self):
+        proto_root = ET.Element("prototype")
+        ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed"})
+        duplicate_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
+        container = ET.SubElement(duplicate_group, "container", {"name": "lootFloor", "lootmax": "15"})
+        ET.SubElement(container, "category", {"name": "weapons"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
+
+        repaired = bot.repair_vanilla_static_helicrash_mapgroupproto(proto_root, "livonia")
+
+        self.assertEqual(["Wreck_Mi8_Crashed"], repaired)
+        groups = proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertEqual(1, len(groups))
+        self.assertTrue(bot.mapgroupproto_group_matches_reference(groups[0], "livonia", "Wreck_Mi8_Crashed"))
+        self.assertGreaterEqual(len(groups[0].findall("./container/point")), 20)
+
 
 class BuildConsoleCeEventFilesTests(unittest.TestCase):
     def setUp(self):
@@ -846,6 +863,52 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertFalse(built.get("spawnabletypes_path"))
         self.assertTrue(
             any("per-item cargo tuning" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_livonia_airdrop_repairs_missing_static_helicrash_proto(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    58,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        proto_root = ET.fromstring(built["mapgroupproto_text"])
+        groups = proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertEqual(1, len(groups))
+        self.assertTrue(bot.mapgroupproto_group_matches_reference(groups[0], "livonia", "Wreck_Mi8_Crashed"))
+        self.assertTrue(
+            any("Restored vanilla Livonia StaticHeliCrash" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
         ok, messages = bot.validate_console_ce_xml_bundle(built)

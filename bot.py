@@ -28369,6 +28369,7 @@ LEGACY_WANDERING_CE_NAMES = {
     "VehicleJINXADA",
     "VehicleJINXTruck",
 }
+VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES = {"Wreck_Mi8_Crashed"}
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
@@ -29670,7 +29671,7 @@ def ce_scope_records(root):
     return records
 
 
-def validate_managed_ce_xml_scope(label, original_text, merged_text):
+def validate_managed_ce_xml_scope(label, original_text, merged_text, map_key=""):
     if not str(merged_text or "").strip():
         return True, f"`{label}` snippet scope check skipped because no upload text was generated."
     if not str(original_text or "").strip():
@@ -29723,6 +29724,17 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text):
                     break
             if vanilla_animal_event_count_patch_is_safe(original_node, merged_node):
                 continue
+        if (
+            not owned
+            and label == "mapgroupproto.xml"
+            and mapgroupproto_static_helicrash_repair_change_is_safe(
+                key,
+                original_root,
+                merged_root,
+                map_key=map_key,
+            )
+        ):
+            continue
         if not owned:
             changed_unowned.append((merged or original or {}).get("display") or str(key))
     if changed_unowned:
@@ -29781,13 +29793,19 @@ def validate_console_ce_upload_scope(built):
         ("cfgareaeffects.xml", "cfgareaeffects_source_text", "cfgareaeffects_text"),
     ]
     messages = []
+    scope_map_key = str(built.get("map_key") or "").strip()
     for label, source_key, text_key in targets:
         merged_text = built.get(text_key)
         if not merged_text:
             continue
         if source_key not in built:
             continue
-        ok, message = validate_managed_ce_xml_scope(label, built.get(source_key, ""), merged_text)
+        ok, message = validate_managed_ce_xml_scope(
+            label,
+            built.get(source_key, ""),
+            merged_text,
+            map_key=scope_map_key,
+        )
         messages.append(message)
         if not ok:
             return False, messages
@@ -30926,6 +30944,104 @@ def mapgroupproto_group_has_usable_loot_container(group_node):
         ):
             return True
     return False
+
+
+def mapgroupproto_groups_named(root, class_name):
+    wanted = str(class_name or "").strip().lower()
+    if not wanted or root is None:
+        return []
+    return [
+        group_node
+        for group_node in root.findall("group")
+        if str(group_node.get("name") or "").strip().lower() == wanted
+    ]
+
+
+def dayz_reference_mapgroupproto_group(map_key, class_name):
+    wanted = str(class_name or "").strip().lower()
+    if not wanted:
+        return None
+    reference_text = load_dayz_reference_text(map_key, "mapgroupproto.xml")
+    if not reference_text:
+        return None
+    try:
+        reference_root = parse_xml_root_preserving_comments(reference_text)
+    except Exception:
+        return None
+    for group_node in reference_root.findall("group"):
+        if str(group_node.get("name") or "").strip().lower() != wanted:
+            continue
+        if mapgroupproto_group_has_usable_loot_container(group_node):
+            return ET.fromstring(ET.tostring(group_node, encoding="utf-8"))
+    return None
+
+
+def mapgroupproto_group_matches_reference(group_node, map_key, class_name):
+    reference_group = dayz_reference_mapgroupproto_group(map_key, class_name)
+    if reference_group is None or group_node is None:
+        return False
+    return canonical_ce_scope_node_text(group_node) == canonical_ce_scope_node_text(reference_group)
+
+
+def mapgroupproto_static_helicrash_group_needs_repair(group_node, map_key, class_name):
+    if group_node is None:
+        return True
+    if mapgroupproto_group_matches_reference(group_node, map_key, class_name):
+        return False
+    if not mapgroupproto_group_has_usable_loot_container(group_node):
+        return True
+    for container_node in group_node.findall("container"):
+        if mapgroupproto_positive_int(container_node.get("lootmax")) <= 0:
+            continue
+        if mapgroupproto_uses_generic_single_point(container_node):
+            return True
+    return False
+
+
+def repair_vanilla_static_helicrash_mapgroupproto(root, map_key=""):
+    if root is None:
+        return []
+    repaired = []
+    for class_name in sorted(VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES):
+        reference_group = dayz_reference_mapgroupproto_group(map_key, class_name)
+        if reference_group is None:
+            continue
+        existing_groups = mapgroupproto_groups_named(root, class_name)
+        if (
+            len(existing_groups) == 1
+            and not mapgroupproto_static_helicrash_group_needs_repair(existing_groups[0], map_key, class_name)
+        ):
+            continue
+        for group_node in existing_groups:
+            root.remove(group_node)
+        root.append(reference_group)
+        repaired.append(class_name)
+    return repaired
+
+
+def mapgroupproto_static_helicrash_repair_change_is_safe(key, original_root, merged_root, map_key=""):
+    if not isinstance(key, tuple) or len(key) < 3:
+        return False
+    tag_name, attr_name, attr_value = key[:3]
+    if str(tag_name) != "group" or str(attr_name) != "name":
+        return False
+    class_lookup = {
+        class_name.lower(): class_name
+        for class_name in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
+    }
+    class_name = class_lookup.get(str(attr_value or "").strip().lower())
+    if not class_name:
+        return False
+    merged_groups = mapgroupproto_groups_named(merged_root, class_name)
+    if len(merged_groups) != 1:
+        return False
+    if not mapgroupproto_group_matches_reference(merged_groups[0], map_key, class_name):
+        return False
+    original_groups = mapgroupproto_groups_named(original_root, class_name)
+    return (
+        len(original_groups) != 1
+        or mapgroupproto_static_helicrash_group_needs_repair(original_groups[0], map_key, class_name)
+    )
 
 
 def scenario_mapgroupproto_loot_tag_keys(event):
@@ -32406,8 +32522,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
     ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    repair_static_helicrash_proto = bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
     should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records)
-    if eventgroup_records or mapgroupproto_records or should_cleanup_group_files:
+    if eventgroup_records or mapgroupproto_records or repair_static_helicrash_proto or should_cleanup_group_files:
         eventgroups_text = ""
         resolved_eventgroups_path = console_ce_default_paths(guild_id)["eventgroups_path"]
         eventgroups_source = "cfgeventgroups.xml unchanged; no direct eventgroup-routed event needed."
@@ -32445,6 +32562,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         proto_changed, removed_proto_groups, removed_proto_values = cleanup_stale_mapgroupproto_airdrop_nodes(
             mapgroupproto_root,
             server_map_key(guild_id),
+        )
+        repaired_static_proto_classes = (
+            repair_vanilla_static_helicrash_mapgroupproto(mapgroupproto_root, ce_map_key)
+            if repair_static_helicrash_proto
+            else []
         )
         added_proto = 0
         for record in eventgroup_records:
@@ -32486,7 +32608,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or eventgroup_records or cleanup_pending:
+        if proto_changed or added_proto or repaired_static_proto_classes or eventgroup_records or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
@@ -32503,6 +32625,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
             f"left live server proto groups unchanged, and added/repaired `{added_proto}` lootFloor proto group(s)."
         )
+        if repaired_static_proto_classes:
+            output["messages"].append(
+                "Restored vanilla Livonia StaticHeliCrash mapgroupproto group(s) from bundled DayZ reference: "
+                + ", ".join(f"`{class_name}`" for class_name in repaired_static_proto_classes)
+            )
         if eventgroups_parse_warning:
             output["messages"].append(eventgroups_parse_warning)
         if mapgroupproto_parse_warning:
@@ -32725,6 +32852,16 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
+    if normalize_dayz_reference_map_key(map_key) == "livonia" and built.get("mapgroupproto_text"):
+        heli_groups = mapgroupproto_groups_named(mapgroupproto_root, "Wreck_Mi8_Crashed")
+        if len(heli_groups) != 1:
+            messages.append(
+                "`mapgroupproto.xml` must contain exactly one `Wreck_Mi8_Crashed` group for Livonia StaticHeliCrash loot."
+            )
+        elif mapgroupproto_static_helicrash_group_needs_repair(heli_groups[0], map_key, "Wreck_Mi8_Crashed"):
+            messages.append(
+                "`Wreck_Mi8_Crashed` mapgroupproto group is missing the vanilla Livonia StaticHeliCrash loot container/points."
+            )
     limit_flag_checks = (
         ("usage", valid_usage_flags),
         ("value", valid_value_flags),

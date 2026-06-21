@@ -481,6 +481,33 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("non-WanderingBot", message)
         self.assertIn("WoodenCrate", message)
 
+    def test_scope_guard_allows_livonia_static_helicrash_proto_restore(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="Wreck_Mi8_Crashed" />
+    <group name="Wreck_Mi8_Crashed" lootmax="15">
+        <container name="lootFloor" lootmax="15">
+            <category name="weapons" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" />
+        </container>
+    </group>
+</prototype>
+"""
+        root = ET.fromstring(original)
+        repaired = bot.repair_vanilla_static_helicrash_mapgroupproto(root, "livonia")
+        self.assertEqual(["Wreck_Mi8_Crashed"], repaired)
+
+        ok, message = bot.validate_managed_ce_xml_scope(
+            "mapgroupproto.xml",
+            original,
+            bot.xml_text_from_root(root),
+            map_key="livonia",
+        )
+
+        self.assertTrue(ok)
+        self.assertIn("only WanderingBot-managed", message)
+
     def test_scope_guard_success_messages_do_not_fail_bundle_validation(self):
         events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <events>
