@@ -4973,13 +4973,14 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', class_name=airdrop_marker_class, x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=0, saferadius=0, distanceradius=25, cleanupradius=380, gas_lifetime=1800, gas_particle='server_default') %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', preset='military_crate', class_name=airdrop_marker_class, x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, lifetime=7200, restock=0, saferadius=0, distanceradius=25, cleanupradius=380, gas_lifetime=1800, gas_particle='server_default') %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
           {% set edit_event.id = event.id %}
           {% set edit_event.name = event.name %}
           {% set edit_event.event_type = event.event_type %}
+          {% set edit_event.preset = event.preset or event.spawn_preset or '' %}
           {% set edit_event.class_name = event.class_name %}
           {% set edit_event.x = event.x %}
           {% set edit_event.y = event.y %}
@@ -5060,7 +5061,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Spawn type
-              <select name="spawn_preset" data-scenario-preset>
+              <select name="spawn_preset" data-scenario-preset data-current-preset="{{ edit_event.preset }}">
                 <option value="military_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="35" data-loot="military_high">Military ground loot</option>
                 <option value="wooden_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="survival">Survival ground loot</option>
                 <option value="medical_crate" data-type="airdrop" data-class="{{ airdrop_marker_class }}" data-count="1" data-radius="20" data-loot="medical">Medical ground loot</option>
@@ -10976,7 +10977,10 @@ PAGE_TEMPLATE = """
         form.elements.event_id.value = button.dataset.id || "";
         form.elements.name.value = button.dataset.name || "";
         form.elements.event_type.value = button.dataset.type === "loot_crate" ? "airdrop" : (button.dataset.type || "airdrop");
-        if (form.elements.spawn_preset && button.dataset.preset) form.elements.spawn_preset.value = button.dataset.preset;
+        if (form.elements.spawn_preset) {
+          form.elements.spawn_preset.dataset.currentPreset = button.dataset.preset || "";
+          if (button.dataset.preset) form.elements.spawn_preset.value = button.dataset.preset;
+        }
         form.elements.class_name.value = button.dataset.class || "";
         form.elements.x.value = button.dataset.x || 7500;
         form.elements.y.value = button.dataset.y || 0;
@@ -11073,6 +11077,31 @@ PAGE_TEMPLATE = """
         const typeOption = Array.from(typeSelect.options).find((item) => item.value === normalScenarioType(eventType));
         return typeOption ? (typeOption.dataset.defaultPreset || "") : "";
       }
+      function optionForValue(value) {
+        const text = String(value || "").trim();
+        if (!text) return null;
+        return Array.from(presetSelect.options).find((item) => item.value === text) || null;
+      }
+      function inferPresetForTypeClass(eventType, className) {
+        const activeType = normalScenarioType(eventType);
+        const classText = String(className || "").trim().toLowerCase();
+        if (!classText) return "";
+        const match = Array.from(presetSelect.options).find((item) => {
+          return optionMatchesType(item, activeType) && String(item.dataset.class || "").trim().toLowerCase() === classText;
+        });
+        return match ? match.value : "";
+      }
+      function applyStoredPresetForType() {
+        const activeType = normalScenarioType(typeSelect ? typeSelect.value : "");
+        const storedPreset = presetSelect.dataset.currentPreset || "";
+        const storedOption = optionForValue(storedPreset);
+        if (storedOption && optionMatchesType(storedOption, activeType)) {
+          presetSelect.value = storedOption.value;
+          return;
+        }
+        const inferredPreset = inferPresetForTypeClass(activeType, form.elements.class_name ? form.elements.class_name.value : "");
+        if (inferredPreset) presetSelect.value = inferredPreset;
+      }
       function chooseFirstPresetForType(forceDefault = false) {
         if (!typeSelect) return;
         const activeType = normalScenarioType(typeSelect.value);
@@ -11092,18 +11121,27 @@ PAGE_TEMPLATE = """
       function syncScenarioPreset(event) {
         const selectedBeforeFilter = presetSelect.selectedOptions[0];
         if (event && event.target === typeSelect) {
+          presetSelect.dataset.currentPreset = "";
           chooseFirstPresetForType(true);
         } else if (event && event.target === presetSelect && typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && normalScenarioType(selectedBeforeFilter.dataset.type) !== normalScenarioType(typeSelect.value)) {
           typeSelect.value = normalScenarioType(selectedBeforeFilter.dataset.type);
+          presetSelect.dataset.currentPreset = selectedBeforeFilter.value || "";
           chooseFirstPresetForType(false);
         } else if (event && event.type === "scenario-prefill") {
+          applyStoredPresetForType();
           chooseFirstPresetForType(false);
         } else {
+          applyStoredPresetForType();
           chooseFirstPresetForType(false);
         }
-        const option = presetSelect.selectedOptions[0];
+        let option = presetSelect.selectedOptions[0];
+        if (typeSelect && option && !optionMatchesType(option, typeSelect.value)) {
+          chooseFirstPresetForType(true);
+          option = presetSelect.selectedOptions[0];
+        }
         if (!option) return;
         const customClass = option.value === "custom" || option.value === "custom_vehicle";
+        if (typeSelect && option.dataset.type) typeSelect.value = normalScenarioType(option.dataset.type);
         const activeType = normalScenarioType(typeSelect ? typeSelect.value : option.dataset.type || "airdrop");
         const classDefaults = {
           airdrop: "Wreck_Mi8_Crashed",
@@ -11116,7 +11154,6 @@ PAGE_TEMPLATE = """
           classInput.readOnly = !customClass;
           classInput.placeholder = customClass ? "Type the exact DayZ classname" : "Locked to selected spawn type";
         }
-        if (typeSelect && option.dataset.type) typeSelect.value = normalScenarioType(option.dataset.type);
         if (!customClass) form.elements.class_name.value = option.dataset.class || classDefaults[activeType] || "";
         if (customClass && !form.elements.class_name.value) form.elements.class_name.value = "";
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
@@ -11148,6 +11185,8 @@ PAGE_TEMPLATE = """
       form.addEventListener("scenario-prefill", syncScenarioPreset);
       form.addEventListener("submit", syncScenarioPreset);
       syncScenarioPreset();
+      window.requestAnimationFrame(() => syncScenarioPreset());
+      window.addEventListener("pageshow", () => syncScenarioPreset());
     });
     document.querySelectorAll("[data-scenario-location-preset]").forEach((select) => {
       const form = select.closest("form");
