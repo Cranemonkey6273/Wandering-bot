@@ -2690,6 +2690,22 @@ PAGE_TEMPLATE = """
     .shop-bulk-form { grid-template-columns: 1fr; }
     .shop-bulk-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .55rem; align-items: end; margin-bottom: .65rem; }
     .shop-bulk-controls button { align-self: end; }
+    .shop-category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(21rem, 1fr)); gap: .8rem; align-items: start; }
+    .shop-category-box { min-width: 0; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; overflow: hidden; }
+    .shop-category-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; padding: .7rem; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 8%, #070b08); }
+    .shop-category-title { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-width: 0; }
+    .shop-category-title h4 { margin: 0; color: var(--text); font-size: .98rem; overflow-wrap: anywhere; }
+    .shop-category-title .pill { white-space: nowrap; }
+    .shop-category-list { max-height: 24rem; overflow: auto; display: grid; gap: .35rem; padding: .55rem; }
+    .shop-item-card { display: grid; grid-template-columns: auto 2rem minmax(0, 1fr) auto; gap: .5rem; align-items: center; min-width: 0; border: 1px solid rgba(116, 209, 222, .14); border-radius: .45rem; padding: .45rem; background: rgba(4, 10, 10, .78); }
+    .shop-item-card[hidden], .shop-category-box[hidden] { display: none !important; }
+    .shop-item-check { display: grid; place-items: center; min-width: 1.25rem; }
+    .shop-item-check input { min-height: 0; width: 1rem; height: 1rem; }
+    .shop-item-main { min-width: 0; display: grid; gap: .16rem; }
+    .shop-item-main strong { color: var(--text); overflow-wrap: anywhere; line-height: 1.2; }
+    .shop-item-meta { display: flex; flex-wrap: wrap; gap: .35rem; color: var(--muted); font-size: .78rem; }
+    .shop-item-meta span { white-space: nowrap; }
+    .shop-empty { margin: .25rem; color: var(--muted); font-size: .86rem; }
     .item-table .item-name-cell { display: flex; align-items: center; gap: .55rem; min-width: 0; }
     .item-table .item-name-cell strong { overflow-wrap: anywhere; }
     .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; align-items: start; }
@@ -2897,6 +2913,9 @@ PAGE_TEMPLATE = """
       .server-tabs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(13rem, 82vw); overflow-x: auto; flex-wrap: nowrap; padding-bottom: .25rem; -webkit-overflow-scrolling: touch; }
       .server-tab { min-width: 0; overflow-wrap: anywhere; }
       .shop-toolbar { grid-template-columns: 1fr; align-items: stretch; }
+      .shop-category-grid { grid-template-columns: 1fr; }
+      .shop-item-card { grid-template-columns: auto 2rem minmax(0, 1fr); }
+      .shop-item-card .button { grid-column: 2 / -1; width: 100%; }
       .scenario-actions, .owner-server-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; width: 100%; }
       .scenario-actions .inline-action, .owner-server-actions .inline-action { width: 100%; }
       .scenario-actions button, .owner-server-actions button, .owner-server-actions .button { width: 100%; white-space: normal; }
@@ -5414,6 +5433,11 @@ PAGE_TEMPLATE = """
     {% set edit_shop = namespace(item_name=(edit_shop_key or 'NailBox'), price=100, category='General', enabled='true', daily_limit=0, allowed_role_ids=[], blocked_user_ids='') %}
     {% set category_options = server.shop_category_options if server and server.shop_category_options else shop_category_options %}
     {% set shop_item_options = server.shop_items if server else [] %}
+    <datalist id="shop-item-datalist">
+      {% for item in shop_item_options if item.type != 'bundle' %}
+      <option value="{{ item.name }}">{{ item.category }}</option>
+      {% endfor %}
+    </datalist>
     {% if server and edit_shop_key %}
       {% for item in server.shop_items %}
         {% if item.name == edit_shop_key %}
@@ -5442,11 +5466,7 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
             <label>Item name
-              <select name="item_name" data-visual-select>
-                {% for item in shop_item_options %}
-                <option value="{{ item.name }}" {% if item.name == edit_shop.item_name %}selected{% endif %}>{{ item.name }} - {{ item.category }}</option>
-                {% endfor %}
-              </select>
+              <input name="item_name" list="shop-item-datalist" value="{{ edit_shop.item_name }}" autocomplete="off" placeholder="Start typing a classname">
             </label>
             <label>Price <input name="price" type="number" value="{{ edit_shop.price }}"></label>
             <label>Category
@@ -5497,12 +5517,7 @@ PAGE_TEMPLATE = """
                 {% for row_index in range(shop_bundle_rows) %}
                 <div class="bundle-row">
                   <label>Item {{ loop.index }}
-                    <select name="bundle_item" data-visual-select data-visual-select-lazy="true">
-                      <option value="">Choose item</option>
-                      {% for item in shop_item_options if item.type != 'bundle' %}
-                      <option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>
-                      {% endfor %}
-                    </select>
+                    <input name="bundle_item" list="shop-item-datalist" autocomplete="off" placeholder="Start typing a classname">
                   </label>
                   <label>Qty <input name="bundle_quantity" type="number" min="1" max="999" value="1"></label>
                 </div>
@@ -5569,25 +5584,42 @@ PAGE_TEMPLATE = """
               <button type="submit">Apply Bulk Change</button>
               <span class="result muted"></span>
             </div>
-            <div class="table-scroll full">
-              <table class="item-table">
-                <thead><tr><th>Pick</th><th>Item</th><th>Category</th><th>Price</th><th>Status</th><th>Limit</th><th>Edit</th></tr></thead>
-                <tbody>
-                  {% for item in (server.shop_items if server else []) %}
-                  <tr data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'configured' if item.configured else 'catalog' }} {{ 'on' if item.enabled else 'off' }}">
-                    <td><input type="checkbox" name="item_names" value="{{ item.name }}" aria-label="Select {{ item.name }}"></td>
-                    <td><div class="item-name-cell"><img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt=""><span><strong>{{ item.name }}</strong>{% if item.type == 'bundle' %}<br><small>{{ item.bundle_summary }}</small>{% endif %}</span></div></td>
-                    <td>{{ item.category }}</td>
-                    <td>{{ item.price }}</td>
-                    <td>{{ 'On' if item.enabled else 'Off' }}{% if not item.configured %}<br><small class="muted">catalog</small>{% endif %}</td>
-                    <td>{{ item.daily_limit if item.daily_limit else 'default' }}</td>
-                    <td><a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a></td>
-                  </tr>
-                  {% else %}
-                  <tr><td colspan="7">No shop items available.</td></tr>
+            <div class="shop-category-grid full">
+              {% for category, items in (server.shop_categories.items() if server else []) %}
+              <section class="shop-category-box" data-shop-category-box data-category="{{ category|lower }}">
+                <div class="shop-category-head">
+                  <div class="shop-category-title">
+                    <h4>{{ category }}</h4>
+                    <span class="pill"><span data-shop-category-visible>{{ items|length }}</span>/<span data-shop-category-total>{{ items|length }}</span></span>
+                  </div>
+                  <label>Search {{ category }}
+                    <input data-shop-category-search placeholder="filter this box">
+                  </label>
+                </div>
+                <div class="shop-category-list">
+                  {% for item in items %}
+                  <div class="shop-item-card" data-shop-row data-category="{{ item.category|lower }}" data-search="{{ item.name|lower }} {{ item.category|lower }} {{ 'configured' if item.configured else 'catalog' }} {{ 'on' if item.enabled else 'off' }}">
+                    <label class="shop-item-check" title="Select {{ item.name }}"><input type="checkbox" name="item_names" value="{{ item.name }}" aria-label="Select {{ item.name }}"></label>
+                    <img class="item-thumb" src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">
+                    <div class="shop-item-main">
+                      <strong>{{ item.name }}</strong>
+                      {% if item.type == 'bundle' %}<small class="muted">{{ item.bundle_summary }}</small>{% endif %}
+                      <div class="shop-item-meta">
+                        <span>{{ item.price }} pennies</span>
+                        <span>{{ 'On' if item.enabled else 'Off' }}</span>
+                        <span>Limit {{ item.daily_limit if item.daily_limit else 'default' }}</span>
+                        {% if not item.configured %}<span>catalog</span>{% endif %}
+                      </div>
+                    </div>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=shop&guild_id={{ server.guild_id if server else '' }}&edit_shop={{ item.name|urlencode }}#shop-edit-form" data-shop-edit data-item="{{ item.name }}" data-price="{{ item.price }}" data-category="{{ item.category }}" data-enabled="{{ 'true' if item.enabled else 'false' }}" data-limit="{{ item.daily_limit }}" data-roles="{{ item.allowed_role_ids|join(',') }}" data-blocked="{{ item.blocked_user_ids|join(',') }}" data-configured="{{ 'true' if item.configured else 'false' }}">Edit</a>
+                  </div>
                   {% endfor %}
-                </tbody>
-              </table>
+                  <p class="shop-empty" data-shop-empty hidden>No items match this search.</p>
+                </div>
+              </section>
+              {% else %}
+              <p class="muted">No shop items available.</p>
+              {% endfor %}
             </div>
           </form>
         </article>
@@ -8421,18 +8453,43 @@ PAGE_TEMPLATE = """
       const query = input ? input.value.trim().toLowerCase() : "";
       const categoryValue = category ? category.value.trim().toLowerCase() : "";
       let visible = 0;
-      panel.querySelectorAll("[data-shop-row]").forEach((row) => {
-        const search = row.dataset.search || "";
-        const rowCategory = row.dataset.category || "";
-        const show = (!query || search.includes(query)) && (!categoryValue || rowCategory === categoryValue);
-        row.hidden = !show;
-        if (show) visible += 1;
-      });
+      const boxes = panel.querySelectorAll("[data-shop-category-box]");
+      if (boxes.length) {
+        boxes.forEach((box) => {
+          const boxCategory = box.dataset.category || "";
+          const boxInput = box.querySelector("[data-shop-category-search]");
+          const boxQuery = boxInput ? boxInput.value.trim().toLowerCase() : "";
+          const categoryMatches = !categoryValue || boxCategory === categoryValue;
+          let boxVisible = 0;
+          box.querySelectorAll("[data-shop-row]").forEach((row) => {
+            const search = row.dataset.search || "";
+            const show = categoryMatches && (!query || search.includes(query)) && (!boxQuery || search.includes(boxQuery));
+            row.hidden = !show;
+            if (show) {
+              visible += 1;
+              boxVisible += 1;
+            }
+          });
+          box.hidden = !categoryMatches;
+          const boxCount = box.querySelector("[data-shop-category-visible]");
+          if (boxCount) boxCount.textContent = boxVisible;
+          const empty = box.querySelector("[data-shop-empty]");
+          if (empty) empty.hidden = !categoryMatches || boxVisible > 0;
+        });
+      } else {
+        panel.querySelectorAll("[data-shop-row]").forEach((row) => {
+          const search = row.dataset.search || "";
+          const rowCategory = row.dataset.category || "";
+          const show = (!query || search.includes(query)) && (!categoryValue || rowCategory === categoryValue);
+          row.hidden = !show;
+          if (show) visible += 1;
+        });
+      }
       if (count) count.textContent = visible;
     }
-    window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]"));
+    window.filterShopItems = (control) => filterShopPanel(control?.closest?.("[data-shop-list]") || document.querySelector("[data-shop-list]"));
     document.addEventListener("input", (event) => {
-      if (event.target.matches("[data-shop-search]")) {
+      if (event.target.matches("[data-shop-search], [data-shop-category-search]")) {
         filterShopPanel(event.target.closest("[data-shop-list]"));
       }
     });
@@ -10922,31 +10979,9 @@ PAGE_TEMPLATE = """
         form.elements.price.focus();
       });
     });
-    document.querySelectorAll('#shop-edit-form select[name="item_name"]').forEach((select) => {
-      select.addEventListener("change", () => syncShopEditFromSelectedItem(select, true));
-    });
-    document.querySelectorAll("[data-shop-search]").forEach((input) => {
-      const section = input.closest("[data-shop-list]") || input.closest("article") || document;
-      const category = section.querySelector("[data-shop-category]");
-      const count = section.querySelector("[data-shop-count]");
-      function filterShop() {
-        const query = input.value.trim().toLowerCase();
-        const categoryValue = category ? category.value.trim().toLowerCase() : "";
-        let visible = 0;
-        section.querySelectorAll("[data-shop-row]").forEach((row) => {
-          const search = row.dataset.search || "";
-          const rowCategory = row.dataset.category || "";
-          const matchesText = !query || search.includes(query);
-          const matchesCategory = !categoryValue || rowCategory === categoryValue;
-          const show = matchesText && matchesCategory;
-          row.hidden = !show;
-          if (show) visible += 1;
-        });
-        if (count) count.textContent = visible;
-      }
-      input.addEventListener("input", filterShop);
-      if (category) category.addEventListener("change", filterShop);
-      filterShop();
+    document.querySelectorAll('#shop-edit-form [name="item_name"]').forEach((control) => {
+      control.addEventListener("change", () => syncShopEditFromSelectedItem(control, true));
+      control.addEventListener("blur", () => syncShopEditFromSelectedItem(control, false));
     });
     document.querySelectorAll("[data-event-search]").forEach((input) => {
       const section = input.closest("article") || document;
@@ -18969,6 +19004,10 @@ SHOP_CATEGORY_PRESETS = (
     "Ammunition",
     "Attachments",
     "Explosives",
+    "Military Clothing",
+    "Civilian Clothing",
+    "Medical Clothing",
+    "Hunting Clothing",
     "Clothing",
     "Backpacks",
     "Medical",
@@ -18995,6 +19034,14 @@ SHOP_CATEGORY_ALIASES = {
     "explosive": "Explosives",
     "clothes": "Clothing",
     "clothing": "Clothing",
+    "militaryclothing": "Military Clothing",
+    "military clothing": "Military Clothing",
+    "civilianclothing": "Civilian Clothing",
+    "civilian clothing": "Civilian Clothing",
+    "medicalclothing": "Medical Clothing",
+    "medical clothing": "Medical Clothing",
+    "huntingclothing": "Hunting Clothing",
+    "hunting clothing": "Hunting Clothing",
     "bags": "Backpacks",
     "backpacks": "Backpacks",
     "containers": "Base Storage",
@@ -19025,6 +19072,10 @@ SHOP_CATEGORY_TERMS = (
     ("Explosives", ("grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive")),
     ("Weapons", ("rifle", "akm", "ak74", "ak101", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "sks", "svd", "fal", "aug", "vss", "crossbow", "bow", "knife", "spear")),
     ("Backpacks", ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag")),
+    ("Medical Clothing", ("nbc", "hazmat", "surgical", "paramedic", "medic", "scrubs")),
+    ("Military Clothing", ("gorka", "bdu", "ttsko", "m65", "tactical", "platecarrier", "ballistic", "mich", "combat", "cuu", "usmc", "smersh", "assaultvest", "highcapacityvest", "ukassvest", "nvg", "jungleboots", "militaryboots", "fieldjacket")),
+    ("Hunting Clothing", ("hunter", "hunting", "ghillie", "boonie", "cowboy", "ushanka", "flatcap")),
+    ("Civilian Clothing", ("jeans", "hoodie", "sweater", "tshirt", "shirt", "skirt", "dress", "tracksuit", "sneakers", "canvas", "raincoat", "police", "firefighter", "paramedicjacket", "baseballcap", "beanie", "radarcap", "workingboots")),
     ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "shemag")),
     ("Base Storage", ("barrel", "crate", "chest", "case", "container", "sea_chest", "tent", "shelter", "protectorcase")),
     ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory", "gardenplot")),
@@ -19076,9 +19127,14 @@ def normalize_shop_category(value: Any, fallback: str = "General") -> str:
 
 def infer_shop_category(item_name: Any, category: Any = "", usage: Any = "") -> str:
     category_text = str(category or "").strip()
-    if category_text:
-        return normalize_shop_category(category_text)
     name = str(item_name or "").strip().lower()
+    if category_text:
+        normalized_category = normalize_shop_category(category_text)
+        if normalized_category == "Clothing":
+            for preset, terms in SHOP_CATEGORY_TERMS:
+                if preset.endswith("Clothing") and preset != "Clothing" and any(term in name for term in terms):
+                    return preset
+        return normalized_category
     usage_text = str(usage or "").strip()
     if usage_text:
         normalized_usage = normalize_shop_category(usage_text, "")
@@ -19137,7 +19193,7 @@ def read_shop_catalog_seed_file(path: Any) -> list[dict[str, str]]:
             category = infer_shop_category(name)
         elif isinstance(raw, dict):
             name = safe_dayz_class(raw.get("name") or raw.get("classname") or raw.get("class"))
-            category = normalize_shop_category(raw.get("category") or raw.get("usage") or infer_shop_category(name))
+            category = infer_shop_category(name, raw.get("category"), raw.get("usage"))
         else:
             continue
         if name and is_shop_sellable_item(name, category):
@@ -19176,7 +19232,7 @@ def shop_category_map(shop: Any) -> dict[str, list[dict[str, Any]]]:
         if not isinstance(data, dict):
             data = {}
         is_bundle = str(data.get("type") or "").lower() == "bundle"
-        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else infer_shop_category(item_name)))
+        category = normalize_shop_category(data.get("category") or "Bundles") if is_bundle else infer_shop_category(item_name, data.get("category"))
         if not is_bundle and not is_shop_sellable_item(item_name, category):
             continue
         bundle_items = parse_shop_bundle_items(data.get("bundle_items", [])) if is_bundle else []
@@ -19239,8 +19295,9 @@ def shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
-        if str(item.get("type") or "item") != "bundle" and not is_shop_sellable_item(name, category):
+        is_bundle = str(item.get("type") or "item").lower() == "bundle"
+        category = normalize_shop_category(item.get("category") or "Bundles") if is_bundle else infer_shop_category(name, item.get("category"))
+        if not is_bundle and not is_shop_sellable_item(name, category):
             continue
         row = dict(item)
         row["category"] = category
@@ -19260,7 +19317,7 @@ def shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
         key = name.lower()
         if not name or key in catalog:
             continue
-        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
+        category = infer_shop_category(name, item.get("category"))
         if not is_shop_sellable_item(name, category):
             continue
         catalog[key] = {
@@ -19314,7 +19371,7 @@ def shop_category_map_from_items(items: Any) -> dict[str, list[dict[str, Any]]]:
         name = str(item.get("name") or "").strip()
         if not name:
             continue
-        category = normalize_shop_category(item.get("category") or infer_shop_category(name))
+        category = infer_shop_category(name, item.get("category"))
         row = dict(item)
         row["category"] = category
         categories.setdefault(category, []).append(row)
@@ -19331,7 +19388,7 @@ def count_shop_items(shop: Any) -> int:
         if not isinstance(data, dict):
             data = {}
         is_bundle = str(data.get("type") or "").lower() == "bundle"
-        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else infer_shop_category(item_name)))
+        category = normalize_shop_category(data.get("category") or "Bundles") if is_bundle else infer_shop_category(item_name, data.get("category"))
         if is_bundle or is_shop_sellable_item(item_name, category):
             total += 1
     return total
