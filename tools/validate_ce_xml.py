@@ -24,6 +24,9 @@ spawn it (the failure mode the live server was exhibiting):
   ``<group name="C">`` in mapgroupproto.xml.
 * Every direct WanderingBot events.xml child with lootmax>0 on a static loot
   anchor has a matching usable mapgroupproto group.
+* Every mapgroupproto ``<value>`` tag must exist in the mission's
+  cfglimitsdefinition.xml, so Livonia cannot accidentally receive Tier4.
+* Working vehicle classes are rejected when used as Static/eventgroup loot.
 * events.xml Static events that reference a group via cfgeventspawns leave
   ``<children/>`` empty (vanilla DayZ pattern). Otherwise DayZ loads the
   definition but never spawns the event.
@@ -62,6 +65,35 @@ ALLOWED_FAMILIES = (
     "Trajectory",
     "Vehicle",
 )
+
+VEHICLE_CLASS_NAMES = {
+    "OffroadHatchback",
+    "OffroadHatchback_Blue",
+    "OffroadHatchback_White",
+    "CivilianSedan",
+    "CivilianSedan_Black",
+    "CivilianSedan_Wine",
+    "CivilianSedan_White",
+    "Hatchback_02",
+    "Hatchback_02_Black",
+    "Hatchback_02_Blue",
+    "Sedan_02",
+    "Sedan_02_Grey",
+    "Sedan_02_Red",
+    "Truck_01_Covered",
+    "Truck_01_Covered_Blue",
+    "Truck_01_Covered_Orange",
+    "Truck_01_Covered_Camo",
+    "Truck_01_Covered_Yellow",
+    "Truck_01_Open",
+    "Truck_01_Open_Blue",
+    "Truck_01_Open_Orange",
+    "Truck_01_Open_Camo",
+    "Truck_01_Open_Yellow",
+    "M1025",
+    "M1025_Black",
+}
+VEHICLE_CLASS_PREFIXES = ("OffroadHatchback", "CivilianSedan", "Hatchback_02", "Sedan_02", "Truck_01", "M1025")
 
 
 @dataclass
@@ -122,6 +154,20 @@ def _has_static_family(name: str) -> bool:
     return name.startswith("Static")
 
 
+def _norm(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _looks_like_vehicle_class(class_name: str) -> bool:
+    key = _norm(class_name)
+    if not key:
+        return False
+    vehicle_keys = {_norm(item) for item in VEHICLE_CLASS_NAMES}
+    if key in vehicle_keys:
+        return True
+    return any(key.startswith(_norm(prefix)) for prefix in VEHICLE_CLASS_PREFIXES)
+
+
 def _positive_int(value: str, default: int = 0) -> int:
     try:
         return max(0, int(str(value or "").strip() or default))
@@ -142,6 +188,22 @@ def _proto_group_has_usable_loot_container(group_node: ET.Element) -> bool:
     return False
 
 
+def _load_value_flags(mission_dir: str, report: ValidationReport) -> Set[str]:
+    path = os.path.join(mission_dir, "cfglimitsdefinition.xml")
+    if not os.path.exists(path):
+        return set()
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as error:
+        report.fail(f"cfglimitsdefinition.xml parse error: {error}")
+        return set()
+    return {
+        (node.get("name") or "").strip()
+        for node in root.findall(".//valueflags/value")
+        if (node.get("name") or "").strip()
+    }
+
+
 def validate_bundle(mission_dir: str) -> ValidationReport:
     report = ValidationReport()
 
@@ -150,6 +212,7 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
     eventgroups_path = os.path.join(mission_dir, "cfgeventgroups.xml")
     mapgroupproto_path = os.path.join(mission_dir, "mapgroupproto.xml")
     cfgspawnabletypes_path = os.path.join(mission_dir, "cfgspawnabletypes.xml")
+    value_flags = _load_value_flags(mission_dir, report)
 
     events_root = _parse_xml(events_path, "events", report)
     spawns_root = _parse_xml(spawns_path, "eventposdef", report)
@@ -185,6 +248,12 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
             minimum = 0
         if nominal <= 0 and minimum <= 0:
             report.fail(f"events.xml `{name}` has nominal=0 AND min=0 ? DayZ will never spawn it")
+        for child in event_node.findall("children/child"):
+            child_type = (child.get("type") or "").strip()
+            if name.startswith("Animal") and child_type and not child_type.startswith("Animal_"):
+                report.fail(f"events.xml `{name}` is an Animal event but child `{child_type}` is not an Animal_ class")
+            if name.startswith("Infected") and child_type and not child_type.startswith(("ZmbM_", "ZmbF_")):
+                report.fail(f"events.xml `{name}` is an Infected event but child `{child_type}` is not a ZmbM_/ZmbF_ class")
 
     spawn_events: Dict[str, ET.Element] = {
         (event_node.get("name") or "").strip(): event_node
@@ -310,6 +379,17 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
     if mapgroupproto_root is not None:
         for group_node in mapgroupproto_root.findall("group"):
             proto_groups[(group_node.get("name") or "").strip()] = group_node
+            if value_flags:
+                allowed = {value.lower(): value for value in value_flags}
+                group_name = (group_node.get("name") or "").strip()
+                for value_node in group_node.findall("value"):
+                    value_name = (value_node.get("name") or "").strip()
+                    if value_name and value_name.lower() not in allowed:
+                        report.fail(
+                            f"mapgroupproto.xml <group name=\"{group_name}\"> uses value "
+                            f"`{value_name}`, but cfglimitsdefinition.xml only allows: "
+                            f"{', '.join(sorted(value_flags))}."
+                        )
         for event_name, event_node in wandering_events.items():
             if not _has_static_family(event_name):
                 continue
@@ -324,6 +404,12 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
                 child_type = (child.get("type") or "").strip()
                 child_lootmax = _positive_int(child.get("lootmax"))
                 if not child_type or child_lootmax <= 0:
+                    continue
+                if _looks_like_vehicle_class(child_type):
+                    report.fail(
+                        f"events.xml `{event_name}` uses working vehicle `{child_type}` as Static loot. "
+                        "Use a Vehicle CE event for vehicles, not mapgroupproto/static loot."
+                    )
                     continue
                 if child_type not in proto_groups:
                     report.fail(
@@ -342,6 +428,12 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
                 child_type = (child.get("type") or "").strip()
                 is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
                 if is_static_scene_prop:
+                    continue
+                if _looks_like_vehicle_class(child_type):
+                    report.fail(
+                        f"cfgeventgroups.xml `{group_name}` uses working vehicle `{child_type}` as a Static child. "
+                        "Use a Vehicle CE event for vehicles, not eventgroup loot."
+                    )
                     continue
                 if child_type and child_type not in proto_groups:
                     report.fail(

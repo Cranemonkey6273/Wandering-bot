@@ -167,6 +167,24 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertNotIn("WoodenCrate", types_in_event)
         self.assertFalse(any(child.get("type") in bot.SCENARIO_AIRDROP_GROUND_LOOT for child in children))
 
+    def test_airdrop_vehicle_class_is_replaced_by_static_loot_anchor(self):
+        event = _base_event(
+            52,
+            "airdrop",
+            "Sedan_02",
+            visual_marker=False,
+            loot_preset="vehicle_car",
+        )
+        records, warnings = bot.console_ce_records_for_event(event, map_key="livonia")
+        self.assertEqual(1, len(records))
+        record = records[0]
+
+        self.assertEqual("Wreck_Mi8_Crashed", record["class_name"])
+        self.assertEqual("Wreck_Mi8_Crashed", record["event_child_type"])
+        self.assertEqual(["Wreck_Mi8_Crashed"], record.get("mapgroupproto_classes"))
+        self.assertFalse(any(child.get("type") == "Sedan_02" for child in record["child_records"]))
+        self.assertTrue(any("vehicle classname `Sedan_02`" in message for message in warnings))
+
     def test_airdrop_guards_use_vanilla_secondary_infected(self):
         event = _base_event(
             32,
@@ -525,6 +543,94 @@ class MapGroupProtoTests(unittest.TestCase):
         )
         crash_group = next(g for g in proto_root.findall("group") if g.get("name") == "Wreck_Mi8_Crashed")
         self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier3"])
+
+    def test_validator_rejects_livonia_tier4_mapgroupproto_value(self):
+        event = _base_event(53, "airdrop", "WoodenCrate")
+        records, _warnings = bot.console_ce_records_for_event(event, map_key="livonia")
+        record = records[0]
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record.get("event_child_type") or record["class_name"],
+            record["count"],
+            record["lifetime"],
+            restock=record.get("restock", 0),
+            limit_type=record.get("limit_type") or "child",
+            child_records=record.get("child_records"),
+            nominal=record.get("nominal"),
+            min_count=record.get("min_count"),
+            max_count=record.get("max_count"),
+        )
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(
+            spawns_root,
+            record["name"],
+            record["x"],
+            record["z"],
+            count=record["count"],
+            radius=record.get("radius") or 45,
+        )
+        proto_root = ET.Element("prototype")
+        group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
+        ET.SubElement(group, "usage", {"name": "Military"})
+        ET.SubElement(group, "value", {"name": "Tier4"})
+        container = ET.SubElement(group, "container", {"name": "lootFloor", "lootmax": "15"})
+        ET.SubElement(container, "category", {"name": "weapons"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "1", "height": "1"})
+
+        built = {
+            "map_key": "livonia",
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": bot.xml_text_from_root(spawns_root),
+            "eventgroups_text": "",
+            "mapgroupproto_text": bot.xml_text_from_root(proto_root),
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertFalse(ok)
+        self.assertTrue(any("Tier4" in message and "livonia" in message for message in messages), messages)
+
+    def test_validator_rejects_working_vehicle_as_static_loot_child(self):
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            "StaticWanderingBot_54_airdrop",
+            "Sedan_02",
+            1,
+            7200,
+            child_records=[{
+                "type": "Sedan_02",
+                "count": 1,
+                "min": 1,
+                "max": 1,
+                "lootmin": 1,
+                "lootmax": 5,
+            }],
+            nominal=1,
+            min_count=1,
+            max_count=1,
+        )
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(spawns_root, "StaticWanderingBot_54_airdrop", 5000, 5000)
+        proto_root = ET.Element("prototype")
+        group = ET.SubElement(proto_root, "group", {"name": "Sedan_02", "lootmax": "5"})
+        container = ET.SubElement(group, "container", {"name": "lootFloor", "lootmax": "5"})
+        ET.SubElement(container, "category", {"name": "tools"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "1", "height": "1"})
+
+        built = {
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": bot.xml_text_from_root(spawns_root),
+            "eventgroups_text": "",
+            "mapgroupproto_text": bot.xml_text_from_root(proto_root),
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertFalse(ok)
+        self.assertTrue(any("Working vehicles must use a Vehicle CE event" in message for message in messages), messages)
 
     def test_airdrop_proto_categories_never_include_containers_or_vehicles(self):
         event = _base_event(

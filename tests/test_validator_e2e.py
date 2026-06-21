@@ -110,6 +110,17 @@ def _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgrouppr
     ET.ElementTree(cfgspawnabletypes_root).write(os.path.join(tmpdir, "cfgspawnabletypes.xml"), encoding="utf-8", xml_declaration=True)
 
 
+def _write_limit_values(tmpdir, values):
+    root = ET.Element("lists")
+    ET.SubElement(root, "categories")
+    ET.SubElement(root, "tags")
+    ET.SubElement(root, "usageflags")
+    valueflags = ET.SubElement(root, "valueflags")
+    for value in values:
+        ET.SubElement(valueflags, "value", {"name": value})
+    ET.ElementTree(root).write(os.path.join(tmpdir, "cfglimitsdefinition.xml"), encoding="utf-8", xml_declaration=True)
+
+
 def _base_event(event_id, event_type, class_name, **overrides):
     event = {
         "id": event_id,
@@ -187,6 +198,35 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             report = validate_bundle(tmpdir)
             self.assertFalse(report.ok())
             self.assertTrue(any("No group configured for 'Wreck_Mi8_Crashed'" in err for err in report.errors))
+
+    def test_validator_rejects_livonia_tier4_mapgroupproto_value(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            _write_limit_values(tmpdir, ["Tier1", "Tier2", "Tier3", "Unique"])
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("Tier4" in err and "cfglimitsdefinition.xml" in err for err in report.errors))
+
+    def test_validator_rejects_working_vehicle_as_static_loot(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        child = events_root.find("event/children/child")
+        child.set("type", "Sedan_02")
+        child.set("lootmax", "5")
+        for group in list(mapgroupproto_root.findall("group")):
+            mapgroupproto_root.remove(group)
+        group = ET.SubElement(mapgroupproto_root, "group", {"name": "Sedan_02", "lootmax": "5"})
+        container = ET.SubElement(group, "container", {"name": "lootFloor", "lootmax": "5"})
+        ET.SubElement(container, "category", {"name": "tools"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "1", "height": "1"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            self.assertTrue(any("working vehicle `Sedan_02` as Static loot" in err for err in report.errors))
 
     def test_validator_rejects_bare_mapgroupproto_entry(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]

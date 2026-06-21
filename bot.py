@@ -28463,11 +28463,16 @@ def load_dayz_reference(map_key):
         "map_key": map_key,
         "available": False,
         "types": set(),
+        "spawnabletypes": set(),
+        "mapgroups": set(),
+        "eventgroups": set(),
+        "events": set(),
         "zombies": [],
         "animals": [],
         "containers": [],
         "values": set(),
         "usages": set(),
+        "warnings": [],
     }
 
     types_path = dayz_reference_path(map_key, "db", "types.xml")
@@ -28497,6 +28502,54 @@ def load_dayz_reference(map_key):
         reference["available"] = True
     except Exception as error:
         print(f"DAYZ REFERENCE LOAD ERROR {map_key}: {error}")
+
+    try:
+        spawnable_path = dayz_reference_path(map_key, "cfgspawnabletypes.xml")
+        if spawnable_path and os.path.exists(spawnable_path):
+            spawnable_root = ET.parse(spawnable_path).getroot()
+            reference["spawnabletypes"] = {
+                str(node.get("name") or "").strip()
+                for node in spawnable_root.findall(".//type")
+                if str(node.get("name") or "").strip()
+            }
+    except Exception as error:
+        reference["warnings"].append(f"cfgspawnabletypes.xml reference could not be parsed: {error}")
+
+    try:
+        proto_path = dayz_reference_path(map_key, "mapgroupproto.xml")
+        if proto_path and os.path.exists(proto_path):
+            proto_root = ET.parse(proto_path).getroot()
+            reference["mapgroups"] = {
+                str(node.get("name") or "").strip()
+                for node in proto_root.findall(".//group")
+                if str(node.get("name") or "").strip()
+            }
+    except Exception as error:
+        reference["warnings"].append(f"mapgroupproto.xml reference could not be parsed: {error}")
+
+    try:
+        eventgroups_path = dayz_reference_path(map_key, "cfgeventgroups.xml")
+        if eventgroups_path and os.path.exists(eventgroups_path):
+            eventgroups_root = ET.parse(eventgroups_path).getroot()
+            reference["eventgroups"] = {
+                str(node.get("name") or "").strip()
+                for node in eventgroups_root.findall(".//group")
+                if str(node.get("name") or "").strip()
+            }
+    except Exception as error:
+        reference["warnings"].append(f"cfgeventgroups.xml reference could not be parsed: {error}")
+
+    try:
+        events_path = dayz_reference_path(map_key, "db", "events.xml")
+        if events_path and os.path.exists(events_path):
+            events_root = ET.parse(events_path).getroot()
+            reference["events"] = {
+                str(node.get("name") or "").strip()
+                for node in events_root.findall(".//event")
+                if str(node.get("name") or "").strip()
+            }
+    except Exception as error:
+        reference["warnings"].append(f"events.xml reference could not be parsed: {error}")
 
     try:
         limits_path = dayz_reference_path(map_key, "cfglimitsdefinition.xml")
@@ -30339,6 +30392,8 @@ def scenario_airdrop_anchor_class(event, class_name):
         or event.get("marker_class")
         or SCENARIO_AIRDROP_MARKER_CLASS
     ).strip()
+    if dayz_class_looks_like_vehicle(class_name):
+        return marker_class or SCENARIO_AIRDROP_MARKER_CLASS
     if str(class_name or "").strip().lower() in SCENARIO_AIRDROP_RETIRED_ANCHOR_CLASSES:
         return marker_class or SCENARIO_AIRDROP_MARKER_CLASS
     if event.get("visual_marker") and marker_class:
@@ -30695,6 +30750,49 @@ def filter_mapgroupproto_values_for_map(values, map_key=""):
     return cleaned
 
 
+def dayz_reference_class_names(map_key):
+    reference = load_dayz_reference(map_key)
+    names = set()
+    if isinstance(reference, dict):
+        for key in ("types", "spawnabletypes", "mapgroups", "eventgroups"):
+            bucket = reference.get(key)
+            if isinstance(bucket, (set, list, tuple)):
+                names.update(str(item).strip() for item in bucket if str(item).strip())
+    return names
+
+
+DAYZ_VEHICLE_CLASS_PREFIXES = (
+    "OffroadHatchback",
+    "CivilianSedan",
+    "Hatchback_02",
+    "Sedan_02",
+    "Truck_01",
+    "M1025",
+)
+
+
+def dayz_vehicle_class_keys():
+    classes = set(DEFAULT_VEHICLE_RESET_CLASSES)
+    for preset in SCENARIO_VEHICLE_PRESETS.values():
+        class_name = str(preset.get("class") or "").strip()
+        if class_name:
+            classes.add(class_name)
+    return {normalize_discord_name(item) for item in classes if normalize_discord_name(item)}
+
+
+def dayz_class_looks_like_vehicle(class_name):
+    key = normalize_discord_name(class_name)
+    if not key:
+        return False
+    if key in dayz_vehicle_class_keys():
+        return True
+    return any(key.startswith(normalize_discord_name(prefix)) for prefix in DAYZ_VEHICLE_CLASS_PREFIXES)
+
+
+def mapgroupproto_class_allowed_for_loot(class_name):
+    return bool(str(class_name or "").strip()) and not dayz_class_looks_like_vehicle(class_name)
+
+
 def infer_map_key_from_ce_paths(guild_id, *paths):
     for path in paths or ():
         normalized = normalize_discord_name(path)
@@ -30955,7 +31053,7 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_ke
     # The appended group seeds a real <container> + canonical categories so
     # DayZ has a loot pool to spawn from.
     wanted = str(class_name or "").strip()
-    if not wanted:
+    if not wanted or not mapgroupproto_class_allowed_for_loot(wanted):
         return None, False
     managed_group = find_managed_mapgroupproto_group(root, wanted)
     if managed_group is not None:
@@ -31443,6 +31541,7 @@ def scenario_speed_defaults(event_type, event, use_eventgroup=False):
 def console_ce_records_for_event(event, map_key=""):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
+    original_class_name = class_name
     records = []
     warnings = []
 
@@ -31477,6 +31576,12 @@ def console_ce_records_for_event(event, map_key=""):
         class_name = scenario_container_class_for_ce(class_name)
         if event_type == "airdrop":
             class_name = scenario_airdrop_anchor_class(event, class_name)
+            if dayz_class_looks_like_vehicle(original_class_name):
+                warnings.append(
+                    f"`{event.get('id')}` tried to use vehicle classname `{original_class_name}` as an airdrop loot anchor. "
+                    f"Native CE airdrops cannot use working vehicles as loot, so WanderingBot will use `{class_name}` instead. "
+                    "Use a vehicle spawn event for actual vehicles."
+                )
         min_scene_radius = scenario_airdrop_scene_min_radius(event) if event.get("visual_marker") else 0
         if min_scene_radius:
             event["radius"] = max(safe_int(event.get("radius"), 35), min_scene_radius)
@@ -31998,6 +32103,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     messages.extend(warnings)
 
     output = {
+        "map_key": ce_map_key,
         "events_path": resolved_events_path,
         "events_text": xml_text_from_root(events_root),
         "events_source_text": events_text,
@@ -32335,6 +32441,17 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     except Exception as error:
         return False, scope_messages + [f"CE file validation failed before upload: {error}"]
 
+    map_key = normalize_dayz_reference_map_key(
+        built.get("map_key")
+        or infer_map_key_from_ce_paths(
+            "",
+            built.get("events_path"),
+            built.get("spawns_path"),
+            built.get("mapgroupproto_path"),
+        )
+    )
+    valid_value_flags = dayz_reference_value_flags(map_key)
+
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
     for territory_file in territory_files:
         try:
@@ -32375,8 +32492,12 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 messages.append(f"`{name}` has a child with no `type` classname.")
             if child_type.startswith(("ZmbM_", "ZmbF_")) and not (name.startswith("Infected") or name.startswith("Static")):
                 messages.append(f"`{name}` spawns infected child `{child_type}` but does not use the `Infected` CE family.")
-            if name.startswith("Infected") and child_type.startswith("Animal_"):
-                messages.append(f"`{name}` is an infected event but has animal child `{child_type}`.")
+            if name.startswith("Animal") and child_type and not child_type.startswith("Animal_"):
+                messages.append(f"`{name}` is an animal event but has non-animal child `{child_type}`.")
+            if name.startswith("Infected") and child_type and not child_type.startswith(("ZmbM_", "ZmbF_")):
+                messages.append(f"`{name}` is an infected event but has non-infected child `{child_type}`.")
+            if name.startswith("Vehicle") and child_type and child_type.startswith(("Animal_", "ZmbM_", "ZmbF_", "Static", "Land_")):
+                messages.append(f"`{name}` is a vehicle event but child `{child_type}` belongs to a non-vehicle CE family.")
             try:
                 child_max = int(str(child.get("max") or "0"))
             except Exception:
@@ -32436,6 +32557,16 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
+    if valid_value_flags:
+        canonical_values = {value.lower(): value for value in valid_value_flags}
+        for group_name, group_node in proto_nodes.items():
+            for value_node in group_node.findall("value"):
+                value_name = str(value_node.get("name") or "").strip()
+                if value_name and value_name.lower() not in canonical_values:
+                    messages.append(
+                        f"`{group_name}` mapgroupproto value `{value_name}` is not valid for `{map_key}`. "
+                        f"Allowed values: {', '.join(sorted(valid_value_flags))}."
+                    )
     for name, event_node in generated_events.items():
         if not name.startswith("Static"):
             continue
@@ -32453,6 +32584,12 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             except Exception:
                 child_lootmax = 0
             if not child_type or child_lootmax <= 0:
+                continue
+            if dayz_class_looks_like_vehicle(child_type):
+                messages.append(
+                    f"`{child_type}` is used as loot by static event `{name}`. "
+                    "Working vehicles must use a Vehicle CE event, not mapgroupproto/static loot."
+                )
                 continue
             proto_node = proto_nodes.get(child_type)
             if proto_node is None:
@@ -32494,6 +32631,11 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
             if not child_type:
                 messages.append(f"`{name}` has an eventgroup child with no type.")
+            elif dayz_class_looks_like_vehicle(child_type):
+                messages.append(
+                    f"`{child_type}` is used inside static eventgroup `{name}`. "
+                    "Working vehicles must use a Vehicle CE event, not a loot/eventgroup child."
+                )
             elif not is_static_scene_prop and child_type not in proto_nodes:
                 messages.append(f"`{child_type}` is used by `{name}` but has no mapgroupproto group.")
             for attr in ("x", "y", "z", "a"):
