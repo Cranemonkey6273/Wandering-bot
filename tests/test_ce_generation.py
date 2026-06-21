@@ -861,6 +861,27 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertNotIn("containers", categories)
         self.assertNotIn("vehicles", categories)
 
+    def test_invalid_crash_usage_cleanup_is_scope_safe(self):
+        original = (
+            '<prototype>'
+            '<group name="Wreck_Mi8_Crashed" lootmax="15">'
+            '<usage name="Crash" />'
+            '<usage name="Military" />'
+            '<container name="lootFloor" lootmax="15"><category name="weapons" />'
+            '<tag name="floor" /><point pos="0 0 0" range="1" height="1" /></container>'
+            '</group>'
+            '</prototype>'
+        )
+        root = ET.fromstring(original)
+
+        removed = bot.cleanup_invalid_mapgroupproto_usages(root)
+        merged = bot.xml_text_from_root(root)
+
+        self.assertEqual(1, removed)
+        self.assertNotIn('usage name="Crash"', merged)
+        ok, message = bot.validate_managed_ce_xml_scope("mapgroupproto.xml", original, merged)
+        self.assertTrue(ok, message)
+
     def test_airdrop_guard_event_does_not_need_mapgroupproto(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
         event["guard_class"] = "ZmbM_SoldierNormal"
@@ -1343,6 +1364,85 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIsNotNone(spawns_root.find("./event[@name='StaticLivoniaRevampLoot_99']"))
         self.assertTrue(
             any("stale Livonia revamp wooden-crate" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        events_scope_ok, events_scope_message = bot.validate_managed_ce_xml_scope(
+            "events.xml",
+            built["events_source_text"],
+            built["events_text"],
+        )
+        self.assertTrue(events_scope_ok, events_scope_message)
+        spawns_scope_ok, spawns_scope_message = bot.validate_managed_ce_xml_scope(
+            "cfgeventspawns.xml",
+            built["spawns_source_text"],
+            built["spawns_text"],
+        )
+        self.assertTrue(spawns_scope_ok, spawns_scope_message)
+
+    def test_cherno_revamp_backup_events_are_repaired_to_static_prefix(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        legacy_events = (
+            '<events>'
+            '<event name="ChernoRevampBackupLoot_26"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="StaticObj_Wreck_HMMWV_DE" lootmin="7" lootmax="15" min="1" max="1" /></children>'
+            '</event>'
+            '</events>'
+        )
+        legacy_spawns = (
+            '<eventposdef>'
+            '<event name="ChernoRevampBackupLoot_26"><pos x="4776.79" z="7951.65" a="0" group="ChernoRevampBackupLootGrp_26" /></event>'
+            '<event name="StaticAirplaneCrate"><pos x="1" z="2" a="0" /></event>'
+            '<event name="Static_NewAirDrops"><pos x="3" z="4" a="0" /></event>'
+            '<event name="VehicleTransitBus"><pos x="5" z="6" a="0" /></event>'
+            '</eventposdef>'
+        )
+        sources = {
+            "events_path": (legacy_events, f"{base_path}/db/events.xml"),
+            "spawns_path": (legacy_spawns, f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    42,
+                    "zombie_horde",
+                    "ZmbM_SoldierNormal",
+                    preset="military_zombie",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertIsNone(events_root.find("./event[@name='ChernoRevampBackupLoot_26']"))
+        self.assertIsNone(spawns_root.find("./event[@name='ChernoRevampBackupLoot_26']"))
+        self.assertIsNotNone(events_root.find("./event[@name='StaticChernoRevampBackupLoot_26']"))
+        repaired_spawn = spawns_root.find("./event[@name='StaticChernoRevampBackupLoot_26']/pos")
+        self.assertIsNotNone(repaired_spawn)
+        self.assertEqual("ChernoRevampBackupLootGrp_26", repaired_spawn.get("group"))
+        self.assertIsNone(spawns_root.find("./event[@name='StaticAirplaneCrate']"))
+        self.assertIsNone(spawns_root.find("./event[@name='Static_NewAirDrops']"))
+        self.assertIsNone(spawns_root.find("./event[@name='VehicleTransitBus']"))
+        self.assertTrue(
+            any("Repaired Charnarus revamp backup" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
         events_scope_ok, events_scope_message = bot.validate_managed_ce_xml_scope(

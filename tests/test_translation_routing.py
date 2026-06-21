@@ -46,6 +46,17 @@ class TranslationLanguageGuardTests(unittest.TestCase):
         self.assertFalse(matches)
         self.assertIn("detected en", reason)
 
+    def test_stretched_english_chat_does_not_back_translate(self):
+        text = "Allllll is gooood!"
+
+        detected, _score = bot.detect_translation_language_hint(text)
+        self.assertEqual(detected, "en")
+        self.assertEqual(bot.translation_source_matches_text(text, "en", "de"), (True, ""))
+
+        matches, reason = bot.translation_source_matches_text(text, "de", "en")
+        self.assertFalse(matches)
+        self.assertIn("detected en", reason)
+
     def test_screenshot_german_slang_does_not_echo_to_german(self):
         text = "Mhh ok sieht sehr Haftig!"
 

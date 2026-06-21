@@ -7378,12 +7378,12 @@ TRANSLATION_LANGUAGE_LABELS = {
 
 TRANSLATION_LANGUAGE_MARKERS = {
     "en": {
-        "a", "about", "and", "are", "back", "be", "but", "can", "do", "for",
-        "from", "get", "go", "have", "i", "im", "in", "is", "it", "its", "just",
-        "kind", "know", "like", "lol", "looks", "me", "mind", "my", "of", "on",
-        "out", "outa", "really", "scared", "see", "shit", "sick", "strange",
-        "that", "the", "this", "to", "up", "what", "why", "with", "you", "your",
-        "youre",
+        "a", "about", "all", "and", "are", "back", "be", "but", "can", "do",
+        "for", "from", "get", "go", "good", "have", "i", "im", "in", "is",
+        "it", "its", "just", "kind", "know", "like", "lol", "looks", "me",
+        "mind", "my", "of", "on", "out", "outa", "really", "scared", "see",
+        "shit", "sick", "strange", "that", "the", "this", "to", "up", "what",
+        "why", "with", "you", "your", "youre",
     },
     "de": {
         "aber", "auf", "aus", "bin", "bist", "das", "dein", "den", "der", "die",
@@ -7407,9 +7407,21 @@ def _translation_language_label(code):
     return TRANSLATION_LANGUAGE_LABELS.get(code, code.upper())
 
 
+def _translation_detection_variants(token):
+    token = str(token or "").lower()
+    variants = [token]
+    squeezed = re.sub(r"([^\W\d_])\1{2,}", r"\1\1", token, flags=re.UNICODE)
+    if squeezed and squeezed not in variants:
+        variants.append(squeezed)
+    return variants
+
+
 def _translation_tokenize_for_detection(text):
     normalized = str(text or "").lower().replace("'", "")
-    return re.findall(r"[a-zà-ÿ]+", normalized)
+    tokens = []
+    for token in re.findall(r"[^\W\d_]+", normalized, flags=re.UNICODE):
+        tokens.extend(_translation_detection_variants(token))
+    return tokens
 
 
 def detect_translation_language_hint(text):
@@ -29013,6 +29025,12 @@ LEGACY_WANDERING_CE_NAMES = {
     "VehicleJINXTruck",
 }
 LEGACY_REVAMP_WOODEN_CRATE_CLASS = "StaticObj_Misc_WoodenCrate_5x"
+STALE_SPAWN_ONLY_EVENT_NAMES = {
+    "StaticAirplaneCrate",
+    "Static_NewAirDrops",
+    "VehicleTransitBus",
+}
+INVALID_MAPGROUPPROTO_USAGE_NAMES = {"crash"}
 VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES = {"Wreck_Mi8_Crashed"}
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
@@ -30208,6 +30226,22 @@ def is_legacy_revamp_wooden_crate_event_name(value):
     return bool(re.fullmatch(r"StaticLivoniaRevampLoot_\d+", text))
 
 
+def cherno_revamp_static_event_name(value):
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(?:Static)?ChernoRevampBackupLoot_(\d+)", text)
+    if not match:
+        return ""
+    return f"StaticChernoRevampBackupLoot_{match.group(1)}"
+
+
+def is_cherno_revamp_backup_event_name(value):
+    return bool(cherno_revamp_static_event_name(value))
+
+
+def is_stale_spawn_only_event_name(value):
+    return str(value or "").strip() in STALE_SPAWN_ONLY_EVENT_NAMES
+
+
 def is_legacy_revamp_wooden_crate_event_node(node):
     if getattr(node, "tag", None) != "event":
         return False
@@ -30218,6 +30252,84 @@ def is_legacy_revamp_wooden_crate_event_node(node):
         if str(child.get("type") or "").strip().lower() == wanted:
             return True
     return False
+
+
+def _top_level_event_names(root):
+    if root is None:
+        return set()
+    return {
+        str(child.get("name") or "").strip()
+        for child in root.findall("event")
+        if str(child.get("name") or "").strip()
+    }
+
+
+def _merge_named_event_node(target_node, source_node):
+    existing = {
+        canonical_ce_scope_node_text(child)
+        for child in list(target_node)
+        if not is_xml_comment_node(child)
+    }
+    moved = 0
+    for child in list(source_node):
+        if is_xml_comment_node(child):
+            continue
+        child_text = canonical_ce_scope_node_text(child)
+        if child_text in existing:
+            continue
+        target_node.append(ET.fromstring(ET.tostring(child, encoding="utf-8")))
+        existing.add(child_text)
+        moved += 1
+    return moved
+
+
+def repair_cherno_revamp_backup_static_event_names(root):
+    renamed = 0
+    merged = 0
+    names = []
+    if root is None:
+        return renamed, merged, names
+    existing = {
+        str(child.get("name") or "").strip(): child
+        for child in root.findall("event")
+        if str(child.get("name") or "").strip()
+    }
+    for child in list(root):
+        if getattr(child, "tag", None) != "event":
+            continue
+        old_name = str(child.get("name") or "").strip()
+        new_name = cherno_revamp_static_event_name(old_name)
+        if not new_name or old_name == new_name:
+            continue
+        target = existing.get(new_name)
+        if target is not None and target is not child:
+            merged += _merge_named_event_node(target, child)
+            root.remove(child)
+        else:
+            child.set("name", new_name)
+            existing.pop(old_name, None)
+            existing[new_name] = child
+        renamed += 1
+        names.append(f"{old_name}->{new_name}")
+    return renamed, merged, names
+
+
+def cleanup_stale_spawn_only_events(events_root, spawns_root):
+    if spawns_root is None:
+        return 0, []
+    defined_events = _top_level_event_names(events_root)
+    removed_names = []
+    for child in list(spawns_root):
+        if getattr(child, "tag", None) != "event":
+            continue
+        name = str(child.get("name") or "").strip()
+        if not is_stale_spawn_only_event_name(name):
+            continue
+        if name in defined_events:
+            continue
+        spawns_root.remove(child)
+        removed_names.append(name)
+    return len(removed_names), sorted(removed_names)
 
 
 def cleanup_legacy_revamp_wooden_crate_events(events_root, spawns_root):
@@ -30267,6 +30379,8 @@ def is_wandering_managed_name(value):
         or CONSOLE_CE_EVENT_MARKER in text
         or text.startswith(CONSOLE_CE_EVENT_PREFIX)
         or "wanderingbot" in normalize_discord_name(text)
+        or is_cherno_revamp_backup_event_name(text)
+        or is_stale_spawn_only_event_name(text)
     )
 
 
@@ -30300,6 +30414,15 @@ def ce_scope_node_display(node, key):
         if value:
             return f"<{tag} {attr}=\"{value}\">"
     return f"<{tag}> #{key[-1]}"
+
+
+def ce_scope_find_top_level_node(root, key):
+    if root is None:
+        return None
+    for child in list(root):
+        if not is_xml_comment_node(child) and ce_scope_node_key(child, 0)[:3] == key[:3]:
+            return child
+    return None
 
 
 def canonical_ce_scope_node_text(node):
@@ -30426,6 +30549,11 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text, map_key="")
             )
         ):
             continue
+        if not owned and label == "mapgroupproto.xml":
+            original_node = ce_scope_find_top_level_node(original_root, key)
+            merged_node = ce_scope_find_top_level_node(merged_root, key)
+            if mapgroupproto_invalid_usage_cleanup_change_is_safe(original_node, merged_node):
+                continue
         if not owned:
             changed_unowned.append((merged or original or {}).get("display") or str(key))
     if changed_unowned:
@@ -31791,6 +31919,36 @@ def mapgroupproto_groups_named(root, class_name):
         for group_node in root.findall("group")
         if str(group_node.get("name") or "").strip().lower() == wanted
     ]
+
+
+def cleanup_invalid_mapgroupproto_usages(root):
+    removed = 0
+    if root is None:
+        return removed
+    for group_node in root.findall("group"):
+        for usage_node in list(group_node.findall("usage")):
+            usage_name = str(usage_node.get("name") or "").strip().lower()
+            if usage_name in INVALID_MAPGROUPPROTO_USAGE_NAMES:
+                group_node.remove(usage_node)
+                removed += 1
+    return removed
+
+
+def mapgroupproto_invalid_usage_cleanup_change_is_safe(original_node, merged_node):
+    if original_node is None or merged_node is None:
+        return False
+    if getattr(original_node, "tag", None) != "group" or getattr(merged_node, "tag", None) != "group":
+        return False
+    if str(original_node.get("name") or "").strip() != str(merged_node.get("name") or "").strip():
+        return False
+    clone = ET.fromstring(ET.tostring(original_node, encoding="utf-8"))
+    removed = 0
+    for usage_node in list(clone.findall("usage")):
+        usage_name = str(usage_node.get("name") or "").strip().lower()
+        if usage_name in INVALID_MAPGROUPPROTO_USAGE_NAMES:
+            clone.remove(usage_node)
+            removed += 1
+    return removed > 0 and canonical_ce_scope_node_text(clone) == canonical_ce_scope_node_text(merged_node)
 
 
 def dayz_reference_mapgroupproto_group(map_key, class_name):
@@ -33363,6 +33521,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         events_root,
         spawns_root,
     )
+    repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = repair_cherno_revamp_backup_static_event_names(events_root)
+    repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = repair_cherno_revamp_backup_static_event_names(spawns_root)
+    removed_stale_spawn_only, removed_stale_spawn_names = cleanup_stale_spawn_only_events(events_root, spawns_root)
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
     records = []
@@ -33437,6 +33598,19 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"`{removed_revamp_spawns}` matching spawn block(s): "
             + ", ".join(f"`{name}`" for name in removed_revamp_names[:12])
         )
+    if repaired_revamp_events or repaired_revamp_spawns:
+        repaired_names = (repaired_revamp_event_names + repaired_revamp_spawn_names)[:12]
+        messages.append(
+            f"Repaired Charnarus revamp backup CE names to the required `Static...` prefix: "
+            f"`{repaired_revamp_events}` event definition(s), `{repaired_revamp_spawns}` spawn block(s), "
+            f"`{merged_revamp_event_children + merged_revamp_spawn_children}` merged child node(s). "
+            + ", ".join(f"`{name}`" for name in repaired_names)
+        )
+    if removed_stale_spawn_only:
+        messages.append(
+            "Removed stale cfgeventspawns.xml block(s) whose events.xml definition is missing: "
+            + ", ".join(f"`{name}`" for name in removed_stale_spawn_names)
+        )
     if patched_existing_definitions:
         messages.append(
             f"Adjusted `{patched_existing_definitions}` reused vanilla animal event definition(s) so selected animal packs have a positive CE count."
@@ -33496,7 +33670,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if not record.get("skip_spawn")
         if str(record.get("name") or "").strip()
     })[:24]
-    output["restart_required"] = bool(records or config.get("scenario_events_cleanup_pending"))
+    output["restart_required"] = bool(
+        records
+        or config.get("scenario_events_cleanup_pending")
+        or repaired_revamp_events
+        or repaired_revamp_spawns
+        or removed_stale_spawn_only
+        or removed_revamp_events
+        or removed_revamp_spawns
+    )
 
     animal_records = [record for record in records if record.get("animal_territory")]
     should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
@@ -33631,6 +33813,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if mapgroupproto_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"mapgroupproto.xml: {mapgroupproto_parse_warning}")
         removed_groups = remove_wandering_ce_nodes(eventgroups_root)
+        removed_invalid_usages = cleanup_invalid_mapgroupproto_usages(mapgroupproto_root)
         proto_changed, removed_proto_groups, removed_proto_values = cleanup_stale_mapgroupproto_airdrop_nodes(
             mapgroupproto_root,
             server_map_key(guild_id),
@@ -33682,7 +33865,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or repaired_static_proto_classes or eventgroup_records or cleanup_pending:
+        if proto_changed or added_proto or repaired_static_proto_classes or removed_invalid_usages or eventgroup_records or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
@@ -33699,6 +33882,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
             f"left live server proto groups unchanged, and added/repaired `{added_proto}` lootFloor proto group(s)."
         )
+        if removed_invalid_usages:
+            output["messages"].append(
+                f"Removed `{removed_invalid_usages}` invalid `Crash` usage tag(s) from `mapgroupproto.xml`; "
+                "DayZ CE does not recognise `Crash` as a usage flag."
+            )
         if repaired_static_proto_classes:
             output["messages"].append(
                 "Restored vanilla Livonia StaticHeliCrash mapgroupproto group(s) from bundled DayZ reference: "
