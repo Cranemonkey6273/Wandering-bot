@@ -393,7 +393,7 @@ DEFAULT_CHANNEL_NAMES = {
     "economy": "💰🛒・black-market・🛒💰",
     "money_feed": "💰🧾・money-feed・🧾💰",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
-    "nitrado_ban_logs": "nitrado-ban-feed",
+    "nitrado_ban_logs": "🔴🔴・nitrado-ban・🔴🔴",
     "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
     "cheat_checks": "🕵️🚫・pc-cheat-check・🚫🕵️",
     "command_logs": "📜🛡️・command-logs・🛡️📜",
@@ -453,7 +453,7 @@ CHANNEL_ALIASES = {
     "money_feed": ["moneyfeed", "moneylogs", "financefeed", "penniesfeed", "incomefeed"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
-    "nitrado_ban_logs": ["nitradobanfeed", "nitradobanlogs", "gamebanlogs", "banlistpushes"],
+    "nitrado_ban_logs": ["nitradoban", "nitradobanfeed", "nitradobanlogs", "banfeed", "banfeeds", "banlist", "gamebanlogs", "banlistpushes"],
     "dashboard_audit": ["dashboardaudit", "dashboardchanges", "dashboardlogs", "dbchanges"],
     "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
     "command_logs": ["commandlogs", "commands"],
@@ -953,10 +953,14 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
 
     existing_id = channels.get(key)
     category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
+    preferred_existing = preferred_existing_feed_channel(guild, key)
 
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
+            if preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
+                existing = preferred_existing
+                channels[key] = existing.id
             if existing.name != name or (category and existing.category_id != category.id):
                 try:
                     await existing.edit(name=name, category=category)
@@ -964,16 +968,15 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
                     pass
             return existing
 
-    for channel in guild.text_channels:
-        if channel_matches_bot_default_name(channel, key):
-            channels[key] = channel.id
-            if category and channel.category_id != category.id:
-                try:
-                    await channel.edit(category=category)
-                except Exception:
-                    pass
-            save_guild_configs()
-            return channel
+    if preferred_existing:
+        channels[key] = preferred_existing.id
+        if preferred_existing.name != name or (category and preferred_existing.category_id != category.id):
+            try:
+                await preferred_existing.edit(name=name, category=category)
+            except Exception:
+                pass
+        save_guild_configs()
+        return preferred_existing
 
     overwrites = {}
     if private:
@@ -3092,6 +3095,81 @@ def linked_gamertag_index_bucket(config):
     return index
 
 
+def link_enforcement_state_bucket(config):
+    if not isinstance(config, dict):
+        return {}
+    state = config.setdefault("discord_link_enforcement_state", {})
+    if not isinstance(state, dict):
+        state = {}
+        config["discord_link_enforcement_state"] = state
+    return state
+
+
+def link_enforcement_accept_bucket(config):
+    state = link_enforcement_state_bucket(config)
+    accepted = state.setdefault("accepted", {})
+    if not isinstance(accepted, dict):
+        accepted = {}
+        state["accepted"] = accepted
+    return accepted
+
+
+def link_enforcement_reject_bucket(config):
+    state = link_enforcement_state_bucket(config)
+    rejected = state.setdefault("rejected", {})
+    if not isinstance(rejected, dict):
+        rejected = {}
+        state["rejected"] = rejected
+    return rejected
+
+
+def remember_link_enforcement_accept(config, record):
+    if not isinstance(config, dict) or not isinstance(record, dict):
+        return False
+    clean_name = normalize_nitrado_banlist_name(record.get("gamertag"))
+    key = normalize_discord_name(clean_name)
+    if not key:
+        return False
+    accepted = link_enforcement_accept_bucket(config)
+    now_text = datetime.now(UTC).isoformat()
+    accept_record = {
+        "gamertag": clean_name,
+        "normalized_gamertag": key,
+        "discord_id": str(record.get("discord_id") or ""),
+        "discord_name": str(record.get("discord_name") or ""),
+        "guild_id": str(record.get("guild_id") or ""),
+        "account_type": str(record.get("account_type") or "primary"),
+        "source": str(record.get("source") or "linkgamer"),
+        "status": "accepted",
+        "updated_at": now_text,
+    }
+    previous = accepted.get(key)
+    if isinstance(previous, dict):
+        created_at = previous.get("created_at")
+        if created_at:
+            accept_record["created_at"] = created_at
+    accept_record.setdefault("created_at", now_text)
+    changed = previous != accept_record
+    if changed:
+        accepted[key] = accept_record
+    state = link_enforcement_state_bucket(config)
+    pending = state.get("pending")
+    rejected = state.get("rejected")
+    if isinstance(pending, dict) and pending.pop(key, None) is not None:
+        changed = True
+    if isinstance(rejected, dict) and rejected.pop(key, None) is not None:
+        changed = True
+    return changed
+
+
+def link_enforcement_accept_record(config, gamertag):
+    key = normalize_discord_name(gamertag)
+    if not key or not isinstance(config, dict):
+        return None
+    record = link_enforcement_accept_bucket(config).get(key)
+    return record if isinstance(record, dict) else None
+
+
 def remember_linked_gamertag_for_server(guild_id, config, user_id, discord_name, gamertag, *, account_type="primary", source="linkgamer"):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     key = normalize_discord_name(clean_name)
@@ -3115,10 +3193,10 @@ def remember_linked_gamertag_for_server(guild_id, config, user_id, discord_name,
         if created_at:
             record["created_at"] = created_at
     record.setdefault("created_at", now_text)
-    if previous == record:
-        return False
-    index[key] = record
-    return True
+    changed = previous != record
+    if changed:
+        index[key] = record
+    return remember_link_enforcement_accept(config, record) or changed
 
 
 def remove_linked_gamertag_from_server(config, gamertag):
@@ -3163,8 +3241,12 @@ def linked_gamertag_index_record(guild_id, gamertag):
         return None
     config = guild_configs.get(str(guild_id), {}) if isinstance(guild_configs, dict) else {}
     if isinstance(config, dict):
+        accepted_record = link_enforcement_accept_record(config, key)
+        if isinstance(accepted_record, dict):
+            return accepted_record
         record = linked_gamertag_index_bucket(config).get(key)
         if isinstance(record, dict):
+            remember_link_enforcement_accept(config, record)
             return record
     for user_id, data in linked_players.items():
         if not linked_player_matches_gamertag_for_guild(data, guild_id, key):
@@ -3280,11 +3362,11 @@ def gamertag_claimed_to_other_user(gamertag, user_id):
     return None, None
 
 
-def active_manual_ban_record_for_gamertag(guild_id, gamertag):
+def active_non_link_ban_record_in_config(config, gamertag):
     wanted = normalize_discord_name(gamertag)
     if not wanted:
         return None
-    config = guild_configs.get(str(guild_id), {})
+    config = config if isinstance(config, dict) else {}
     for record in config.get("nitrado_perm_bans", []):
         if isinstance(record, dict) and normalize_discord_name(record.get("gamertag")) == wanted:
             return record
@@ -3300,6 +3382,10 @@ def active_manual_ban_record_for_gamertag(guild_id, gamertag):
         if not until_ts or until_ts > now_ts:
             return record
     return None
+
+
+def active_manual_ban_record_for_gamertag(guild_id, gamertag):
+    return active_non_link_ban_record_in_config(guild_configs.get(str(guild_id), {}), gamertag)
 
 
 def gamertag_linked_to_other_user(gamertag, user_id, guild_id=None):
@@ -6116,10 +6202,30 @@ async def ensure_bot_category(guild, category_key):
 
 
 def channel_matches_bot_default_name(channel, key):
-    desired = DEFAULT_CHANNEL_NAMES.get(key)
-    if not desired:
+    wanted = normalize_discord_name(getattr(channel, "name", ""))
+    if not wanted:
         return False
-    return normalize_discord_name(channel.name) == normalize_discord_name(desired)
+    names = [key, DEFAULT_CHANNEL_NAMES.get(key, "")]
+    names.extend(CHANNEL_ALIASES.get(key, []))
+    return any(wanted == normalize_discord_name(name) for name in names if str(name or "").strip())
+
+
+def channel_matches_preferred_default_name(channel, key):
+    desired = DEFAULT_CHANNEL_NAMES.get(key)
+    return bool(desired) and normalize_discord_name(getattr(channel, "name", "")) == normalize_discord_name(desired)
+
+
+def preferred_existing_feed_channel(guild, key):
+    matches = [
+        channel for channel in getattr(guild, "text_channels", []) or []
+        if channel_matches_bot_default_name(channel, key)
+    ]
+    if not matches:
+        return None
+    for channel in matches:
+        if channel_matches_preferred_default_name(channel, key):
+            return channel
+    return matches[0]
 
 
 def channel_matches_saved_key(channel, key):
@@ -21492,6 +21598,7 @@ async def post_nitrado_banlist_log(
 async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
+        await cleanup_link_enforcement_after_link(guild_id, config, clean_name, source="link_enforcement_skip")
         return False, f"Skipped link-enforcement ban: `{clean_name}` is already linked."
     ok, message = await asyncio.to_thread(add_player_to_nitrado_banlist, config, clean_name)
     await post_nitrado_banlist_log(
@@ -21549,14 +21656,18 @@ async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, sou
         return False
 
     changed = False
+    should_try_nitrado_unban = False
+    nitrado_unban_attempted = False
     if clear_link_enforcement_pending(config, clean_name):
         changed = True
+        should_try_nitrado_unban = True
 
     task_key = f"{guild_id}:{wanted}"
     task = _pending_link_enforcement_tasks.pop(task_key, None)
     if task and not task.done():
         task.cancel()
         changed = True
+        should_try_nitrado_unban = True
 
     remaining = []
     for record in config.get("nitrado_temp_bans", []):
@@ -21565,7 +21676,9 @@ async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, sou
         record_name = normalize_discord_name(record.get("gamertag", ""))
         if record_name == wanted and _temp_ban_record_is_link_enforcement(record):
             changed = True
+            should_try_nitrado_unban = True
             try:
+                nitrado_unban_attempted = True
                 await remove_player_from_nitrado_banlist_async(
                     guild_id,
                     config,
@@ -21578,6 +21691,29 @@ async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, sou
                 print(f"[LINK ENFORCEMENT] linked cleanup unban failed for {clean_name}: {error}")
             continue
         remaining.append(record)
+
+    if not should_try_nitrado_unban and str(source or "").strip().lower() in {
+        "linkgamer",
+        "linkaltgamer",
+        "forcelinkgamer",
+        "admin_link",
+        "linked_players_sync",
+        "link_enforcement_skip",
+    }:
+        should_try_nitrado_unban = active_non_link_ban_record_in_config(config, clean_name) is None
+
+    if should_try_nitrado_unban and not nitrado_unban_attempted:
+        try:
+            await remove_player_from_nitrado_banlist_async(
+                guild_id,
+                config,
+                clean_name,
+                reason="Gamertag is linked; clearing stale link-enforcement temp ban.",
+                source=source,
+                log_if_missing=False,
+            )
+        except Exception as error:
+            print(f"[LINK ENFORCEMENT] stale linked unban failed for {clean_name}: {error}")
 
     if changed:
         config["nitrado_temp_bans"] = remaining
@@ -21798,10 +21934,7 @@ def link_enforcement_pending_key(player_name):
 
 
 def link_enforcement_pending_bucket(config):
-    state = config.setdefault("discord_link_enforcement_state", {})
-    if not isinstance(state, dict):
-        state = {}
-        config["discord_link_enforcement_state"] = state
+    state = link_enforcement_state_bucket(config)
     pending = state.setdefault("pending", {})
     if not isinstance(pending, dict):
         pending = {}
@@ -21814,10 +21947,15 @@ def clear_link_enforcement_pending(config, player_name):
     if not key:
         return False
     pending = link_enforcement_pending_bucket(config)
+    rejected = link_enforcement_reject_bucket(config)
+    changed = False
     if key in pending:
         pending.pop(key, None)
-        return True
-    return False
+        changed = True
+    if key in rejected:
+        rejected.pop(key, None)
+        changed = True
+    return changed
 
 
 def record_link_enforcement_join(guild_id, player_name):
@@ -21838,6 +21976,7 @@ def record_link_enforcement_join(guild_id, player_name):
     now_ts = datetime.now(UTC).timestamp()
     grace_seconds = max(1, int(settings.get("grace_minutes") or 30)) * 60
     pending = link_enforcement_pending_bucket(config)
+    rejected = link_enforcement_reject_bucket(config)
     record = pending.get(key)
     if not isinstance(record, dict) or record.get("status") in {"enforced", "linked"}:
         record = {
@@ -21850,8 +21989,42 @@ def record_link_enforcement_join(guild_id, player_name):
     record["gamertag"] = player_name
     record["last_seen_ts"] = now_ts
     record.setdefault("deadline_ts", float(record.get("first_seen_ts", now_ts)) + grace_seconds)
+    rejected_record = rejected.get(key)
+    if not isinstance(rejected_record, dict) or rejected_record.get("status") == "accepted":
+        rejected_record = {
+            "gamertag": player_name,
+            "first_seen_ts": record.get("first_seen_ts", now_ts),
+            "status": "pending",
+        }
+        rejected[key] = rejected_record
+    rejected_record["gamertag"] = player_name
+    rejected_record["last_seen_ts"] = now_ts
+    rejected_record["deadline_ts"] = record.get("deadline_ts")
+    rejected_record["status"] = record.get("status") or "pending"
     save_guild_configs()
     return True
+
+
+def mark_link_enforcement_rejected(config, player_name, status, **fields):
+    key = link_enforcement_pending_key(player_name)
+    if not key:
+        return False
+    rejected = link_enforcement_reject_bucket(config)
+    now_ts = datetime.now(UTC).timestamp()
+    record = rejected.get(key)
+    if not isinstance(record, dict):
+        record = {
+            "gamertag": player_name,
+            "first_seen_ts": now_ts,
+        }
+        rejected[key] = record
+    before = dict(record)
+    record["gamertag"] = player_name
+    record["status"] = str(status or "pending")
+    record["last_seen_ts"] = now_ts
+    for field, value in fields.items():
+        record[field] = value
+    return before != record
 
 
 async def _post_link_enforcement_notice(guild, config, title, description, color=0xE67E22):
@@ -21926,6 +22099,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         if isinstance(pending_record, dict):
             pending_record["status"] = "notified"
             pending_record["notified_ts"] = datetime.now(UTC).timestamp()
+            mark_link_enforcement_rejected(config, player_name, "notified", notified_ts=pending_record["notified_ts"])
             save_guild_configs()
         await _post_link_enforcement_notice(guild, config, "Discord Link Required", base_message, 0xF1C40F)
         return True
@@ -21935,6 +22109,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         if isinstance(pending_record, dict):
             pending_record["status"] = "notified"
             pending_record["notified_ts"] = datetime.now(UTC).timestamp()
+            mark_link_enforcement_rejected(config, player_name, "notified", notified_ts=pending_record["notified_ts"])
             save_guild_configs()
         await _post_link_enforcement_notice(
             guild,
@@ -22006,6 +22181,13 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             pending_record["status"] = "enforced"
             pending_record["action"] = action
             pending_record["enforced_ts"] = datetime.now(UTC).timestamp()
+            mark_link_enforcement_rejected(
+                config,
+                player_name,
+                "enforced",
+                action=action,
+                enforced_ts=pending_record["enforced_ts"],
+            )
         save_guild_configs()
         await _post_link_enforcement_notice(
             guild,
@@ -22025,7 +22207,8 @@ def schedule_link_enforcement_check(guild_id, player_name):
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return
-    record_link_enforcement_join(guild_id, player_name)
+    if not record_link_enforcement_join(guild_id, player_name):
+        return
     key = f"{guild_id}:{normalize_discord_name(player_name)}"
     old_task = _pending_link_enforcement_tasks.get(key)
     if old_task and not old_task.done():
@@ -22063,6 +22246,7 @@ async def process_link_enforcement_deadlines():
             if deadline_ts <= 0:
                 grace_seconds = max(1, int(settings.get("grace_minutes") or 30)) * 60
                 record["deadline_ts"] = float(record.get("first_seen_ts") or now_ts) + grace_seconds
+                mark_link_enforcement_rejected(config, player_name, record.get("status") or "pending", deadline_ts=record["deadline_ts"])
                 changed = True
                 continue
             if deadline_ts <= now_ts:
@@ -32396,6 +32580,7 @@ def console_ce_records_for_event(event, map_key=""):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
     original_class_name = class_name
+    event_name_override = ""
     records = []
     warnings = []
 
@@ -32546,6 +32731,7 @@ def console_ce_records_for_event(event, map_key=""):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
         family = "Animal"
+        event_name_override = vanilla_animal_ce_event_name(class_name)
         limit_type = "child"
         child_records = [{
             "type": class_name,
@@ -32602,7 +32788,7 @@ def console_ce_records_for_event(event, map_key=""):
             + ". Use a vehicle spawn event for actual vehicles."
         )
 
-    record_name = ce_event_name(event, family=family)
+    record_name = event_name_override or ce_event_name(event, family=family)
     record = {
         "name": record_name,
         "source_id": event.get("id"),
@@ -32637,8 +32823,8 @@ def console_ce_records_for_event(event, map_key=""):
         "remove_damaged": event_type in {"animal_pack", "vehicle_spawn"},
         "deletable": event_type != "animal_pack",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
-        "use_existing_definition": False,
-        "patch_existing_definition": False,
+        "use_existing_definition": bool(event_name_override),
+        "patch_existing_definition": bool(event_name_override),
         "mapgroupproto_classes": mapgroupproto_classes,
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event, map_key=map_key) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
@@ -32665,10 +32851,16 @@ def console_ce_records_for_event(event, map_key=""):
         )
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
-        warnings.append(
-            f"`{event.get('id')}` creates custom animal CE event `{record_name}` with real animal children "
-            "and fixed cfgeventspawns.xml positions."
-        )
+        if event_name_override:
+            warnings.append(
+                f"`{event.get('id')}` reuses vanilla animal CE event `{record_name}` with fixed "
+                "cfgeventspawns.xml positions, avoiding custom herd-template requirements."
+            )
+        else:
+            warnings.append(
+                f"`{event.get('id')}` creates custom animal CE event `{record_name}` with real animal children "
+                "and fixed cfgeventspawns.xml positions."
+            )
     records.append(record)
 
     if event_type == "airdrop":
@@ -33438,6 +33630,15 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             messages.append(
                 f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
             )
+        if (
+            name.startswith("Animal")
+            and CONSOLE_CE_EVENT_MARKER in name
+            and name not in territory_event_names
+        ):
+            messages.append(
+                f"`{name}` is a custom animal event without a matching herd/territory template. "
+                "Use vanilla `AnimalBear`/`AnimalWolf` style events for fixed bear or wolf spawns."
+            )
         if (event_node.findtext("position") or "").strip() != "fixed":
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
@@ -33492,10 +33693,8 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         child_nodes = list(children.findall("child")) if children is not None else []
         if name.startswith("Static") and not child_nodes and not has_group_pos:
             messages.append(f"`{name}` has no `<child>` classname to spawn.")
-        is_wandering_fixed_animal_event = name.startswith("Animal") and is_wandering_managed_name(name)
         if (
             console_ce_event_uses_zone_spawn(name)
-            and not is_wandering_fixed_animal_event
             and not spawn_node.findall("zone")
             and not has_group_pos
             and not is_animal_territory_event
