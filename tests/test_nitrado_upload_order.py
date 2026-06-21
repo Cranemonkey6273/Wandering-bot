@@ -450,6 +450,27 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("only WanderingBot-managed", message)
 
+    def test_cleanup_preserves_static_woodencrate_revamp_proto(self):
+        original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<prototype>
+    <group name="StaticObj_Misc_WoodenCrate_5x" lootmax="80">
+        <container name="lootFloor" lootmax="80">
+            <category name="tools" />
+            <tag name="floor" />
+            <point pos="0 0 0" range="0.5" height="0.5" flags="32" />
+        </container>
+    </group>
+</prototype>
+"""
+        root = ET.fromstring(original)
+
+        changed, removed_groups, removed_values = bot.cleanup_stale_mapgroupproto_airdrop_nodes(root)
+
+        self.assertFalse(changed)
+        self.assertEqual(0, removed_groups)
+        self.assertEqual(0, removed_values)
+        self.assertIsNotNone(root.find("./group[@name='StaticObj_Misc_WoodenCrate_5x']"))
+
     def test_scope_guard_blocks_real_woodencrate_proto_changes(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <prototype>

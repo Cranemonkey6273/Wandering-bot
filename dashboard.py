@@ -5684,7 +5684,7 @@ PAGE_TEMPLATE = """
         {% if xml_tool == "airdrop" %}
         {% set airdrop_recipe_name = request.args.get('recipe_name', 'Military Airdrop') %}
         {% set airdrop_event_name = request.args.get('event_name', 'Static_WanderingAirdrop') %}
-        {% set airdrop_container_class = request.args.get('container_class', 'StaticObj_Misc_WoodenCrate_5x') %}
+        {% set airdrop_container_class = request.args.get('container_class', airdrop_marker_class) %}
         {% set airdrop_secondary_event = request.args.get('secondary_event', '') %}
         {% set airdrop_duration_mode = request.args.get('duration_mode', 'permanent') %}
         {% set airdrop_placement_mode = request.args.get('placement_mode', 'manual') %}
@@ -5708,10 +5708,13 @@ PAGE_TEMPLATE = """
                 <div class="mini-grid">
                   <label>Event name <input name="event_name" value="{{ airdrop_event_name }}"></label>
                 </div>
-                <label>Container
-                  <select class="picker-select" name="container_class" data-visual-select="containers">
-                    {% for item in xml_picker_groups.containers %}<option value="{{ item.name }}" {{ 'selected' if item.name == airdrop_container_class else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                  </select>
+                <label>Static loot anchor
+                  <input name="container_class" value="{{ airdrop_container_class }}" list="airdrop-anchor-options" placeholder="Wreck_Mi8_Crashed">
+                  <datalist id="airdrop-anchor-options">
+                    <option value="Wreck_Mi8_Crashed">
+                    <option value="Land_Wreck_C130J_Cargo">
+                    <option value="StaticObj_Wreck_HMMWV_DE">
+                  </datalist>
                 </label>
                 <div class="mini-grid">
                   <label>Nominal <input name="nominal" type="number" min="0" value="{{ request.args.get('nominal', '1') }}"></label>
@@ -5724,7 +5727,6 @@ PAGE_TEMPLATE = """
                   <label>Cleanup radius <input name="cleanupradius" type="number" min="0" value="{{ request.args.get('cleanupradius', '1500') }}"></label>
                   <label>Loot min <input name="lootmin" type="number" min="0" value="{{ request.args.get('lootmin', '40') }}"></label>
                   <label>Loot max <input name="lootmax" type="number" min="0" value="{{ request.args.get('lootmax', '40') }}"></label>
-                  <label>Spawn radius <input name="spawn_radius" type="number" min="1" value="{{ request.args.get('spawn_radius', '20') }}"></label>
                   <label>Zombie guard event
                     <select name="secondary_event">
                       <option value="" {% if airdrop_secondary_event == '' %}selected{% endif %}>No guards</option>
@@ -5782,35 +5784,16 @@ PAGE_TEMPLATE = """
                   <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/airdrop-draft" formmethod="get" name="airdrop_map_action" value="undo" data-airdrop-map-control>Undo Location</button>
                   <span class="muted" data-airdrop-readout>Click the map to add airdrop positions.</span>
                 </div>
-                <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
-                  <div class="item-picker-controls">
-                    <label>Optional fixed cargo
-                      <select class="picker-select" data-picker-item>
-                        <option value="">Choose item</option>
-                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                      </select>
-                    </label>
-                    <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                    <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                    <button type="button" data-picker-add>Add</button>
-                  </div>
-                  <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Optional fixed cargo is added as a draft cargo block.</span></div>
-                </div>
-                <label>Fixed cargo draft
-                  <div class="selected-items" data-selected-items data-empty-text="No fixed cargo added yet"></div>
-                  <textarea class="raw-output" name="items" data-picker-output placeholder="Ammo_762x39Tracer, 1, -1, pristine">{{ airdrop_items_value }}</textarea>
-                </label>
                 <div><button type="submit">Save Airdrop Package</button> <span class="result muted"></span></div>
               </div>
               <aside class="xml-output-panel">
                 <div class="xml-file-tabs" data-airdrop-tabs>
                   <button type="button" class="active" data-airdrop-file="events">events.xml</button>
                   <button type="button" data-airdrop-file="spawns">cfgeventspawns.xml</button>
-                  <button type="button" data-airdrop-file="spawnable">cfgspawnabletypes.xml</button>
+                  <button type="button" data-airdrop-file="mapgroupproto">mapgroupproto.xml</button>
                 </div>
                 <pre class="save-preview" data-live-output data-airdrop-output-file="events"></pre>
-                <div class="embed-preview"><strong>Console airdrop package</strong><span>These snippets spawn the selected container directly and put cargo on that container class through cfgspawnabletypes.xml.</span></div>
+                <div class="embed-preview"><strong>Console airdrop package</strong><span>These snippets spawn the selected static loot anchor and place loot through mapgroupproto.xml lootFloor points.</span></div>
               </aside>
             </div>
           </form>
@@ -8144,17 +8127,50 @@ PAGE_TEMPLATE = """
         z: Math.round(size * (ranges.zMin + Math.random() * (ranges.zMax - ranges.zMin))),
       }));
     }
+    function buildAirdropMapGroupXml(anchorClass, lootMax) {
+      const points = [
+        `                <point pos="0 0 0" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="2 0 0" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="-2 0 0" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="0 0 2" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="0 0 -2" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="3 0 3" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="-3 0 3" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="3 0 -3" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="-3 0 -3" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="5 0 0" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="-5 0 0" range="1.5" height="1.5" flags="32" />`,
+        `                <point pos="0 0 5" range="1.5" height="1.5" flags="32" />`,
+      ];
+      return [
+        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
+        `<prototype>`,
+        `    <group name="${xmlEscape(anchorClass)}" lootmax="${lootMax}">`,
+        `        <usage name="Military" />`,
+        `        <container name="lootFloor" lootmax="${lootMax}">`,
+        `            <category name="weapons" />`,
+        `            <category name="explosives" />`,
+        `            <category name="tools" />`,
+        `            <category name="clothes" />`,
+        `            <category name="food" />`,
+        `            <tag name="floor" />`,
+        ...points,
+        `        </container>`,
+        `    </group>`,
+        `</prototype>`,
+      ].join("\n");
+    }
     function buildAirdropPackage(form, items) {
       const eventName = safeXmlName(form.elements.event_name?.value, "Static_WanderingAirdrop");
-      const containerClass = safeXmlName(form.elements.container_class?.value, "StaticObj_Misc_WoodenCrate_5x");
+      const containerClass = safeXmlName(form.elements.container_class?.value, "Wreck_Mi8_Crashed");
       const numberValue = (name, fallback) => Math.max(0, Number(form.elements[name]?.value || fallback) || 0);
       const positions = airdropPositions(form);
       const nominal = Math.max(1, numberValue("nominal", 1));
       const minCount = Math.max(1, numberValue("min_count", 1));
       const maxCount = Math.max(minCount, numberValue("max_count", 1));
-      const spawnRadius = Math.max(1, numberValue("spawn_radius", 20));
+      const lootMax = Math.max(1, numberValue("lootmax", 40));
+      const lootMin = Math.max(0, Math.min(lootMax, numberValue("lootmin", 40)));
       const secondaryEvent = safeXmlName(form.elements.secondary_event?.value, "");
-      const cargoXml = items.map((item) => `        <cargo chance="1.00">\n            <item name="${xmlEscape(item.item)}" chance="1.00" />\n        </cargo>`).join("\n");
       return {
         events: [
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
@@ -8174,7 +8190,7 @@ PAGE_TEMPLATE = """
           `        <limit>child</limit>`,
           `        <active>1</active>`,
           `        <children>`,
-          `            <child lootmax="0" lootmin="0" max="1" min="1" type="${xmlEscape(containerClass)}" />`,
+          `            <child lootmax="${lootMax}" lootmin="${lootMin}" max="1" min="1" type="${xmlEscape(containerClass)}" />`,
           `        </children>`,
           `    </event>`,
           `</events>`,
@@ -8183,19 +8199,11 @@ PAGE_TEMPLATE = """
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<eventposdef>`,
           `    <event name="${xmlEscape(eventName)}">`,
-          `        <zone smin="1" smax="1" dmin="1" dmax="1" r="${spawnRadius}" />`,
-          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" y="0" />`),
+          ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" />`),
           `    </event>`,
           `</eventposdef>`,
         ].join("\n"),
-        spawnable: [
-          `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
-          `<spawnabletypes>`,
-          `    <type name="${xmlEscape(containerClass)}">`,
-          cargoXml,
-          `    </type>`,
-          `</spawnabletypes>`,
-        ].filter(Boolean).join("\n"),
+        mapgroupproto: buildAirdropMapGroupXml(containerClass, lootMax),
       };
     }
     function syncLiveOutput(form) {
@@ -17772,14 +17780,15 @@ def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> st
 
 def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
     event_name = safe_dayz_class(record.get("event_name")) or "Static_WanderingAirdrop"
-    container_class = safe_dayz_class(record.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x"
+    container_class = safe_dayz_class(record.get("container_class")) or SCENARIO_AIRDROP_MARKER_CLASS
     positions = record.get("positions")
     if not isinstance(positions, list) or not positions:
         positions = [{"x": "10869", "z": "10937"}]
-    items = record.get("items") if isinstance(record.get("items"), list) else []
     nominal = max(1, safe_int(record.get("nominal"), 1))
     min_count = max(1, safe_int(record.get("min_count"), 1))
     max_count = max(min_count, safe_int(record.get("max_count"), 1))
+    lootmax = max(1, safe_int(record.get("lootmax"), 40))
+    lootmin = max(0, min(lootmax, safe_int(record.get("lootmin"), 40)))
     secondary_event = safe_dayz_class(record.get("secondary_event"))
     events_lines = [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
@@ -17802,40 +17811,57 @@ def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
         "        <limit>child</limit>",
         "        <active>1</active>",
         "        <children>",
-        f'            <child lootmax="0" lootmin="0" max="1" min="1" type="{xml_attr(container_class)}" />',
+        f'            <child lootmax="{lootmax}" lootmin="{lootmin}" max="1" min="1" type="{xml_attr(container_class)}" />',
         "        </children>",
         "    </event>",
         "</events>",
     ])
     events = "\n".join(events_lines)
-    spawn_radius = max(1, safe_int(record.get("spawn_radius"), 20))
     spawns = "\n".join([
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
         "<eventposdef>",
         f'    <event name="{xml_attr(event_name)}">',
-        f'        <zone smin="1" smax="1" dmin="1" dmax="1" r="{spawn_radius}" />',
-        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" y="0" />' for pos in positions if isinstance(pos, dict)],
+        *[f'        <pos x="{xml_attr(pos.get("x"))}" z="{xml_attr(pos.get("z"))}" a="0" />' for pos in positions if isinstance(pos, dict)],
         "    </event>",
         "</eventposdef>",
     ])
-    spawnable_lines = [
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-        "<spawnabletypes>",
-        f'    <type name="{xml_attr(container_class)}">',
+    proto_points = [
+        ("0 0 0", "1.5", "1.5"),
+        ("2 0 0", "1.5", "1.5"),
+        ("-2 0 0", "1.5", "1.5"),
+        ("0 0 2", "1.5", "1.5"),
+        ("0 0 -2", "1.5", "1.5"),
+        ("3 0 3", "1.5", "1.5"),
+        ("-3 0 3", "1.5", "1.5"),
+        ("3 0 -3", "1.5", "1.5"),
+        ("-3 0 -3", "1.5", "1.5"),
+        ("5 0 0", "1.5", "1.5"),
+        ("-5 0 0", "1.5", "1.5"),
+        ("0 0 5", "1.5", "1.5"),
     ]
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        item_name = safe_dayz_class(item.get("item"))
-        if not item_name:
-            continue
-        spawnable_lines.extend([
-            '        <cargo chance="1.00">',
-            f'            <item name="{xml_attr(item_name)}" chance="1.00" />',
-            "        </cargo>",
-        ])
-    spawnable_lines.extend(["    </type>", "</spawnabletypes>"])
-    return {"events": events, "spawns": spawns, "spawnable": "\n".join(spawnable_lines)}
+    mapgroupproto_lines = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<prototype>",
+        f'    <group name="{xml_attr(container_class)}" lootmax="{lootmax}">',
+        '        <usage name="Military" />',
+        f'        <container name="lootFloor" lootmax="{lootmax}">',
+        '            <category name="weapons" />',
+        '            <category name="explosives" />',
+        '            <category name="tools" />',
+        '            <category name="clothes" />',
+        '            <category name="food" />',
+        '            <tag name="floor" />',
+    ]
+    for point_pos, point_range, point_height in proto_points:
+        mapgroupproto_lines.append(
+            f'            <point pos="{point_pos}" range="{point_range}" height="{point_height}" flags="32" />'
+        )
+    mapgroupproto_lines.extend([
+        "        </container>",
+        "    </group>",
+        "</prototype>",
+    ])
+    return {"events": events, "spawns": spawns, "mapgroupproto": "\n".join(mapgroupproto_lines)}
 
 
 def xml_workshop_summary(config: dict[str, Any]) -> dict[str, Any]:
@@ -21796,7 +21822,7 @@ def api_xml_workshop():
             return jsonify({"ok": False, "error": "pick at least one airdrop position on the map or use random placement"}), 400
         record.update({
             "event_name": safe_dayz_class(payload.get("event_name")) or "Static_WanderingAirdrop",
-            "container_class": safe_dayz_class(payload.get("container_class")) or "StaticObj_Misc_WoodenCrate_5x",
+            "container_class": safe_dayz_class(payload.get("container_class")) or SCENARIO_AIRDROP_MARKER_CLASS,
             "positions": positions,
             "duration_mode": duration_mode,
             "temporary_restarts": max(1, safe_int(payload.get("temporary_restarts"), 2)),
