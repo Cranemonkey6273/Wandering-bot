@@ -27679,12 +27679,12 @@ SHOP_CATEGORY_ALIASES = {
 }
 
 SHOP_CATEGORY_TERMS = (
-    ("Ammunition", ("ammo", "mag_", "magazine", "bullet", "cartridge", "shell", "arrow", "quiver")),
+    ("Ammunition", ("ammo", "magazine", "bullet", "cartridge", "shell", "arrow", "bolt", "quiver")),
     ("Attachments", ("optic", "scope", "suppressor", "bayonet", "buttstock", "hndgrd", "handguard", "bipod", "light", "weaponflashlight")),
     ("Explosives", ("grenade", "explosive", "mine", "claymore", "ied", "detonator", "plastic_explosive")),
     ("Weapons", ("rifle", "akm", "ak74", "ak101", "m4", "m16", "mosin", "shotgun", "pistol", "magnum", "sks", "svd", "fal", "aug", "vss", "crossbow", "bow", "knife", "spear")),
     ("Backpacks", ("backpack", "bag", "drybag", "alicebag", "mountainbag", "taloonbag", "courierbag", "burlapsack", "improvisedbag")),
-    ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "shemag")),
+    ("Clothing", ("jacket", "pants", "boots", "gloves", "helmet", "vest", "cap", "hat", "armband", "mask", "belt", "holster", "shirt", "shoes", "balaclava", "bandana", "beanie", "ushanka", "shemag")),
     ("Base Storage", ("barrel", "crate", "chest", "case", "container", "sea_chest", "tent", "shelter", "protectorcase")),
     ("Building", ("nail", "plank", "log", "sheetmetal", "metalwire", "barbedwire", "camonet", "flag_base", "fence", "watchtower", "territory")),
     ("Tools", ("hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod")),
@@ -27816,6 +27816,120 @@ CURATED_SHOP_BACKFILL_ITEMS = {
 }
 
 
+def compact_shop_item_name(value):
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def forced_shop_category_from_name(item_name):
+    name = str(item_name or "").strip()
+    if not name:
+        return ""
+
+    lower = name.lower()
+    compact = compact_shop_item_name(name)
+    exact_category = SHOP_CATEGORY_EXACT_OVERRIDES.get(lower)
+    if exact_category:
+        return exact_category
+
+    if lower.startswith(("animal_", "zmb")) or "infected" in lower:
+        return "Misc"
+
+    if any(word in lower for word in ("wheel", "hood", "trunk", "door", "battery", "radiator", "sparkplug", "headlight")):
+        return "Vehicle Parts"
+
+    if lower.startswith(("vehicle_", "truck_", "sedan", "hatchback", "offroad", "ada", "olga", "sarka", "gunter", "humvee", "boat")) or any(
+        token in compact
+        for token in ("civiliansedan", "offroadhatchback", "hatchback02", "offroad02", "sedan02", "truck01")
+    ):
+        return "Vehicles"
+
+    if lower.startswith(("ammo_", "ammobox", "mag_")) or any(
+        token in compact
+        for token in ("bullet", "cartridge", "shell", "slug", "pellet", "arrow", "bolt", "quiver")
+    ):
+        return "Ammunition"
+
+    if any(token in compact for token in ("grenade", "explosive", "mine", "claymore", "ied", "detonator", "plasticexplosive")):
+        return "Explosives"
+
+    if any(token in compact for token in ("optic", "scope", "suppressor", "bayonet", "buttstock", "hndgrd", "handguard", "bipod", "weaponflashlight")):
+        return "Attachments"
+
+    if any(token in compact for token in ("backpack", "alicebag", "mountainbag", "taloonbag", "courierbag", "drybag", "burlapsack", "improvisedbag")):
+        return "Backpacks"
+
+    if any(
+        token in compact
+        for token in (
+            "shemag",
+            "balaclava",
+            "bandana",
+            "beanie",
+            "ushanka",
+            "booniehat",
+            "cowboyhat",
+            "baseballcap",
+            "radarcap",
+            "helmet",
+            "jacket",
+            "pants",
+            "boots",
+            "gloves",
+            "vest",
+            "armband",
+            "mask",
+            "belt",
+            "holster",
+            "shirt",
+            "shoes",
+        )
+    ):
+        return "Clothing"
+
+    if any(
+        token in compact
+        for token in (
+            "rifle",
+            "shotgun",
+            "pistol",
+            "magnum",
+            "crossbow",
+            "winchester",
+            "mosin",
+            "sks",
+            "svd",
+            "fal",
+            "aug",
+            "vss",
+            "akm",
+            "ak74",
+            "ak101",
+            "m4a1",
+            "m16",
+            "knife",
+            "spear",
+        )
+    ):
+        return "Weapons"
+
+    if any(token in compact for token in ("barrel", "crate", "chest", "container", "seachest", "tent", "shelter", "protectorcase")):
+        return "Base Storage"
+
+    if any(token in compact for token in ("nail", "plank", "sheetmetal", "metalwire", "barbedwire", "camonet", "flagbase", "territory", "fence", "watchtower")):
+        return "Building"
+
+    if any(token in compact for token in ("hammer", "hatchet", "axe", "saw", "shovel", "pickaxe", "wrench", "pliers", "lockpick", "sewingkit", "ducttape", "fishingrod")):
+        return "Tools"
+
+    if any(token in compact for token in ("bandage", "saline", "morphine", "epinephrine", "vitamin", "charcoal", "tetracycline", "disinfect")):
+        return "Medical"
+
+    if any(token in compact for token in ("apple", "beans", "food", "meat", "water", "soda", "zucchini", "seeds", "canteen", "bottle", "rice", "cereal")):
+        return "Food & Drink"
+
+    return ""
+
+
 def normalize_shop_category(value, fallback="General"):
     text = str(value or "").strip()
     if not text:
@@ -27882,14 +27996,14 @@ def find_types_xml(source_path=None):
 
 
 def guess_shop_category(item_name, xml_category=None, usage=None):
-    exact_category = SHOP_CATEGORY_EXACT_OVERRIDES.get(str(item_name or "").strip().lower())
-    if exact_category:
-        return exact_category
+    forced_category = forced_shop_category_from_name(item_name)
+    if forced_category:
+        return forced_category
 
     if xml_category:
         return normalize_shop_category(xml_category)
 
-    lower = item_name.lower()
+    lower = str(item_name or "").lower()
 
     if any(word in lower for word in ["animal_", "zmbm_", "zmbf_", "infected"]):
         return "Misc"
@@ -27993,6 +28107,56 @@ def is_shop_item_record(value):
         key in value
         for key in ("price", "category", "enabled", "daily_limit", "allowed_role_ids", "blocked_user_ids", "type", "bundle_items")
     )
+
+
+def repair_shop_item_category(item_name, data):
+    if not is_shop_item_record(data):
+        return False
+
+    forced_category = forced_shop_category_from_name(item_name)
+    if not forced_category or not is_shop_sellable_item(item_name, forced_category):
+        return False
+
+    current_category = normalize_shop_category(data.get("category") or "")
+    if current_category == forced_category:
+        return False
+
+    data["category"] = forced_category
+    return True
+
+
+def repair_shop_catalog_block_categories(catalog):
+    if not isinstance(catalog, dict):
+        return 0
+
+    repaired = 0
+    for item_name, data in catalog.items():
+        if repair_shop_item_category(item_name, data):
+            repaired += 1
+    return repaired
+
+
+def iter_shop_catalog_blocks():
+    if not isinstance(shop_items, dict):
+        return
+
+    if any(is_shop_item_record(value) for value in shop_items.values()):
+        yield shop_items
+
+    for value in shop_items.values():
+        if isinstance(value, dict) and not is_shop_item_record(value):
+            yield value
+
+
+def repair_shop_catalog_categories(guild_id=None):
+    if guild_id:
+        repaired = repair_shop_catalog_block_categories(guild_shop_items(guild_id))
+    else:
+        repaired = sum(repair_shop_catalog_block_categories(block) for block in iter_shop_catalog_blocks())
+
+    if repaired:
+        save_shop()
+    return repaired
 
 
 def ensure_curated_shop_backfill(guild_id=None, default_price=100, repair_categories=True):
@@ -28420,6 +28584,7 @@ def load_shop_items_from_types_xml(source_path=None, default_price=100, overwrit
     )
     added += backfill_added
     updated += backfill_repaired
+    updated += repair_shop_catalog_block_categories(target_shop)
 
     if added or updated:
         save_shop()
@@ -28433,6 +28598,9 @@ def load_shop():
 
     if not shop_items:
         load_shop_items_from_types_xml()
+        return
+
+    repair_shop_catalog_categories()
 
 
 def save_shop():
