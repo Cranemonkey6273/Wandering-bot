@@ -28472,6 +28472,8 @@ def load_dayz_reference(map_key):
         "containers": [],
         "values": set(),
         "usages": set(),
+        "categories": set(),
+        "tags": set(),
         "warnings": [],
     }
 
@@ -28565,8 +28567,18 @@ def load_dayz_reference(map_key):
                 for node in limits_root.findall(".//usageflags/usage")
                 if str(node.get("name") or "").strip()
             }
+            reference["categories"] = {
+                str(node.get("name") or "").strip()
+                for node in limits_root.findall(".//categories/category")
+                if str(node.get("name") or "").strip()
+            }
+            reference["tags"] = {
+                str(node.get("name") or "").strip()
+                for node in limits_root.findall(".//tags/tag")
+                if str(node.get("name") or "").strip()
+            }
     except Exception as error:
-        print(f"DAYZ LIMITS REFERENCE LOAD ERROR {map_key}: {error}")
+        reference["warnings"].append(f"cfglimitsdefinition.xml reference could not be parsed: {error}")
 
     dayz_reference_cache[map_key] = reference
     return reference
@@ -30484,7 +30496,7 @@ def scenario_airdrop_direct_child_records(event, class_name):
     marker_class = scenario_airdrop_anchor_class(event, class_name)
     loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
     loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
-    return [{
+    records = [{
         "type": marker_class,
         "count": 1,
         "min": 1,
@@ -30492,6 +30504,18 @@ def scenario_airdrop_direct_child_records(event, class_name):
         "lootmin": loot_min,
         "lootmax": loot_count,
     }]
+    guard_class = str((event or {}).get("guard_class") or "").strip()
+    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0)) if guard_class else 0
+    if guard_class and guard_count > 0:
+        records.append({
+            "type": guard_class,
+            "count": guard_count,
+            "min": guard_count,
+            "max": guard_count,
+            "lootmin": 0,
+            "lootmax": 0,
+        })
+    return records
 
 
 def scenario_airdrop_uses_eventgroup(event):
@@ -30503,9 +30527,9 @@ def scenario_airdrop_uses_eventgroup(event):
 
 
 def scenario_airdrop_secondary_infected(event):
-    guard_class = str((event or {}).get("guard_class") or "").strip()
-    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0)) if guard_class else 0
-    return SCENARIO_AIRDROP_SECONDARY_INFECTED if guard_class and guard_count > 0 else ""
+    # Guard hordes are emitted as direct event children so events.xml and
+    # cfgeventspawns.xml stay in the same simple fixed-event shape.
+    return ""
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
@@ -30708,6 +30732,59 @@ def dayz_reference_value_flags(map_key):
     return set()
 
 
+def dayz_reference_usage_flags(map_key):
+    reference = load_dayz_reference(map_key)
+    usages = reference.get("usages") if isinstance(reference, dict) else None
+    if isinstance(usages, (set, list, tuple)):
+        return {str(value).strip() for value in usages if str(value).strip()}
+    return set()
+
+
+def dayz_reference_category_flags(map_key):
+    reference = load_dayz_reference(map_key)
+    categories = reference.get("categories") if isinstance(reference, dict) else None
+    if isinstance(categories, (set, list, tuple)):
+        return {str(value).strip() for value in categories if str(value).strip()}
+    return set()
+
+
+def dayz_reference_tag_flags(map_key):
+    reference = load_dayz_reference(map_key)
+    tags = reference.get("tags") if isinstance(reference, dict) else None
+    if isinstance(tags, (set, list, tuple)):
+        return {str(value).strip() for value in tags if str(value).strip()}
+    return set()
+
+
+def filter_dayz_named_flags(values, valid_flags, fallback=()):
+    cleaned = []
+    for value in values or ():
+        value = str(value or "").strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    if not cleaned:
+        return cleaned
+    if not valid_flags:
+        return cleaned
+    canonical_by_lower = {
+        str(value).lower(): str(value)
+        for value in valid_flags
+        if str(value).strip()
+    }
+    filtered = [
+        canonical_by_lower[str(value).lower()]
+        for value in cleaned
+        if str(value).lower() in canonical_by_lower
+    ]
+    if filtered:
+        return filtered
+    return [
+        canonical_by_lower[str(value).lower()]
+        for value in fallback or ()
+        if str(value).lower() in canonical_by_lower
+    ]
+
+
 def highest_dayz_tier_value(values):
     best_name = ""
     best_tier = -1
@@ -30748,6 +30825,30 @@ def filter_mapgroupproto_values_for_map(values, map_key=""):
     if fallback:
         return [fallback]
     return cleaned
+
+
+def filter_mapgroupproto_usages_for_map(usages, map_key=""):
+    return filter_dayz_named_flags(
+        usages,
+        dayz_reference_usage_flags(map_key or "chernarus"),
+        fallback=("Military", "Town"),
+    )
+
+
+def filter_mapgroupproto_categories_for_map(categories, map_key=""):
+    return filter_dayz_named_flags(
+        categories,
+        dayz_reference_category_flags(map_key or "chernarus"),
+        fallback=("weapons", "explosives", "tools", "clothes", "food"),
+    )
+
+
+def filter_mapgroupproto_tags_for_map(tags, map_key=""):
+    return filter_dayz_named_flags(
+        tags,
+        dayz_reference_tag_flags(map_key or "chernarus"),
+        fallback=("floor",),
+    )
 
 
 def dayz_reference_class_names(map_key):
@@ -30869,12 +30970,68 @@ def scenario_mapgroupproto_loot_tags(event, map_key=""):
     ]
     if not usages:
         usages = ["Military"]
+    usages = filter_mapgroupproto_usages_for_map(usages, map_key)
     if not values:
         values = ["Tier3", "Tier4"]
     values = filter_mapgroupproto_values_for_map(values, map_key)
     if not categories:
         categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
+    categories = filter_mapgroupproto_categories_for_map(categories, map_key)
     return {"usage": usages, "value": values, "category": categories}
+
+
+SCENARIO_C130_LOOT_POINTS = [
+    {"pos": "3.293945 -1.541862 6.939941", "range": "1.100000", "height": "1.145172"},
+    {"pos": "4.630615 -1.221848 5.478027", "range": "1.203125", "height": "1.058037"},
+    {"pos": "4.128174 -1.250969 5.282227", "range": "1.237500", "height": "1.899963"},
+    {"pos": "3.601563 -1.275345 5.026855", "range": "1.237500", "height": "1.900002"},
+    {"pos": "3.976563 -1.479630 7.021972", "range": "1.340625", "height": "1.139282"},
+    {"pos": "5.462646 -1.856918 4.474609", "range": "1.595988", "height": "1.900002"},
+    {"pos": "3.273926 -1.856918 8.096679", "range": "1.718352", "height": "1.900002"},
+    {"pos": "2.722656 -1.856918 5.948730", "range": "1.821779", "height": "1.900002"},
+    {"pos": "6.276123 -1.856918 9.080566", "range": "1.827611", "height": "1.900002"},
+    {"pos": "4.192871 -1.856918 5.159668", "range": "1.846799", "height": "1.900002"},
+    {"pos": "7.588379 -1.856918 4.039551", "range": "1.898411", "height": "1.900002"},
+    {"pos": "4.540283 -1.856918 9.118164", "range": "1.908636", "height": "1.900002"},
+    {"pos": "1.502686 -1.856918 7.775879", "range": "1.942924", "height": "1.900002"},
+    {"pos": "6.894042 -1.856918 5.567383", "range": "2.068359", "height": "1.900002"},
+    {"pos": "7.488282 -1.856918 7.621094", "range": "2.069595", "height": "1.900002"},
+    {"pos": "3.200000 -1.856918 0.200000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "2.400000 -1.856918 1.400000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "1.600000 -1.856918 -0.600000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "-0.800000 -1.856918 1.800000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "-1.800000 -1.856918 -0.800000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "-2.800000 -1.856918 0.800000", "range": "0.199951", "height": "1.900002"},
+    {"pos": "3.293945 -1.541862 -6.939941", "range": "1.100000", "height": "1.145172"},
+    {"pos": "4.630615 -1.221848 -5.478027", "range": "1.203125", "height": "1.058037"},
+    {"pos": "4.128174 -1.250969 -5.282227", "range": "1.237500", "height": "1.899963"},
+    {"pos": "3.601563 -1.275345 -5.026855", "range": "1.237500", "height": "1.900002"},
+    {"pos": "3.976563 -1.479630 -7.021972", "range": "1.340625", "height": "1.139282"},
+    {"pos": "5.462646 -1.856918 -4.474609", "range": "1.595988", "height": "1.900002"},
+    {"pos": "3.273926 -1.856918 -8.096679", "range": "1.718352", "height": "1.900002"},
+    {"pos": "2.722656 -1.856918 -5.948730", "range": "1.821779", "height": "1.900002"},
+    {"pos": "6.276123 -1.856918 -9.080566", "range": "1.827611", "height": "1.900002"},
+    {"pos": "4.192871 -1.856918 -5.159668", "range": "1.846799", "height": "1.900002"},
+    {"pos": "7.588379 -1.856918 -4.039551", "range": "1.898411", "height": "1.900002"},
+    {"pos": "4.540283 -1.856918 -9.118164", "range": "1.908636", "height": "1.900002"},
+    {"pos": "1.502686 -1.856918 -7.775879", "range": "1.942924", "height": "1.900002"},
+    {"pos": "6.894042 -1.856918 -5.567383", "range": "2.068359", "height": "1.900002"},
+    {"pos": "7.488282 -1.856918 -7.621094", "range": "2.069595", "height": "1.900002"},
+]
+
+
+def scenario_mapgroupproto_loot_points_for_class(class_name):
+    key = str(class_name or "").strip().lower()
+    if key == "wreck_mi8_crashed":
+        return SCENARIO_MI8_LOOT_POINTS
+    if key in {"land_wreck_c130j", "land_wreck_c130j_cargo"}:
+        return SCENARIO_C130_LOOT_POINTS
+    return [{
+        "pos": "0 0 0",
+        "range": "0.5",
+        "height": "0.5",
+        "flags": "32",
+    }]
 
 
 def mapgroupproto_uses_generic_single_point(container_node):
@@ -30893,11 +31050,13 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class
     wanted_categories = [str(item).strip() for item in tags.get("category", []) if str(item).strip()]
     if not wanted_usages:
         wanted_usages = ["Military"]
+    wanted_usages = filter_mapgroupproto_usages_for_map(wanted_usages, map_key)
     if not wanted_values:
         wanted_values = ["Tier3", "Tier4"]
     wanted_values = filter_mapgroupproto_values_for_map(wanted_values, map_key)
     if not wanted_categories:
         wanted_categories = list(MAPGROUPPROTO_LOOT_CATEGORIES)
+    wanted_categories = filter_mapgroupproto_categories_for_map(wanted_categories, map_key)
     changed = False
 
     if mapgroupproto_positive_int(group_node.get("lootmax")) <= 0:
@@ -30964,29 +31123,32 @@ def ensure_mapgroupproto_loot_container(group_node, lootmax=80, tags=None, class
         for tag_node in container.findall("tag")
     }
     if not existing_tags:
-        ET.SubElement(container, "tag", {"name": "floor"})
+        tag_name = (filter_mapgroupproto_tags_for_map(("floor",), map_key) or ["floor"])[0]
+        ET.SubElement(container, "tag", {"name": tag_name})
         changed = True
-        existing_tags.add("floor")
-    if str(class_name or "").strip().lower() == "wreck_mi8_crashed" and "shelves" not in existing_tags:
+        existing_tags.add(tag_name.lower())
+    if (
+        str(class_name or "").strip().lower() == "wreck_mi8_crashed"
+        and "shelves" not in existing_tags
+        and filter_mapgroupproto_tags_for_map(("shelves",), map_key)
+    ):
         ET.SubElement(container, "tag", {"name": "shelves"})
         changed = True
 
     if not container.findall("point"):
-        point_records = SCENARIO_MI8_LOOT_POINTS if str(class_name or "").strip().lower() == "wreck_mi8_crashed" else [{
-            "pos": "0 0 0",
-            "range": "0.5",
-            "height": "0.5",
-            "flags": "32",
-        }]
+        point_records = scenario_mapgroupproto_loot_points_for_class(class_name)
         for point_record in point_records:
             attrs = dict(point_record)
             attrs.setdefault("flags", "32")
             ET.SubElement(container, "point", attrs)
         changed = True
-    elif str(class_name or "").strip().lower() == "wreck_mi8_crashed" and mapgroupproto_uses_generic_single_point(container):
+    elif (
+        str(class_name or "").strip().lower() in {"wreck_mi8_crashed", "land_wreck_c130j", "land_wreck_c130j_cargo"}
+        and mapgroupproto_uses_generic_single_point(container)
+    ):
         for point in list(container.findall("point")):
             container.remove(point)
-        for point_record in SCENARIO_MI8_LOOT_POINTS:
+        for point_record in scenario_mapgroupproto_loot_points_for_class(class_name):
             attrs = dict(point_record)
             attrs.setdefault("flags", "32")
             ET.SubElement(container, "point", attrs)
@@ -32451,6 +32613,10 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         )
     )
     valid_value_flags = dayz_reference_value_flags(map_key)
+    valid_usage_flags = dayz_reference_usage_flags(map_key)
+    valid_category_flags = dayz_reference_category_flags(map_key)
+    valid_tag_flags = dayz_reference_tag_flags(map_key)
+    valid_reference_classes = dayz_reference_class_names(map_key)
 
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
     for territory_file in territory_files:
@@ -32490,6 +32656,8 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             child_type = str(child.get("type") or "").strip()
             if not child_type:
                 messages.append(f"`{name}` has a child with no `type` classname.")
+            elif valid_reference_classes and child_type not in valid_reference_classes:
+                messages.append(f"`{name}` child `{child_type}` is not in the vanilla `{map_key}` reference files.")
             if child_type.startswith(("ZmbM_", "ZmbF_")) and not (name.startswith("Infected") or name.startswith("Static")):
                 messages.append(f"`{name}` spawns infected child `{child_type}` but does not use the `Infected` CE family.")
             if name.startswith("Animal") and child_type and not child_type.startswith("Animal_"):
@@ -32557,16 +32725,40 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
-    if valid_value_flags:
-        canonical_values = {value.lower(): value for value in valid_value_flags}
-        for group_name, group_node in proto_nodes.items():
-            for value_node in group_node.findall("value"):
-                value_name = str(value_node.get("name") or "").strip()
-                if value_name and value_name.lower() not in canonical_values:
+    limit_flag_checks = (
+        ("usage", valid_usage_flags),
+        ("value", valid_value_flags),
+    )
+    container_limit_flag_checks = (
+        ("category", valid_category_flags),
+        ("tag", valid_tag_flags),
+    )
+    for group_name, group_node in proto_nodes.items():
+        for tag_name, allowed_flags in limit_flag_checks:
+            if not allowed_flags:
+                continue
+            canonical_flags = {value.lower(): value for value in allowed_flags}
+            for flag_node in group_node.findall(tag_name):
+                flag_value = str(flag_node.get("name") or "").strip()
+                if flag_value and flag_value.lower() not in canonical_flags:
                     messages.append(
-                        f"`{group_name}` mapgroupproto value `{value_name}` is not valid for `{map_key}`. "
-                        f"Allowed values: {', '.join(sorted(valid_value_flags))}."
+                        f"`{group_name}` mapgroupproto {tag_name} `{flag_value}` is not valid for `{map_key}`. "
+                        f"Allowed {tag_name}s: {', '.join(sorted(allowed_flags))}."
                     )
+        for container_node in group_node.findall("container"):
+            container_name = str(container_node.get("name") or "").strip() or "container"
+            for tag_name, allowed_flags in container_limit_flag_checks:
+                if not allowed_flags:
+                    continue
+                canonical_flags = {value.lower(): value for value in allowed_flags}
+                for flag_node in container_node.findall(tag_name):
+                    flag_value = str(flag_node.get("name") or "").strip()
+                    if flag_value and flag_value.lower() not in canonical_flags:
+                        messages.append(
+                            f"`{group_name}` mapgroupproto container `{container_name}` {tag_name} "
+                            f"`{flag_value}` is not valid for `{map_key}`. "
+                            f"Allowed {tag_name}s: {', '.join(sorted(allowed_flags))}."
+                        )
     for name, event_node in generated_events.items():
         if not name.startswith("Static"):
             continue

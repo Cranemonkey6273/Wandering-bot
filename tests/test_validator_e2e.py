@@ -110,11 +110,17 @@ def _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgrouppr
     ET.ElementTree(cfgspawnabletypes_root).write(os.path.join(tmpdir, "cfgspawnabletypes.xml"), encoding="utf-8", xml_declaration=True)
 
 
-def _write_limit_values(tmpdir, values):
+def _write_limit_values(tmpdir, values, usages=(), categories=(), tags=()):
     root = ET.Element("lists")
-    ET.SubElement(root, "categories")
-    ET.SubElement(root, "tags")
-    ET.SubElement(root, "usageflags")
+    categories_node = ET.SubElement(root, "categories")
+    for category in categories:
+        ET.SubElement(categories_node, "category", {"name": category})
+    tags_node = ET.SubElement(root, "tags")
+    for tag in tags:
+        ET.SubElement(tags_node, "tag", {"name": tag})
+    usageflags = ET.SubElement(root, "usageflags")
+    for usage in usages:
+        ET.SubElement(usageflags, "usage", {"name": usage})
     valueflags = ET.SubElement(root, "valueflags")
     for value in values:
         ET.SubElement(valueflags, "value", {"name": value})
@@ -208,6 +214,32 @@ class GeneratorBundleValidationTests(unittest.TestCase):
             report = validate_bundle(tmpdir)
             self.assertFalse(report.ok())
             self.assertTrue(any("Tier4" in err and "cfglimitsdefinition.xml" in err for err in report.errors))
+
+    def test_validator_rejects_livonia_invalid_mapgroupproto_usage_category_and_tag(self):
+        events = [_base_event(29, "airdrop", "WoodenCrate")]
+        events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root = _emit_bundle(events)
+        group = mapgroupproto_root.find("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertIsNotNone(group)
+        ET.SubElement(group, "usage", {"name": "Historical"})
+        container = group.find("container")
+        self.assertIsNotNone(container)
+        ET.SubElement(container, "category", {"name": "vehicles"})
+        ET.SubElement(container, "tag", {"name": "roof"})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_bundle(tmpdir, events_root, spawns_root, eventgroups_root, mapgroupproto_root, cfgspawnabletypes_root)
+            _write_limit_values(
+                tmpdir,
+                ["Tier1", "Tier2", "Tier3", "Unique"],
+                usages=["Military", "Town"],
+                categories=["weapons", "tools"],
+                tags=["floor", "shelves"],
+            )
+            report = validate_bundle(tmpdir)
+            self.assertFalse(report.ok())
+            rendered = "\n".join(report.errors)
+            self.assertIn("Historical", rendered)
+            self.assertIn("vehicles", rendered)
+            self.assertIn("roof", rendered)
 
     def test_validator_rejects_working_vehicle_as_static_loot(self):
         events = [_base_event(29, "airdrop", "WoodenCrate")]

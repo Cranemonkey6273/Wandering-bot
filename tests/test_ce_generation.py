@@ -185,7 +185,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertFalse(any(child.get("type") == "Sedan_02" for child in record["child_records"]))
         self.assertTrue(any("vehicle classname `Sedan_02`" in message for message in warnings))
 
-    def test_airdrop_guards_use_vanilla_secondary_infected(self):
+    def test_airdrop_guards_are_direct_event_children(self):
         event = _base_event(
             32,
             "airdrop",
@@ -199,14 +199,17 @@ class AirdropEventGroupTests(unittest.TestCase):
         records, _warnings = bot.console_ce_records_for_event(event)
 
         self.assertEqual(1, len(records))
-        self.assertEqual("InfectedArmy", records[0].get("secondary"))
-        self.assertFalse(any(
+        self.assertEqual("", records[0].get("secondary"))
+        self.assertTrue(any(
             child.get("type") == "ZmbM_SoldierNormal"
+            and child.get("lootmax") == 0
+            and child.get("max") == 3
             for child in records[0]["child_records"]
         ))
         record, events_root, _spawns, _groups = self._build_airdrop_event_node(event)
-        self.assertEqual("InfectedArmy", record.get("secondary"))
-        self.assertEqual("InfectedArmy", events_root.findtext("event/secondary"))
+        self.assertEqual("", record.get("secondary"))
+        self.assertIsNone(events_root.find("event/secondary"))
+        self.assertIsNotNone(events_root.find("./event/children/child[@type='ZmbM_SoldierNormal']"))
 
     def test_direct_airdrop_with_guard_children_validates(self):
         event = _base_event(
@@ -592,6 +595,52 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("Tier4" in message and "livonia" in message for message in messages), messages)
 
+    def test_validator_rejects_livonia_historical_usage_and_bad_container_flags(self):
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            "StaticWanderingBot_55_airdrop",
+            "Wreck_Mi8_Crashed",
+            1,
+            7200,
+            child_records=[{
+                "type": "Wreck_Mi8_Crashed",
+                "count": 1,
+                "min": 1,
+                "max": 1,
+                "lootmin": 5,
+                "lootmax": 15,
+            }],
+            nominal=1,
+            min_count=1,
+            max_count=1,
+        )
+        spawns_root = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(spawns_root, "StaticWanderingBot_55_airdrop", 5000, 5000)
+        proto_root = ET.Element("prototype")
+        group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
+        ET.SubElement(group, "usage", {"name": "Historical"})
+        ET.SubElement(group, "value", {"name": "Tier3"})
+        container = ET.SubElement(group, "container", {"name": "lootFloor", "lootmax": "15"})
+        ET.SubElement(container, "category", {"name": "vehicles"})
+        ET.SubElement(container, "tag", {"name": "roof"})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "1", "height": "1"})
+
+        built = {
+            "map_key": "livonia",
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": bot.xml_text_from_root(spawns_root),
+            "eventgroups_text": "",
+            "mapgroupproto_text": bot.xml_text_from_root(proto_root),
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertFalse(ok)
+        rendered = "\n".join(messages)
+        self.assertIn("Historical", rendered)
+        self.assertIn("vehicles", rendered)
+        self.assertIn("roof", rendered)
+
     def test_validator_rejects_working_vehicle_as_static_loot_child(self):
         events_root = ET.Element("events")
         bot.add_console_ce_event_definition(
@@ -645,14 +694,14 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertNotIn("containers", categories)
         self.assertNotIn("vehicles", categories)
 
-    def test_airdrop_secondary_infected_does_not_need_mapgroupproto(self):
+    def test_airdrop_guard_child_does_not_need_mapgroupproto(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
         event["guard_class"] = "ZmbM_SoldierNormal"
         event["guard_count"] = 2
         records, _ = bot.console_ce_records_for_event(event)
 
-        self.assertEqual("InfectedArmy", records[0].get("secondary"))
-        self.assertFalse(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[0]["child_records"]))
+        self.assertEqual("", records[0].get("secondary"))
+        self.assertTrue(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[0]["child_records"]))
         self.assertNotIn("ZmbM_SoldierNormal", records[0].get("mapgroupproto_classes") or [])
 
     def test_existing_unmarked_proto_group_is_left_alone_and_managed_group_appended(self):
@@ -799,6 +848,52 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("per-item cargo tuning" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_livonia_cargo_plane_airdrop_uses_valid_tags_and_c130_points(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    52,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="cargo_plane_wreck",
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        proto_root = ET.fromstring(built["mapgroupproto_text"])
+        c130_group = proto_root.find("./group[@name='Land_Wreck_C130J_Cargo']")
+        self.assertIsNotNone(c130_group)
+        self.assertNotIn("Tier4", [node.get("name") for node in c130_group.findall("value")])
+        self.assertNotIn("Historical", [node.get("name") for node in c130_group.findall("usage")])
+        container = c130_group.find("container")
+        self.assertIsNotNone(container)
+        self.assertGreater(len(container.findall("point")), 20)
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 

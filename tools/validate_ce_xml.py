@@ -24,8 +24,9 @@ spawn it (the failure mode the live server was exhibiting):
   ``<group name="C">`` in mapgroupproto.xml.
 * Every direct WanderingBot events.xml child with lootmax>0 on a static loot
   anchor has a matching usable mapgroupproto group.
-* Every mapgroupproto ``<value>`` tag must exist in the mission's
-  cfglimitsdefinition.xml, so Livonia cannot accidentally receive Tier4.
+* Every mapgroupproto ``<usage>``, ``<value>``, ``<category>``, and ``<tag>``
+  must exist in the mission's cfglimitsdefinition.xml, so Livonia cannot
+  accidentally receive Chernarus-only tags such as Tier4 or Historical.
 * Working vehicle classes are rejected when used as Static/eventgroup loot.
 * events.xml Static events that reference a group via cfgeventspawns leave
   ``<children/>`` empty (vanilla DayZ pattern). Otherwise DayZ loads the
@@ -188,19 +189,37 @@ def _proto_group_has_usable_loot_container(group_node: ET.Element) -> bool:
     return False
 
 
-def _load_value_flags(mission_dir: str, report: ValidationReport) -> Set[str]:
+def _load_limit_flags(mission_dir: str, report: ValidationReport) -> Dict[str, Set[str]]:
     path = os.path.join(mission_dir, "cfglimitsdefinition.xml")
+    empty = {"values": set(), "usages": set(), "categories": set(), "tags": set()}
     if not os.path.exists(path):
-        return set()
+        return empty
     try:
         root = ET.parse(path).getroot()
     except ET.ParseError as error:
         report.fail(f"cfglimitsdefinition.xml parse error: {error}")
-        return set()
+        return empty
     return {
-        (node.get("name") or "").strip()
-        for node in root.findall(".//valueflags/value")
-        if (node.get("name") or "").strip()
+        "values": {
+            (node.get("name") or "").strip()
+            for node in root.findall(".//valueflags/value")
+            if (node.get("name") or "").strip()
+        },
+        "usages": {
+            (node.get("name") or "").strip()
+            for node in root.findall(".//usageflags/usage")
+            if (node.get("name") or "").strip()
+        },
+        "categories": {
+            (node.get("name") or "").strip()
+            for node in root.findall(".//categories/category")
+            if (node.get("name") or "").strip()
+        },
+        "tags": {
+            (node.get("name") or "").strip()
+            for node in root.findall(".//tags/tag")
+            if (node.get("name") or "").strip()
+        },
     }
 
 
@@ -212,7 +231,11 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
     eventgroups_path = os.path.join(mission_dir, "cfgeventgroups.xml")
     mapgroupproto_path = os.path.join(mission_dir, "mapgroupproto.xml")
     cfgspawnabletypes_path = os.path.join(mission_dir, "cfgspawnabletypes.xml")
-    value_flags = _load_value_flags(mission_dir, report)
+    limit_flags = _load_limit_flags(mission_dir, report)
+    value_flags = limit_flags["values"]
+    usage_flags = limit_flags["usages"]
+    category_flags = limit_flags["categories"]
+    tag_flags = limit_flags["tags"]
 
     events_root = _parse_xml(events_path, "events", report)
     spawns_root = _parse_xml(spawns_path, "eventposdef", report)
@@ -379,17 +402,33 @@ def validate_bundle(mission_dir: str) -> ValidationReport:
     if mapgroupproto_root is not None:
         for group_node in mapgroupproto_root.findall("group"):
             proto_groups[(group_node.get("name") or "").strip()] = group_node
-            if value_flags:
-                allowed = {value.lower(): value for value in value_flags}
-                group_name = (group_node.get("name") or "").strip()
-                for value_node in group_node.findall("value"):
-                    value_name = (value_node.get("name") or "").strip()
-                    if value_name and value_name.lower() not in allowed:
+            group_name = (group_node.get("name") or "").strip()
+            for tag_name, allowed_flags in (("usage", usage_flags), ("value", value_flags)):
+                if not allowed_flags:
+                    continue
+                allowed = {value.lower(): value for value in allowed_flags}
+                for flag_node in group_node.findall(tag_name):
+                    flag_name = (flag_node.get("name") or "").strip()
+                    if flag_name and flag_name.lower() not in allowed:
                         report.fail(
-                            f"mapgroupproto.xml <group name=\"{group_name}\"> uses value "
-                            f"`{value_name}`, but cfglimitsdefinition.xml only allows: "
-                            f"{', '.join(sorted(value_flags))}."
+                            f"mapgroupproto.xml <group name=\"{group_name}\"> uses {tag_name} "
+                            f"`{flag_name}`, but cfglimitsdefinition.xml only allows: "
+                            f"{', '.join(sorted(allowed_flags))}."
                         )
+            for container_node in group_node.findall("container"):
+                container_name = (container_node.get("name") or "").strip() or "container"
+                for tag_name, allowed_flags in (("category", category_flags), ("tag", tag_flags)):
+                    if not allowed_flags:
+                        continue
+                    allowed = {value.lower(): value for value in allowed_flags}
+                    for flag_node in container_node.findall(tag_name):
+                        flag_name = (flag_node.get("name") or "").strip()
+                        if flag_name and flag_name.lower() not in allowed:
+                            report.fail(
+                                f"mapgroupproto.xml <group name=\"{group_name}\"> container "
+                                f"`{container_name}` uses {tag_name} `{flag_name}`, but "
+                                f"cfglimitsdefinition.xml only allows: {', '.join(sorted(allowed_flags))}."
+                            )
         for event_name, event_node in wandering_events.items():
             if not _has_static_family(event_name):
                 continue
