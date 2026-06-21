@@ -12398,6 +12398,15 @@ def parse_rpt_diagnostics(rpt_text, limit=16):
         if m:
             add("Animal error", "animal storage", "saved animal/entity data is not matching DayZAnimalType", i)
             continue
+        m = re.search(r'Missing AI Template "([^"]+)" for DE: "([^"]+)"', line, re.I)
+        if m:
+            add(
+                "Missing animal herd template",
+                m.group(2),
+                f"cfgenvironment.xml needs herd template `{m.group(1)}` for this animal event",
+                i,
+            )
+            continue
         m = re.search(r'groups failed:\s*([1-9]\d*)', line, re.I)
         if m:
             add("Map group failures", "mapgrouppos/mapgroupproto", f"{m.group(1)} group(s) failed to load", i)
@@ -31614,6 +31623,16 @@ def animal_territory_profile(class_name):
     }
 
 
+def animal_territory_name_for_event(event_name):
+    event_name = str(event_name or "").strip()
+    if event_name.startswith("Animal") and len(event_name) > len("Animal"):
+        return event_name[len("Animal"):]
+    key = ce_file_slug(event_name) or "animal"
+    if not key.startswith("wanderingbot"):
+        key = f"wanderingbot_{key}"
+    return key
+
+
 def remote_mission_base_from_ce_paths(built):
     for key, suffix in (
         ("spawns_path", "/cfgeventspawns.xml"),
@@ -32026,9 +32045,17 @@ def console_ce_records_for_event(event, map_key=""):
         )
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
+        profile = animal_territory_profile(class_name)
+        record.update({
+            "animal_territory": True,
+            "territory_name": animal_territory_name_for_event(record_name),
+            "animal_behavior": profile.get("behavior"),
+            "territory_zone": profile.get("zone"),
+            "territory_color": profile.get("color"),
+        })
         warnings.append(
-            f"`{event.get('id')}` creates managed animal CE event `{record_name}` with matching fixed spawn positions. "
-            "The event name starts with `Animal` and only WanderingBot-marked nodes are changed."
+            f"`{event.get('id')}` creates managed animal CE event `{record_name}` with matching fixed spawn positions "
+            f"and herd template `Herd{record['territory_name']}`."
         )
     records.append(record)
 
@@ -32756,6 +32783,25 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if not territory_root.findall(".//zone"):
             messages.append(f"`{territory_file.get('path')}` has no animal territory `<zone>`.")
 
+    territory_event_names = {
+        str(event_name or "")
+        for item in territory_files
+        for event_name in (
+            item.get("event_names")
+            if isinstance(item.get("event_names"), list)
+            else [item.get("name")]
+        )
+    }
+    environment_territories = cfgenvironment_root.find("territories") if cfgenvironment_root.tag != "territories" else cfgenvironment_root
+    environment_herd_names = {}
+    if environment_territories is not None:
+        for territory_node in environment_territories.findall("territory"):
+            if str(territory_node.get("type") or "").strip() != "Herd":
+                continue
+            territory_name = str(territory_node.get("name") or "").strip()
+            if territory_name:
+                environment_herd_names[territory_name] = territory_node
+
     allowed_families = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Static", "Trajectory", "Vehicle")
     generated_events = {}
     for event_node in events_root.findall("event"):
@@ -32801,6 +32847,26 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 messages.append(f"`{name}` has a child with `max` 0, so CE will disable or ignore the event.")
         generated_events[name] = event_node
 
+    for name in generated_events:
+        if not name.startswith("Animal"):
+            continue
+        territory_name = animal_territory_name_for_event(name)
+        territory_node = environment_herd_names.get(territory_name)
+        if territory_node is None:
+            messages.append(
+                f"`{name}` is missing cfgenvironment.xml herd template `Herd{territory_name}`; "
+                "DayZ will reject it with `Missing AI Template`."
+            )
+            continue
+        usable_names = [
+            str(file_node.get("usable") or "").strip()
+            for file_node in territory_node.findall("file")
+        ]
+        if not any("wanderingbot" in normalize_discord_name(usable) for usable in usable_names):
+            messages.append(f"`Herd{territory_name}` does not reference a WanderingBot animal territory file.")
+        if name not in territory_event_names:
+            messages.append(f"`{name}` has no generated animal territory XML upload entry.")
+
     generated_spawns = {
         str(event_node.get("name") or ""): event_node
         for event_node in spawns_root.findall("event")
@@ -32812,15 +32878,6 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if spawn_node is None:
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue
-        territory_event_names = {
-            str(event_name or "")
-            for item in territory_files
-            for event_name in (
-                item.get("event_names")
-                if isinstance(item.get("event_names"), list)
-                else [item.get("name")]
-            )
-        }
         is_animal_territory_event = name.startswith("Animal") and name in territory_event_names
         if not spawn_node.findall("pos") and not is_animal_territory_event:
             messages.append(f"`{name}` has no `<pos>` coordinates in cfgeventspawns.xml.")

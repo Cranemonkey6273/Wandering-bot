@@ -1128,12 +1128,57 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual("1", child.get("min"))
         self.assertEqual("1", child.get("max"))
         self.assertFalse("HerdWanderingBot" in built["events_text"])
-        self.assertFalse(built.get("cfgenvironment_text"))
-        self.assertEqual([], built.get("animal_territory_files") or [])
+        env_root = ET.fromstring(built["cfgenvironment_text"])
+        herd = env_root.find("./territories/territory[@name='WanderingBot_animal_bear']")
+        self.assertIsNotNone(herd)
+        self.assertEqual("Herd", herd.get("type"))
+        self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
+        self.assertEqual(
+            ["wanderingbot_animal_bear_territories"],
+            [file_node.get("usable") for file_node in herd.findall("file")],
+        )
+        territory_files = built.get("animal_territory_files") or []
+        self.assertEqual(1, len(territory_files))
+        self.assertEqual(
+            f"{base_path}/env/wanderingbot_animal_bear_territories.xml",
+            territory_files[0].get("path"),
+        )
+        self.assertIn("AnimalWanderingBot_animal_bear", territory_files[0].get("event_names") or [])
+        territory_root = ET.fromstring(territory_files[0]["text"])
+        zone = territory_root.find("./territory/zone")
+        self.assertIsNotNone(zone)
+        self.assertEqual("HuntingGround", zone.get("name"))
+        self.assertEqual("2", zone.get("dmin"))
+        self.assertEqual("2", zone.get("dmax"))
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
         self.assertTrue(scope_ok, "\n".join(scope_messages))
+
+    def test_animal_pack_validation_rejects_missing_herd_template(self):
+        event_name = "AnimalWanderingBot_animal_bear"
+        built = {
+            "map_key": "livonia",
+            "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+            "events_text": (
+                f'<events><event name="{event_name}"><nominal>2</nominal><min>2</min><max>2</max>'
+                '<lifetime>3600</lifetime><restock>0</restock><saferadius>0</saferadius>'
+                '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+                '<flags deletable="0" init_random="0" remove_damaged="1" />'
+                '<position>fixed</position><limit>child</limit><active>1</active>'
+                '<children><child lootmax="0" lootmin="0" max="1" min="1" type="Animal_UrsusArctos" /></children>'
+                '</event></events>'
+            ),
+            "spawns_path": "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            "spawns_text": f'<eventposdef><event name="{event_name}"><pos x="5000" z="5000" a="0" active="1" /></event></eventposdef>',
+            "cfgenvironment_text": "<env><territories /></env>",
+            "animal_territory_files": [],
+        }
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+
+        self.assertFalse(ok)
+        self.assertTrue(any("HerdWanderingBot_animal_bear" in message for message in messages))
 
 
 if __name__ == "__main__":
