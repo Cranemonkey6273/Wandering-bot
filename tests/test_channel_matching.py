@@ -16,6 +16,11 @@ class FakeChannel:
         self.id = channel_id
 
 
+class FakeCategory:
+    def __init__(self, name):
+        self.name = name
+
+
 class FakeGuild:
     def __init__(self, channels):
         self.text_channels = channels
@@ -33,6 +38,16 @@ class ChannelMatchingTests(unittest.TestCase):
         guild = FakeGuild([duplicate, original])
 
         self.assertIs(bot.preferred_existing_feed_channel(guild, "nitrado_ban_logs"), original)
+
+    def test_radar_channel_matches_plain_radars(self):
+        channel = FakeChannel("Radars", 300)
+
+        self.assertTrue(bot.channel_matches_bot_default_name(channel, "radar"))
+
+    def test_radar_category_matches_plain_radars(self):
+        category = FakeCategory("Radars")
+
+        self.assertTrue(bot.category_matches_bot_spec(category, "radar_pings"))
 
 
 if __name__ == "__main__":

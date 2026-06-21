@@ -369,6 +369,7 @@ DEFAULT_CHANNEL_NAMES = {
     "flag_feed": "🚩🏴・flag-feed・🏴🚩",
     "placed_feed": "📦🧰・placed-feed・🧰📦",
     "pvp_intel": "⚔️📡・pvp-intel・📡⚔️",
+    "radar": "📡🟧・radar-pings・🟧📡",
     "online": "✅🎮・online-survivors・🎮✅",
     "leaderboards": "🏆📊・leaderboards・📊🏆",
     "heatmap": "🔥🗺️・heatmap・🗺️🔥",
@@ -431,6 +432,7 @@ CHANNEL_ALIASES = {
     "building": ["building", "build", "buildfeed", "basebuilding"],
     "connections": ["connected", "connections", "connect", "joins", "playerjoins"],
     "disconnects": ["disconnects", "disconnect", "leftserver", "playerleaves"],
+    "radar": ["radar", "radars", "radarpings", "radaralerts", "admradar", "admradarpings", "zoning", "zonepings"],
     "online": ["online", "onlinesurvivors", "liveonline", "survivorsonline"],
     "leaderboards": ["leaderboards", "leaderboard", "topkills", "rankings"],
     "heatmap": ["heatmap", "conflictheatmap", "pvpheatmap"],
@@ -6029,6 +6031,10 @@ CHANNEL_RESTORE_PACKS = {
         "flag_feed",
         "placed_feed",
         "pvp_intel",
+        "radar",
+    ],
+    "radar": [
+        "radar",
     ],
     "info": [
         "online",
@@ -6094,6 +6100,7 @@ CATEGORY_REPAIR_SPECS = [
     ("wandering_hq", "🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩", ["wanderinghq", "wanderingbot", "wanderingbotalpha"]),
     ("live_feeds", "🟥🟧🟨┃LIVE SERVER FEEDS┃🟨🟧🟥", ["liveserverfeeds", "livefeeds", "killfeed", "serverfeeds"]),
     ("server_info", "🟦🟩🟦┃SERVER INFO┃🟦🟩🟦", ["serverinfo", "info", "leaderboards", "dashboard"]),
+    ("radar_pings", "📡🟧📡┃RADAR PINGS┃📡🟧📡", ["radarpings", "radars", "radar", "radaralerts", "admradar", "admradarpings", "zoning", "zonepings"]),
     ("survivor_comms", "🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪", ["survivorcomms", "survivorchat", "generalchat", "community"]),
     ("staff_ops", "🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️", ["staffops", "staff", "admin", "adminlogs"]),
     ("economy", "💰🟨💰┃ECONOMY┃💰🟨💰", ["economy", "blackmarket", "shop"]),
@@ -6119,6 +6126,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "flag_feed": "live_feeds",
     "placed_feed": "live_feeds",
     "pvp_intel": "live_feeds",
+    "radar": "radar_pings",
     "online": "server_info",
     "leaderboards": "server_info",
     "heatmap": "server_info",
@@ -13915,6 +13923,7 @@ async def on_guild_join(guild):
     economy_category = await guild.create_category("💰🟨💰┃ECONOMY┃💰🟨💰")
     faction_category = await guild.create_category("🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await guild.create_category("❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
+    radar_category = await guild.create_category("📡🟧📡┃RADAR PINGS┃📡🟧📡")
     pve_category = None
 
     async def make_channel(name, *, cat=None):
@@ -13943,6 +13952,7 @@ async def on_guild_join(guild):
     flag_feed = await guild.create_text_channel("🚩🏴・flag-feed・🏴🚩", category=live_category, overwrites=staff_overwrites)
     placed_feed = await guild.create_text_channel("📦🧰・placed-feed・🧰📦", category=live_category, overwrites=staff_overwrites)
     pvp_intel = None
+    radar_channel = await make_channel(DEFAULT_CHANNEL_NAMES["radar"], cat=radar_category)
 
     online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
     leaderboards = await make_channel("🏆📊・leaderboards・📊🏆", cat=info_category)
@@ -14059,6 +14069,7 @@ async def on_guild_join(guild):
             "flag_feed": flag_feed.id,
             "placed_feed": placed_feed.id,
             "pvp_intel": channel_id(pvp_intel),
+            "radar": radar_channel.id,
             "pve_help": channel_id(pve_help),
             "company_announcements": company_announcements.id
         }
@@ -14231,6 +14242,7 @@ async def setup_command(
         "economy": ["economy", "blackmarket", "shop"],
         "factions": ["factions", "faction"],
         "support": ["helpsupport", "helpdesk", "support"],
+        "radar_pings": ["radarpings", "radars", "radar", "radaralerts", "admradar", "admradarpings", "zoning", "zonepings"],
         "pve": ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"],
         "bot_updates": ["botnews", "botupdates", "updates"],
     }
@@ -14261,6 +14273,7 @@ async def setup_command(
     faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
     support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
     bot_updates_category = await ensure_category("bot_updates", "📢✨┃BOT NEWS & UPDATES┃✨📢")
+    radar_category = await ensure_category("radar_pings", "📡🟧📡┃RADAR PINGS┃📡🟧📡")
     pve_category = None
     if server_allows_pve(guild_configs[guild_id]):
         pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
@@ -14302,6 +14315,7 @@ async def setup_command(
         "flag_feed": ["flagfeed", "flags", "territoryflags", "flagactivity"],
         "placed_feed": ["placedfeed", "placements", "placed", "packed", "itemactivity"],
         "pvp_intel": ["pvpintel", "pvptips", "pvpinfo"],
+        "radar": ["radar", "radars", "radarpings", "radaralerts", "admradar", "admradarpings", "zoning", "zonepings"],
         "pve_quests": ["pvequests", "quests", "missions", "pvemissions"],
         "pve_hunting": ["pvehunting", "hunting", "animalhunts"],
         "pve_collection": ["pvecollection", "collection", "scavenger", "gathering"],
@@ -14316,7 +14330,10 @@ async def setup_command(
     def channel_matches_key(channel, key, desired_name):
         normalized = normalize_discord_name(channel.name)
         desired = normalize_discord_name(desired_name)
-        return normalized == desired
+        aliases = {normalize_discord_name(alias) for alias in channel_aliases.get(key, [])}
+        aliases.add(normalize_discord_name(key))
+        aliases.add(desired)
+        return normalized in aliases
 
     async def ensure_channel(key, name, *, cat=None, private=False):
         if not channel_key_allowed_for_server_mode(key, guild_configs[guild_id]):
@@ -14386,6 +14403,7 @@ async def setup_command(
     await ensure_channel("flag_feed", "🚩🏴・flag-feed・🏴🚩", cat=live_category, private=True)
     await ensure_channel("placed_feed", "📦🧰・placed-feed・🧰📦", cat=live_category, private=True)
     await ensure_channel("pvp_intel", "⚔️📡・pvp-intel・📡⚔️", cat=live_category)
+    await ensure_channel("radar", DEFAULT_CHANNEL_NAMES["radar"], cat=radar_category)
 
     await ensure_channel("online", "✅🎮・online-survivors・🎮✅", cat=info_category)
     await ensure_channel("leaderboards", "🏆📊・leaderboards・📊🏆", cat=info_category)
@@ -22600,7 +22618,15 @@ async def setradarchannel(ctx, channel: discord.TextChannel):
     if guild_id not in guild_configs:
         return
 
-    guild_configs[guild_id]["channels"]["radar"] = channel.id
+    radar_category = await ensure_bot_category(ctx.guild, "radar_pings")
+    desired_name = DEFAULT_CHANNEL_NAMES["radar"]
+    try:
+        if channel.name != desired_name or (radar_category and channel.category_id != radar_category.id):
+            await channel.edit(name=desired_name, category=radar_category)
+    except Exception as error:
+        print(f"[RADAR CHANNEL] Could not repair radar channel styling for {guild_id}: {error}")
+
+    guild_configs[guild_id].setdefault("channels", {})["radar"] = channel.id
 
     save_guild_configs()
 
