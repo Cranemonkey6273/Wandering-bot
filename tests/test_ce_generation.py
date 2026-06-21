@@ -265,7 +265,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual("Wreck_Mi8_Crashed", records[0]["event_child_type"])
         self.assertTrue(any("drop-style event" in message for message in warnings))
 
-    def test_airdrop_guards_are_direct_event_children(self):
+    def test_airdrop_guards_are_separate_infected_events(self):
         event = _base_event(
             32,
             "airdrop",
@@ -278,20 +278,24 @@ class AirdropEventGroupTests(unittest.TestCase):
         )
         records, _warnings = bot.console_ce_records_for_event(event)
 
-        self.assertEqual(1, len(records))
-        self.assertEqual("", records[0].get("secondary"))
+        self.assertEqual(2, len(records))
+        static_record = records[0]
+        guard_record = records[1]
+        self.assertTrue(static_record["name"].startswith("StaticWanderingBot_"))
+        self.assertTrue(guard_record["name"].startswith("InfectedWanderingBot_"))
+        self.assertEqual("", static_record.get("secondary"))
+        self.assertFalse(any(
+            child.get("type") == "ZmbM_SoldierNormal"
+            for child in static_record["child_records"]
+        ))
         self.assertTrue(any(
             child.get("type") == "ZmbM_SoldierNormal"
-            and child.get("lootmax") == 0
-            and child.get("max") == 3
-            for child in records[0]["child_records"]
+            and child.get("lootmax") == 5
+            and child.get("max") == 0
+            for child in guard_record["child_records"]
         ))
-        record, events_root, _spawns, _groups = self._build_airdrop_event_node(event)
-        self.assertEqual("", record.get("secondary"))
-        self.assertIsNone(events_root.find("event/secondary"))
-        self.assertIsNotNone(events_root.find("./event/children/child[@type='ZmbM_SoldierNormal']"))
 
-    def test_direct_airdrop_with_guard_children_validates(self):
+    def test_direct_airdrop_with_separate_guard_event_validates(self):
         event = _base_event(
             32,
             "airdrop",
@@ -301,10 +305,43 @@ class AirdropEventGroupTests(unittest.TestCase):
             guard_class="ZmbM_SoldierNormal",
             guard_count=3,
         )
-        record, events_root, spawns_root, _groups = self._build_airdrop_event_node(event)
+        records, _warnings = bot.console_ce_records_for_event(event)
+        events_root = ET.Element("events")
+        spawns_root = ET.Element("eventposdef")
+        for record in records:
+            bot.add_console_ce_event_definition(
+                events_root,
+                record["name"],
+                record.get("event_child_type") or record["class_name"],
+                record["count"],
+                record["lifetime"],
+                restock=record.get("restock", 0),
+                limit_type=record.get("limit_type") or "child",
+                child_records=record.get("child_records"),
+                nominal=record.get("nominal"),
+                min_count=record.get("min_count"),
+                max_count=record.get("max_count"),
+                saferadius=record.get("saferadius", 0),
+                distanceradius=record.get("distanceradius", 0),
+                cleanupradius=record.get("cleanupradius", 100),
+            )
+            bot.add_console_ce_event_spawn(
+                spawns_root,
+                record["name"],
+                record["x"],
+                record["z"],
+                count=record["count"],
+                radius=record.get("radius") or 45,
+            )
         proto_root = ET.Element("prototype")
-        for class_name in record.get("mapgroupproto_classes") or []:
-            bot.add_mapgroupproto_loot_group(proto_root, class_name, tags=record.get("mapgroupproto_tags"))
+        for record in records:
+            for class_name in record.get("mapgroupproto_classes") or []:
+                bot.add_mapgroupproto_loot_group(
+                    proto_root,
+                    class_name,
+                    lootmax=record.get("child_lootmax") or 80,
+                    tags=record.get("mapgroupproto_tags"),
+                )
         built = {
             "events_text": bot.xml_text_from_root(events_root),
             "spawns_text": bot.xml_text_from_root(spawns_root),
@@ -336,6 +373,40 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertIsNone(pos.get("group"))
         self.assertIsNone(groups_root.find("group"))
+
+    def test_airdrop_loot_range_controls_events_and_proto_budget(self):
+        event = _base_event(
+            26,
+            "airdrop",
+            "WoodenCrate",
+            visual_marker=True,
+            scene_type="helicopter_crash",
+            loot_preset="military_high",
+            loot_count_range="30-40",
+            loot=[f"Ammo_9x39_{index}" for index in range(40)],
+        )
+
+        record, events_root, _spawns_root, _groups_root = self._build_airdrop_event_node(event)
+
+        child = events_root.find("./event/children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual("Wreck_Mi8_Crashed", child.get("type"))
+        self.assertEqual("30", child.get("lootmin"))
+        self.assertEqual("40", child.get("lootmax"))
+        self.assertEqual(30, record.get("child_lootmin"))
+        self.assertEqual(40, record.get("child_lootmax"))
+
+        proto_root = ET.Element("prototype")
+        for class_name in record.get("mapgroupproto_classes") or []:
+            bot.add_mapgroupproto_loot_group(
+                proto_root,
+                class_name,
+                lootmax=record.get("child_lootmax") or 80,
+                tags=record.get("mapgroupproto_tags"),
+            )
+        container = proto_root.find("./group[@name='Wreck_Mi8_Crashed']/container")
+        self.assertIsNotNone(container)
+        self.assertEqual("40", container.get("lootmax"))
 
     def test_airdrop_scenes_do_not_inject_extra_vehicle_wreck_props(self):
         for scene_key in ("cargo_plane_wreck", "convoy_wreck"):
@@ -790,15 +861,18 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertNotIn("containers", categories)
         self.assertNotIn("vehicles", categories)
 
-    def test_airdrop_guard_child_does_not_need_mapgroupproto(self):
+    def test_airdrop_guard_event_does_not_need_mapgroupproto(self):
         event = _base_event(34, "airdrop", "WoodenCrate", visual_marker=True, scene_type="helicopter_crash")
         event["guard_class"] = "ZmbM_SoldierNormal"
         event["guard_count"] = 2
         records, _ = bot.console_ce_records_for_event(event)
 
+        self.assertEqual(2, len(records))
         self.assertEqual("", records[0].get("secondary"))
-        self.assertTrue(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[0]["child_records"]))
+        self.assertTrue(records[1]["name"].startswith("InfectedWanderingBot_"))
+        self.assertTrue(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[1]["child_records"]))
         self.assertNotIn("ZmbM_SoldierNormal", records[0].get("mapgroupproto_classes") or [])
+        self.assertEqual([], records[1].get("mapgroupproto_classes") or [])
 
     def test_existing_unmarked_proto_group_is_left_alone_and_managed_group_appended(self):
         proto_root = ET.Element("prototype")
@@ -1284,7 +1358,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         )
         self.assertTrue(spawns_scope_ok, spawns_scope_message)
 
-    def test_animal_pack_reuses_vanilla_animal_event_without_territory_file(self):
+    def test_animal_pack_uses_custom_event_without_touching_vanilla_animalbear(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         vanilla_events = (
@@ -1329,11 +1403,17 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         built = bot.build_console_ce_event_files(self.guild_id, config)
 
         spawns_root = ET.fromstring(built["spawns_text"])
-        managed_spawn = spawns_root.find("./event[@name='AnimalBear']")
+        vanilla_spawn = spawns_root.find("./event[@name='AnimalBear']")
+        self.assertIsNotNone(vanilla_spawn)
+        vanilla_positions = vanilla_spawn.findall("pos")
+        self.assertEqual(1, len(vanilla_positions))
+        self.assertEqual("1", vanilla_positions[0].get("x"))
+        self.assertEqual("2", vanilla_positions[0].get("z"))
+
+        managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
         self.assertIsNotNone(managed_spawn)
         positions = managed_spawn.findall("pos")
-        self.assertEqual(3, len(positions))
-        self.assertTrue(any(pos.get("x") == "1" and pos.get("z") == "2" for pos in positions))
+        self.assertEqual(2, len(positions))
         self.assertTrue(any(pos.get("x") == "5000" and pos.get("z") == "5000" for pos in positions))
         for pos in positions:
             self.assertNotIn("y", pos.attrib)
@@ -1341,22 +1421,29 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         events_root = ET.fromstring(built["events_text"])
         vanilla_bear = events_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_bear)
-        self.assertEqual("2", vanilla_bear.findtext("nominal"))
-        self.assertEqual("2", vanilla_bear.findtext("min"))
+        self.assertEqual("0", vanilla_bear.findtext("nominal"))
+        self.assertEqual("5", vanilla_bear.findtext("min"))
         self.assertEqual("8", vanilla_bear.findtext("max"))
         self.assertEqual("custom", vanilla_bear.findtext("limit"))
-        flags = vanilla_bear.find("flags")
+
+        custom_bear = events_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
+        self.assertIsNotNone(custom_bear)
+        self.assertEqual("2", custom_bear.findtext("nominal"))
+        self.assertEqual("2", custom_bear.findtext("min"))
+        self.assertEqual("2", custom_bear.findtext("max"))
+        self.assertEqual("child", custom_bear.findtext("limit"))
+        flags = custom_bear.find("flags")
         self.assertIsNotNone(flags)
         self.assertEqual("0", flags.get("deletable"))
         self.assertEqual("1", flags.get("remove_damaged"))
-        child = vanilla_bear.find("children/child")
+        child = custom_bear.find("children/child")
         self.assertIsNotNone(child)
         self.assertEqual("Animal_UrsusArctos", child.get("type"))
         self.assertEqual("1", child.get("min"))
         self.assertEqual("1", child.get("max"))
         self.assertFalse("HerdWanderingBot" in built["events_text"])
-        self.assertNotIn("AnimalWanderingBot_animal_bear", built["events_text"])
-        self.assertNotIn("AnimalWanderingBot_animal_bear", built["spawns_text"])
+        self.assertIn("AnimalWanderingBot_animal_bear", built["events_text"])
+        self.assertIn("AnimalWanderingBot_animal_bear", built["spawns_text"])
         self.assertEqual("", built.get("cfgenvironment_text"))
         self.assertEqual([], built.get("animal_territory_files") or [])
         ok, messages = bot.validate_console_ce_xml_bundle(built)
@@ -1364,7 +1451,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
         self.assertTrue(scope_ok, "\n".join(scope_messages))
 
-    def test_animal_pack_validation_rejects_custom_animal_event_without_territory_file(self):
+    def test_animal_pack_validation_allows_custom_animal_event_without_territory_file(self):
         event_name = "AnimalWanderingBot_animal_bear"
         built = {
             "map_key": "livonia",
@@ -1386,8 +1473,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         ok, messages = bot.validate_console_ce_xml_bundle(built)
 
-        self.assertFalse(ok)
-        self.assertTrue(any("custom animal event" in message for message in messages), messages)
+        self.assertTrue(ok, "\n".join(messages))
 
 
 if __name__ == "__main__":

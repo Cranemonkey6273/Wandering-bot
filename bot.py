@@ -28802,6 +28802,14 @@ SCENARIO_LOOT_PRESETS = {
     "vehicle_car": ["SparkPlug", "CarBattery", "CarRadiator", "CanisterGasoline", "TireRepairKit", "Blowtorch"],
     "vehicle_truck": ["NailBox", "MetalPlate", "WoodenPlank", "Hammer", "Hatchet", "Handsaw", "CanisterGasoline"],
 }
+SCENARIO_LOOT_COUNT_RANGES = {
+    "default": (0, 0),
+    "1-10": (1, 10),
+    "10-20": (10, 20),
+    "20-30": (20, 30),
+    "30-40": (30, 40),
+    "40-60": (40, 60),
+}
 
 SCENARIO_VEHICLE_PRESETS = {
     "ada": {"label": "Ada 4x4", "class": "OffroadHatchback"},
@@ -31145,28 +31153,93 @@ def scenario_airdrop_child_offsets(index, radius=35, max_spread=None):
     return (math.cos(angle) * distance, math.sin(angle) * distance)
 
 
+def scenario_ce_loot_budget(event, default_max=15):
+    explicit_max = safe_int((event or {}).get("lootmax"), 0)
+    explicit_min = safe_int((event or {}).get("lootmin"), 0)
+    if explicit_max > 0:
+        lootmax = max(1, min(80, explicit_max))
+        return max(0, min(lootmax, explicit_min or max(1, lootmax // 2))), lootmax
+
+    range_key = str((event or {}).get("loot_count_range") or "default").strip()
+    min_count, max_count = SCENARIO_LOOT_COUNT_RANGES.get(range_key, SCENARIO_LOOT_COUNT_RANGES["default"])
+    if max_count > 0:
+        return max(0, min_count), max(1, min(80, max_count))
+
+    resolved_loot = scenario_loot_items(event)
+    if (event or {}).get("loot") and resolved_loot:
+        lootmax = max(1, min(80, len(resolved_loot)))
+        return max(1, min(lootmax, lootmax // 2)), lootmax
+
+    lootmax = max(1, min(80, safe_int(default_max, 15)))
+    return max(1, min(lootmax, lootmax // 2)), lootmax
+
+
+def scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius):
+    guard_class = str((event or {}).get("guard_class") or "").strip()
+    if not guard_class:
+        return None, ""
+    if not guard_class.startswith(("ZmbM_", "ZmbF_")):
+        return None, f"`{(event or {}).get('id')}` guard classname `{guard_class}` is not an infected `ZmbM_`/`ZmbF_` class."
+
+    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0))
+    if guard_count <= 0:
+        return None, ""
+
+    guard_radius = max(5, min(500, safe_int((event or {}).get("guard_radius"), (event or {}).get("radius") or 35)))
+    record = {
+        "name": ce_event_name(event or {}, suffix="guards", family="Infected"),
+        "source_id": (event or {}).get("id"),
+        "event_type": "zombie_horde",
+        "class_name": guard_class,
+        "event_child_type": guard_class,
+        "count": guard_count,
+        "lifetime": max(180, min(3888000, safe_int(lifetime, 1800))),
+        "x": (event or {}).get("x"),
+        "y": (event or {}).get("y"),
+        "z": (event or {}).get("z"),
+        "radius": guard_radius,
+        "use_eventgroup": False,
+        "limit_type": "custom",
+        "child_lootmin": 0,
+        "child_lootmax": 5,
+        "child_records": [{
+            "type": guard_class,
+            "count": guard_count,
+            "min": guard_count,
+            "max": 0,
+            "lootmin": 0,
+            "lootmax": 5,
+        }],
+        "secondary": "",
+        "eventgroup_children": None,
+        "empty_event_children": False,
+        "nominal": guard_count,
+        "min_count": guard_count,
+        "max_count": guard_count,
+        "restock": max(0, min(3888000, safe_int(restock, 0))),
+        "saferadius": max(0, min(5000, safe_int(saferadius, 0))),
+        "distanceradius": 0,
+        "cleanupradius": max(0, min(30000, safe_int(cleanupradius, 100))),
+        "start_speed": scenario_start_speed_key(event or {}),
+        "visual_marker": False,
+        "scene_clearance_radius": 0,
+        "remove_damaged": False,
+        "deletable": True,
+        "stable_definition": False,
+        "use_existing_definition": False,
+        "patch_existing_definition": False,
+        "mapgroupproto_classes": [],
+        "mapgroupproto_tags": {},
+    }
+    return record, ""
+
+
 def scenario_airdrop_eventgroup_children(event, class_name):
     children = []
 
     scene = scenario_airdrop_scene_config(event)
     marker_class = scenario_airdrop_anchor_class(event, class_name)
-    loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
-    loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
-    guard_class = str(event.get("guard_class") or "").strip()
-    guard_count = ce_event_nominal_count(event, event.get("guard_count", 0)) if guard_class else 0
-    guard_radius = max(5, min(500, safe_int(event.get("guard_radius"), event.get("radius") or 35)))
-
-    def append_guard_children():
-        for index in range(max(0, min(80, guard_count))):
-            guard_x, guard_z = scenario_airdrop_child_offsets(index, guard_radius, max_spread=guard_radius)
-            children.append({
-                "type": guard_class,
-                "spawnsecondary": "false",
-                "x": ce_decimal(guard_x),
-                "z": ce_decimal(guard_z),
-                "a": "0.0",
-                "y": "0.0",
-            })
+    loot_min, loot_count = scenario_ce_loot_budget(event)
 
     if event.get("visual_marker") and marker_class:
         children.append({
@@ -31189,7 +31262,6 @@ def scenario_airdrop_eventgroup_children(event, class_name):
                 "z": scene_prop["z"],
                 "a": scene_prop["a"],
             })
-        append_guard_children()
         return children
 
     crate_x, crate_z = scene.get("crate_offset") or ("4.6", "-3.2")
@@ -31206,15 +31278,13 @@ def scenario_airdrop_eventgroup_children(event, class_name):
         "lootmin": 0,
         "lootmax": 0,
     })
-    append_guard_children()
     return children
 
 
 def scenario_airdrop_direct_child_records(event, class_name):
     marker_class = scenario_airdrop_anchor_class(event, class_name)
-    loot_count = max(1, min(80, safe_int(event.get("lootmax"), 15)))
-    loot_min = max(0, min(loot_count, safe_int(event.get("lootmin"), max(1, loot_count // 2))))
-    records = [{
+    loot_min, loot_count = scenario_ce_loot_budget(event)
+    return [{
         "type": marker_class,
         "count": 1,
         "min": 1,
@@ -31222,18 +31292,6 @@ def scenario_airdrop_direct_child_records(event, class_name):
         "lootmin": loot_min,
         "lootmax": loot_count,
     }]
-    guard_class = str((event or {}).get("guard_class") or "").strip()
-    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0)) if guard_class else 0
-    if guard_class and guard_count > 0:
-        records.append({
-            "type": guard_class,
-            "count": guard_count,
-            "min": guard_count,
-            "max": guard_count,
-            "lootmin": 0,
-            "lootmax": 0,
-        })
-    return records
 
 
 def scenario_airdrop_uses_eventgroup(event):
@@ -31245,8 +31303,8 @@ def scenario_airdrop_uses_eventgroup(event):
 
 
 def scenario_airdrop_secondary_infected(event):
-    # Guard hordes are emitted as direct event children so events.xml and
-    # cfgeventspawns.xml stay in the same simple fixed-event shape.
+    # Guard hordes are emitted as separate Infected CE events. Keeping them
+    # out of the Static airdrop child list avoids mixed-family spawn failures.
     return ""
 
 
@@ -32867,6 +32925,7 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type in {"airdrop", "loot_crate"}:
         family = "Static"
         use_eventgroup = scenario_airdrop_uses_eventgroup(event)
+        child_lootmin, child_lootmax = scenario_ce_loot_budget(event)
         eventgroup_children = scenario_airdrop_eventgroup_children(event, class_name) if use_eventgroup else None
         if eventgroup_children:
             blocked_group_children = scenario_blocked_vehicle_classes(
@@ -32899,7 +32958,6 @@ def console_ce_records_for_event(event, map_key=""):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
         family = "Animal"
-        event_name_override = vanilla_animal_ce_event_name(class_name)
         limit_type = "child"
         child_records = [{
             "type": class_name,
@@ -33019,19 +33077,21 @@ def console_ce_records_for_event(event, map_key=""):
         )
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
-        if event_name_override:
-            warnings.append(
-                f"`{event.get('id')}` reuses vanilla animal CE event `{record_name}` with fixed "
-                "cfgeventspawns.xml positions, avoiding custom herd-template requirements."
-            )
-        else:
-            warnings.append(
-                f"`{event.get('id')}` creates custom animal CE event `{record_name}` with real animal children "
-                "and fixed cfgeventspawns.xml positions."
-            )
+        warnings.append(
+            f"`{event.get('id')}` creates custom animal CE event `{record_name}` with real animal children "
+            "and fixed cfgeventspawns.xml positions."
+        )
     records.append(record)
 
     if event_type == "airdrop":
+        guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
+        if guard_warning:
+            warnings.append(guard_warning)
+        if guard_record:
+            records.append(guard_record)
+            warnings.append(
+                f"`{event.get('id')}` creates infected guard event `{guard_record['name']}` separate from the Static airdrop loot event."
+            )
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
@@ -33612,6 +33672,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 _, created = add_mapgroupproto_loot_group(
                     mapgroupproto_root,
                     proto_class,
+                    lootmax=record.get("child_lootmax") or 80,
                     tags=record.get("mapgroupproto_tags") if proto_class == record["class_name"] else {},
                     map_key=ce_map_key,
                 )
@@ -33798,15 +33859,6 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             messages.append(
                 f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
             )
-        if (
-            name.startswith("Animal")
-            and CONSOLE_CE_EVENT_MARKER in name
-            and name not in territory_event_names
-        ):
-            messages.append(
-                f"`{name}` is a custom animal event without a matching herd/territory template. "
-                "Use vanilla `AnimalBear`/`AnimalWolf` style events for fixed bear or wolf spawns."
-            )
         if (event_node.findtext("position") or "").strip() != "fixed":
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
@@ -33866,6 +33918,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             and not spawn_node.findall("zone")
             and not has_group_pos
             and not is_animal_territory_event
+            and not name.startswith("Animal")
         ):
             messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")
 
