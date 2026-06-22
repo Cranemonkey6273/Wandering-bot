@@ -1701,10 +1701,26 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIsNotNone(child)
         self.assertEqual("Animal_UrsusArctos", child.get("type"))
         self.assertEqual("1", child.get("max"))
-        self.assertEqual("", built.get("cfgenvironment_text"))
-        self.assertEqual([], built.get("animal_territory_files") or [])
+        env_root = ET.fromstring(built["cfgenvironment_text"])
+        herd = env_root.find(".//territory[@type='Herd'][@name='HerdWanderingBot_animal_bear']")
+        self.assertIsNotNone(herd)
+        self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
+        territory_files = built.get("animal_territory_files") or []
+        self.assertEqual(1, len(territory_files))
+        self.assertEqual(["AnimalWanderingBot_animal_bear"], territory_files[0].get("event_names"))
+        territory_root = ET.fromstring(territory_files[0]["text"])
+        zone = territory_root.find(".//zone")
+        self.assertIsNotNone(zone)
+        self.assertEqual("HuntingGround", zone.get("name"))
+        self.assertEqual("2", zone.get("dmin"))
+        self.assertEqual("2", zone.get("dmax"))
+        self.assertEqual("5000", zone.get("x"))
+        self.assertEqual("5000", zone.get("z"))
         self.assertTrue(
-            any("creates custom animal event `AnimalWanderingBot_animal_bear`" in str(message) for message in built.get("messages", [])),
+            any(
+                "creates custom animal event `AnimalWanderingBot_animal_bear` with matching Herd template `HerdWanderingBot_animal_bear`" in str(message)
+                for message in built.get("messages", [])
+            ),
             built.get("messages", []),
         )
         ok, messages = bot.validate_console_ce_xml_bundle(built)
@@ -1712,7 +1728,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
         self.assertTrue(scope_ok, "\n".join(scope_messages))
 
-    def test_animal_pack_validation_allows_custom_event_with_spawn_positions(self):
+    def test_animal_pack_validation_rejects_custom_event_missing_herd_template(self):
         event_name = "AnimalWanderingBot_animal_bear"
         built = {
             "map_key": "livonia",
@@ -1734,7 +1750,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         ok, messages = bot.validate_console_ce_xml_bundle(built)
 
-        self.assertTrue(ok, "\n".join(messages))
+        self.assertFalse(ok)
+        self.assertIn(
+            "`AnimalWanderingBot_animal_bear` is a custom animal event but is missing matching Herd template `HerdWanderingBot_animal_bear` in `cfgenvironment.xml`.",
+            messages,
+        )
 
 
 if __name__ == "__main__":

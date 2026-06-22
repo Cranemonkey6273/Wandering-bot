@@ -33171,11 +33171,15 @@ def animal_territory_profile(class_name):
 def animal_territory_name_for_event(event_name):
     event_name = str(event_name or "").strip()
     if event_name.startswith("Animal") and len(event_name) > len("Animal"):
-        return event_name[len("Animal"):]
+        return f"Herd{event_name[len('Animal'):]}"
     key = ce_file_slug(event_name) or "animal"
     if not key.startswith("wanderingbot"):
         key = f"wanderingbot_{key}"
-    return key
+    if key == "wanderingbot":
+        return "HerdWanderingBot"
+    if key.startswith("wanderingbot_"):
+        return f"HerdWanderingBot_{key[len('wanderingbot_'):]}"
+    return f"Herd{key[:1].upper()}{key[1:]}"
 
 
 def remote_mission_base_from_ce_paths(built):
@@ -33654,9 +33658,20 @@ def console_ce_records_for_event(event, map_key=""):
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
     if event_type == "animal_pack":
-        record.update({"nominal": count, "min_count": count, "max_count": count})
+        profile = animal_territory_profile(class_name)
+        record.update({
+            "nominal": count,
+            "min_count": count,
+            "max_count": count,
+            "animal_territory": True,
+            "territory_name": animal_territory_name_for_event(record_name),
+            "animal_behavior": profile.get("behavior"),
+            "territory_zone": profile.get("zone"),
+            "territory_color": profile.get("color"),
+            "territory_file_key": record_name,
+        })
         warnings.append(
-            f"`{event.get('id')}` creates custom animal event `{record_name}` with fixed cfgeventspawns.xml positions."
+            f"`{event.get('id')}` creates custom animal event `{record_name}` with matching Herd template `{record['territory_name']}`."
         )
     records.append(record)
 
@@ -34569,6 +34584,12 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 child_max = 0
             if child_max <= 0 and not (name.startswith("Infected") and limit_text == "custom"):
                 messages.append(f"`{name}` has a child with `max` 0, so CE will disable or ignore the event.")
+        if name.startswith("Animal") and name not in VANILLA_ANIMAL_CE_EVENT_NAMES:
+            territory_name = animal_territory_name_for_event(name)
+            if name not in territory_event_names or territory_name not in environment_herd_names:
+                messages.append(
+                    f"`{name}` is a custom animal event but is missing matching Herd template `{territory_name}` in `cfgenvironment.xml`."
+                )
         generated_events[name] = event_node
 
     generated_spawns = {
