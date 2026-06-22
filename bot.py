@@ -33348,31 +33348,37 @@ def animal_territory_environment_path(record):
 def animal_territory_group_key(record):
     profile = animal_territory_profile(record.get("class_name"))
     species = normalize_discord_name(profile.get("species") or record.get("class_name") or "animal")
-    behavior = normalize_discord_name(profile.get("behavior") or record.get("animal_behavior") or "animal")
-    return f"{species}_{behavior}"[:60] or "animal"
+    if species and species != "animal":
+        return f"animal_{species}"[:60]
+    class_key = ce_file_slug(record.get("class_name") or "animal")
+    return f"animal_{class_key}"[:60] or "animal"
 
 
 def group_animal_territory_records(records):
     groups = {}
     for record in records:
-        key = ce_file_slug(record.get("territory_file_key") or record.get("territory_name") or record.get("name") or animal_territory_group_key(record))
+        key = ce_file_slug(record.get("territory_file_key") or animal_territory_group_key(record))
         if key.startswith("wanderingbot"):
             key = re.sub(r"^wanderingbot_?", "", key)
         if key.startswith("animal") and not key.startswith("animal_") and len(key) > len("animal"):
             key = f"animal_{key[len('animal'):]}"
         elif not key.startswith("animal_"):
             key = f"animal_{key}"
+        territory_name = record.get("territory_name") or animal_territory_name_for_event(record.get("name"))
         group = groups.setdefault(key, {
             "territory_file_key": key,
-            "territory_name": record.get("territory_name") or f"WanderingBot_{key}",
+            "territory_name": territory_name,
             "animal_behavior": record.get("animal_behavior"),
             "territory_zone": record.get("territory_zone"),
             "territory_color": record.get("territory_color"),
             "records": [],
             "event_names": [],
+            "territory_names": [],
         })
         group["records"].append(record)
         group["event_names"].append(str(record.get("name") or ""))
+        if territory_name and territory_name not in group["territory_names"]:
+            group["territory_names"].append(territory_name)
     return list(groups.values())
 
 
@@ -33413,24 +33419,30 @@ def add_animal_environment_entry(root, record):
     file_path = animal_territory_environment_path(record)
     append_wandering_xml_comment(territories, f"managed animal territory file {file_path}")
     ET.SubElement(territories, "file", {"path": file_path})
-    append_wandering_xml_comment(territories, f"managed animal territory {record.get('territory_name') or record.get('name')}")
-    territory_node = ET.SubElement(territories, "territory", {
-        "type": "Herd",
-        "name": str(record.get("territory_name") or record.get("name")),
-        "behavior": str(record.get("animal_behavior") or "DZDeerGroupBeh"),
-    })
-    ET.SubElement(territory_node, "file", {"usable": usable})
     records = record.get("records") if isinstance(record.get("records"), list) else [record]
     count = sum(max(1, int(item.get("count") or 1)) for item in records)
     radius = max([max(2, int(item.get("radius") or 20)) for item in records] or [20])
-    for name, value in (
-        ("globalCountMax", max(count, 1)),
-        ("zoneCountMin", count),
-        ("zoneCountMax", count),
-        ("playerSpawnRadiusNear", 1),
-        ("playerSpawnRadiusFar", radius),
-    ):
-        ET.SubElement(territory_node, "item", {"name": name, "val": str(int(value))})
+    territory_names = record.get("territory_names") if isinstance(record.get("territory_names"), list) else []
+    if not territory_names:
+        territory_names = [record.get("territory_name") or record.get("name")]
+    for territory_name in territory_names:
+        if not str(territory_name or "").strip():
+            continue
+        append_wandering_xml_comment(territories, f"managed animal territory {territory_name}")
+        territory_node = ET.SubElement(territories, "territory", {
+            "type": "Herd",
+            "name": str(territory_name),
+            "behavior": str(record.get("animal_behavior") or "DZDeerGroupBeh"),
+        })
+        ET.SubElement(territory_node, "file", {"usable": usable})
+        for name, value in (
+            ("globalCountMax", max(count, 1)),
+            ("zoneCountMin", count),
+            ("zoneCountMax", count),
+            ("playerSpawnRadiusNear", 1),
+            ("playerSpawnRadiusFar", radius),
+        ):
+            ET.SubElement(territory_node, "item", {"name": name, "val": str(int(value))})
 
 
 def build_animal_territory_text(record):
@@ -33806,7 +33818,7 @@ def console_ce_records_for_event(event, map_key=""):
             "animal_behavior": profile.get("behavior"),
             "territory_zone": profile.get("zone"),
             "territory_color": profile.get("color"),
-            "territory_file_key": record_name,
+            "territory_file_key": animal_territory_group_key(record),
         })
         warnings.append(
             f"`{event.get('id')}` creates custom animal event `{record_name}` with matching Herd template `{record['territory_name']}`."
