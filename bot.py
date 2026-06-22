@@ -29972,6 +29972,100 @@ def discover_console_ce_mission_bases(config, guild_id):
     return bases
 
 
+def console_ce_discovery_roots(config, guild_id):
+    roots = []
+
+    def add(root):
+        root = canonical_remote_path(root)
+        if root and root not in roots:
+            roots.append(root)
+
+    for root in mission_root_candidates_for_config(config, guild_id):
+        add(root)
+
+    configured_mission = str(config.get("active_mission_dir") or "").strip().strip("/")
+    if configured_mission:
+        if "/" in configured_mission:
+            add(configured_mission)
+        else:
+            for root in mission_root_candidates_for_config(config, guild_id):
+                add(f"{root}/{configured_mission}")
+
+    for base in discover_console_ce_mission_bases(config, guild_id):
+        add(base)
+
+    for root in init_search_roots(config):
+        add(root)
+
+    return roots
+
+
+def console_ce_discovered_path_matches_key(guild_id, key, path):
+    clean = canonical_remote_path(path)
+    if not clean or not console_ce_path_matches_selected_map(guild_id, clean):
+        return False
+    suffix = console_ce_path_suffix(key).lower()
+    clean_lower = clean.lower()
+    if clean_lower.endswith("/" + suffix):
+        return True
+    if "/" in suffix:
+        return False
+    return os.path.basename(clean_lower) == suffix
+
+
+def discover_console_ce_file_paths(config, guild_id, key, max_roots=36, timeout_seconds=5):
+    file_name = os.path.basename(console_ce_path_suffix(key))
+    if not file_name:
+        return []
+
+    found = []
+
+    def add(path):
+        if not console_ce_discovered_path_matches_key(guild_id, key, path):
+            return
+        clean = strip_nitrado_noftp_prefix(config, path)
+        if clean and clean not in found:
+            found.append(clean)
+
+    roots = console_ce_discovery_roots(config, guild_id)
+    headers = nitrado_api_headers(config)
+    url = nitrado_api_service_url(config, "list")
+    if headers and url:
+        for root in roots[:max_roots]:
+            for api_root in nitrado_api_file_path_candidates(config, root):
+                try:
+                    response = requests.get(
+                        url,
+                        headers=headers,
+                        params={"dir": api_root, "search": f"*{file_name}*"},
+                        timeout=timeout_seconds,
+                    )
+                    if response.status_code != 200:
+                        continue
+                    data = response.json()
+                    for entry in data.get("data", {}).get("entries", []):
+                        path = entry.get("path")
+                        name = str(entry.get("name") or "").strip()
+                        if path:
+                            add(path)
+                        elif name.lower() == file_name.lower():
+                            add(f"{root.rstrip('/')}/{name}")
+                except Exception:
+                    continue
+
+    if found:
+        return found
+
+    for root in roots[:max_roots]:
+        for entry in remote_directory_entries(config, root, timeout_seconds=timeout_seconds):
+            path = entry.get("path")
+            name = str(entry.get("name") or os.path.basename(str(path or ""))).strip()
+            if name.lower() == file_name.lower():
+                add(path or f"{root.rstrip('/')}/{name}")
+
+    return found
+
+
 def compact_ce_download_message(message, limit=280):
     text = re.sub(r"\s+", " ", str(message or "")).strip()
     if "Just a moment" in text or "<!DOCTYPE html" in text:
@@ -30038,6 +30132,8 @@ def console_ce_path_candidates(config, guild_id, key, requested_path="", configu
 
     suffix = console_ce_path_suffix(key)
     if include_discovery:
+        for discovered_path in discover_console_ce_file_paths(config, guild_id, key):
+            add(discovered_path)
         for base in discover_console_ce_mission_bases(config, guild_id):
             add(f"{base}/{suffix}")
 
@@ -31657,14 +31753,14 @@ def scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupr
         "z": (event or {}).get("z"),
         "radius": guard_radius,
         "use_eventgroup": False,
-        "limit_type": "custom",
+        "limit_type": "child",
         "child_lootmin": 0,
         "child_lootmax": 5,
         "child_records": [{
             "type": guard_class,
             "count": guard_count,
             "min": guard_count,
-            "max": 0,
+            "max": guard_count,
             "lootmin": 0,
             "lootmax": 5,
         }],
@@ -33368,7 +33464,7 @@ def console_ce_records_for_event(event, map_key=""):
     child_lootmax = 0
     if event_type == "zombie_horde":
         family = "Infected"
-        limit_type = "custom"
+        limit_type = "child"
         child_lootmax = 5
         mix = event.get("zombie_mix")
         if isinstance(mix, list):
@@ -33384,7 +33480,7 @@ def console_ce_records_for_event(event, map_key=""):
                         "type": child_class,
                         "count": child_count,
                         "min": child_count,
-                        "max": 0,
+                        "max": child_count,
                         "lootmin": 0,
                         "lootmax": 5,
                     })
@@ -33398,7 +33494,7 @@ def console_ce_records_for_event(event, map_key=""):
                 "type": class_name,
                 "count": count,
                 "min": count,
-                "max": 0,
+                "max": count,
                 "lootmin": 0,
                 "lootmax": 5,
             }]
@@ -33438,13 +33534,6 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type == "animal_pack":
         if not class_name.startswith("Animal_"):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
-            return records, warnings
-        event_name_override = vanilla_animal_ce_event_name(class_name)
-        if not event_name_override:
-            warnings.append(
-                f"`{event.get('id')}` animal pack uses `{class_name}`, but WanderingBot cannot map that class to a vanilla "
-                "Animal CE event/herd template. Skipped to avoid DayZ rejecting it with a missing AI Template error."
-            )
             return records, warnings
         family = "Animal"
         limit_type = "child"
@@ -33567,8 +33656,7 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type == "animal_pack":
         record.update({"nominal": count, "min_count": count, "max_count": count})
         warnings.append(
-            f"`{event.get('id')}` reuses vanilla animal CE event `{record_name}` with fixed cfgeventspawns.xml positions "
-            "so DayZ uses the built-in herd template."
+            f"`{event.get('id')}` creates custom animal event `{record_name}` with fixed cfgeventspawns.xml positions."
         )
     records.append(record)
 
@@ -34457,18 +34545,6 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             messages.append(f"`{name}` uses `<limit>mixed</limit>`, which is only allowed for vehicle CE events.")
         if (event_node.findtext("active") or "").strip() != "1":
             messages.append(f"`{name}` is not active.")
-        if (
-            name.startswith("Animal")
-            and is_wandering_managed_name(name)
-            and name not in VANILLA_ANIMAL_CE_EVENT_NAMES
-            and name not in territory_event_names
-        ):
-            territory_name = animal_territory_name_for_event(name)
-            if territory_name not in environment_herd_names:
-                messages.append(
-                    f"`{name}` is a custom animal event but is missing Herd territory `{territory_name}` in `cfgenvironment.xml`; "
-                    "use the vanilla AnimalBear/AnimalWolf event or generate a matching animal territory file."
-                )
         children = event_node.find("children")
         child_nodes = list(children.findall("child")) if children is not None else []
         if not child_nodes and not name.startswith("Static"):

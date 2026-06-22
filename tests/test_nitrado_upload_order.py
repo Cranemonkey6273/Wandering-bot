@@ -33,6 +33,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_restore = bot.restore_remote_ce_file_from_latest_backup
         self.original_download_ftp = bot.download_text_file_from_nitrado_ftp
         self.original_download = bot.download_text_file_from_nitrado
+        self.original_discover_ce_file_paths = bot.discover_console_ce_file_paths
         self.original_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
         self.calls = []
@@ -47,6 +48,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.restore_remote_ce_file_from_latest_backup = self.original_restore
         bot.download_text_file_from_nitrado_ftp = self.original_download_ftp
         bot.download_text_file_from_nitrado = self.original_download
+        bot.discover_console_ce_file_paths = self.original_discover_ce_file_paths
         bot.upload_ce_latest_backup_to_nitrado = self.original_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
 
@@ -704,6 +706,39 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertFalse(bot.native_ce_upload_blocked_messages(messages))
         self.assertNotIn("mapgroupproto.xml", bot.native_ce_failed_status_text(messages))
+
+    def test_console_ce_source_download_uses_discovered_ce_file_path(self):
+        guild_id = "livonia-ce-discovery"
+        discovered_path = "/dayzxb_missions/custom/dayzOffline.enoch/mapgroupproto.xml"
+        previous_config = bot.guild_configs.get(guild_id)
+
+        def fake_discover(_config, wanted_guild_id, key):
+            self.assertEqual(guild_id, wanted_guild_id)
+            self.assertEqual("mapgroupproto_path", key)
+            return [discovered_path]
+
+        def fake_download(_config, path):
+            self.calls.append(path)
+            if path == discovered_path:
+                return True, "Downloaded discovered live mapgroupproto.xml.", "<map></map>"
+            return False, "missing", None
+
+        try:
+            bot.guild_configs[guild_id] = {"server_map": "livonia", "server_platform": "xbox"}
+            bot.discover_console_ce_file_paths = fake_discover
+            bot.download_text_file_from_nitrado = fake_download
+
+            text, path, message = bot.download_console_ce_source({}, guild_id, "mapgroupproto_path")
+
+            self.assertEqual("<map></map>", text)
+            self.assertEqual(discovered_path, path)
+            self.assertIn("Downloaded discovered", message)
+            self.assertIn(discovered_path, self.calls)
+        finally:
+            if previous_config is None:
+                bot.guild_configs.pop(guild_id, None)
+            else:
+                bot.guild_configs[guild_id] = previous_config
 
 
 if __name__ == "__main__":
