@@ -33341,6 +33341,10 @@ def animal_territory_usable_name(record):
     return os.path.splitext(animal_territory_file_name(record))[0]
 
 
+def animal_territory_environment_path(record):
+    return f"$mission:env/{animal_territory_file_name(record)}"
+
+
 def animal_territory_group_key(record):
     profile = animal_territory_profile(record.get("class_name"))
     species = normalize_discord_name(profile.get("species") or record.get("class_name") or "animal")
@@ -33406,7 +33410,7 @@ def add_animal_environment_entry(root, record):
         territories = ET.SubElement(root, "territories")
 
     usable = animal_territory_usable_name(record)
-    file_path = f"env/{animal_territory_file_name(record)}"
+    file_path = animal_territory_environment_path(record)
     append_wandering_xml_comment(territories, f"managed animal territory file {file_path}")
     ET.SubElement(territories, "file", {"path": file_path})
     append_wandering_xml_comment(territories, f"managed animal territory {record.get('territory_name') or record.get('name')}")
@@ -34966,7 +34970,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             for territory_file in territory_files:
                 path = str(territory_file.get("path") or "")
                 file_name = os.path.basename(path).lower()
-                expected_path = f"env/{file_name}"
+                expected_path = f"$mission:env/{file_name}"
                 usable = os.path.splitext(file_name)[0]
                 if expected_path not in env_paths:
                     messages.append(f"`cfgenvironment.xml` is missing `<file path=\"{expected_path}\" />`.")

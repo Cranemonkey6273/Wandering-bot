@@ -1764,6 +1764,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual("Animal_UrsusArctos", child.get("type"))
         self.assertEqual("1", child.get("max"))
         env_root = ET.fromstring(built["cfgenvironment_text"])
+        territory_files_node = env_root.find("territories")
+        env_file = territory_files_node.find("file") if territory_files_node is not None else None
+        self.assertIsNotNone(env_file)
+        self.assertTrue(str(env_file.get("path") or "").startswith("$mission:env/"))
+        self.assertNotEqual("env/", str(env_file.get("path") or "")[:4])
         herd = env_root.find(".//territory[@type='Herd'][@name='HerdWanderingBot_animal_bear']")
         self.assertIsNotNone(herd)
         self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
