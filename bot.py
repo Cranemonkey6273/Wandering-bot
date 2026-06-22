@@ -30159,6 +30159,7 @@ def console_ce_event_config(config):
     settings.setdefault("types_path", "")
     settings.setdefault("spawnabletypes_path", "")
     settings.setdefault("cfgenvironment_path", "")
+    settings.setdefault("zombie_territories_path", "")
     settings.setdefault("cfgareaeffects_path", "")
     settings.setdefault("cfgeffectarea_path", "")
     settings.setdefault("cfggameplay_path", "")
@@ -30178,6 +30179,7 @@ def clear_console_ce_path_cache(config):
         "types_path",
         "spawnabletypes_path",
         "cfgenvironment_path",
+        "zombie_territories_path",
         "cfgareaeffects_path",
         "cfgeffectarea_path",
     ):
@@ -31785,6 +31787,7 @@ def scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupr
         "mapgroupproto_classes": [],
         "mapgroupproto_tags": {},
     }
+    apply_zombie_territory_fields(record, event)
     return record, ""
 
 
@@ -33168,6 +33171,132 @@ def animal_territory_profile(class_name):
     }
 
 
+ZOMBIE_TERRITORY_FILE_NAME = "zombie_territories.xml"
+
+
+def zombie_territory_zone_name(class_name="", event=None):
+    text = normalize_discord_name(
+        " ".join(
+            str(value or "")
+            for value in (
+                class_name,
+                (event or {}).get("preset") if isinstance(event, dict) else "",
+                (event or {}).get("spawn_type") if isinstance(event, dict) else "",
+            )
+        )
+    )
+    if any(token in text for token in ("army", "military", "soldier", "usmc")):
+        return "InfectedArmy"
+    if "police" in text:
+        return "InfectedPolice"
+    if any(token in text for token in ("doctor", "medical", "medic", "nurse", "paramedic")):
+        return "InfectedMedic"
+    if "firefighter" in text or "fire" in text:
+        return "InfectedFirefighter"
+    if "prison" in text:
+        return "InfectedPrisoner"
+    if any(token in text for token in ("religious", "priest")):
+        return "InfectedReligious"
+    if any(token in text for token in ("industrial", "worker", "construction", "mechanic")):
+        return "InfectedIndustrial"
+    if any(token in text for token in ("solitude", "hermit")):
+        return "InfectedSolitude"
+    if any(token in text for token in ("village", "villager")):
+        return "InfectedVillage"
+    return "InfectedCity"
+
+
+def zombie_territories_remote_path(guild_id, mission_base=""):
+    if mission_base:
+        return canonical_remote_path(f"{mission_base}/env/{ZOMBIE_TERRITORY_FILE_NAME}")
+    env_path = console_ce_default_paths(guild_id).get("cfgenvironment_path", "")
+    base = canonical_remote_path(env_path).removesuffix("/cfgenvironment.xml")
+    return canonical_remote_path(f"{base}/env/{ZOMBIE_TERRITORY_FILE_NAME}")
+
+
+def download_console_zombie_territories_source(config, guild_id, mission_base=""):
+    target_path = zombie_territories_remote_path(guild_id, mission_base)
+    attempted = []
+    for candidate_path in [target_path]:
+        ok, message, text = download_text_file_from_nitrado(config, candidate_path)
+        attempted.append((candidate_path, message))
+        if ok and text:
+            remember_console_ce_mission_base(config, guild_id, candidate_path)
+            return text, candidate_path, message
+        if console_ce_download_message_is_rate_limited(message):
+            break
+    message = (
+        console_ce_download_failure_message(guild_id, "zombie_territories_path", attempted)
+        if attempted
+        else f"{target_path}: no path candidates were available"
+    )
+    reference_text = load_dayz_reference_text(server_map_key(guild_id), "env", ZOMBIE_TERRITORY_FILE_NAME)
+    if reference_text:
+        return reference_text, target_path, f"{message} Using bundled vanilla reference as fallback."
+    return "<territory-type></territory-type>\n", target_path, f"{message} No bundled reference was found, so a minimal template was used."
+
+
+def apply_zombie_territory_fields(record, event=None):
+    if not isinstance(record, dict):
+        return record
+    count = max(1, min(250, safe_int(record.get("count"), 1)))
+    radius = max(1, min(500, safe_int(record.get("radius"), 45)))
+    record.update({
+        "zombie_territory": True,
+        "zombie_territory_name": zombie_territory_zone_name(record.get("class_name"), event),
+        "skip_definition": True,
+        "skip_spawn": True,
+        "count": count,
+        "min_count": count,
+        "max_count": count,
+        "radius": radius,
+    })
+    return record
+
+
+def remove_wandering_zombie_territory_zones(root):
+    removed_zones = 0
+    removed_comments = 0
+    for territory in root.findall("territory"):
+        remove_next_zone = False
+        for child in list(territory):
+            if is_xml_comment_node(child):
+                text = str(child.text or "").strip().lower()
+                if "wandering bot:" in text and "managed zombie territory zone" in text:
+                    territory.remove(child)
+                    removed_comments += 1
+                    remove_next_zone = True
+                else:
+                    remove_next_zone = False
+                continue
+            if remove_next_zone and getattr(child, "tag", "") == "zone":
+                territory.remove(child)
+                removed_zones += 1
+                remove_next_zone = False
+                continue
+            remove_next_zone = False
+    return removed_zones, removed_comments
+
+
+def add_zombie_territory_zone(root, record):
+    territory = root.find("territory")
+    if territory is None:
+        territory = ET.SubElement(root, "territory", {"color": "1291845632"})
+    count = max(1, min(250, safe_int(record.get("count"), 1)))
+    radius = max(1, min(500, safe_int(record.get("radius"), 45)))
+    append_wandering_xml_comment(territory, f"managed zombie territory zone {record.get('name') or record.get('source_id')}")
+    ET.SubElement(territory, "zone", {
+        "name": str(record.get("zombie_territory_name") or zombie_territory_zone_name(record.get("class_name"))),
+        "smin": "0",
+        "smax": "0",
+        "dmin": str(count),
+        "dmax": str(count),
+        "x": ce_decimal(record.get("x")),
+        "z": ce_decimal(record.get("z")),
+        "r": str(radius),
+    })
+
+
 def animal_territory_name_for_event(event_name):
     event_name = str(event_name or "").strip()
     if event_name.startswith("Animal") and len(event_name) > len("Animal"):
@@ -33657,6 +33786,11 @@ def console_ce_records_for_event(event, map_key=""):
             f"`{event.get('id')}` creates a fixed contaminated gas zone at X/Z for {lifetime} seconds. "
             "Permanent dashboard mode keeps it in CE XML until the event is deleted."
         )
+    if event_type == "zombie_horde":
+        apply_zombie_territory_fields(record, event)
+        warnings.append(
+            f"`{event.get('id')}` writes zombie territory zone `{record['zombie_territory_name']}` to `env/{ZOMBIE_TERRITORY_FILE_NAME}` instead of relying on a fragile Infected dynamic event."
+        )
     if event_type == "animal_pack":
         profile = animal_territory_profile(class_name)
         record.update({
@@ -33979,6 +34113,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     definition_records = merge_console_ce_definition_records([
         record for record in records
         if not record.get("use_existing_definition")
+        if not record.get("skip_definition")
     ])
     patched_existing_definitions = 0
     for record in records_reusing_existing_definitions:
@@ -34093,6 +34228,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "cfgenvironment_path": "",
         "cfgenvironment_text": "",
         "cfgenvironment_source_text": "",
+        "zombie_territories_path": "",
+        "zombie_territories_text": "",
+        "zombie_territories_source_text": "",
         "cfgareaeffects_path": "",
         "cfgareaeffects_text": "",
         "cfgareaeffects_source_text": "",
@@ -34160,6 +34298,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     )
 
     animal_records = [record for record in records if record.get("animal_territory")]
+    zombie_records = [record for record in records if record.get("zombie_territory")]
     should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
     if should_cleanup_environment:
         if not mission_base:
@@ -34206,6 +34345,31 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         if env_parse_warning:
             output["messages"].append(env_parse_warning)
+
+    should_cleanup_zombie_territories = bool(zombie_records) or bool(config.get("scenario_events_cleanup_pending"))
+    if should_cleanup_zombie_territories:
+        zombie_text, resolved_zombie_path, zombie_source = download_console_zombie_territories_source(
+            config,
+            guild_id,
+            mission_base,
+        )
+        zombie_root, zombie_parse_warning = parse_xml_root_or_new(zombie_text, "territory-type")
+        if console_ce_source_is_fallback(zombie_source):
+            output.setdefault("source_fallbacks", []).append(f"{ZOMBIE_TERRITORY_FILE_NAME}: {zombie_source}")
+        elif zombie_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"{ZOMBIE_TERRITORY_FILE_NAME}: {zombie_parse_warning}")
+        else:
+            removed_zones, removed_comments = remove_wandering_zombie_territory_zones(zombie_root)
+            for record in zombie_records:
+                add_zombie_territory_zone(zombie_root, record)
+            if zombie_records or removed_zones or removed_comments:
+                output["zombie_territories_path"] = resolved_zombie_path
+                output["zombie_territories_text"] = xml_text_from_root(zombie_root)
+                output["zombie_territories_source_text"] = zombie_text
+            output["messages"].append(zombie_source)
+            output["messages"].append(
+                f"Updated `env/{ZOMBIE_TERRITORY_FILE_NAME}` with `{len(zombie_records)}` Wandering Bot zombie zone(s), removed `{removed_zones}` old zone(s)."
+            )
 
     cfgareaeffects_mode = console_ce_cfgareaeffects_mode(config)
     if cfgareaeffects_mode:
@@ -34474,6 +34638,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
         mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<prototype></prototype>").encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
+        zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
         cfgareaeffects_root = ET.fromstring(str(built.get("cfgareaeffects_text") or "<areaeffects></areaeffects>").encode("utf-8"))
         if built.get("cfgeffectarea_text"):
             json.loads(str(built.get("cfgeffectarea_text") or ""))
@@ -34512,6 +34677,15 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 )
 
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
+    if built.get("zombie_territories_text"):
+        if zombie_territories_root.tag != "territory-type":
+            messages.append("`zombie_territories.xml` must use `<territory-type>` as the root tag.")
+        for zone_node in zombie_territories_root.findall(".//zone"):
+            if not str(zone_node.get("name") or "").strip():
+                messages.append("`zombie_territories.xml` has a `<zone>` without a zombie territory `name`.")
+            for attr in ("x", "z", "r", "dmin", "dmax", "smin", "smax"):
+                if str(zone_node.get(attr) or "").strip() == "":
+                    messages.append(f"`zombie_territories.xml` zone `{zone_node.get('name') or 'unknown'}` is missing `{attr}`.")
     for territory_file in territory_files:
         try:
             territory_root = ET.fromstring(str(territory_file.get("text") or "").encode("utf-8"))
@@ -34826,6 +35000,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
         ("cfgeventgroups.xml", "eventgroups_path", "eventgroups_text"),
         ("mapgroupproto.xml", "mapgroupproto_path", "mapgroupproto_text"),
         ("cfgenvironment.xml", "cfgenvironment_path", "cfgenvironment_text"),
+        ("zombie_territories.xml", "zombie_territories_path", "zombie_territories_text"),
         ("cfgareaeffects.xml", "cfgareaeffects_path", "cfgareaeffects_text"),
     ]
     for label, path_key, text_key in targets:
@@ -34848,7 +35023,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
     messages.extend(validation_messages)
     if not validation_ok:
         return False, ["Final remote CE bundle verification failed after upload."] + validation_messages
-    return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml."]
+    return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml, mapgroupproto.xml, and managed territory files."]
 
 
 def successful_native_ce_fallback_message(message):
@@ -34918,7 +35093,7 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     restore_texts = built.setdefault("restore_texts", {})
-    required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml"}
+    required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml", "zombie_territories.xml"}
     targets = [
         ("events.xml", built.get("events_path")),
         ("cfgeventspawns.xml", built.get("spawns_path")),
@@ -34927,6 +35102,7 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
         ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
+        ("zombie_territories.xml", built.get("zombie_territories_path") if built.get("zombie_territories_text") else ""),
         ("cfgareaeffects.xml", built.get("cfgareaeffects_path") if built.get("cfgareaeffects_text") else ""),
         ("cfgEffectArea.json", built.get("cfgeffectarea_path") if built.get("cfgeffectarea_text") else ""),
     ]
@@ -35045,6 +35221,7 @@ def restore_console_ce_bundle_from_memory(config, built):
         ("cfgeventgroups.xml", "eventgroups_path"),
         ("mapgroupproto.xml", "mapgroupproto_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
+        ("zombie_territories.xml", "zombie_territories_path"),
         ("cfgareaeffects.xml", "cfgareaeffects_path"),
     ]
     messages = []
@@ -35176,6 +35353,18 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             failed_territory_files.append(territory_file)
         messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
 
+    zombie_territories_ok = True
+    if built.get("zombie_territories_text"):
+        zombie_territories_ok, zombie_territories_message = upload_protected_ce_file_to_nitrado(
+            config,
+            "zombie_territories.xml",
+            built["zombie_territories_path"],
+            built["zombie_territories_text"],
+            restore_text=restore_texts.get(built["zombie_territories_path"]),
+            prefer_ftp=True,
+        )
+        messages.append(f"`zombie_territories.xml`: {zombie_territories_message}")
+
     cfgenvironment_ok = True
     if built.get("cfgenvironment_text"):
         cfgenvironment_text = built["cfgenvironment_text"]
@@ -35249,7 +35438,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`cfgEffectArea.json`: {cfgeffectarea_message}")
 
-    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
+    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and zombie_territories_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
     if success:
         final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
         messages.extend(final_bundle_messages)
@@ -35274,6 +35463,8 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             settings["spawnabletypes_path"] = built["spawnabletypes_path"]
         if built.get("cfgenvironment_path"):
             settings["cfgenvironment_path"] = built["cfgenvironment_path"]
+        if built.get("zombie_territories_path"):
+            settings["zombie_territories_path"] = built["zombie_territories_path"]
         if built.get("cfgareaeffects_path"):
             settings["cfgareaeffects_path"] = built["cfgareaeffects_path"]
         if built.get("cfgeffectarea_path"):
@@ -35362,6 +35553,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "types_path": str((built or {}).get("types_path") or ""),
         "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
         "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
+        "zombie_territories_path": str((built or {}).get("zombie_territories_path") or ""),
         "cfgareaeffects_path": str((built or {}).get("cfgareaeffects_path") or ""),
         "cfgeffectarea_path": str((built or {}).get("cfgeffectarea_path") or ""),
         "bridge_delivery_path": str((built or {}).get("bridge_delivery_path") or ""),
@@ -35461,6 +35653,7 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         ("types.xml", "types_path"),
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
+        ("zombie_territories.xml", "zombie_territories_path"),
         ("cfgareaeffects.xml", "cfgareaeffects_path"),
         ("cfgEffectArea.json", "cfgeffectarea_path"),
         ("deliveries.xml", "bridge_delivery_path"),
@@ -35604,6 +35797,7 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
     event["native_ce_types_path"] = built.get("types_path", "")
     event["native_ce_spawnabletypes_path"] = built.get("spawnabletypes_path", "")
     event["native_ce_cfgenvironment_path"] = built.get("cfgenvironment_path", "")
+    event["native_ce_zombie_territories_path"] = built.get("zombie_territories_path", "")
     event["native_ce_mission_base"] = mission_base
     event["native_ce_mission_folder"] = mission_folder
     event["native_ce_managed_event_names"] = managed_names
@@ -35613,6 +35807,8 @@ def apply_native_ce_upload_metadata(event, built, messages, now_text, upload_sta
         for item in (built.get("animal_territory_files") or [])
         if isinstance(item, dict) and str(item.get("path") or "").strip()
     ][:8]
+    if str(built.get("zombie_territories_path") or "").strip():
+        event["native_ce_territory_paths"].append(str(built.get("zombie_territories_path")))
     event["native_ce_upload_messages"] = [str(message)[:320] for message in messages[-8:]]
     event["upload_status"] = upload_status
     event["status"] = status_text or "XML uploaded to Nitrado; restart once, then wait for the next RPT tracker pull"

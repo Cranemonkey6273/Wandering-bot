@@ -31,6 +31,10 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/mapgroupproto.xml"),
             "prototype",
         )
+        self.assertEqual(
+            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/zombie_territories.xml"),
+            "territory-type",
+        )
 
     def test_vanilla_reference_files_load_for_all_supported_maps(self):
         bot.dayz_reference_cache.clear()
@@ -63,6 +67,7 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             "db/economy.xml",
             "cfgeconomycore.xml",
             "cfgenvironment.xml",
+            "env/zombie_territories.xml",
             "cfgareaeffects.xml",
             "cfggameplay.json",
             "cfgeffectarea.json",

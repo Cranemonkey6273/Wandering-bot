@@ -39,6 +39,7 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "mapgroupproto.xml": DayZFileSpec("mapgroupproto.xml", "xml", "prototype", ("group",), description="CE map group loot prototypes"),
     "cfgspawnabletypes.xml": DayZFileSpec("cfgspawnabletypes.xml", "xml", "spawnabletypes", ("type",), description="attachments and cargo"),
     "cfgenvironment.xml": DayZFileSpec("cfgenvironment.xml", "xml", "env", description="environment/territory references"),
+    "zombie_territories.xml": DayZFileSpec("zombie_territories.xml", "xml", "territory-type", ("territory",), description="infected territory zones"),
     "cfgareaeffects.xml": DayZFileSpec("cfgareaeffects.xml", "xml", "areaeffects", description="contaminated area presets"),
     "messages.xml": DayZFileSpec("messages.xml", "xml", "messages", description="server messages"),
     "types.xml": DayZFileSpec("types.xml", "xml", "types", ("type",), description="loot economy types"),

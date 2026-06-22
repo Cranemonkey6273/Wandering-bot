@@ -265,7 +265,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual("Wreck_Mi8_Crashed", records[0]["event_child_type"])
         self.assertTrue(any("drop-style event" in message for message in warnings))
 
-    def test_airdrop_guards_are_separate_infected_events(self):
+    def test_airdrop_guards_are_zombie_territory_zones(self):
         event = _base_event(
             32,
             "airdrop",
@@ -283,6 +283,10 @@ class AirdropEventGroupTests(unittest.TestCase):
         guard_record = records[1]
         self.assertTrue(static_record["name"].startswith("StaticWanderingBot_"))
         self.assertTrue(guard_record["name"].startswith("InfectedWanderingBot_"))
+        self.assertTrue(guard_record.get("zombie_territory"))
+        self.assertTrue(guard_record.get("skip_definition"))
+        self.assertTrue(guard_record.get("skip_spawn"))
+        self.assertEqual("InfectedArmy", guard_record.get("zombie_territory_name"))
         self.assertEqual("", static_record.get("secondary"))
         self.assertFalse(any(
             child.get("type") == "ZmbM_SoldierNormal"
@@ -308,7 +312,11 @@ class AirdropEventGroupTests(unittest.TestCase):
         records, _warnings = bot.console_ce_records_for_event(event)
         events_root = ET.Element("events")
         spawns_root = ET.Element("eventposdef")
+        zombie_root = ET.Element("territory-type")
+        ET.SubElement(zombie_root, "territory", {"color": "1291845632"})
         for record in records:
+            if record.get("skip_definition"):
+                continue
             bot.add_console_ce_event_definition(
                 events_root,
                 record["name"],
@@ -325,6 +333,8 @@ class AirdropEventGroupTests(unittest.TestCase):
                 distanceradius=record.get("distanceradius", 0),
                 cleanupradius=record.get("cleanupradius", 100),
             )
+            if record.get("skip_spawn"):
+                continue
             bot.add_console_ce_event_spawn(
                 spawns_root,
                 record["name"],
@@ -333,6 +343,9 @@ class AirdropEventGroupTests(unittest.TestCase):
                 count=record["count"],
                 radius=record.get("radius") or 45,
             )
+        for record in records:
+            if record.get("zombie_territory"):
+                bot.add_zombie_territory_zone(zombie_root, record)
         proto_root = ET.Element("prototype")
         for record in records:
             for class_name in record.get("mapgroupproto_classes") or []:
@@ -347,6 +360,7 @@ class AirdropEventGroupTests(unittest.TestCase):
             "spawns_text": bot.xml_text_from_root(spawns_root),
             "eventgroups_text": "",
             "mapgroupproto_text": bot.xml_text_from_root(proto_root),
+            "zombie_territories_text": bot.xml_text_from_root(zombie_root),
             "source_fallbacks": [],
         }
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
@@ -609,27 +623,28 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
             "ZmbM_HeavyIndustryWorker",
             preset="heavymilitaryzombie",
         )
-        record, events_root, spawns_root = self._build_event(event)
+        records, warnings = bot.console_ce_records_for_event(event)
+        self.assertTrue(records, f"event {event} produced no CE records: {warnings}")
+        record = records[0]
 
-        self.assertFalse(record.get("use_eventgroup"))
-        event_node = events_root.find("event")
-        self.assertIsNotNone(event_node)
-        self.assertEqual(event_node.findtext("position"), "fixed")
-        children = event_node.findall("children/child")
-        self.assertTrue(children)
-        for child in children:
-            self.assertTrue(child.get("type", "").startswith(("ZmbM_", "ZmbF_")))
-            self.assertGreater(int(child.get("max", "0")), 0)
+        self.assertTrue(record.get("zombie_territory"))
+        self.assertTrue(record.get("skip_definition"))
+        self.assertTrue(record.get("skip_spawn"))
+        self.assertEqual("InfectedArmy", record.get("zombie_territory_name"))
 
-        spawn_event = spawns_root.find("event")
-        self.assertIsNotNone(spawn_event)
-        for pos in spawn_event.findall("pos"):
-            self.assertNotIn("y", pos.attrib)
-        # Infected hordes are zone-spawn family ? make sure a zone block is
-        # emitted with x/z/r and no y attribute.
-        zone = spawn_event.find("zone")
-        if zone is not None:
-            self.assertNotIn("y", zone.attrib)
+        zombie_root = ET.Element("territory-type")
+        ET.SubElement(zombie_root, "territory", {"color": "1291845632"})
+        bot.add_zombie_territory_zone(zombie_root, record)
+        zone = zombie_root.find("./territory/zone")
+        self.assertIsNotNone(zone)
+        self.assertEqual("InfectedArmy", zone.get("name"))
+        self.assertEqual(str(record["count"]), zone.get("dmin"))
+        self.assertEqual(str(record["count"]), zone.get("dmax"))
+        self.assertEqual("0", zone.get("smin"))
+        self.assertEqual("0", zone.get("smax"))
+        self.assertEqual("5000", zone.get("x"))
+        self.assertEqual("5000", zone.get("z"))
+        self.assertNotIn("y", zone.attrib)
 
 
 class EventGroupChildPlacementTests(unittest.TestCase):
@@ -944,7 +959,10 @@ class MapGroupProtoTests(unittest.TestCase):
 
         self.assertEqual(2, len(records))
         self.assertEqual("", records[0].get("secondary"))
-        self.assertTrue(records[1]["name"].startswith("InfectedWanderingBot_"))
+        self.assertTrue(records[1].get("zombie_territory"))
+        self.assertTrue(records[1].get("skip_definition"))
+        self.assertTrue(records[1].get("skip_spawn"))
+        self.assertEqual("InfectedArmy", records[1].get("zombie_territory_name"))
         self.assertTrue(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[1]["child_records"]))
         self.assertNotIn("ZmbM_SoldierNormal", records[0].get("mapgroupproto_classes") or [])
         self.assertEqual([], records[1].get("mapgroupproto_classes") or [])
@@ -1060,10 +1078,12 @@ class MapGroupProtoTests(unittest.TestCase):
 class BuildConsoleCeEventFilesTests(unittest.TestCase):
     def setUp(self):
         self.original_download = bot.download_console_ce_source
+        self.original_download_text = bot.download_text_file_from_nitrado
         self.guild_id = "999001"
 
     def tearDown(self):
         bot.download_console_ce_source = self.original_download
+        bot.download_text_file_from_nitrado = self.original_download_text
         bot.guild_configs.pop(self.guild_id, None)
 
     def test_cfgspawnabletypes_scope_block_skips_optional_cargo_tuning(self):
@@ -1362,7 +1382,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1384,11 +1410,23 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertFalse(built.get("spawnabletypes_text"))
         self.assertFalse(built.get("spawnabletypes_path"))
         events_root = ET.fromstring(built["events_text"])
-        child = events_root.find("event/children/child")
-        self.assertIsNotNone(child)
-        self.assertEqual(child.get("type"), "ZmbM_SoldierNormal")
-        self.assertEqual(child.get("lootmin"), "0")
-        self.assertEqual(child.get("lootmax"), "5")
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertFalse([
+            node.get("name")
+            for node in events_root.findall("event")
+            if str(node.get("name") or "").startswith("InfectedWanderingBot_")
+        ])
+        self.assertFalse([
+            node.get("name")
+            for node in spawns_root.findall("event")
+            if str(node.get("name") or "").startswith("InfectedWanderingBot_")
+        ])
+        zombie_root = ET.fromstring(built["zombie_territories_text"])
+        zone = zombie_root.find(".//zone[@name='InfectedArmy']")
+        self.assertIsNotNone(zone)
+        self.assertEqual("5000", zone.get("x"))
+        self.assertEqual("5000", zone.get("z"))
+        self.assertNotIn("y", zone.attrib)
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
@@ -1414,7 +1452,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1435,7 +1479,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         spawns_root = ET.fromstring(built["spawns_text"])
         self.assertIsNone(spawns_root.find("./event[@name='HordeTrigger']"))
         self.assertIsNotNone(spawns_root.find("./event[@name='AnimalBear']"))
-        self.assertIsNotNone(spawns_root.find("./event[@name='InfectedWanderingBot_horde_militaryzombie']"))
+        self.assertFalse([
+            node.get("name")
+            for node in spawns_root.findall("event")
+            if str(node.get("name") or "").startswith("InfectedWanderingBot_")
+        ])
+        zombie_root = ET.fromstring(built["zombie_territories_text"])
+        self.assertIsNotNone(zombie_root.find(".//zone[@name='InfectedArmy']"))
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
@@ -1479,7 +1529,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1563,7 +1619,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Cherno",
             "server_map": "chernarus",
