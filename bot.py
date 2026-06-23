@@ -393,6 +393,7 @@ DEFAULT_CHANNEL_NAMES = {
     "help_channel": "❓📘・help-desk・📘❓",
     "economy": "💰🛒・black-market・🛒💰",
     "money_feed": "💰🧾・money-feed・🧾💰",
+    "swear_jar_feed": "🤬🫙・swear-jar・🫙🤬",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
     "nitrado_ban_logs": "🔴🔴・nitrado-ban・🔴🔴",
     "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
@@ -413,6 +414,10 @@ DEFAULT_CHANNEL_NAMES = {
     "pve_rewards_public": "🎁🌿・pve-rewards・🌿🎁",
     "pve_rewards_private": "🔒🎁・pve-rewards-private・🎁🔒",
     "quest_workshop": "🛠️🧠・quest-workshop・🧠🛠️",
+    "livo_trader_help": "🚬📘・trader-help・📘🚬",
+    "livo_trader_log": "🚬📒・trader-log・📒🚬",
+    "livo_trader_transactions": "💳🚬・transactions・🚬💳",
+    "livo_trader_balance": "💰🚬・balance-feed・🚬💰",
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
@@ -453,9 +458,10 @@ CHANNEL_ALIASES = {
     "clips_channel": ["dayzclips", "clips", "media"],
     "economy": ["blackmarket", "economy", "shop", "market"],
     "money_feed": ["moneyfeed", "moneylogs", "financefeed", "penniesfeed", "incomefeed"],
+    "swear_jar_feed": ["swearjar", "swearjarfeed", "swearjarlogs", "badwords", "languagejar"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
-    "nitrado_ban_logs": ["nitradoban", "nitradobanfeed", "nitradobanlogs", "banfeed", "banfeeds", "banlist", "gamebanlogs", "banlistpushes"],
+    "nitrado_ban_logs": ["nitradoban", "nitradobanfeed", "nitradobanlist", "nitradobanlistfeed", "nitradobanlogs", "banfeed", "banfeeds", "banlist", "banlistfeed", "gamebanlogs", "banlistpushes"],
     "dashboard_audit": ["dashboardaudit", "dashboardchanges", "dashboardlogs", "dbchanges"],
     "cheat_checks": ["cheatchecks", "anticheat", "pccheatcheck"],
     "command_logs": ["commandlogs", "commands"],
@@ -473,6 +479,10 @@ CHANNEL_ALIASES = {
     "pve_rewards_public": ["pverewards", "questrewards", "rewards"],
     "pve_rewards_private": ["pverewardsprivate", "rewardlog", "rewardsprivate"],
     "quest_workshop": ["questworkshop", "questshop", "questforge", "aiquestworkshop"],
+    "livo_trader_help": ["livotraderhelp", "livoniatraderhelp", "traderhelp", "traderinfo"],
+    "livo_trader_log": ["livotraderlog", "livoniatraderlog", "traderlog", "traderlogs"],
+    "livo_trader_transactions": ["livotradertransactions", "livoniatradertransactions", "tradertransactions", "transactions"],
+    "livo_trader_balance": ["livotraderbalance", "livoniatraderbalance", "traderbalance", "balancefeed", "currencyfeed"],
     "faction_tickets": ["factiontickets", "factionrequests"],
     "faction_staff": ["factionstaff"],
     "zombie_feed": ["zombiefeed", "infectedfeed", "zmbfeed", "zombies"],
@@ -2068,7 +2078,12 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
 async def send_swear_jar_feed(message, found_words, fine, pennies_total):
     guild_id = str(message.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
-    channel = await get_or_create_feed_channel(message.guild, config, "swear_jar_feed", "swear-jar")
+    channel = await get_or_create_feed_channel(
+        message.guild,
+        config,
+        "swear_jar_feed",
+        DEFAULT_CHANNEL_NAMES["swear_jar_feed"],
+    )
     if not channel:
         return
 
@@ -6007,6 +6022,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "nitrado_ban_logs",
     "restart_logs",
     "money_feed",
+    "livo_trader_log",
     "link_audit",
     "moderation_logs",
     "cuts_feed",
@@ -6069,6 +6085,7 @@ CHANNEL_RESTORE_PACKS = {
     "economy": [
         "economy",
         "money_feed",
+        "swear_jar_feed",
         "purchase_logs",
         "vehicle_rentals",
         "rental_logs",
@@ -6093,8 +6110,23 @@ CHANNEL_RESTORE_PACKS = {
         "pve_rewards_private",
         "quest_workshop",
     ],
+    "livo_trader": [
+        "livo_trader_help",
+        "livo_trader_log",
+        "livo_trader_transactions",
+        "livo_trader_balance",
+    ],
 }
-CHANNEL_RESTORE_PACKS["all"] = list(DEFAULT_CHANNEL_NAMES.keys())
+GUILD_LOCAL_CHANNEL_KEYS = {
+    "livo_trader_help",
+    "livo_trader_log",
+    "livo_trader_transactions",
+    "livo_trader_balance",
+}
+CHANNEL_RESTORE_PACKS["all"] = [
+    key for key in DEFAULT_CHANNEL_NAMES.keys()
+    if key not in GUILD_LOCAL_CHANNEL_KEYS
+]
 
 CATEGORY_REPAIR_SPECS = [
     ("wandering_hq", "🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩", ["wanderinghq", "wanderingbot", "wanderingbotalpha"]),
@@ -6104,6 +6136,7 @@ CATEGORY_REPAIR_SPECS = [
     ("survivor_comms", "🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪", ["survivorcomms", "survivorchat", "generalchat", "community"]),
     ("staff_ops", "🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️", ["staffops", "staff", "admin", "adminlogs"]),
     ("economy", "💰🟨💰┃ECONOMY┃💰🟨💰", ["economy", "blackmarket", "shop"]),
+    ("livo_trader", "🚬🟧💰┃LIVO TRADER┃💰🟧🚬", ["livotrader", "livoniatrader", "livoniaeconomy", "trader", "tradercash", "cigarettecurrency"]),
     ("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴", ["factions", "faction"]),
     ("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓", ["helpsupport", "helpdesk", "support"]),
     ("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌", ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"]),
@@ -6150,6 +6183,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "help_channel": "support",
     "economy": "economy",
     "money_feed": "economy",
+    "swear_jar_feed": "economy",
     "admin_logs": "staff_ops",
     "nitrado_ban_logs": "staff_ops",
     "dashboard_audit": "staff_ops",
@@ -6171,6 +6205,10 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "pve_rewards_public": "pve",
     "pve_rewards_private": "pve",
     "quest_workshop": "pve",
+    "livo_trader_help": "livo_trader",
+    "livo_trader_log": "livo_trader",
+    "livo_trader_transactions": "livo_trader",
+    "livo_trader_balance": "livo_trader",
 }
 
 BOT_CATEGORY_SPECS_BY_KEY = {
@@ -6337,20 +6375,42 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
     if saved_id:
         channel = bot.get_channel(saved_id)
         if channel:
+            preferred_existing = preferred_existing_feed_channel(guild, key) if guild else None
+            if (
+                preferred_existing
+                and preferred_existing.id != channel.id
+                and not channel_matches_preferred_default_name(channel, key)
+            ):
+                channels[key] = preferred_existing.id
+                save_guild_configs()
+                if _feed_route_should_log(guild_id, key, "preferred"):
+                    print(f"[FEED ROUTE] {guild_id} preferred #{DEFAULT_CHANNEL_NAMES.get(key, key)} channel id {preferred_existing.id} over saved duplicate {channel.id}.")
+                return preferred_existing
             return channel
         if guild:
             channel = guild.get_channel(saved_id)
             if channel:
+                preferred_existing = preferred_existing_feed_channel(guild, key)
+                if (
+                    preferred_existing
+                    and preferred_existing.id != channel.id
+                    and not channel_matches_preferred_default_name(channel, key)
+                ):
+                    channels[key] = preferred_existing.id
+                    save_guild_configs()
+                    if _feed_route_should_log(guild_id, key, "preferred"):
+                        print(f"[FEED ROUTE] {guild_id} preferred #{DEFAULT_CHANNEL_NAMES.get(key, key)} channel id {preferred_existing.id} over saved duplicate {channel.id}.")
+                    return preferred_existing
                 return channel
 
     if allow_name_repair and guild:
-        for channel in getattr(guild, "text_channels", []):
-            if channel_matches_saved_key(channel, key):
-                channels[key] = channel.id
-                save_guild_configs()
-                if _feed_route_should_log(guild_id, key, "repaired"):
-                    print(f"[FEED ROUTE] {guild_id} repaired #{DEFAULT_CHANNEL_NAMES.get(key, key)} to channel id {channel.id}.")
-                return channel
+        channel = preferred_existing_feed_channel(guild, key)
+        if channel:
+            channels[key] = channel.id
+            save_guild_configs()
+            if _feed_route_should_log(guild_id, key, "repaired"):
+                print(f"[FEED ROUTE] {guild_id} repaired #{DEFAULT_CHANNEL_NAMES.get(key, key)} to channel id {channel.id}.")
+            return channel
 
     if required and _feed_route_should_log(guild_id, key, "missing"):
         if saved_id:
@@ -6397,13 +6457,22 @@ def discover_existing_guild_channels(guild, config):
 
         existing_channel_id = _safe_channel_id(existing_id)
         if existing_channel_id and guild.get_channel(existing_channel_id):
+            preferred = preferred_existing_feed_channel(guild, key)
+            existing = guild.get_channel(existing_channel_id)
+            if (
+                preferred
+                and existing
+                and preferred.id != existing.id
+                and not channel_matches_preferred_default_name(existing, key)
+            ):
+                channels[key] = preferred.id
+                changed = True
             continue
 
-        for channel in guild.text_channels:
-            if channel_matches_saved_key(channel, key):
-                channels[key] = channel.id
-                changed = True
-                break
+        channel = preferred_existing_feed_channel(guild, key)
+        if channel:
+            channels[key] = channel.id
+            changed = True
 
     return changed
 
@@ -6473,13 +6542,20 @@ async def repair_guild_display_names(guild, config):
 
         if existing_id:
             channel = guild.get_channel(int(existing_id))
+            preferred = preferred_existing_feed_channel(guild, key)
+            if (
+                channel
+                and preferred
+                and preferred.id != channel.id
+                and not channel_matches_preferred_default_name(channel, key)
+            ):
+                channel = preferred
+                channels[key] = preferred.id
 
         if not channel:
-            for candidate in guild.text_channels:
-                if channel_matches_saved_key(candidate, key):
-                    channel = candidate
-                    channels[key] = candidate.id
-                    break
+            channel = preferred_existing_feed_channel(guild, key)
+            if channel:
+                channels[key] = channel.id
 
         category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
         needs_name = channel and channel.id not in edited_channel_ids and channel.name != desired_name
@@ -6656,7 +6732,7 @@ def format_channel_restore_packs():
         if pack == "all":
             continue
         lines.append(f"`{pack}` - {len(keys)} channel(s)")
-    lines.append("`all` - every bot channel")
+    lines.append("`all` - standard bot channels")
     return "\n".join(lines)
 
 
@@ -18626,6 +18702,159 @@ async def send_money_feed(guild, config, title, description="", fields=None, *, 
     except Exception as error:
         print(f"[MONEY FEED] send failed for {getattr(guild, 'id', '?')}: {error}")
         return None
+
+
+TRADER_CIGARETTE_PENNY_VALUE = 25
+
+
+async def send_livo_trader_feed(guild, config, channel_key, title, description="", fields=None, *, color=0xD5B45F, footer="Livo Trader"):
+    if not guild or channel_key not in GUILD_LOCAL_CHANNEL_KEYS:
+        return None
+    config = config if isinstance(config, dict) else guild_configs.setdefault(str(guild.id), {"guild_name": guild.name, "channels": {}})
+    try:
+        channel = await get_or_create_feed_channel(
+            guild,
+            config,
+            channel_key,
+            DEFAULT_CHANNEL_NAMES[channel_key],
+            private=channel_key in PRIVATE_FEED_CHANNEL_KEYS,
+            force=True,
+        )
+        if not channel:
+            return None
+        embed = discord.Embed(
+            title=money_event_value(title, 256),
+            description=discord_safe_content(discord.utils.escape_mentions(str(description or "")), 900) if description else "",
+            color=color,
+        )
+        for field in fields or []:
+            if not isinstance(field, dict):
+                continue
+            embed.add_field(
+                name=money_event_value(field.get("name"), 256),
+                value=discord_safe_content(money_event_value(field.get("value"), 1024), 1024),
+                inline=bool(field.get("inline", True)),
+            )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text=f"Wandering Bot Alpha - {footer}")
+        await channel.send(embed=trim_embed_field_values(style_embed(embed)), allowed_mentions=discord.AllowedMentions.none())
+        return channel
+    except Exception as error:
+        print(f"[LIVO TRADER FEED] send failed for {getattr(guild, 'id', '?')} {channel_key}: {error}")
+        return None
+
+
+class SmokeSubmissionModal(discord.ui.Modal):
+    def __init__(self, member):
+        super().__init__(title="TRADER EXCHANGE LOG")
+        self.member = member
+        self.player_name = discord.ui.TextInput(
+            label="Player",
+            placeholder="In-game player name",
+            required=True,
+            max_length=80,
+        )
+        self.gamertag = discord.ui.TextInput(
+            label="Gamertag",
+            placeholder="Xbox / ADM gamertag",
+            required=True,
+            max_length=80,
+        )
+        self.packs = discord.ui.TextInput(
+            label="Cigarette packs handed in",
+            placeholder="Example: 26",
+            required=True,
+            max_length=8,
+        )
+        self.amount_credited = discord.ui.TextInput(
+            label="Amount credited",
+            placeholder=f"Leave blank for {TRADER_CIGARETTE_PENNY_VALUE} pennies per pack",
+            required=False,
+            max_length=12,
+        )
+        self.notes = discord.ui.TextInput(
+            label="Notes",
+            placeholder="Optional trader note",
+            required=False,
+            max_length=500,
+            style=discord.TextStyle.paragraph,
+        )
+        for item in (self.player_name, self.gamertag, self.packs, self.amount_credited, self.notes):
+            self.add_item(item)
+
+    async def on_submit(self, interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("This form must be submitted in a server.", ephemeral=True)
+            return
+        if not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Admin only.", ephemeral=True)
+            return
+
+        pack_count = safe_int(getattr(self.packs, "value", ""), 0)
+        amount_text = str(getattr(self.amount_credited, "value", "") or "").strip()
+        credited = safe_int(amount_text, 0) if amount_text else pack_count * TRADER_CIGARETTE_PENNY_VALUE
+        if pack_count <= 0:
+            await interaction.response.send_message("Cigarette packs handed in must be more than zero.", ephemeral=True)
+            return
+        if credited <= 0:
+            await interaction.response.send_message("Amount credited must be more than zero.", ephemeral=True)
+            return
+
+        guild_id = str(interaction.guild.id)
+        config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+        wallet = guild_wallet(guild_id, str(self.member.id), str(self.member))
+        wallet_credit(wallet, credited, "cash")
+        save_wallets()
+
+        now = datetime.now(ZoneInfo("Europe/London"))
+        fields = [
+            {"name": "Player", "value": str(getattr(self.player_name, "value", "")).strip(), "inline": True},
+            {"name": "Gamertag", "value": str(getattr(self.gamertag, "value", "")).strip(), "inline": True},
+            {"name": "Discord User", "value": self.member.mention, "inline": True},
+            {"name": "Cigarette Packs Handed In", "value": str(pack_count), "inline": True},
+            {"name": "Amount Credited", "value": f"{credited} pennies", "inline": True},
+            {"name": "Trader/Admin", "value": interaction.user.mention, "inline": True},
+            {"name": "Date/Time", "value": now.strftime("%Y-%m-%d %H:%M UK"), "inline": True},
+            {"name": "New Balance", "value": wallet_balance_brief(wallet), "inline": True},
+            {"name": "Notes", "value": str(getattr(self.notes, "value", "") or "No notes.").strip(), "inline": False},
+        ]
+
+        await send_livo_trader_feed(
+            interaction.guild,
+            config,
+            "livo_trader_transactions",
+            "TRADER EXCHANGE LOG",
+            f"{self.member.mention} handed in **{pack_count} cigarette pack(s)** and was credited **{credited} pennies**.",
+            fields,
+            color=0xD5B45F,
+            footer="Livo Trader Transactions",
+        )
+        await send_livo_trader_feed(
+            interaction.guild,
+            config,
+            "livo_trader_balance",
+            "TRADER BALANCE UPDATED",
+            f"{self.member.mention} balance changed by **+{credited} pennies** from cigarette trade-in.",
+            fields,
+            color=0x2ECC71,
+            footer="Livo Trader Balance Feed",
+        )
+        await send_livo_trader_feed(
+            interaction.guild,
+            config,
+            "livo_trader_log",
+            "TRADER ADMIN LOG",
+            f"{interaction.user.mention} submitted a smoke exchange for {self.member.mention}.",
+            fields,
+            color=0x3498DB,
+            footer="Livo Trader Staff Log",
+        )
+
+        await interaction.response.send_message(
+            f"Smoke exchange submitted: credited **{credited} pennies** to {self.member.mention}.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
 
 MONEY_DASHBOARD_ROUTES = {
@@ -47689,6 +47918,22 @@ async def slash_givepennies(interaction: discord.Interaction, member: discord.Me
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     await run_legacy_as_slash(interaction, "givepennies", member=member, amount=amount)
+
+
+@bot.tree.command(name="submitsmokes", description="Admin: submit a Livonia trader cigarette hand-in form")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(member="Discord member receiving the credited pennies")
+async def slash_submitsmokes(interaction: discord.Interaction, member: discord.Member):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a server.", ephemeral=True)
+        return
+    if member.bot:
+        await interaction.response.send_message("You cannot credit a bot account.", ephemeral=True)
+        return
+    await interaction.response.send_modal(SmokeSubmissionModal(member))
 @extra_tools_group.command(name="shopcategories", description="Show shop categories")
 async def slash_shopcategories(interaction: discord.Interaction):
     await run_legacy_as_slash(interaction, "shopcategories")
@@ -47801,8 +48046,10 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
     app_commands.Choice(name="all", value="all"),
     app_commands.Choice(name="pve", value="pve"),
     app_commands.Choice(name="live", value="live"),
+    app_commands.Choice(name="radar", value="radar"),
     app_commands.Choice(name="staff", value="staff"),
     app_commands.Choice(name="economy", value="economy"),
+    app_commands.Choice(name="livo_trader", value="livo_trader"),
     app_commands.Choice(name="factions", value="factions"),
     app_commands.Choice(name="community", value="community"),
     app_commands.Choice(name="info", value="info"),

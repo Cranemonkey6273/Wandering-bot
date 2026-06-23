@@ -25,6 +25,12 @@ class FakeGuild:
     def __init__(self, channels):
         self.text_channels = channels
 
+    def get_channel(self, channel_id):
+        for channel in self.text_channels:
+            if channel.id == channel_id:
+                return channel
+        return None
+
 
 class ChannelMatchingTests(unittest.TestCase):
     def test_nitrado_ban_feed_matches_decorated_renamed_original(self):
@@ -39,6 +45,15 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertIs(bot.preferred_existing_feed_channel(guild, "nitrado_ban_logs"), original)
 
+    def test_discover_updates_saved_nitrado_duplicate_to_preferred_original(self):
+        original = FakeChannel("🔴🔴・nitrado-ban・🔴🔴", 100)
+        duplicate = FakeChannel("nitrado-ban-feed", 200)
+        guild = FakeGuild([duplicate, original])
+        config = {"channels": {"nitrado_ban_logs": duplicate.id}}
+
+        self.assertTrue(bot.discover_existing_guild_channels(guild, config))
+        self.assertEqual(config["channels"]["nitrado_ban_logs"], original.id)
+
     def test_radar_channel_matches_plain_radars(self):
         channel = FakeChannel("Radars", 300)
 
@@ -48,6 +63,26 @@ class ChannelMatchingTests(unittest.TestCase):
         category = FakeCategory("Radars")
 
         self.assertTrue(bot.category_matches_bot_spec(category, "radar_pings"))
+
+    def test_livo_trader_category_matches_plain_owner_category(self):
+        category = FakeCategory("Livo Trader")
+
+        self.assertTrue(bot.category_matches_bot_spec(category, "livo_trader"))
+
+    def test_livo_trader_channels_match_plain_names(self):
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("trader-log", 400), "livo_trader_log"))
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("transactions", 401), "livo_trader_transactions"))
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("balance-feed", 402), "livo_trader_balance"))
+
+    def test_livo_trader_pack_is_guild_local_not_in_all(self):
+        self.assertIn("livo_trader_balance", bot.CHANNEL_RESTORE_PACKS["livo_trader"])
+        self.assertNotIn("livo_trader_balance", bot.CHANNEL_RESTORE_PACKS["all"])
+
+    def test_swear_jar_feed_is_managed_channel(self):
+        channel = FakeChannel("swear-jar", 500)
+
+        self.assertTrue(bot.channel_matches_bot_default_name(channel, "swear_jar_feed"))
+        self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
 
 
 if __name__ == "__main__":
