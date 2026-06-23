@@ -20266,7 +20266,9 @@ async def helpme(ctx):
             "`/tools giverole member role`, `/tools removerole member role`\n"
             "`/tools channelstatus`, `/tools channelpacks`\n"
             "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`\n"
-            "`/feeds routes target`, `/feeds setchannel feed_key channel`, `/feeds toggle target enabled`"
+            "`/listfeeds target:live` - show live feed routes\n"
+            "`/togglefeed feed_id:raids enabled:false` - disable raid alerts\n"
+            "`/togglefeed feed_id:raids enabled:true channel:#channel` - route raid alerts"
         ),
         inline=False
     )
@@ -24619,13 +24621,22 @@ async def addfeed(interaction: discord.Interaction, channel: discord.TextChannel
     await interaction.response.send_message(f"Feed `{feed['id']}` created: `{feed_type}` into {channel.mention} every {interval_minutes} minutes.", ephemeral=True)
 
 
-@bot.tree.command(name="listfeeds", description="Admin: list scheduled custom feeds")
+@bot.tree.command(name="listfeeds", description="Admin: list scheduled feeds or bot feed routes")
 @app_commands.default_permissions(administrator=True)
-async def listfeeds(interaction: discord.Interaction):
+@app_commands.describe(target="Optional bot feed key or pack, e.g. raids, live, economy, all")
+async def listfeeds(interaction: discord.Interaction, target: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     config = guild_configs.get(str(interaction.guild.id), {})
+    if str(target or "").strip():
+        await interaction.response.send_message(
+            format_feed_route_status(interaction.guild, config, target)[:1900],
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return
+
     feeds = custom_feeds_for_config(config)
     if not feeds:
         await interaction.response.send_message("No custom feeds configured.", ephemeral=True)
@@ -24641,19 +24652,82 @@ async def listfeeds(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="togglefeed", description="Admin: turn a custom feed on or off")
+@bot.tree.command(name="togglefeed", description="Admin: turn a custom feed or bot feed on/off")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(feed_id="Feed ID from /listfeeds", enabled="True to enable, false to disable")
-async def togglefeed(interaction: discord.Interaction, feed_id: int, enabled: bool):
+@app_commands.describe(
+    feed_id="Custom feed ID, or bot feed key/pack like raids, live, economy",
+    enabled="True to enable, false to disable",
+    channel="Optional: route one bot feed to this channel",
+    reset_channel="Optional: reset one bot feed back to its default channel",
+)
+async def togglefeed(
+    interaction: discord.Interaction,
+    feed_id: str,
+    enabled: bool,
+    channel: discord.TextChannel = None,
+    reset_channel: bool = False,
+):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
-    config = guild_configs.get(str(interaction.guild.id), {})
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    text_id = str(feed_id or "").strip()
+    keys, error = resolve_feed_target_keys(text_id)
+    if not error and keys:
+        if channel and len(keys) != 1:
+            await interaction.response.send_message("Pick one feed key when routing to a channel, for example `raids`.", ephemeral=True)
+            return
+        if reset_channel and len(keys) != 1:
+            await interaction.response.send_message("Pick one feed key when resetting a route, for example `raids`.", ephemeral=True)
+            return
+
+        if reset_channel:
+            key = keys[0]
+            config.setdefault("channels", {}).pop(key, None)
+            set_channel_key_custom_routed(config, key, False)
+
+        if channel:
+            key = keys[0]
+            config.setdefault("channels", {})[key] = channel.id
+            set_channel_key_custom_routed(config, key, True)
+
+        for key in keys:
+            set_channel_key_disabled(config, key, not enabled)
+        save_guild_configs()
+
+        if enabled and not channel:
+            await interaction.response.defer(ephemeral=True)
+            restored, restore_error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=keys)
+            if restore_error:
+                await interaction.followup.send(restore_error, ephemeral=True)
+                return
+            await interaction.followup.send(
+                f"Bot feed `{text_id}` is now on. Checked/restored {len(restored)} channel(s).",
+                ephemeral=True,
+            )
+            return
+
+        route_text = f" and routed to {channel.mention}" if channel else ""
+        reset_text = " and reset to the default route" if reset_channel else ""
+        await interaction.response.send_message(
+            f"Bot feed `{text_id}` is now {'on' if enabled else 'off'}{route_text}{reset_text}.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        return
+
+    try:
+        numeric_id = int(text_id)
+    except Exception:
+        await interaction.response.send_message(error or "Feed ID not found.", ephemeral=True)
+        return
+
     for feed in custom_feeds_for_config(config):
-        if int(feed.get("id", 0)) == int(feed_id):
+        if int(feed.get("id", 0)) == numeric_id:
             feed["enabled"] = bool(enabled)
             save_guild_configs()
-            await interaction.response.send_message(f"Feed `{feed_id}` is now {'on' if enabled else 'off'}.", ephemeral=True)
+            await interaction.response.send_message(f"Feed `{numeric_id}` is now {'on' if enabled else 'off'}.", ephemeral=True)
             return
     await interaction.response.send_message("Feed ID not found.", ephemeral=True)
 
@@ -48089,114 +48163,6 @@ async def slash_channelstatus(interaction: discord.Interaction):
     await interaction.response.send_message(text[:1900], ephemeral=True)
 
 
-feeds_group = app_commands.Group(name="feeds", description="Admin controls for bot feed routes")
-
-
-@feeds_group.command(name="routes", description="Admin: show bot feed channel routes")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(target="Optional feed key or pack: raids, live, economy, all")
-async def slash_feedroutes(interaction: discord.Interaction, target: str = "all"):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    await interaction.response.send_message(
-        format_feed_route_status(interaction.guild, config, target)[:1900],
-        ephemeral=True,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
-
-
-@feeds_group.command(name="setchannel", description="Admin: route a bot feed to a different channel")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    feed_key="Feed key or alias, for example raids, raid events, killfeed, money_feed",
-    channel="Channel where this feed should post",
-)
-async def slash_setfeedchannel(interaction: discord.Interaction, feed_key: str, channel: discord.TextChannel):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    key = resolve_channel_key(feed_key)
-    if not key:
-        await interaction.response.send_message(f"`{feed_key}` is not a feed key I recognise.", ephemeral=True)
-        return
-
-    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    config.setdefault("channels", {})[key] = channel.id
-    set_channel_key_disabled(config, key, False)
-    set_channel_key_custom_routed(config, key, True)
-    save_guild_configs()
-    await interaction.response.send_message(
-        f"`{key}` is now routed to {channel.mention}. The bot will not rename or move that custom channel.",
-        ephemeral=True,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
-
-
-@feeds_group.command(name="resetchannel", description="Admin: reset a bot feed back to its default channel")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(feed_key="Feed key or alias, for example raids, raid events, killfeed")
-async def slash_resetfeedchannel(interaction: discord.Interaction, feed_key: str):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    key = resolve_channel_key(feed_key)
-    if not key:
-        await interaction.response.send_message(f"`{feed_key}` is not a feed key I recognise.", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    config.setdefault("channels", {}).pop(key, None)
-    set_channel_key_custom_routed(config, key, False)
-    set_channel_key_disabled(config, key, False)
-    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=[key])
-    if error:
-        await interaction.followup.send(error, ephemeral=True)
-        return
-    target = restored[0] if restored else DEFAULT_CHANNEL_NAMES.get(key, key)
-    await interaction.followup.send(f"`{key}` reset to default route: {target}", ephemeral=True)
-
-
-@feeds_group.command(name="toggle", description="Admin: enable or disable a feed or feed pack")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(
-    target="Feed key or pack: raids, live, economy, all",
-    enabled="Turn selected feed(s) on or off",
-)
-async def slash_togglefeed(interaction: discord.Interaction, target: str, enabled: bool):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    keys, error = resolve_feed_target_keys(target)
-    if error:
-        await interaction.response.send_message(error, ephemeral=True)
-        return
-
-    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    for key in keys:
-        set_channel_key_disabled(config, key, not enabled)
-    save_guild_configs()
-
-    if enabled:
-        await interaction.response.defer(ephemeral=True)
-        restored, restore_error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=keys)
-        if restore_error:
-            await interaction.followup.send(restore_error, ephemeral=True)
-            return
-        created_text = f"\nRestored/checked: {len(restored)} channel(s)." if restored else ""
-        await interaction.followup.send(f"Turned ON `{target}` feed(s): {len(keys)} selected.{created_text}", ephemeral=True)
-        return
-
-    await interaction.response.send_message(f"Turned OFF `{target}` feed(s): {len(keys)} selected.", ephemeral=True)
-
-
-bot.tree.add_command(feeds_group)
 @extra_tools_group.command(name="channelpacks", description="Admin: show channel restore packs")
 @app_commands.default_permissions(administrator=True)
 async def slash_channelpacks(interaction: discord.Interaction):
