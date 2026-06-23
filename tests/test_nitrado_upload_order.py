@@ -21,6 +21,14 @@ SPAWNS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </eventposdef>
 """
 
+TERRITORY_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<territory-type>
+    <territory color="4286611584">
+        <zone name="HuntingGround" smin="0" smax="0" dmin="2" dmax="2" x="5000" z="5000" r="90" />
+    </territory>
+</territory-type>
+"""
+
 
 class ProtectedXmlUploadOrderTests(unittest.TestCase):
     def setUp(self):
@@ -70,6 +78,28 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.verify_uploaded_protected_dayz_xml_text = verify
 
         ok, message = bot.upload_text_file_to_nitrado({}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", SPAWNS_XML)
+
+        self.assertTrue(ok)
+        self.assertIn("Nitrado API", message)
+        self.assertEqual(["api", "verify"], self.calls)
+
+    def test_custom_animal_territory_file_uses_protected_upload_verification(self):
+        def api_upload(*_args):
+            self.calls.append("api")
+            return True, "Uploaded successfully via Nitrado API."
+
+        def verify(*_args):
+            self.calls.append("verify")
+            return True, "verified"
+
+        bot.upload_text_file_to_nitrado_api = api_upload
+        bot.verify_uploaded_protected_dayz_xml_text = verify
+
+        ok, message = bot.upload_text_file_to_nitrado(
+            {},
+            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            TERRITORY_XML,
+        )
 
         self.assertTrue(ok)
         self.assertIn("Nitrado API", message)
@@ -579,6 +609,39 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
             self.assertTrue(ok)
             self.assertTrue(any("re-download warning" in message for message in messages))
+            self.assertEqual(["ftp", "download"], self.calls)
+        finally:
+            bot.download_text_file_from_nitrado_ftp = original_download_ftp
+            bot.download_text_file_from_nitrado = original_download
+
+    def test_final_bundle_missing_animal_territory_file_is_hard_failure(self):
+        original_download = bot.download_text_file_from_nitrado
+        original_download_ftp = bot.download_text_file_from_nitrado_ftp
+        try:
+            def ftp_download(*_args, **_kwargs):
+                self.calls.append("ftp")
+                return False, "FTP file not found", ""
+
+            def download(*_args):
+                self.calls.append("download")
+                return False, "API file not found", ""
+
+            bot.download_text_file_from_nitrado_ftp = ftp_download
+            bot.download_text_file_from_nitrado = download
+            built = {
+                "animal_territory_files": [
+                    {
+                        "path": "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+                        "text": TERRITORY_XML,
+                        "event_names": ["AnimalWanderingBot_animal_bear"],
+                    }
+                ]
+            }
+
+            ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
+
+            self.assertFalse(ok)
+            self.assertTrue(any("could not be re-downloaded" in message for message in messages))
             self.assertEqual(["ftp", "download"], self.calls)
         finally:
             bot.download_text_file_from_nitrado_ftp = original_download_ftp

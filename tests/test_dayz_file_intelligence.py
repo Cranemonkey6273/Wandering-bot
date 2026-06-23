@@ -35,6 +35,14 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/zombie_territories.xml"),
             "territory-type",
         )
+        self.assertEqual(
+            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/bear_territories.xml"),
+            "territory-type",
+        )
+        self.assertEqual(
+            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml"),
+            "territory-type",
+        )
 
     def test_vanilla_reference_files_load_for_all_supported_maps(self):
         bot.dayz_reference_cache.clear()
@@ -104,6 +112,15 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual("", message)
+
+    def test_custom_territory_file_requires_territory_type_root(self):
+        ok, message = validate_dayz_upload_text(
+            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "<env></env>",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("expected <territory-type> root", message)
 
     def test_known_dayz_json_must_parse_and_use_expected_root_type(self):
         ok, message = validate_dayz_upload_text("/mission/cfggameplay.json", "{\"version\": 123}")

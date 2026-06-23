@@ -35407,6 +35407,26 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
                 f"after individual upload verification already passed: {detail}"
             ]
         remote_built[text_key] = text
+    territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
+    remote_territory_files = []
+    for territory_file in territory_files:
+        path = str(territory_file.get("path") or "").strip() if isinstance(territory_file, dict) else ""
+        if not path:
+            return False, ["Final remote CE bundle verification failed after upload: animal territory file path was missing."]
+        ok, message, text = download_console_ce_final_verify_text(config, path)
+        if not ok or not str(text or "").strip():
+            detail = message
+            if ok and not str(text or "").strip():
+                detail = f"{message} (download returned empty content)"
+            return False, [
+                "Final remote CE bundle verification failed after upload.",
+                f"Animal territory file `{path}` could not be re-downloaded: {detail}",
+            ]
+        copied = dict(territory_file)
+        copied["text"] = text
+        remote_territory_files.append(copied)
+    if territory_files:
+        remote_built["animal_territory_files"] = remote_territory_files
     validation_ok, validation_messages = validate_console_ce_xml_bundle(remote_built, check_scope=False)
     messages.extend(validation_messages)
     if not validation_ok:

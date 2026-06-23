@@ -51,6 +51,14 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgplayerspawn.json": DayZFileSpec("cfgplayerspawn.json", "json", json_root_types=("object",), description="fresh spawn loadouts"),
 }
 
+DAYZ_TERRITORY_FILE_SPEC = DayZFileSpec(
+    "*_territories.xml",
+    "xml",
+    "territory-type",
+    ("territory",),
+    description="animal/infected territory zones",
+)
+
 DAYZ_BLOCKED_OBJECT_SPAWNER_REF_FILENAMES = {
     "newcontainerbase.json",
 }
@@ -75,7 +83,13 @@ def dayz_is_backup_path(target_path: Any) -> bool:
 
 
 def dayz_file_spec_for_path(target_path: Any) -> DayZFileSpec | None:
-    return DAYZ_FILE_SPECS.get(dayz_filename_for_path(target_path))
+    filename = dayz_filename_for_path(target_path)
+    spec = DAYZ_FILE_SPECS.get(filename)
+    if spec:
+        return spec
+    if filename.endswith("_territories.xml"):
+        return DAYZ_TERRITORY_FILE_SPEC
+    return None
 
 
 def dayz_xml_root_for_path(target_path: Any) -> str:
