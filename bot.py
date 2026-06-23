@@ -20266,7 +20266,7 @@ async def helpme(ctx):
             "`/tools giverole member role`, `/tools removerole member role`\n"
             "`/tools channelstatus`, `/tools channelpacks`\n"
             "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`\n"
-            "`/tools feedroutes target`, `/tools setfeedchannel feed_key channel`, `/tools togglefeed target enabled`"
+            "`/feeds routes target`, `/feeds setchannel feed_key channel`, `/feeds toggle target enabled`"
         ),
         inline=False
     )
@@ -48089,7 +48089,10 @@ async def slash_channelstatus(interaction: discord.Interaction):
     await interaction.response.send_message(text[:1900], ephemeral=True)
 
 
-@extra_tools_group.command(name="feedroutes", description="Admin: show bot feed channel routes")
+feeds_group = app_commands.Group(name="feeds", description="Admin controls for bot feed routes")
+
+
+@feeds_group.command(name="routes", description="Admin: show bot feed channel routes")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(target="Optional feed key or pack: raids, live, economy, all")
 async def slash_feedroutes(interaction: discord.Interaction, target: str = "all"):
@@ -48105,7 +48108,7 @@ async def slash_feedroutes(interaction: discord.Interaction, target: str = "all"
     )
 
 
-@extra_tools_group.command(name="setfeedchannel", description="Admin: route a bot feed to a different channel")
+@feeds_group.command(name="setchannel", description="Admin: route a bot feed to a different channel")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     feed_key="Feed key or alias, for example raids, raid events, killfeed, money_feed",
@@ -48133,7 +48136,7 @@ async def slash_setfeedchannel(interaction: discord.Interaction, feed_key: str, 
     )
 
 
-@extra_tools_group.command(name="resetfeedchannel", description="Admin: reset a bot feed back to its default channel")
+@feeds_group.command(name="resetchannel", description="Admin: reset a bot feed back to its default channel")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(feed_key="Feed key or alias, for example raids, raid events, killfeed")
 async def slash_resetfeedchannel(interaction: discord.Interaction, feed_key: str):
@@ -48159,7 +48162,7 @@ async def slash_resetfeedchannel(interaction: discord.Interaction, feed_key: str
     await interaction.followup.send(f"`{key}` reset to default route: {target}", ephemeral=True)
 
 
-@extra_tools_group.command(name="togglefeed", description="Admin: enable or disable a feed or feed pack")
+@feeds_group.command(name="toggle", description="Admin: enable or disable a feed or feed pack")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     target="Feed key or pack: raids, live, economy, all",
@@ -48191,6 +48194,9 @@ async def slash_togglefeed(interaction: discord.Interaction, target: str, enable
         return
 
     await interaction.response.send_message(f"Turned OFF `{target}` feed(s): {len(keys)} selected.", ephemeral=True)
+
+
+bot.tree.add_command(feeds_group)
 @extra_tools_group.command(name="channelpacks", description="Admin: show channel restore packs")
 @app_commands.default_permissions(administrator=True)
 async def slash_channelpacks(interaction: discord.Interaction):
