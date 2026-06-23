@@ -1767,8 +1767,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         territory_files_node = env_root.find("territories")
         env_file = territory_files_node.find("file") if territory_files_node is not None else None
         self.assertIsNotNone(env_file)
-        self.assertTrue(str(env_file.get("path") or "").startswith("$mission:env/"))
-        self.assertNotEqual("env/", str(env_file.get("path") or "")[:4])
+        self.assertEqual("env/wanderingbot_animal_bear_territories.xml", str(env_file.get("path") or ""))
         herd = env_root.find(".//territory[@type='Herd'][@name='HerdWanderingBot_animal_bear']")
         self.assertIsNotNone(herd)
         self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
@@ -1846,7 +1845,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         env_root = ET.fromstring(built["cfgenvironment_text"])
         env_files = env_root.findall("./territories/file")
         self.assertEqual(1, len(env_files))
-        self.assertEqual("$mission:env/wanderingbot_animal_bear_territories.xml", env_files[0].get("path"))
+        self.assertEqual("env/wanderingbot_animal_bear_territories.xml", env_files[0].get("path"))
         usable = "wanderingbot_animal_bear_territories"
         events_root = ET.fromstring(built["events_text"])
         animal_event_names = [

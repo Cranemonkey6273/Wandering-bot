@@ -33342,7 +33342,7 @@ def animal_territory_usable_name(record):
 
 
 def animal_territory_environment_path(record):
-    return f"$mission:env/{animal_territory_file_name(record)}"
+    return f"env/{animal_territory_file_name(record)}"
 
 
 def animal_territory_group_key(record):
@@ -34982,7 +34982,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             for territory_file in territory_files:
                 path = str(territory_file.get("path") or "")
                 file_name = os.path.basename(path).lower()
-                expected_path = f"$mission:env/{file_name}"
+                expected_path = f"env/{file_name}"
                 usable = os.path.splitext(file_name)[0]
                 if expected_path not in env_paths:
                     messages.append(f"`cfgenvironment.xml` is missing `<file path=\"{expected_path}\" />`.")
