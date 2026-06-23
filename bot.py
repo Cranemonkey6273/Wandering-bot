@@ -433,7 +433,7 @@ PVE_SLOT_DIFFICULTIES = ["Easy", "Medium", "Hard"]
 
 CHANNEL_ALIASES = {
     "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
-    "raids": ["raids", "raidfeed", "raiddetected", "raidalerts"],
+    "raids": ["raids", "raidfeed", "raiddetected", "raidalerts", "raidevents"],
     "building": ["building", "build", "buildfeed", "basebuilding"],
     "connections": ["connected", "connections", "connect", "joins", "playerjoins"],
     "disconnects": ["disconnects", "disconnect", "leftserver", "playerleaves"],
@@ -970,6 +970,8 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
+            if is_channel_key_custom_routed(config, key):
+                return existing
             if preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
                 existing = preferred_existing
                 channels[key] = existing.id
@@ -6331,6 +6333,26 @@ def disabled_channel_keys(config):
     return disabled
 
 
+def custom_channel_route_keys(config):
+    custom = config.setdefault("custom_channel_routes", [])
+    if not isinstance(custom, list):
+        custom = []
+        config["custom_channel_routes"] = custom
+    return custom
+
+
+def is_channel_key_custom_routed(config, key):
+    return key in set(custom_channel_route_keys(config))
+
+
+def set_channel_key_custom_routed(config, key, custom=True):
+    custom_keys = custom_channel_route_keys(config)
+    if custom and key not in custom_keys:
+        custom_keys.append(key)
+    elif not custom and key in custom_keys:
+        custom_keys.remove(key)
+
+
 def is_channel_key_disabled(config, key):
     return key in set(disabled_channel_keys(config))
 
@@ -6375,6 +6397,8 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
     if saved_id:
         channel = bot.get_channel(saved_id)
         if channel:
+            if is_channel_key_custom_routed(config, key):
+                return channel
             preferred_existing = preferred_existing_feed_channel(guild, key) if guild else None
             if (
                 preferred_existing
@@ -6390,6 +6414,8 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
         if guild:
             channel = guild.get_channel(saved_id)
             if channel:
+                if is_channel_key_custom_routed(config, key):
+                    return channel
                 preferred_existing = preferred_existing_feed_channel(guild, key)
                 if (
                     preferred_existing
@@ -6457,6 +6483,8 @@ def discover_existing_guild_channels(guild, config):
 
         existing_channel_id = _safe_channel_id(existing_id)
         if existing_channel_id and guild.get_channel(existing_channel_id):
+            if is_channel_key_custom_routed(config, key):
+                continue
             preferred = preferred_existing_feed_channel(guild, key)
             existing = guild.get_channel(existing_channel_id)
             if (
@@ -6535,6 +6563,8 @@ async def repair_guild_display_names(guild, config):
 
     for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
         if is_channel_key_disabled(config, key):
+            continue
+        if is_channel_key_custom_routed(config, key):
             continue
 
         channel = None
@@ -6724,6 +6754,44 @@ def resolve_channel_key(text):
                 return key
 
     return None
+
+
+def resolve_feed_target_keys(target):
+    wanted = normalize_discord_name(target or "all")
+    if not wanted or wanted == "all":
+        return list(CHANNEL_RESTORE_PACKS.get("all", [])), None
+
+    for pack, keys in CHANNEL_RESTORE_PACKS.items():
+        if wanted == normalize_discord_name(pack):
+            return list(keys), None
+
+    key = resolve_channel_key(target)
+    if key:
+        return [key], None
+
+    return [], f"`{target}` is not a feed key or channel pack I recognise."
+
+
+def format_feed_route_status(guild, config, target="all", limit=30):
+    keys, error = resolve_feed_target_keys(target)
+    if error:
+        return error
+
+    channels = config.setdefault("channels", {})
+    lines = []
+    for key in keys[:limit]:
+        saved_id = _safe_channel_id(channels.get(key))
+        channel = guild.get_channel(saved_id) if saved_id else None
+        state = "OFF" if is_channel_key_disabled(config, key) else "ON"
+        route = "custom" if is_channel_key_custom_routed(config, key) else "default"
+        target_text = channel.mention if channel else DEFAULT_CHANNEL_NAMES.get(key, key)
+        lines.append(f"`{key}` - **{state}** - {target_text} - `{route}`")
+
+    hidden = max(0, len(keys) - len(keys[:limit]))
+    if hidden:
+        lines.append(f"+ {hidden} more. Narrow it with `live`, `economy`, `raids`, etc.")
+
+    return "\n".join(lines) or "No feeds matched."
 
 
 def format_channel_restore_packs():
@@ -20197,7 +20265,8 @@ async def helpme(ctx):
             "`/tools purgebots amount`\n"
             "`/tools giverole member role`, `/tools removerole member role`\n"
             "`/tools channelstatus`, `/tools channelpacks`\n"
-            "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`"
+            "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`\n"
+            "`/tools feedroutes target`, `/tools setfeedchannel feed_key channel`, `/tools togglefeed target enabled`"
         ),
         inline=False
     )
@@ -48008,11 +48077,120 @@ async def slash_channelstatus(interaction: discord.Interaction):
 
     config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
     disabled = sorted(disabled_channel_keys(config))
+    custom = sorted(custom_channel_route_keys(config))
     if disabled:
         text = "\n".join(f"`{key}` - {DEFAULT_CHANNEL_NAMES.get(key, key)}" for key in disabled)
     else:
         text = "No bot channels are currently marked as owner-deleted."
+    if custom:
+        text += "\n\nCustom feed routes:\n" + "\n".join(
+            f"`{key}` -> <#{config.get('channels', {}).get(key)}>" for key in custom
+        )
     await interaction.response.send_message(text[:1900], ephemeral=True)
+
+
+@extra_tools_group.command(name="feedroutes", description="Admin: show bot feed channel routes")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(target="Optional feed key or pack: raids, live, economy, all")
+async def slash_feedroutes(interaction: discord.Interaction, target: str = "all"):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    await interaction.response.send_message(
+        format_feed_route_status(interaction.guild, config, target)[:1900],
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@extra_tools_group.command(name="setfeedchannel", description="Admin: route a bot feed to a different channel")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    feed_key="Feed key or alias, for example raids, raid events, killfeed, money_feed",
+    channel="Channel where this feed should post",
+)
+async def slash_setfeedchannel(interaction: discord.Interaction, feed_key: str, channel: discord.TextChannel):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    key = resolve_channel_key(feed_key)
+    if not key:
+        await interaction.response.send_message(f"`{feed_key}` is not a feed key I recognise.", ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    config.setdefault("channels", {})[key] = channel.id
+    set_channel_key_disabled(config, key, False)
+    set_channel_key_custom_routed(config, key, True)
+    save_guild_configs()
+    await interaction.response.send_message(
+        f"`{key}` is now routed to {channel.mention}. The bot will not rename or move that custom channel.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@extra_tools_group.command(name="resetfeedchannel", description="Admin: reset a bot feed back to its default channel")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(feed_key="Feed key or alias, for example raids, raid events, killfeed")
+async def slash_resetfeedchannel(interaction: discord.Interaction, feed_key: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    key = resolve_channel_key(feed_key)
+    if not key:
+        await interaction.response.send_message(f"`{feed_key}` is not a feed key I recognise.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    config.setdefault("channels", {}).pop(key, None)
+    set_channel_key_custom_routed(config, key, False)
+    set_channel_key_disabled(config, key, False)
+    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=[key])
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+    target = restored[0] if restored else DEFAULT_CHANNEL_NAMES.get(key, key)
+    await interaction.followup.send(f"`{key}` reset to default route: {target}", ephemeral=True)
+
+
+@extra_tools_group.command(name="togglefeed", description="Admin: enable or disable a feed or feed pack")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(
+    target="Feed key or pack: raids, live, economy, all",
+    enabled="Turn selected feed(s) on or off",
+)
+async def slash_togglefeed(interaction: discord.Interaction, target: str, enabled: bool):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    keys, error = resolve_feed_target_keys(target)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+
+    config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
+    for key in keys:
+        set_channel_key_disabled(config, key, not enabled)
+    save_guild_configs()
+
+    if enabled:
+        await interaction.response.defer(ephemeral=True)
+        restored, restore_error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=keys)
+        if restore_error:
+            await interaction.followup.send(restore_error, ephemeral=True)
+            return
+        created_text = f"\nRestored/checked: {len(restored)} channel(s)." if restored else ""
+        await interaction.followup.send(f"Turned ON `{target}` feed(s): {len(keys)} selected.{created_text}", ephemeral=True)
+        return
+
+    await interaction.response.send_message(f"Turned OFF `{target}` feed(s): {len(keys)} selected.", ephemeral=True)
 @extra_tools_group.command(name="channelpacks", description="Admin: show channel restore packs")
 @app_commands.default_permissions(administrator=True)
 async def slash_channelpacks(interaction: discord.Interaction):

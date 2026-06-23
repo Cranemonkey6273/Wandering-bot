@@ -54,6 +54,24 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.discover_existing_guild_channels(guild, config))
         self.assertEqual(config["channels"]["nitrado_ban_logs"], original.id)
 
+    def test_custom_feed_route_is_not_overwritten_by_default_channel(self):
+        default = FakeChannel("🚨🏴・raids・🏴🚨", 100)
+        custom = FakeChannel("airfield-pings", 200)
+        guild = FakeGuild([default, custom])
+        config = {"channels": {"raids": custom.id}, "custom_channel_routes": ["raids"]}
+
+        self.assertFalse(bot.discover_existing_guild_channels(guild, config))
+        self.assertEqual(config["channels"]["raids"], custom.id)
+
+    def test_feed_target_resolves_live_pack_and_raid_alias(self):
+        keys, error = bot.resolve_feed_target_keys("live")
+        self.assertIsNone(error)
+        self.assertIn("raids", keys)
+
+        keys, error = bot.resolve_feed_target_keys("raid events")
+        self.assertIsNone(error)
+        self.assertEqual(keys, ["raids"])
+
     def test_radar_channel_matches_plain_radars(self):
         channel = FakeChannel("Radars", 300)
 
