@@ -1003,6 +1003,28 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIs(returned_group, crash_group)
         self.assertEqual(1, len(proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")))
 
+    def test_unmarked_static_helicrash_proto_can_bump_lootmax_when_requested(self):
+        proto_root = ET.Element("prototype")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
+        ET.SubElement(crash_group, "usage", {"name": "Military"})
+        container = ET.SubElement(crash_group, "container", {"name": "lootFloor", "lootmax": "15"})
+        ET.SubElement(container, "category", {"name": "weapons"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {"pos": "-2.693787 -1.888990 1.671386", "range": "0.703328", "height": "2.000000", "flags": "32"})
+
+        returned_group, changed = bot.add_mapgroupproto_loot_group(
+            proto_root,
+            "Wreck_Mi8_Crashed",
+            lootmax=40,
+            patch_static_helicrash_lootmax=True,
+        )
+
+        self.assertTrue(changed)
+        self.assertIs(returned_group, crash_group)
+        self.assertEqual("40", crash_group.get("lootmax"))
+        self.assertEqual("40", container.get("lootmax"))
+        self.assertEqual(1, len(proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")))
+
     def test_existing_marked_proto_group_gets_lootfloor_repaired(self):
         proto_root = ET.Element("prototype")
         bot.append_wandering_xml_comment(proto_root, "managed mapgroupproto group Wreck_Mi8_Crashed")
@@ -1073,6 +1095,27 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(1, len(groups))
         self.assertTrue(bot.mapgroupproto_group_matches_reference(groups[0], "livonia", "Wreck_Mi8_Crashed"))
         self.assertGreaterEqual(len(groups[0].findall("./container/point")), 20)
+
+    def test_static_helicrash_lootmax_bump_is_scope_safe(self):
+        original_root = ET.Element("prototype")
+        original_group = bot.dayz_reference_mapgroupproto_group("livonia", "Wreck_Mi8_Crashed")
+        self.assertIsNotNone(original_group)
+        original_root.append(original_group)
+
+        merged_root = ET.fromstring(ET.tostring(original_root, encoding="utf-8"))
+        merged_group = merged_root.find("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertIsNotNone(merged_group)
+        changed = bot.bump_static_helicrash_mapgroupproto_lootmax(merged_group, 40)
+        self.assertTrue(changed)
+
+        ok, message = bot.validate_managed_ce_xml_scope(
+            "mapgroupproto.xml",
+            bot.xml_text_from_root(original_root),
+            bot.xml_text_from_root(merged_root),
+            map_key="livonia",
+        )
+
+        self.assertTrue(ok, message)
 
 
 class BuildConsoleCeEventFilesTests(unittest.TestCase):
@@ -1180,6 +1223,59 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("Restored vanilla Livonia StaticHeliCrash" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_livonia_airdrop_requested_loot_range_bumps_mi8_proto_lootmax(self):
+        base_path = "/dayzxb_missions/dayzOffline.enoch"
+        proto_root = ET.Element("prototype")
+        proto_root.append(bot.dayz_reference_mapgroupproto_group("livonia", "Wreck_Mi8_Crashed"))
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": (bot.xml_text_from_root(proto_root), f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        bot.download_console_ce_source = fake_download
+        config = {
+            "guild_name": "Test Livonia",
+            "server_map": "livonia",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    59,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                    loot_count_range="30-40",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        child = events_root.find("./event[@name='StaticWanderingBot_59_airdrop']/children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual("30", child.get("lootmin"))
+        self.assertEqual("40", child.get("lootmax"))
+        merged_proto = ET.fromstring(built["mapgroupproto_text"])
+        crash_group = merged_proto.find("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertIsNotNone(crash_group)
+        self.assertEqual("40", crash_group.get("lootmax"))
+        self.assertEqual("40", crash_group.find("./container[@name='lootFloor']").get("lootmax"))
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
@@ -1861,6 +1957,30 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
+
+    def test_animal_environment_cleanup_removes_stale_managed_comments(self):
+        env_root = ET.fromstring("""<env><territories>
+            <file path="env/bear_territories.xml" />
+            <!-- Wandering Bot: managed animal territory file env/wanderingbot_animal_bear_territories.xml -->
+            <file path="env/wanderingbot_animal_bear_territories.xml" />
+            <!-- Wandering Bot: managed animal territory HerdWanderingBot_animal_bear -->
+            <territory type="Herd" name="HerdWanderingBot_animal_bear" behavior="BlissBearGroupBeh">
+                <file usable="wanderingbot_animal_bear_territories" />
+            </territory>
+        </territories></env>""", parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
+
+        removed_files, removed_territories = bot.remove_wandering_environment_nodes(env_root)
+
+        self.assertEqual(1, removed_files)
+        self.assertEqual(1, removed_territories)
+        self.assertIsNotNone(env_root.find("./territories/file[@path='env/bear_territories.xml']"))
+        self.assertFalse(
+            any(
+                bot.is_xml_comment_node(child)
+                and "managed animal territory" in str(child.text or "").lower()
+                for child in list(env_root.find("territories"))
+            )
+        )
 
     def test_animal_pack_validation_rejects_custom_event_missing_herd_template(self):
         event_name = "AnimalWanderingBot_animal_bear"

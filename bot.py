@@ -31251,6 +31251,17 @@ def validate_managed_ce_xml_scope(label, original_text, merged_text, map_key="")
         if (
             not owned
             and label == "mapgroupproto.xml"
+            and mapgroupproto_static_helicrash_lootmax_change_is_safe(
+                key,
+                original_root,
+                merged_root,
+                map_key=map_key,
+            )
+        ):
+            continue
+        if (
+            not owned
+            and label == "mapgroupproto.xml"
             and mapgroupproto_static_helicrash_repair_change_is_safe(
                 key,
                 original_root,
@@ -32820,6 +32831,87 @@ def repair_vanilla_static_helicrash_mapgroupproto(root, map_key=""):
     return repaired
 
 
+def bump_static_helicrash_mapgroupproto_lootmax(group_node, lootmax):
+    if group_node is None:
+        return False
+    try:
+        target = max(1, min(80, int(lootmax or 0)))
+    except Exception:
+        target = 0
+    if target <= 0:
+        return False
+
+    changed = False
+    if mapgroupproto_positive_int(group_node.get("lootmax")) < target:
+        group_node.set("lootmax", str(target))
+        changed = True
+    for container_node in group_node.findall("container"):
+        if mapgroupproto_positive_int(container_node.get("lootmax")) < target:
+            container_node.set("lootmax", str(target))
+            changed = True
+    return changed
+
+
+def normalized_static_helicrash_proto_text(group_node):
+    if group_node is None:
+        return ""
+    try:
+        clone = ET.fromstring(ET.tostring(group_node, encoding="utf-8"))
+    except Exception:
+        return ""
+    for node in clone.iter():
+        if "lootmax" in node.attrib:
+            node.set("lootmax", "__lootmax__")
+    return canonical_ce_scope_node_text(clone)
+
+
+def static_helicrash_proto_lootmax_values(group_node):
+    if group_node is None:
+        return []
+    values = [mapgroupproto_positive_int(group_node.get("lootmax"))]
+    values.extend(mapgroupproto_positive_int(node.get("lootmax")) for node in group_node.findall("container"))
+    return values
+
+
+def mapgroupproto_static_helicrash_lootmax_change_is_safe(key, original_root, merged_root, map_key=""):
+    if not isinstance(key, tuple) or len(key) < 3:
+        return False
+    tag_name, attr_name, attr_value = key[:3]
+    if str(tag_name) != "group" or str(attr_name) != "name":
+        return False
+    class_lookup = {
+        class_name.lower(): class_name
+        for class_name in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
+    }
+    class_name = class_lookup.get(str(attr_value or "").strip().lower())
+    if not class_name:
+        return False
+
+    reference_group = dayz_reference_mapgroupproto_group(map_key, class_name)
+    if reference_group is None:
+        return False
+    original_groups = mapgroupproto_groups_named(original_root, class_name)
+    merged_groups = mapgroupproto_groups_named(merged_root, class_name)
+    if len(original_groups) != 1 or len(merged_groups) != 1:
+        return False
+
+    reference_text = normalized_static_helicrash_proto_text(reference_group)
+    if (
+        not reference_text
+        or normalized_static_helicrash_proto_text(original_groups[0]) != reference_text
+        or normalized_static_helicrash_proto_text(merged_groups[0]) != reference_text
+    ):
+        return False
+
+    original_values = static_helicrash_proto_lootmax_values(original_groups[0])
+    merged_values = static_helicrash_proto_lootmax_values(merged_groups[0])
+    if len(original_values) != len(merged_values):
+        return False
+    if not any(merged > original for original, merged in zip(original_values, merged_values)):
+        return False
+    return all(original <= merged <= 80 for original, merged in zip(original_values, merged_values))
+
+
 def mapgroupproto_static_helicrash_repair_change_is_safe(key, original_root, merged_root, map_key=""):
     if not isinstance(key, tuple) or len(key) < 3:
         return False
@@ -33124,7 +33216,7 @@ def find_usable_unmanaged_mapgroupproto_group(root, class_name):
     return None
 
 
-def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_key=""):
+def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_key="", patch_static_helicrash_lootmax=False):
     # Non-destructive: unmarked live groups stay byte-for-byte under the
     # snippet scope guard. If WanderingBot needs a proto, append its own marked
     # group at the end and only refresh that marked block on later retries.
@@ -33146,6 +33238,10 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_ke
         return managed_group, changed
     usable_unmanaged = find_usable_unmanaged_mapgroupproto_group(root, wanted)
     if usable_unmanaged is not None:
+        if patch_static_helicrash_lootmax and wanted.lower() in {
+            item.lower() for item in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
+        }:
+            return usable_unmanaged, bump_static_helicrash_mapgroupproto_lootmax(usable_unmanaged, lootmax)
         return usable_unmanaged, False
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
@@ -33774,6 +33870,11 @@ def remove_wandering_environment_nodes(root):
     removed_files = 0
     removed_territories = 0
     for child in list(territories):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            if "wandering bot:" in text and "managed animal territory" in text:
+                territories.remove(child)
+            continue
         if child.tag == "file":
             path = str(child.get("path") or "").lower()
             if "wanderingbot" in normalize_discord_name(path):
@@ -34142,6 +34243,8 @@ def console_ce_records_for_event(event, map_key=""):
         "limit_type": limit_type,
         "child_lootmin": child_lootmin,
         "child_lootmax": child_lootmax,
+        "loot_count_range": event.get("loot_count_range", ""),
+        "explicit_lootmax": safe_int(event.get("lootmax"), 0),
         "child_records": child_records,
         "secondary": scenario_airdrop_secondary_infected(event) if event_type in {"airdrop", "loot_crate"} else "",
         "eventgroup_children": eventgroup_children,
@@ -34901,6 +35004,14 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     lootmax=record.get("child_lootmax") or 80,
                     tags=record.get("mapgroupproto_tags") if proto_class == record["class_name"] else {},
                     map_key=ce_map_key,
+                    patch_static_helicrash_lootmax=(
+                        str(proto_class or "").strip().lower()
+                        in {item.lower() for item in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES}
+                        and (
+                            str(record.get("loot_count_range") or "").strip().lower() not in {"", "default"}
+                            or safe_int(record.get("explicit_lootmax"), 0) > 0
+                        )
+                    ),
                 )
                 if created:
                     added_proto += 1
