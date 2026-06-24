@@ -15452,6 +15452,10 @@ def upload_text_file_to_nitrado_ftp(config, target_path, text_content):
                 pass
 
 
+PROTECTED_FTP_VERIFY_ATTEMPTS = 5
+PROTECTED_FTP_VERIFY_RETRY_SECONDS = 1
+
+
 def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_content):
     valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
     if not valid_upload:
@@ -15463,13 +15467,21 @@ def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_
         return False, f"Direct FTP live write failed: {direct_message}"
 
     label = os.path.basename(str(target_path or "").replace("\\", "/"))
-    download_ok, download_message, live_text = download_text_file_from_nitrado_ftp(config, clean_target, exact_only=True)
-    if not download_ok:
-        return False, f"{direct_message} Live verification failed after direct FTP write: FTP re-download failed: {download_message}"
-    verify_ok, verify_message = verify_protected_dayz_xml_content_matches(label, clean_target, text_content, live_text)
-    if not verify_ok:
-        return False, f"{direct_message} Live verification failed after direct FTP write: {verify_message}"
-    return True, f"{direct_message} {verify_message}"
+    last_message = ""
+    attempts = max(1, int(PROTECTED_FTP_VERIFY_ATTEMPTS or 1))
+    for attempt in range(attempts):
+        download_ok, download_message, live_text = download_text_file_from_nitrado_ftp(config, clean_target, exact_only=True)
+        if not download_ok:
+            last_message = f"FTP re-download failed: {download_message}"
+        else:
+            verify_ok, verify_message = verify_protected_dayz_xml_content_matches(label, clean_target, text_content, live_text)
+            if verify_ok:
+                retry_note = f" after {attempt + 1} attempt(s)" if attempt else ""
+                return True, f"{direct_message} {verify_message}{retry_note}"
+            last_message = verify_message
+        if attempt < attempts - 1:
+            time.sleep(max(0, float(PROTECTED_FTP_VERIFY_RETRY_SECONDS or 0)))
+    return False, f"{direct_message} Live verification failed after direct FTP write: {last_message}"
 
 
 def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
@@ -35445,12 +35457,23 @@ def successful_native_ce_fallback_message(message):
     )
 
 
+def successful_native_ce_rollback_message(message):
+    text = str(message or "").lower()
+    return (
+        "rollback restored" in text
+        and (
+            "post-upload re-download matched" in text
+            or "verified after upload" in text
+        )
+    ) or text.startswith("native ce rollback attempted after bundle mismatch")
+
+
 def native_ce_failure_summary_messages(messages, limit=4):
     candidates = []
     for message in messages or []:
         text = str(message or "")
         lower = text.lower()
-        if successful_native_ce_fallback_message(text):
+        if successful_native_ce_fallback_message(text) or successful_native_ce_rollback_message(text):
             continue
         if any(token in lower for token in (
             "blocked",
@@ -35467,6 +35490,7 @@ def native_ce_failure_summary_messages(messages, limit=4):
         str(message)
         for message in (messages or [])
         if not successful_native_ce_fallback_message(message)
+        and not successful_native_ce_rollback_message(message)
     ]
     return (candidates or fallback)[-limit:]
 

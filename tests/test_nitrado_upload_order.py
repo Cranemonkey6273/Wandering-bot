@@ -44,6 +44,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_discover_ce_file_paths = bot.discover_console_ce_file_paths
         self.original_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
+        self.original_ftp_verify_retry_seconds = bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS
         self.calls = []
 
     def tearDown(self):
@@ -59,6 +60,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.discover_console_ce_file_paths = self.original_discover_ce_file_paths
         bot.upload_ce_latest_backup_to_nitrado = self.original_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
+        bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS = self.original_ftp_verify_retry_seconds
 
     def test_protected_xml_uses_api_before_ftp(self):
         def api_upload(*_args):
@@ -370,8 +372,35 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("did not match the uploaded content", message)
+        self.assertEqual(("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"), self.calls[0])
+        self.assertEqual(5, len([call for call in self.calls if call[0] == "download_ftp"]))
+
+    def test_verified_ftp_write_retries_empty_exact_read_before_failing(self):
+        def ftp_upload(_config, path, _text):
+            self.calls.append(("upload_ftp", path))
+            return True, "Uploaded successfully via ukln138.gamedata.io."
+
+        def ftp_download(_config, path, exact_only=False):
+            self.calls.append(("download_ftp", path, exact_only))
+            if len([call for call in self.calls if call[0] == "download_ftp"]) == 1:
+                return True, "Downloaded successfully via FTP.", ""
+            return True, "Downloaded successfully via FTP.", SPAWNS_XML
+
+        bot.upload_text_file_to_nitrado_ftp = ftp_upload
+        bot.download_text_file_from_nitrado_ftp = ftp_download
+        bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS = 0
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified(
+            {},
+            "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            SPAWNS_XML,
+        )
+
+        self.assertTrue(ok, message)
+        self.assertIn("after 2 attempt(s)", message)
         self.assertEqual([
             ("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"),
+            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
             ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
         ], self.calls)
 
@@ -769,6 +798,21 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertFalse(bot.native_ce_upload_blocked_messages(messages))
         self.assertNotIn("mapgroupproto.xml", bot.native_ce_failed_status_text(messages))
+
+    def test_successful_rollback_messages_do_not_hide_original_failure(self):
+        messages = [
+            "Final remote CE bundle verification failed after upload.",
+            "`AnimalWanderingBot_animal_bear` is a custom animal event but is missing matching Herd template `HerdWanderingBot_animal_bear` in `cfgenvironment.xml`.",
+            "Native CE rollback attempted after bundle mismatch: `4` restored, `0` failed.",
+            "`cfgenvironment.xml` rollback restored from in-memory pre-upload copy. Uploaded successfully via ukln138.gamedata.io. cfgenvironment.xml post-upload re-download matched with <env> root.",
+            "`zombie_territories.xml` rollback restored from in-memory pre-upload copy. Uploaded successfully via ukln138.gamedata.io. zombie_territories.xml post-upload re-download matched with <territory-type> root.",
+        ]
+
+        status = bot.native_ce_failed_status_text(messages)
+
+        self.assertIn("Final remote CE bundle verification failed", status)
+        self.assertIn("missing matching Herd template", status)
+        self.assertNotIn("rollback restored", status)
 
     def test_console_ce_source_download_uses_discovered_ce_file_path(self):
         guild_id = "livonia-ce-discovery"
