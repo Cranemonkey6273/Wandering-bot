@@ -35779,7 +35779,14 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             failed_territory_files.append(territory_file)
             messages.append("Animal territory upload skipped because the target path or content was missing.")
             continue
-        one_ok, one_message = upload_text_file_to_nitrado(config, path, text)
+        one_ok, one_message = upload_protected_ce_file_to_nitrado(
+            config,
+            os.path.basename(path),
+            path,
+            text,
+            restore_text=restore_texts.get(path),
+            prefer_ftp=True,
+        )
         territory_ok = territory_ok and one_ok
         if not one_ok:
             failed_territory_files.append(territory_file)
