@@ -93,6 +93,16 @@ SCENARIO_SPAWN_PRESETS = {
     "gas_red_permanent": {"label": "Permanent red gas zone", "class": "ContaminatedArea_Dynamic", "event_type": "gas_zone", "count": 1, "radius": 150, "gas_particle": "debug"},
     "custom": {"label": "Custom classname", "class": "", "event_type": "custom"},
 }
+SCENARIO_GUARD_CLASS_OPTIONS = (
+    ("", "No guards"),
+    ("ZmbM_CitizenASkinny_Brown", "Civilian infected"),
+    ("ZmbM_SoldierNormal", "Military infected"),
+    ("ZmbM_usSoldier_Heavy_Woodland", "Heavy military infected"),
+    ("ZmbM_PolicemanFat", "Police infected"),
+    ("ZmbM_DoctorFat", "Medical infected"),
+    ("ZmbM_FirefighterNormal", "Firefighter infected"),
+    ("ZmbM_PrisonerSkinny", "Prisoner infected"),
+)
 DASHBOARD_AIRDROP_LOCATION_PRESETS = {
     "chernarus": [
         {"name": "NWAF", "x": 4481, "z": 10355},
@@ -5214,7 +5224,14 @@ PAGE_TEMPLATE = """
               </select>
               <small class="field-help">🚁 Marker scenes. Heli min 100m, convoy min 80m.</small>
             </label>
-            <label>Guard class <input name="guard_class" value="{{ edit_event.guard_class }}" placeholder="optional infected guard classname"></label>
+            <label>Guard class
+              <select name="guard_class">
+                {% for class_name, label in guard_class_options %}
+                <option value="{{ class_name }}" {% if edit_event.guard_class == class_name %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <small class="field-help">Pick the infected type for crash guards.</small>
+            </label>
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
             <div class="full embed-preview"><strong>Status</strong><span>Save queues direct bridge XML when the DayZ bridge is installed; otherwise it uses guarded native CE XML. Max 250 spawns per event.</span></div>
@@ -11222,7 +11239,7 @@ PAGE_TEMPLATE = """
           const sceneValue = button.dataset.scene === "cargo_plane_wreck" ? "compact_crater" : (button.dataset.scene || "compact_crater");
           form.elements.scene_type.value = sceneValue;
         }
-        form.elements.guard_class.value = button.dataset.guard || "";
+        if (form.elements.guard_class) form.elements.guard_class.value = button.dataset.guard || "";
         form.elements.guard_count.value = button.dataset.guardCount || 0;
         form.elements.guard_radius.value = button.dataset.guardRadius || 35;
         if (form.elements.lifetime) form.elements.lifetime.value = button.dataset.lifetime || 7200;
@@ -16231,6 +16248,12 @@ def normalize_scenario_loot_count_range(value: Any) -> str:
     return text if text in SCENARIO_LOOT_COUNT_RANGES else "default"
 
 
+def normalize_scenario_guard_class(value: Any) -> str:
+    text = str(value or "").strip()
+    allowed = {class_name for class_name, _label in SCENARIO_GUARD_CLASS_OPTIONS}
+    return text if text in allowed else ""
+
+
 def parse_scenario_loot_mix(payload: dict[str, Any]) -> dict[str, int]:
     raw_mix = payload.get("loot_mix") if isinstance(payload, dict) else {}
     if not isinstance(raw_mix, dict):
@@ -20683,6 +20706,7 @@ def page(mode: str, auth: dict[str, Any]):
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
+        guard_class_options=SCENARIO_GUARD_CLASS_OPTIONS,
         dashboard_scenario_preset=dashboard_scenario_preset_for_event,
         loot_mix_fields=SCENARIO_LOOT_MIX_FIELDS,
         visual_loadout_slots=VISUAL_LOADOUT_SLOTS,
@@ -22465,6 +22489,8 @@ def api_scenario_event():
         gas_particle = "normal"
     elif gas_particle not in {"debug", "normal"}:
         gas_particle = "server_default"
+    guard_class = normalize_scenario_guard_class(payload.get("guard_class"))
+    guard_count = max(0, min(80, safe_int(payload.get("guard_count"), 0))) if guard_class else 0
     bridge_ready = dashboard_delivery_bridge_runtime_supported(config)
     requested_route = str(payload.get("delivery_route") or payload.get("upload_route") or "").strip().lower()
     force_native_ce = (
@@ -22580,8 +22606,8 @@ def api_scenario_event():
             "visual_marker": safe_bool(payload.get("visual_marker"), False),
             "marker_class": scene_marker_class if event_type in {"airdrop", "loot_crate"} and safe_bool(payload.get("visual_marker"), False) else "",
             "scene_type": scene_type if event_type in {"airdrop", "loot_crate"} else "compact_crater",
-            "guard_class": str(payload.get("guard_class") or "").strip(),
-            "guard_count": max(0, min(80, safe_int(payload.get("guard_count"), 0))),
+            "guard_class": guard_class,
+            "guard_count": guard_count,
             "guard_radius": max(0, min(500, safe_int(payload.get("guard_radius"), 35))),
             "lifetime": event_lifetime,
             "restock": restock,

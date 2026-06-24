@@ -18787,6 +18787,14 @@ async def send_money_feed(guild, config, title, description="", fields=None, *, 
 TRADER_CIGARETTE_PENNY_VALUE = 25
 
 
+def trader_discord_name(user):
+    display = str(getattr(user, "display_name", None) or getattr(user, "global_name", None) or getattr(user, "name", None) or user or "").strip()
+    username = str(getattr(user, "name", "") or "").strip()
+    if username and display and normalize_discord_name(username) != normalize_discord_name(display):
+        return f"{display} (@{username})"
+    return display or username or "Unknown user"
+
+
 async def send_livo_trader_feed(guild, config, channel_key, title, description="", fields=None, *, color=0xD5B45F, footer="Livo Trader"):
     if not guild or channel_key not in GUILD_LOCAL_CHANNEL_KEYS:
         return None
@@ -18887,24 +18895,30 @@ class SmokeSubmissionModal(discord.ui.Modal):
         save_wallets()
 
         now = datetime.now(ZoneInfo("Europe/London"))
+        player_label = str(getattr(self.player_name, "value", "")).strip() or trader_discord_name(self.member)
+        gamertag_label = str(getattr(self.gamertag, "value", "")).strip() or "Not supplied"
+        member_label = trader_discord_name(self.member)
+        admin_label = trader_discord_name(interaction.user)
+        balance_label = wallet_balance_brief(wallet)
+        notes_label = str(getattr(self.notes, "value", "") or "No notes.").strip()
         fields = [
-            {"name": "Player", "value": str(getattr(self.player_name, "value", "")).strip(), "inline": True},
-            {"name": "Gamertag", "value": str(getattr(self.gamertag, "value", "")).strip(), "inline": True},
-            {"name": "Discord User", "value": self.member.mention, "inline": True},
-            {"name": "Cigarette Packs Handed In", "value": str(pack_count), "inline": True},
-            {"name": "Amount Credited", "value": f"{credited} pennies", "inline": True},
-            {"name": "Trader/Admin", "value": interaction.user.mention, "inline": True},
-            {"name": "Date/Time", "value": now.strftime("%Y-%m-%d %H:%M UK"), "inline": True},
-            {"name": "New Balance", "value": wallet_balance_brief(wallet), "inline": True},
-            {"name": "Notes", "value": str(getattr(self.notes, "value", "") or "No notes.").strip(), "inline": False},
+            {"name": "🧍 Player", "value": player_label, "inline": True},
+            {"name": "🎮 Gamertag", "value": gamertag_label, "inline": True},
+            {"name": "💬 Discord User", "value": member_label, "inline": True},
+            {"name": "🚬 Packs Handed In", "value": str(pack_count), "inline": True},
+            {"name": "💰 Credit Added", "value": f"+{credited} pennies", "inline": True},
+            {"name": "🛡️ Trader/Admin", "value": admin_label, "inline": True},
+            {"name": "🕒 Date / Time", "value": now.strftime("%Y-%m-%d %H:%M UK"), "inline": True},
+            {"name": "🏦 New Balance", "value": balance_label, "inline": True},
+            {"name": "📝 Notes", "value": notes_label, "inline": False},
         ]
 
         await send_livo_trader_feed(
             interaction.guild,
             config,
             "livo_trader_transactions",
-            "TRADER EXCHANGE LOG",
-            f"{self.member.mention} handed in **{pack_count} cigarette pack(s)** and was credited **{credited} pennies**.",
+            "🚬 Trader Exchange Logged",
+            f"**{member_label}** handed in **{pack_count} cigarette pack(s)** and received **+{credited} pennies**.",
             fields,
             color=0xD5B45F,
             footer="Livo Trader Transactions",
@@ -18913,8 +18927,8 @@ class SmokeSubmissionModal(discord.ui.Modal):
             interaction.guild,
             config,
             "livo_trader_balance",
-            "TRADER BALANCE UPDATED",
-            f"{self.member.mention} balance changed by **+{credited} pennies** from cigarette trade-in.",
+            "💰 Trader Balance Updated",
+            f"**{member_label}** balance changed by **+{credited} pennies** from a cigarette trade-in.\n**Balance:** {balance_label}",
             fields,
             color=0x2ECC71,
             footer="Livo Trader Balance Feed",
@@ -18923,15 +18937,15 @@ class SmokeSubmissionModal(discord.ui.Modal):
             interaction.guild,
             config,
             "livo_trader_log",
-            "TRADER ADMIN LOG",
-            f"{interaction.user.mention} submitted a smoke exchange for {self.member.mention}.",
+            "🧾 Trader Admin Log",
+            f"**{admin_label}** submitted a smoke exchange for **{member_label}**.",
             fields,
             color=0x3498DB,
             footer="Livo Trader Staff Log",
         )
 
         await interaction.response.send_message(
-            f"Smoke exchange submitted: credited **{credited} pennies** to {self.member.mention}.",
+            f"Smoke exchange submitted: credited **{credited} pennies** to **{member_label}**.",
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
