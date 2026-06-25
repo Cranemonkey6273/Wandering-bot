@@ -336,6 +336,15 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 "events_text": "<events></events>",
                 "spawns_path": "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
                 "spawns_text": "<eventposdef></eventposdef>",
+                "cfgenvironment_path": "/dayzxb_missions/dayzOffline.enoch/cfgenvironment.xml",
+                "cfgenvironment_text": (
+                    "<env><territories>"
+                    '<file path="env/wanderingbot_animal_bear_territories.xml" />'
+                    '<territory type="Herd" name="WanderingBot_animal_bear" behavior="BlissBearGroupBeh">'
+                    '<file usable="wanderingbot_animal_bear_territories" />'
+                    "</territory>"
+                    "</territories></env>"
+                ),
                 "animal_territory_files": [
                     {
                         "path": territory_path,
@@ -346,6 +355,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 "restore_texts": {
                     "/dayzxb_missions/dayzOffline.enoch/db/events.xml": "<events><event name=\"old\" /></events>",
                     "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml": "<eventposdef><event name=\"old\" /></eventposdef>",
+                    "/dayzxb_missions/dayzOffline.enoch/cfgenvironment.xml": "<env><territories /></env>",
                 },
             }
 
@@ -392,9 +402,10 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 "build",
                 "validate",
                 "backup",
+                ("upload", "wanderingbot_animal_bear_territories.xml", False, True),
+                ("upload", "cfgenvironment.xml", True, True),
                 ("upload", "events.xml", True, True),
                 ("upload", "cfgeventspawns.xml", True, True),
-                ("upload", "wanderingbot_animal_bear_territories.xml", False, True),
                 "final",
                 "rollback",
             ], self.calls)

@@ -35889,6 +35889,81 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
 
     restore_texts = built.get("restore_texts") if isinstance(built.get("restore_texts"), dict) else {}
 
+    territory_ok = True
+    failed_territory_files = []
+    for territory_file in built.get("animal_territory_files") or []:
+        path = territory_file.get("path")
+        text = territory_file.get("text")
+        if not path or not text:
+            territory_ok = False
+            failed_territory_files.append(territory_file)
+            messages.append("Animal territory upload skipped because the target path or content was missing.")
+            continue
+        one_ok, one_message = upload_protected_ce_file_to_nitrado(
+            config,
+            os.path.basename(path),
+            path,
+            text,
+            restore_text=restore_texts.get(path),
+            prefer_ftp=True,
+        )
+        territory_ok = territory_ok and one_ok
+        if not one_ok:
+            failed_territory_files.append(territory_file)
+        messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
+
+    cfgenvironment_ok = True
+    if built.get("cfgenvironment_text"):
+        cfgenvironment_text = built["cfgenvironment_text"]
+        if failed_territory_files:
+            try:
+                env_root = ET.fromstring(str(cfgenvironment_text or "").encode("utf-8"))
+                territories = env_root.find("territories") if env_root.tag != "territories" else env_root
+                removed_refs = 0
+                if territories is not None:
+                    failed_paths = {
+                        f"env/{os.path.basename(str(item.get('path') or '')).lower()}"
+                        for item in failed_territory_files
+                        if str(item.get("path") or "").strip()
+                    }
+                    failed_usables = {
+                        os.path.splitext(os.path.basename(str(item.get("path") or "")).lower())[0]
+                        for item in failed_territory_files
+                        if str(item.get("path") or "").strip()
+                    }
+                    for node in list(territories):
+                        if node.tag == "file":
+                            path_value = str(node.get("path") or "").replace("\\", "/").lower()
+                            if path_value in failed_paths:
+                                territories.remove(node)
+                                removed_refs += 1
+                        elif node.tag == "territory":
+                            usable_values = {
+                                str(file_node.get("usable") or "").lower()
+                                for file_node in node.findall("file")
+                            }
+                            if usable_values & failed_usables:
+                                territories.remove(node)
+                                removed_refs += 1
+                cfgenvironment_text = xml_text_from_root(env_root)
+                messages.append(
+                    f"`cfgenvironment.xml`: removed `{removed_refs}` reference(s) for animal territory file(s) that did not upload, then uploaded the cleaned environment file."
+                )
+            except Exception as error:
+                cfgenvironment_ok = False
+                messages.append(f"`cfgenvironment.xml` cleanup failed after animal territory upload failure: {error}")
+
+        if cfgenvironment_ok:
+            cfgenvironment_ok, cfgenvironment_message = upload_protected_ce_file_to_nitrado(
+                config,
+                "cfgenvironment.xml",
+                built["cfgenvironment_path"],
+                cfgenvironment_text,
+                restore_text=restore_texts.get(built["cfgenvironment_path"]),
+                prefer_ftp=True,
+            )
+            messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
+
     events_ok, events_message = upload_protected_ce_file_to_nitrado(
         config,
         "events.xml",
@@ -35956,29 +36031,6 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
 
-    territory_ok = True
-    failed_territory_files = []
-    for territory_file in built.get("animal_territory_files") or []:
-        path = territory_file.get("path")
-        text = territory_file.get("text")
-        if not path or not text:
-            territory_ok = False
-            failed_territory_files.append(territory_file)
-            messages.append("Animal territory upload skipped because the target path or content was missing.")
-            continue
-        one_ok, one_message = upload_protected_ce_file_to_nitrado(
-            config,
-            os.path.basename(path),
-            path,
-            text,
-            restore_text=restore_texts.get(path),
-            prefer_ftp=True,
-        )
-        territory_ok = territory_ok and one_ok
-        if not one_ok:
-            failed_territory_files.append(territory_file)
-        messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
-
     zombie_territories_ok = True
     if built.get("zombie_territories_text"):
         zombie_territories_ok, zombie_territories_message = upload_protected_ce_file_to_nitrado(
@@ -35990,58 +36042,6 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             prefer_ftp=True,
         )
         messages.append(f"`zombie_territories.xml`: {zombie_territories_message}")
-
-    cfgenvironment_ok = True
-    if built.get("cfgenvironment_text"):
-        cfgenvironment_text = built["cfgenvironment_text"]
-        if failed_territory_files:
-            try:
-                env_root = ET.fromstring(str(cfgenvironment_text or "").encode("utf-8"))
-                territories = env_root.find("territories") if env_root.tag != "territories" else env_root
-                removed_refs = 0
-                if territories is not None:
-                    failed_paths = {
-                        f"env/{os.path.basename(str(item.get('path') or '')).lower()}"
-                        for item in failed_territory_files
-                        if str(item.get("path") or "").strip()
-                    }
-                    failed_usables = {
-                        os.path.splitext(os.path.basename(str(item.get("path") or "")).lower())[0]
-                        for item in failed_territory_files
-                        if str(item.get("path") or "").strip()
-                    }
-                    for node in list(territories):
-                        if node.tag == "file":
-                            path_value = str(node.get("path") or "").replace("\\", "/").lower()
-                            if path_value in failed_paths:
-                                territories.remove(node)
-                                removed_refs += 1
-                        elif node.tag == "territory":
-                            usable_values = {
-                                str(file_node.get("usable") or "").lower()
-                                for file_node in node.findall("file")
-                            }
-                            if usable_values & failed_usables:
-                                territories.remove(node)
-                                removed_refs += 1
-                cfgenvironment_text = xml_text_from_root(env_root)
-                messages.append(
-                    f"`cfgenvironment.xml`: removed `{removed_refs}` reference(s) for animal territory file(s) that did not upload, then uploaded the cleaned environment file."
-                )
-            except Exception as error:
-                cfgenvironment_ok = False
-                messages.append(f"`cfgenvironment.xml` cleanup failed after animal territory upload failure: {error}")
-
-        if cfgenvironment_ok:
-            cfgenvironment_ok, cfgenvironment_message = upload_protected_ce_file_to_nitrado(
-                config,
-                "cfgenvironment.xml",
-                built["cfgenvironment_path"],
-                cfgenvironment_text,
-                restore_text=restore_texts.get(built["cfgenvironment_path"]),
-                prefer_ftp=True,
-            )
-            messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
 
     cfgareaeffects_ok = True
     if built.get("cfgareaeffects_text"):
