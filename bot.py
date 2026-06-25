@@ -29578,6 +29578,11 @@ DAYZ_REFERENCE_MAP_FOLDERS = {
     "livonia": "dayzOffline.enoch",
     "sakhal": "dayzOffline.sakhal",
 }
+DAYZ_WORLD_CE_FOLDERS = {
+    "chernarus": "chernarusplus",
+    "livonia": "enoch",
+    "sakhal": "sakhal",
+}
 dayz_reference_cache = {}
 
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
@@ -29676,6 +29681,12 @@ def normalize_dayz_reference_map_key(map_key):
     if text in {"enoch", "livonia"} or "enoch" in text:
         return "livonia"
     return "chernarus"
+
+
+def dayz_world_ce_env_folder_for_map(map_key):
+    map_key = normalize_dayz_reference_map_key(map_key)
+    world_folder = DAYZ_WORLD_CE_FOLDERS.get(map_key) or DAYZ_WORLD_CE_FOLDERS["chernarus"]
+    return canonical_remote_path(f"/DZ/worlds/{world_folder}/ce/env")
 
 
 def dayz_reference_path(map_key, *parts):
@@ -33837,7 +33848,9 @@ def animal_territory_file_name(record):
     return f"wanderingbot_{safe}_territories.xml"[:96]
 
 
-def animal_territory_remote_path(mission_base, record):
+def animal_territory_remote_path(mission_base, record, map_key=""):
+    if str(map_key or "").strip():
+        return canonical_remote_path(f"{dayz_world_ce_env_folder_for_map(map_key)}/{animal_territory_file_name(record)}")
     return canonical_remote_path(f"{mission_base}/env/{animal_territory_file_name(record)}")
 
 
@@ -34852,7 +34865,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         animal_territory_groups = group_animal_territory_records(animal_records)
         for record in animal_territory_groups:
             add_animal_environment_entry(env_root, record)
-            territory_path = animal_territory_remote_path(mission_base, record) if mission_base else ""
+            territory_path = animal_territory_remote_path(mission_base, record, ce_map_key) if mission_base else ""
             output["animal_territory_files"].append({
                 "path": territory_path,
                 "text": build_animal_territory_text(record),
@@ -35833,10 +35846,17 @@ def prune_stale_animal_territory_files(config, built):
     active build. Vanilla files such as bear_territories.xml, wolf_territories.xml,
     and zombie_territories.xml are never touched.
     """
-    mission_base = remote_mission_base_from_ce_paths(built) or built.get("mission_base") or ""
-    if not mission_base:
-        return [], []
-    env_folder = canonical_remote_path(f"{mission_base}/env")
+    env_folder = ""
+    for item in built.get("animal_territory_files") or []:
+        path = canonical_remote_path(item.get("path") or "")
+        if path:
+            env_folder = canonical_remote_path(os.path.dirname(path))
+            break
+    if not env_folder:
+        mission_base = remote_mission_base_from_ce_paths(built) or built.get("mission_base") or ""
+        if not mission_base:
+            return [], []
+        env_folder = canonical_remote_path(f"{mission_base}/env")
 
     keep = set()
     for item in built.get("animal_territory_files") or []:

@@ -1858,7 +1858,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual("1", child.get("max"))
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
-        self.assertTrue(str(territory_files[0].get("path") or "").endswith("/env/wanderingbot_animal_bear_territories.xml"))
+        self.assertEqual(
+            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            territory_files[0].get("path"),
+        )
         self.assertEqual(["AnimalWanderingBot_animal_bear"], territory_files[0].get("event_names"))
         territory_root = ET.fromstring(territory_files[0]["text"])
         zone = territory_root.find(".//zone")
@@ -1978,7 +1981,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
-        self.assertTrue(str(territory_files[0].get("path") or "").endswith("/env/wanderingbot_animal_bear_territories.xml"))
+        self.assertEqual(
+            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            territory_files[0].get("path"),
+        )
         territory_root = ET.fromstring(territory_files[0]["text"])
         zones = territory_root.findall(".//zone")
         self.assertEqual(2, len(zones))
@@ -2057,7 +2063,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertTrue(ok, "\n".join(messages))
 
         built["animal_territory_files"] = [{
-            "path": "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "path": "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
             "text": (
                 '<territory-type><territory color="4294923520">'
                 '<zone name="HuntingGround" smin="0" smax="0" dmin="2" dmax="2" x="5000" z="5000" r="90" />'

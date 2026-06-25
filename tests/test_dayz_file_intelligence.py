@@ -40,7 +40,7 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             "territory-type",
         )
         self.assertEqual(
-            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml"),
+            dayz_xml_root_for_path("/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml"),
             "territory-type",
         )
 
@@ -62,6 +62,16 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             )
         )
         self.assertEqual(bot.normalize_dayz_reference_map_key("dayzOffline.sakhal"), "sakhal")
+
+    def test_animal_territory_upload_uses_world_ce_env_folder(self):
+        self.assertEqual(
+            "/DZ/worlds/enoch/ce/env",
+            bot.dayz_world_ce_env_folder_for_map("livonia"),
+        )
+        self.assertEqual(
+            "/DZ/worlds/chernarusplus/ce/env",
+            bot.dayz_world_ce_env_folder_for_map("chernarus"),
+        )
 
     def test_extracted_vanilla_reference_shapes_validate(self):
         relative_paths = (
@@ -115,7 +125,7 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
     def test_custom_territory_file_requires_territory_type_root(self):
         ok, message = validate_dayz_upload_text(
-            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
             "<env></env>",
         )
 

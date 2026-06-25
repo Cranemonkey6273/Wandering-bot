@@ -99,7 +99,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         ok, message = bot.upload_text_file_to_nitrado(
             {},
-            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
             TERRITORY_XML,
         )
 
@@ -329,7 +329,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         original_final = bot.verify_uploaded_console_ce_xml_bundle
         original_rollback = bot.restore_console_ce_bundle_from_memory
         try:
-            territory_path = "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml"
+            territory_path = "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml"
             built = {
                 "messages": ["built"],
                 "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
@@ -758,7 +758,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             built = {
                 "animal_territory_files": [
                     {
-                        "path": "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+                        "path": "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
                         "text": TERRITORY_XML,
                         "event_names": ["AnimalWanderingBot_animal_bear"],
                     }
@@ -959,50 +959,56 @@ class PruneStaleAnimalTerritoryFilesTests(unittest.TestCase):
         bot.delete_remote_file_from_nitrado = self.original_delete
 
     def test_prune_removes_only_orphaned_wanderingbot_territory_files(self):
-        base = "/dayzxb_missions/dayzOffline.enoch"
+        mission_base = "/dayzxb_missions/dayzOffline.enoch"
+        env_base = "/DZ/worlds/enoch/ce/env"
+        listed_folders = []
         env_listing = [
-            {"name": "bear_territories.xml", "path": f"{base}/env/bear_territories.xml"},
-            {"name": "wolf_territories.xml", "path": f"{base}/env/wolf_territories.xml"},
-            {"name": "zombie_territories.xml", "path": f"{base}/env/zombie_territories.xml"},
+            {"name": "bear_territories.xml", "path": f"{env_base}/bear_territories.xml"},
+            {"name": "wolf_territories.xml", "path": f"{env_base}/wolf_territories.xml"},
+            {"name": "zombie_territories.xml", "path": f"{env_base}/zombie_territories.xml"},
             {
                 "name": "zombie_territories.xml.wanderingbot-backup-latest",
-                "path": f"{base}/env/zombie_territories.xml.wanderingbot-backup-latest",
+                "path": f"{env_base}/zombie_territories.xml.wanderingbot-backup-latest",
             },
             {
                 "name": "wanderingbot_animal_bear_territories.xml",
-                "path": f"{base}/env/wanderingbot_animal_bear_territories.xml",
+                "path": f"{env_base}/wanderingbot_animal_bear_territories.xml",
             },
             {
                 "name": "wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
-                "path": f"{base}/env/wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
+                "path": f"{env_base}/wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
             },
             {
                 "name": "wanderingbot_animal_wolf_territories.xml",
-                "path": f"{base}/env/wanderingbot_animal_wolf_territories.xml",
+                "path": f"{env_base}/wanderingbot_animal_wolf_territories.xml",
             },
             {
                 "name": "wanderingbot_animalwanderingbot17animalpack_territories.xml",
-                "path": f"{base}/env/wanderingbot_animalwanderingbot17animalpack_territories.xml",
+                "path": f"{env_base}/wanderingbot_animalwanderingbot17animalpack_territories.xml",
             },
             {
                 "name": "wanderingbot_bearwanderingbot1_territories.xml",
-                "path": f"{base}/env/wanderingbot_bearwanderingbot1_territories.xml",
+                "path": f"{env_base}/wanderingbot_bearwanderingbot1_territories.xml",
             },
             {
                 "name": "wanderingbot_animalbearblissbeargroupbeh_territories.xml",
-                "path": f"{base}/env/wanderingbot_animalbearblissbeargroupbeh_territories.xml",
+                "path": f"{env_base}/wanderingbot_animalbearblissbeargroupbeh_territories.xml",
             },
             {
                 "name": "wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
-                "path": f"{base}/env/wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
+                "path": f"{env_base}/wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
             },
             {
                 "name": "wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
-                "path": f"{base}/env/wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
+                "path": f"{env_base}/wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
             },
         ]
 
-        bot.list_remote_directory_from_ftp = lambda _config, _folder, **_kw: list(env_listing)
+        def fake_list_ftp(_config, folder, **_kw):
+            listed_folders.append(folder)
+            return list(env_listing)
+
+        bot.list_remote_directory_from_ftp = fake_list_ftp
         bot.list_remote_directory_from_nitrado_api = lambda _config, _folder, **_kw: []
 
         def fake_delete(_config, target_path):
@@ -1012,17 +1018,18 @@ class PruneStaleAnimalTerritoryFilesTests(unittest.TestCase):
         bot.delete_remote_file_from_nitrado = fake_delete
 
         built = {
-            "mission_base": base,
-            "events_path": f"{base}/db/events.xml",
-            "spawns_path": f"{base}/cfgeventspawns.xml",
+            "mission_base": mission_base,
+            "events_path": f"{mission_base}/db/events.xml",
+            "spawns_path": f"{mission_base}/cfgeventspawns.xml",
             "animal_territory_files": [
-                {"path": f"{base}/env/wanderingbot_animal_bear_territories.xml"},
-                {"path": f"{base}/env/wanderingbot_animal_wolf_territories.xml"},
+                {"path": f"{env_base}/wanderingbot_animal_bear_territories.xml"},
+                {"path": f"{env_base}/wanderingbot_animal_wolf_territories.xml"},
             ],
         }
 
         deleted, failed = bot.prune_stale_animal_territory_files({}, built)
 
+        self.assertEqual([env_base], listed_folders)
         self.assertEqual([], failed)
         self.assertEqual(
             {
