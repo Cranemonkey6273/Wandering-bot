@@ -35825,6 +35825,55 @@ def restore_console_ce_bundle_from_memory(config, built):
     return failed == 0, messages
 
 
+def prune_stale_animal_territory_files(config, built):
+    """Delete orphaned WanderingBot animal territory files from older bot versions.
+
+    This only touches files named wanderingbot_*_territories.xml, plus their
+    .wanderingbot-backup-latest copies, when they are not part of the current
+    active build. Vanilla files such as bear_territories.xml, wolf_territories.xml,
+    and zombie_territories.xml are never touched.
+    """
+    mission_base = remote_mission_base_from_ce_paths(built) or built.get("mission_base") or ""
+    if not mission_base:
+        return [], []
+    env_folder = canonical_remote_path(f"{mission_base}/env")
+
+    keep = set()
+    for item in built.get("animal_territory_files") or []:
+        base = os.path.basename(str(item.get("path") or "")).lower()
+        if base:
+            keep.add(base)
+            keep.add(f"{base}.wanderingbot-backup-latest")
+
+    entries = list_remote_directory_from_ftp(config, env_folder)
+    if not entries:
+        entries = list_remote_directory_from_nitrado_api(config, env_folder)
+
+    deleted = []
+    failed = []
+    seen = set()
+    for entry in entries:
+        name = str(entry.get("name") or "").strip()
+        lower = name.lower()
+        if not lower.startswith("wanderingbot_"):
+            continue
+        if not (lower.endswith("_territories.xml") or lower.endswith("_territories.xml.wanderingbot-backup-latest")):
+            continue
+        if lower in keep:
+            continue
+        path = entry.get("path") or canonical_remote_path(f"{env_folder}/{name}")
+        path = canonical_remote_path(path)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        ok, message = delete_remote_file_from_nitrado(config, path)
+        if ok:
+            deleted.append(name)
+        else:
+            failed.append(f"{name}: {message}")
+    return deleted, failed
+
+
 def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
     built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
     messages = list(built["messages"])
@@ -36049,6 +36098,20 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         if consume_restart:
             mark_one_time_scenario_events_uploaded(config)
         save_guild_configs()
+
+        pruned, prune_failures = prune_stale_animal_territory_files(config, built)
+        if pruned:
+            messages.append(
+                f"Cleaned up `{len(pruned)}` stale WanderingBot animal territory file(s) from `env/`: "
+                + ", ".join(f"`{name}`" for name in pruned[:12])
+                + (f", +{len(pruned) - 12} more" if len(pruned) > 12 else "")
+                + "."
+            )
+        if prune_failures:
+            messages.append(
+                f"Could not delete `{len(prune_failures)}` stale animal territory file(s) (delete them manually in FTP): "
+                + "; ".join(prune_failures[:6])
+            )
 
     return success, built, messages
 

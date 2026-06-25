@@ -935,5 +935,106 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 bot.guild_configs[guild_id] = previous_config
 
 
+class PruneStaleAnimalTerritoryFilesTests(unittest.TestCase):
+    def setUp(self):
+        self.original_list_ftp = bot.list_remote_directory_from_ftp
+        self.original_list_api = bot.list_remote_directory_from_nitrado_api
+        self.original_delete = bot.delete_remote_file_from_nitrado
+        self.deleted = []
+
+    def tearDown(self):
+        bot.list_remote_directory_from_ftp = self.original_list_ftp
+        bot.list_remote_directory_from_nitrado_api = self.original_list_api
+        bot.delete_remote_file_from_nitrado = self.original_delete
+
+    def test_prune_removes_only_orphaned_wanderingbot_territory_files(self):
+        base = "/dayzxb_missions/dayzOffline.enoch"
+        env_listing = [
+            {"name": "bear_territories.xml", "path": f"{base}/env/bear_territories.xml"},
+            {"name": "wolf_territories.xml", "path": f"{base}/env/wolf_territories.xml"},
+            {"name": "zombie_territories.xml", "path": f"{base}/env/zombie_territories.xml"},
+            {
+                "name": "zombie_territories.xml.wanderingbot-backup-latest",
+                "path": f"{base}/env/zombie_territories.xml.wanderingbot-backup-latest",
+            },
+            {
+                "name": "wanderingbot_animal_bear_territories.xml",
+                "path": f"{base}/env/wanderingbot_animal_bear_territories.xml",
+            },
+            {
+                "name": "wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
+                "path": f"{base}/env/wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
+            },
+            {
+                "name": "wanderingbot_animal_wolf_territories.xml",
+                "path": f"{base}/env/wanderingbot_animal_wolf_territories.xml",
+            },
+            {
+                "name": "wanderingbot_animalwanderingbot17animalpack_territories.xml",
+                "path": f"{base}/env/wanderingbot_animalwanderingbot17animalpack_territories.xml",
+            },
+            {
+                "name": "wanderingbot_bearwanderingbot1_territories.xml",
+                "path": f"{base}/env/wanderingbot_bearwanderingbot1_territories.xml",
+            },
+            {
+                "name": "wanderingbot_animalbearblissbeargroupbeh_territories.xml",
+                "path": f"{base}/env/wanderingbot_animalbearblissbeargroupbeh_territories.xml",
+            },
+            {
+                "name": "wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
+                "path": f"{base}/env/wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
+            },
+            {
+                "name": "wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
+                "path": f"{base}/env/wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
+            },
+        ]
+
+        bot.list_remote_directory_from_ftp = lambda _config, _folder, **_kw: list(env_listing)
+        bot.list_remote_directory_from_nitrado_api = lambda _config, _folder, **_kw: []
+
+        def fake_delete(_config, target_path):
+            self.deleted.append(target_path)
+            return True, "deleted"
+
+        bot.delete_remote_file_from_nitrado = fake_delete
+
+        built = {
+            "mission_base": base,
+            "events_path": f"{base}/db/events.xml",
+            "spawns_path": f"{base}/cfgeventspawns.xml",
+            "animal_territory_files": [
+                {"path": f"{base}/env/wanderingbot_animal_bear_territories.xml"},
+                {"path": f"{base}/env/wanderingbot_animal_wolf_territories.xml"},
+            ],
+        }
+
+        deleted, failed = bot.prune_stale_animal_territory_files({}, built)
+
+        self.assertEqual([], failed)
+        self.assertEqual(
+            {
+                "wanderingbot_animalwanderingbot17animalpack_territories.xml",
+                "wanderingbot_bearwanderingbot1_territories.xml",
+                "wanderingbot_animalbearblissbeargroupbeh_territories.xml",
+                "wanderingbot_animal_wanderingbot_animal_bear_territories.xml",
+                "wanderingbot_animalwanderingbot10animalpack_territories.xml.wanderingbot-backup-latest",
+            },
+            set(deleted),
+        )
+        deleted_names = {os.path.basename(path) for path in self.deleted}
+        for keep in (
+            "bear_territories.xml",
+            "wolf_territories.xml",
+            "zombie_territories.xml",
+            "zombie_territories.xml.wanderingbot-backup-latest",
+            "wanderingbot_animal_bear_territories.xml",
+            "wanderingbot_animal_bear_territories.xml.wanderingbot-backup-latest",
+            "wanderingbot_animal_wolf_territories.xml",
+        ):
+            self.assertNotIn(keep, deleted_names)
+
+
 if __name__ == "__main__":
     unittest.main()
