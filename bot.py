@@ -33793,17 +33793,26 @@ def add_zombie_territory_zone(root, record):
 
 
 def animal_territory_name_for_event(event_name):
+    # cfgenvironment <territory type="Herd" name="..."> attribute. DayZ derives the AI
+    # template as "Herd" + this name, and matches it to an "Animal" + this name event.
+    # So for "AnimalWanderingBot_animal_bear" the name must be "WanderingBot_animal_bear"
+    # (NOT "HerdWanderingBot_animal_bear", which would yield "HerdHerd...").
     event_name = str(event_name or "").strip()
     if event_name.startswith("Animal") and len(event_name) > len("Animal"):
-        return f"Herd{event_name[len('Animal'):]}"
+        return event_name[len("Animal"):]
     key = ce_file_slug(event_name) or "animal"
     if not key.startswith("wanderingbot"):
         key = f"wanderingbot_{key}"
     if key == "wanderingbot":
-        return "HerdWanderingBot"
+        return "WanderingBot"
     if key.startswith("wanderingbot_"):
-        return f"HerdWanderingBot_{key[len('wanderingbot_'):]}"
-    return f"Herd{key[:1].upper()}{key[1:]}"
+        return f"WanderingBot_{key[len('wanderingbot_'):]}"
+    return f"{key[:1].upper()}{key[1:]}"
+
+
+def animal_territory_herd_template_name(event_name):
+    # The AI template name DayZ logs in "Missing AI Template ..." errors.
+    return f"Herd{animal_territory_name_for_event(event_name)}"
 
 
 def remote_mission_base_from_ce_paths(built):
@@ -33919,9 +33928,6 @@ def add_animal_environment_entry(root, record):
     file_path = animal_territory_environment_path(record)
     append_wandering_xml_comment(territories, f"managed animal territory file {file_path}")
     ET.SubElement(territories, "file", {"path": file_path})
-    records = record.get("records") if isinstance(record.get("records"), list) else [record]
-    count = sum(max(1, int(item.get("count") or 1)) for item in records)
-    radius = max([max(2, int(item.get("radius") or 20)) for item in records] or [20])
     territory_names = record.get("territory_names") if isinstance(record.get("territory_names"), list) else []
     if not territory_names:
         territory_names = [record.get("territory_name") or record.get("name")]
@@ -33934,15 +33940,9 @@ def add_animal_environment_entry(root, record):
             "name": str(territory_name),
             "behavior": str(record.get("animal_behavior") or "DZDeerGroupBeh"),
         })
+        # Match vanilla Bear/Wolf Herd territories: just the usable file reference.
+        # Counts come from the territory zone (dmin/dmax) and the events.xml event.
         ET.SubElement(territory_node, "file", {"usable": usable})
-        for name, value in (
-            ("globalCountMax", max(count, 1)),
-            ("zoneCountMin", count),
-            ("zoneCountMax", count),
-            ("playerSpawnRadiusNear", 1),
-            ("playerSpawnRadiusFar", radius),
-        ):
-            ET.SubElement(territory_node, "item", {"name": name, "val": str(int(value))})
 
 
 def build_animal_territory_text(record):
@@ -34310,14 +34310,28 @@ def console_ce_records_for_event(event, map_key=""):
             f"`{event.get('id')}` writes zombie territory zone `{record['zombie_territory_name']}` to `env/{ZOMBIE_TERRITORY_FILE_NAME}` instead of relying on a fragile Infected dynamic event."
         )
     if event_type == "animal_pack":
+        profile = animal_territory_profile(class_name)
         record.update({
             "nominal": count,
             "min_count": count,
             "max_count": count,
-            "animal_territory": False,
+            # Match vanilla AnimalBear/AnimalWolf: Herd events use <limit>custom</limit>
+            # and spawn from their Herd territory zones, not cfgeventspawns positions.
+            "limit_type": "custom",
+            "animal_territory": True,
+            "territory_name": animal_territory_name_for_event(record_name),
+            "animal_behavior": profile.get("behavior"),
+            "territory_zone": profile.get("zone"),
+            "territory_color": profile.get("color"),
+            "territory_file_key": animal_territory_group_key(record),
+            # Position lives in the territory zone; keep an empty cfgeventspawns block
+            # (like vanilla AnimalWolf) so no conflicting fixed point is written.
+            "empty_spawn": True,
         })
         warnings.append(
-            f"`{event.get('id')}` creates fixed custom animal event `{record_name}` with cfgeventspawns positions."
+            f"`{event.get('id')}` spawns custom animal event `{record_name}` from Herd template "
+            f"`{animal_territory_herd_template_name(record_name)}` and one stable territory file per species "
+            f"(`env/{animal_territory_file_name(record)}`)."
         )
     records.append(record)
 
@@ -35286,7 +35300,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             territory_name = animal_territory_name_for_event(name)
             if territory_name not in environment_herd_names:
                 messages.append(
-                    f"`{name}` is a custom animal event but is missing matching Herd template `{territory_name}` in `cfgenvironment.xml`."
+                    f"`{name}` is a custom animal event but is missing matching Herd template `Herd{territory_name}` in `cfgenvironment.xml`."
                 )
         generated_events[name] = event_node
 
