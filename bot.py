@@ -35824,6 +35824,41 @@ def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     restore_texts = built.setdefault("restore_texts", {})
     required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml", "zombie_territories.xml"}
+    source_text_keys = {
+        "events.xml": "events_source_text",
+        "cfgeventspawns.xml": "spawns_source_text",
+        "types.xml": "types_source_text",
+        "cfgspawnabletypes.xml": "spawnabletypes_source_text",
+        "cfgeventgroups.xml": "eventgroups_source_text",
+        "mapgroupproto.xml": "mapgroupproto_source_text",
+        "cfgenvironment.xml": "cfgenvironment_source_text",
+        "zombie_territories.xml": "zombie_territories_source_text",
+        "cfgareaeffects.xml": "cfgareaeffects_source_text",
+    }
+
+    def source_was_fallback(label):
+        prefix = f"{str(label or '').lower()}:"
+        return any(str(item or "").lower().startswith(prefix) for item in built.get("source_fallbacks") or [])
+
+    def source_text_for_backup(label, path):
+        if source_was_fallback(label):
+            return "", f"`{label}` source came from a bundled/minimal fallback, not a live server download."
+        key = source_text_keys.get(label)
+        content = built.get(key) if key else ""
+        if not str(content or "").strip():
+            for territory_file in built.get("animal_territory_files") or []:
+                if not isinstance(territory_file, dict):
+                    continue
+                if str(territory_file.get("path") or "").strip() == str(path or "").strip():
+                    content = territory_file.get("source_text")
+                    break
+        if not str(content or "").strip():
+            return "", f"`{label}` has no previously downloaded source copy in this upload build."
+        valid_source, source_message = validate_protected_dayz_xml_upload(path, content)
+        if not valid_source:
+            return "", f"`{label}` previously downloaded source copy is not valid for `{path}`: {source_message}"
+        return content, f"`{label}` using previously downloaded source copy because backup re-download returned empty content."
+
     targets = [
         ("events.xml", built.get("events_path")),
         ("cfgeventspawns.xml", built.get("spawns_path")),
@@ -35852,6 +35887,27 @@ def backup_remote_ce_sources_before_upload(config, built):
             detail = message
             if ok and not str(content or "").strip():
                 detail = f"{message} (download returned empty content)"
+                source_content, source_message = source_text_for_backup(label, path)
+                if source_content:
+                    content = source_content
+                    backup_messages.append(f"`{label}` backup re-download was empty; {source_message}")
+                elif label in required_backups:
+                    return False, backup_messages + [
+                        f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}. {source_message}"
+                    ]
+                else:
+                    backup_messages.append(
+                        f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}. {source_message}"
+                    )
+                    continue
+            elif label in required_backups:
+                return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}"]
+            else:
+                backup_messages.append(
+                    f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}"
+                )
+                continue
+        if not str(content or "").strip():
             if label in required_backups:
                 return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}"]
             backup_messages.append(

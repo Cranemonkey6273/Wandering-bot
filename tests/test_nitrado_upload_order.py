@@ -218,6 +218,61 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(any("in-memory restore copy" in message for message in messages))
         self.assertEqual(["download", "backup"], self.calls)
 
+    def test_backup_uses_build_source_when_required_redownload_is_empty(self):
+        spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        built = {
+            "spawns_path": spawns_path,
+            "spawns_source_text": SPAWNS_XML,
+            "source_fallbacks": [],
+        }
+
+        def download(*_args):
+            self.calls.append("download")
+            return True, "Downloaded successfully via ukln138.gamedata.io.", ""
+
+        def backup(*_args):
+            self.calls.append("backup")
+            return True, "backup ok"
+
+        def cleanup(*_args, **_kwargs):
+            self.calls.append("cleanup")
+            return [], []
+
+        bot.download_text_file_from_nitrado = download
+        bot.upload_ce_latest_backup_to_nitrado = backup
+        bot.cleanup_wanderingbot_backups_for_path = cleanup
+
+        ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
+
+        self.assertTrue(ok, messages)
+        self.assertEqual(SPAWNS_XML, built["restore_texts"][spawns_path])
+        self.assertTrue(any("backup re-download was empty" in message for message in messages))
+        self.assertEqual(["download", "backup", "cleanup"], self.calls)
+
+    def test_backup_still_blocks_empty_redownload_when_build_source_was_fallback(self):
+        spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        built = {
+            "spawns_path": spawns_path,
+            "spawns_source_text": SPAWNS_XML,
+            "source_fallbacks": [
+                "cfgeventspawns.xml: Could not download existing source. Using bundled vanilla reference as fallback."
+            ],
+        }
+
+        def download(*_args):
+            self.calls.append("download")
+            return True, "Downloaded successfully via ukln138.gamedata.io.", ""
+
+        bot.download_text_file_from_nitrado = download
+
+        ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
+
+        self.assertFalse(ok)
+        rendered = "\n".join(messages)
+        self.assertIn("download returned empty content", rendered)
+        self.assertIn("source came from a bundled/minimal fallback", rendered)
+        self.assertEqual(["download"], self.calls)
+
     def test_ce_protected_upload_fails_when_remote_copy_is_stale_after_success(self):
         def upload(*_args):
             self.calls.append("upload")
