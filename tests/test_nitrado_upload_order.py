@@ -99,7 +99,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         ok, message = bot.upload_text_file_to_nitrado(
             {},
-            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
             TERRITORY_XML,
         )
 
@@ -329,7 +329,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         original_final = bot.verify_uploaded_console_ce_xml_bundle
         original_rollback = bot.restore_console_ce_bundle_from_memory
         try:
-            territory_path = "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml"
+            territory_path = "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml"
             built = {
                 "messages": ["built"],
                 "events_path": "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
@@ -339,7 +339,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 "cfgenvironment_path": "/dayzxb_missions/dayzOffline.enoch/cfgenvironment.xml",
                 "cfgenvironment_text": (
                     "<env><territories>"
-                    '<file path="env/wanderingbot_animal_bear_territories.xml" />'
+                    '<file path="$mission:./env/wanderingbot_animal_bear_territories.xml" />'
                     '<territory type="Herd" name="WanderingBot_animal_bear" behavior="BlissBearGroupBeh">'
                     '<file usable="wanderingbot_animal_bear_territories" />'
                     "</territory>"
@@ -758,7 +758,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             built = {
                 "animal_territory_files": [
                     {
-                        "path": "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+                        "path": "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
                         "text": TERRITORY_XML,
                         "event_names": ["AnimalWanderingBot_animal_bear"],
                     }
@@ -960,7 +960,7 @@ class PruneStaleAnimalTerritoryFilesTests(unittest.TestCase):
 
     def test_prune_removes_only_orphaned_wanderingbot_territory_files(self):
         mission_base = "/dayzxb_missions/dayzOffline.enoch"
-        env_base = "/DZ/worlds/enoch/ce/env"
+        env_base = f"{mission_base}/env"
         listed_folders = []
         env_listing = [
             {"name": "bear_territories.xml", "path": f"{env_base}/bear_territories.xml"},

@@ -29578,11 +29578,6 @@ DAYZ_REFERENCE_MAP_FOLDERS = {
     "livonia": "dayzOffline.enoch",
     "sakhal": "dayzOffline.sakhal",
 }
-DAYZ_WORLD_CE_FOLDERS = {
-    "chernarus": "chernarusplus",
-    "livonia": "enoch",
-    "sakhal": "sakhal",
-}
 dayz_reference_cache = {}
 
 CONSOLE_CE_EVENT_MARKER = "WanderingBot_"
@@ -29681,12 +29676,6 @@ def normalize_dayz_reference_map_key(map_key):
     if text in {"enoch", "livonia"} or "enoch" in text:
         return "livonia"
     return "chernarus"
-
-
-def dayz_world_ce_env_folder_for_map(map_key):
-    map_key = normalize_dayz_reference_map_key(map_key)
-    world_folder = DAYZ_WORLD_CE_FOLDERS.get(map_key) or DAYZ_WORLD_CE_FOLDERS["chernarus"]
-    return canonical_remote_path(f"/DZ/worlds/{world_folder}/ce/env")
 
 
 def dayz_reference_path(map_key, *parts):
@@ -33849,8 +33838,6 @@ def animal_territory_file_name(record):
 
 
 def animal_territory_remote_path(mission_base, record, map_key=""):
-    if str(map_key or "").strip():
-        return canonical_remote_path(f"{dayz_world_ce_env_folder_for_map(map_key)}/{animal_territory_file_name(record)}")
     return canonical_remote_path(f"{mission_base}/env/{animal_territory_file_name(record)}")
 
 
@@ -33859,7 +33846,7 @@ def animal_territory_usable_name(record):
 
 
 def animal_territory_environment_path(record):
-    return f"env/{animal_territory_file_name(record)}"
+    return f"$mission:./env/{animal_territory_file_name(record)}"
 
 
 def animal_territory_group_key(record):
@@ -35517,10 +35504,16 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             for territory_file in territory_files:
                 path = str(territory_file.get("path") or "")
                 file_name = os.path.basename(path).lower()
-                expected_path = f"env/{file_name}"
+                expected_paths = {
+                    f"env/{file_name}",
+                    f"$mission:env/{file_name}",
+                    f"$mission:./env/{file_name}",
+                }
                 usable = os.path.splitext(file_name)[0]
-                if expected_path not in env_paths:
-                    messages.append(f"`cfgenvironment.xml` is missing `<file path=\"{expected_path}\" />`.")
+                if not (expected_paths & env_paths):
+                    messages.append(
+                        f"`cfgenvironment.xml` is missing `<file path=\"$mission:./env/{file_name}\" />`."
+                    )
                 if usable not in env_usables:
                     messages.append(f"`cfgenvironment.xml` is missing a territory using `{usable}`.")
 
@@ -35941,11 +35934,18 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 territories = env_root.find("territories") if env_root.tag != "territories" else env_root
                 removed_refs = 0
                 if territories is not None:
-                    failed_paths = {
-                        f"env/{os.path.basename(str(item.get('path') or '')).lower()}"
+                    failed_basenames = {
+                        os.path.basename(str(item.get("path") or "")).lower()
                         for item in failed_territory_files
                         if str(item.get("path") or "").strip()
                     }
+                    failed_paths = set()
+                    for basename in failed_basenames:
+                        failed_paths.update({
+                            f"env/{basename}",
+                            f"$mission:env/{basename}",
+                            f"$mission:./env/{basename}",
+                        })
                     failed_usables = {
                         os.path.splitext(os.path.basename(str(item.get("path") or "")).lower())[0]
                         for item in failed_territory_files

@@ -1859,7 +1859,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
         self.assertEqual(
-            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
             territory_files[0].get("path"),
         )
         self.assertEqual(["AnimalWanderingBot_animal_bear"], territory_files[0].get("event_names"))
@@ -1874,7 +1874,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         env_root = ET.fromstring(built["cfgenvironment_text"])
         env_file = env_root.find("./territories/file")
         self.assertIsNotNone(env_file)
-        self.assertEqual("env/wanderingbot_animal_bear_territories.xml", env_file.get("path"))
+        self.assertEqual("$mission:./env/wanderingbot_animal_bear_territories.xml", env_file.get("path"))
         herd = env_root.find(".//territory[@type='Herd'][@name='WanderingBot_animal_bear']")
         self.assertIsNotNone(herd)
         self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
@@ -1982,7 +1982,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
         self.assertEqual(
-            "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
             territory_files[0].get("path"),
         )
         territory_root = ET.fromstring(territory_files[0]["text"])
@@ -1993,7 +1993,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         env_root = ET.fromstring(built["cfgenvironment_text"])
         env_files = env_root.findall("./territories/file")
         self.assertEqual(1, len(env_files))
-        self.assertEqual("env/wanderingbot_animal_bear_territories.xml", env_files[0].get("path"))
+        self.assertEqual("$mission:./env/wanderingbot_animal_bear_territories.xml", env_files[0].get("path"))
         herd = env_root.find(".//territory[@type='Herd'][@name='WanderingBot_animal_bear']")
         self.assertIsNotNone(herd)
         self.assertIsNotNone(herd.find("./file[@usable='wanderingbot_animal_bear_territories']"))
@@ -2063,7 +2063,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertTrue(ok, "\n".join(messages))
 
         built["animal_territory_files"] = [{
-            "path": "/DZ/worlds/enoch/ce/env/wanderingbot_animal_bear_territories.xml",
+            "path": "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
             "text": (
                 '<territory-type><territory color="4294923520">'
                 '<zone name="HuntingGround" smin="0" smax="0" dmin="2" dmax="2" x="5000" z="5000" r="90" />'
