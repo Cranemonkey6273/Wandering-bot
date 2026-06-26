@@ -31369,6 +31369,19 @@ def validate_console_ce_upload_scope(built):
         messages.append(message)
         if not ok:
             return False, messages
+    for territory_file in built.get("animal_territory_files") or []:
+        if not isinstance(territory_file, dict):
+            continue
+        merged_text = territory_file.get("text")
+        source_text = territory_file.get("source_text")
+        path = str(territory_file.get("path") or "").strip()
+        if not merged_text or source_text is None:
+            continue
+        label = os.path.basename(path) or "animal territory file"
+        ok, message = validate_managed_ce_xml_scope(label, source_text, merged_text, map_key=scope_map_key)
+        messages.append(message)
+        if not ok:
+            return False, messages
     return True, messages
 
 
@@ -32046,9 +32059,13 @@ def patch_existing_console_ce_event_definition(root, record):
         return True
     changed = False
     count = max(1, safe_int(record.get("count"), 1))
+    current_nominal = safe_int(event_node.findtext("nominal"), count)
+    current_min = safe_int(event_node.findtext("min"), count)
     current_max = safe_int(event_node.findtext("max"), count)
-    changed |= set_ce_event_text_value(event_node, "nominal", count)
-    changed |= set_ce_event_text_value(event_node, "min", count)
+    target_nominal = max(count, current_nominal)
+    target_min = min(target_nominal, max(count, current_min))
+    changed |= set_ce_event_text_value(event_node, "nominal", target_nominal)
+    changed |= set_ce_event_text_value(event_node, "min", target_min)
     changed |= set_ce_event_text_value(event_node, "max", max(count, current_max))
     return changed
 
@@ -33646,6 +33663,14 @@ ANIMAL_TERRITORY_PROFILES = {
 }
 
 
+ANIMAL_TERRITORY_FILES_BY_SPECIES = {
+    "bear": "bear_territories.xml",
+    "wolf": "wolf_territories.xml",
+    "deer": "red_deer_territories.xml",
+    "wildboar": "wild_boar_territories.xml",
+}
+
+
 def animal_territory_profile(class_name):
     class_name = str(class_name or "").strip()
     if class_name in ANIMAL_TERRITORY_PROFILES:
@@ -33664,6 +33689,23 @@ def animal_territory_profile(class_name):
         "zone": "Graze",
         "color": "4286611584",
     }
+
+
+def animal_territory_species_key(record):
+    record = record or {}
+    class_name = record.get("class_name")
+    if not class_name:
+        for child_record in record.get("records") or []:
+            if isinstance(child_record, dict) and child_record.get("class_name"):
+                class_name = child_record.get("class_name")
+                break
+    profile = animal_territory_profile(class_name)
+    return normalize_discord_name(profile.get("species") or class_name or "animal")
+
+
+def animal_live_territory_file_name(record):
+    species_key = animal_territory_species_key(record)
+    return ANIMAL_TERRITORY_FILES_BY_SPECIES.get(species_key, f"{species_key or 'animal'}_territories.xml")
 
 
 ZOMBIE_TERRITORY_FILE_NAME = "zombie_territories.xml"
@@ -33731,6 +33773,27 @@ def download_console_zombie_territories_source(config, guild_id, mission_base=""
     return "<territory-type></territory-type>\n", target_path, f"{message} No bundled reference was found, so a minimal template was used."
 
 
+def animal_live_territories_remote_path(guild_id, record, mission_base=""):
+    file_name = animal_live_territory_file_name(record)
+    if mission_base:
+        return canonical_remote_path(f"{mission_base}/env/{file_name}")
+    env_path = console_ce_default_paths(guild_id).get("cfgenvironment_path", "")
+    base = canonical_remote_path(env_path).removesuffix("/cfgenvironment.xml")
+    return canonical_remote_path(f"{base}/env/{file_name}")
+
+
+def download_console_animal_territories_source(config, guild_id, record, mission_base=""):
+    target_path = animal_live_territories_remote_path(guild_id, record, mission_base)
+    attempted = []
+    ok, message, text = download_text_file_from_nitrado(config, target_path)
+    attempted.append((target_path, message))
+    if ok and text:
+        remember_console_ce_mission_base(config, guild_id, target_path)
+        return text, target_path, message
+    failure = console_ce_download_failure_message(guild_id, f"env/{animal_live_territory_file_name(record)}", attempted)
+    return "", target_path, failure
+
+
 def apply_zombie_territory_fields(record, event=None):
     if not isinstance(record, dict):
         return record
@@ -33747,6 +33810,67 @@ def apply_zombie_territory_fields(record, event=None):
         "radius": radius,
     })
     return record
+
+
+def remove_wandering_animal_territory_zones(root):
+    removed_blocks = 0
+    removed_zones = 0
+    remove_next_territory = False
+    for child in list(root):
+        if is_xml_comment_node(child):
+            text = str(child.text or "").strip().lower()
+            if "wandering bot:" in text and "managed animal territory zone" in text:
+                root.remove(child)
+                remove_next_territory = True
+            else:
+                remove_next_territory = False
+            continue
+        if remove_next_territory and getattr(child, "tag", "") == "territory":
+            root.remove(child)
+            removed_blocks += 1
+            remove_next_territory = False
+            continue
+        remove_next_territory = False
+
+    for territory in root.findall("territory"):
+        remove_next_zone = False
+        for child in list(territory):
+            if is_xml_comment_node(child):
+                text = str(child.text or "").strip().lower()
+                if "wandering bot:" in text and "managed animal territory zone" in text:
+                    territory.remove(child)
+                    remove_next_zone = True
+                else:
+                    remove_next_zone = False
+                continue
+            if remove_next_zone and getattr(child, "tag", "") == "zone":
+                territory.remove(child)
+                removed_zones += 1
+                remove_next_zone = False
+                continue
+            remove_next_zone = False
+    return removed_blocks, removed_zones
+
+
+def add_animal_live_territory_zone(root, record):
+    profile = animal_territory_profile(record.get("class_name"))
+    append_wandering_xml_comment(root, f"managed animal territory zone {record.get('name') or record.get('source_id')}")
+    territory = ET.SubElement(root, "territory", {"color": str(record.get("territory_color") or profile.get("color") or "4286611584")})
+    records = record.get("records") if isinstance(record.get("records"), list) else [record]
+    for item in records:
+        count = max(1, int(item.get("count") or 1))
+        radius = max(1, int(item.get("radius") or 20))
+        item_profile = animal_territory_profile(item.get("class_name"))
+        ET.SubElement(territory, "zone", {
+            "name": str(item.get("territory_zone") or item_profile.get("zone") or "Graze"),
+            "smin": "0",
+            "smax": "0",
+            "dmin": str(count),
+            "dmax": str(count),
+            "x": ce_decimal(item.get("x")),
+            "z": ce_decimal(item.get("z")),
+            "r": str(radius),
+        })
 
 
 def remove_wandering_zombie_territory_zones(root):
@@ -33872,6 +33996,7 @@ def group_animal_territory_records(records):
         group = groups.setdefault(key, {
             "territory_file_key": key,
             "territory_name": territory_name,
+            "class_name": record.get("class_name"),
             "animal_behavior": record.get("animal_behavior"),
             "territory_zone": record.get("territory_zone"),
             "territory_color": record.get("territory_color"),
@@ -34184,8 +34309,12 @@ def console_ce_records_for_event(event, map_key=""):
         if not class_name.startswith("Animal_"):
             warnings.append(f"`{event.get('id')}` animal pack uses `{class_name}`, but animal events need an `Animal_...` classname.")
             return records, warnings
+        event_name_override = vanilla_animal_ce_event_name(class_name)
+        if not event_name_override:
+            warnings.append(f"`{event.get('id')}` animal pack class `{class_name}` has no matching vanilla Animal CE event.")
+            return records, warnings
         family = "Animal"
-        limit_type = "child"
+        limit_type = "custom" if event_name_override == "AnimalBear" else "child"
         child_records = [{
             "type": class_name,
             "count": 1,
@@ -34315,23 +34444,21 @@ def console_ce_records_for_event(event, map_key=""):
             "nominal": count,
             "min_count": count,
             "max_count": count,
-            # Match vanilla AnimalBear/AnimalWolf: Herd events use <limit>custom</limit>
-            # and spawn from their Herd territory zones, not cfgeventspawns positions.
-            "limit_type": "custom",
+            # Piggyback on vanilla animal economy files. The coordinate lives in
+            # the species territory XML, not a WanderingBot private file.
+            "limit_type": limit_type,
             "animal_territory": True,
             "territory_name": animal_territory_name_for_event(record_name),
             "animal_behavior": profile.get("behavior"),
             "territory_zone": profile.get("zone"),
             "territory_color": profile.get("color"),
             "territory_file_key": animal_territory_group_key(record),
-            # Position lives in the territory zone; keep an empty cfgeventspawns block
-            # (like vanilla AnimalWolf) so no conflicting fixed point is written.
+            "skip_spawn": True,
             "empty_spawn": True,
         })
         warnings.append(
-            f"`{event.get('id')}` spawns custom animal event `{record_name}` from Herd template "
-            f"`{animal_territory_herd_template_name(record_name)}` and one stable territory file per species "
-            f"(`env/{animal_territory_file_name(record)}`)."
+            f"`{event.get('id')}` reuses vanilla animal event `{record_name}` and writes a WanderingBot-managed zone into "
+            f"`env/{animal_live_territory_file_name(record)}`."
         )
     records.append(record)
 
@@ -34849,19 +34976,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             else:
                 output["messages"].append(f"cfgenvironment.xml cleanup skipped: {env_parse_warning}")
         removed_files, removed_territories = remove_wandering_environment_nodes(env_root)
-        animal_territory_groups = group_animal_territory_records(animal_records)
-        for record in animal_territory_groups:
-            add_animal_environment_entry(env_root, record)
-            territory_path = animal_territory_remote_path(mission_base, record, ce_map_key) if mission_base else ""
-            output["animal_territory_files"].append({
-                "path": territory_path,
-                "text": build_animal_territory_text(record),
-                "name": record.get("territory_name"),
-                "event_names": record.get("event_names", []),
-            })
-        if animal_records or removed_files or removed_territories:
+        if removed_files or removed_territories:
             output["cfgenvironment_path"] = resolved_env_path
             output["cfgenvironment_text"] = xml_text_from_root(env_root)
+            output["cfgenvironment_source_text"] = env_text
+        elif animal_records:
             output["cfgenvironment_source_text"] = env_text
         output["messages"].append(env_source)
         source_text = str(env_source or "")
@@ -34875,6 +34994,37 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         if env_parse_warning:
             output["messages"].append(env_parse_warning)
+
+    animal_territory_groups = group_animal_territory_records(animal_records)
+    for record in animal_territory_groups:
+        territory_text, resolved_territory_path, territory_source = download_console_animal_territories_source(
+            config,
+            guild_id,
+            record,
+            mission_base,
+        )
+        file_name = animal_live_territory_file_name(record)
+        if not str(territory_text or "").strip():
+            output.setdefault("source_fallbacks", []).append(f"{file_name}: {territory_source}")
+            continue
+        territory_root, territory_parse_warning = parse_xml_root_or_new(territory_text, "territory-type")
+        if territory_parse_warning:
+            output.setdefault("source_fallbacks", []).append(f"{file_name}: {territory_parse_warning}")
+            continue
+        removed_blocks, removed_zones = remove_wandering_animal_territory_zones(territory_root)
+        add_animal_live_territory_zone(territory_root, record)
+        output["animal_territory_files"].append({
+            "path": resolved_territory_path,
+            "text": xml_text_from_root(territory_root),
+            "source_text": territory_text,
+            "name": record.get("territory_name"),
+            "event_names": sorted({str(name or "") for name in record.get("event_names", []) if str(name or "").strip()}),
+        })
+        output["messages"].append(territory_source)
+        output["messages"].append(
+            f"Updated `env/{file_name}` with `{len(record.get('records') or [])}` WanderingBot animal zone(s), "
+            f"removed `{removed_blocks}` old managed block(s) and `{removed_zones}` old managed zone(s)."
+        )
 
     should_cleanup_zombie_territories = bool(zombie_records) or bool(config.get("scenario_events_cleanup_pending"))
     if should_cleanup_zombie_territories:
@@ -35175,7 +35325,11 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
         mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<prototype></prototype>").encode("utf-8"))
-        cfgenvironment_root = ET.fromstring(str(built.get("cfgenvironment_text") or "<env><territories /></env>").encode("utf-8"))
+        cfgenvironment_root = ET.fromstring(str(
+            built.get("cfgenvironment_text")
+            or built.get("cfgenvironment_source_text")
+            or "<env><territories /></env>"
+        ).encode("utf-8"))
         zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
         cfgareaeffects_root = ET.fromstring(str(built.get("cfgareaeffects_text") or "<areaeffects></areaeffects>").encode("utf-8"))
         if built.get("cfgeffectarea_text"):
@@ -35682,6 +35836,14 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("cfgareaeffects.xml", built.get("cfgareaeffects_path") if built.get("cfgareaeffects_text") else ""),
         ("cfgEffectArea.json", built.get("cfgeffectarea_path") if built.get("cfgeffectarea_text") else ""),
     ]
+    for territory_file in built.get("animal_territory_files") or []:
+        if not isinstance(territory_file, dict):
+            continue
+        path = str(territory_file.get("path") or "").strip()
+        if path:
+            label = os.path.basename(path) or "animal_territory.xml"
+            required_backups.add(label)
+            targets.append((label, path))
     for label, path in targets:
         if not path:
             continue
@@ -35800,11 +35962,17 @@ def restore_console_ce_bundle_from_memory(config, built):
         ("zombie_territories.xml", "zombie_territories_path"),
         ("cfgareaeffects.xml", "cfgareaeffects_path"),
     ]
+    for territory_file in built.get("animal_territory_files") or []:
+        if not isinstance(territory_file, dict):
+            continue
+        path = str(territory_file.get("path") or "").strip()
+        if path:
+            targets.append((os.path.basename(path) or "animal_territory.xml", path))
     messages = []
     restored = 0
     failed = 0
     for label, path_key in targets:
-        path = built.get(path_key)
+        path = built.get(path_key) if isinstance(path_key, str) and path_key in built else path_key
         if not path:
             continue
         restore_text = restore_texts.get(path)
@@ -35829,6 +35997,11 @@ def restore_console_ce_bundle_from_memory(config, built):
             messages.append(f"`{label}` rollback failed. FTP: {message} Fallback: {fallback_message}")
     messages.insert(0, f"Native CE rollback attempted after bundle mismatch: `{restored}` restored, `{failed}` failed.")
     return failed == 0, messages
+
+
+def animal_territory_file_is_private_wanderingbot_file(item):
+    path = str((item or {}).get("path") or "")
+    return os.path.basename(path).lower().startswith("wanderingbot_")
 
 
 def prune_stale_animal_territory_files(config, built):
@@ -35925,10 +36098,22 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             failed_territory_files.append(territory_file)
         messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
 
+    if failed_territory_files:
+        messages.append("Native CE upload stopped before events.xml/cfgeventspawns.xml because one or more animal territory files failed to upload.")
+        return False, built, messages
+
     cfgenvironment_ok = True
     if built.get("cfgenvironment_text"):
         cfgenvironment_text = built["cfgenvironment_text"]
-        if failed_territory_files:
+        failed_custom_territory_files = [
+            item for item in failed_territory_files
+            if animal_territory_file_is_private_wanderingbot_file(item)
+        ]
+        if failed_territory_files and not failed_custom_territory_files:
+            messages.append(
+                "`cfgenvironment.xml`: left vanilla animal territory references untouched after animal territory upload failure."
+            )
+        if failed_custom_territory_files:
             try:
                 env_root = ET.fromstring(str(cfgenvironment_text or "").encode("utf-8"))
                 territories = env_root.find("territories") if env_root.tag != "territories" else env_root
@@ -35936,7 +36121,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                 if territories is not None:
                     failed_basenames = {
                         os.path.basename(str(item.get("path") or "")).lower()
-                        for item in failed_territory_files
+                        for item in failed_custom_territory_files
                         if str(item.get("path") or "").strip()
                     }
                     failed_paths = set()
@@ -35948,7 +36133,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
                         })
                     failed_usables = {
                         os.path.splitext(os.path.basename(str(item.get("path") or "")).lower())[0]
-                        for item in failed_territory_files
+                        for item in failed_custom_territory_files
                         if str(item.get("path") or "").strip()
                     }
                     for node in list(territories):

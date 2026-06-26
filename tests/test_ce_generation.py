@@ -1778,11 +1778,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
-    def test_animal_pack_generates_custom_animal_event(self):
+    def test_animal_pack_reuses_vanilla_event_and_live_territory_file(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         vanilla_spawns = '<eventposdef><event name="AnimalBear"><pos x="1" z="2" a="0" /></event></eventposdef>'
         vanilla_events = (
-            '<events><event name="AnimalBear"><nominal>0</nominal><min>5</min><max>8</max>'
+            '<events><event name="AnimalBear"><nominal>10</nominal><min>5</min><max>12</max>'
             '<lifetime>180</lifetime><restock>0</restock><saferadius>200</saferadius>'
             '<distanceradius>0</distanceradius><cleanupradius>0</cleanupradius>'
             '<flags deletable="0" init_random="0" remove_damaged="1" />'
@@ -1795,8 +1795,18 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             "spawns_path": (vanilla_spawns, f"{base_path}/cfgeventspawns.xml"),
             "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
             "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
-            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "cfgenvironment_path": (
+                '<env><territories><file path="env/bear_territories.xml" />'
+                '<territory type="Herd" name="Bear" behavior="BlissBearGroupBeh">'
+                '<file usable="bear_territories" /></territory></territories></env>',
+                f"{base_path}/cfgenvironment.xml",
+            ),
         }
+        vanilla_bear_territories = (
+            '<territory-type><territory color="889148672">'
+            '<zone name="Graze" smin="0" smax="0" dmin="0" dmax="0" x="1" z="2" r="200" />'
+            '</territory></territory-type>'
+        )
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
             if key == "types_path" and key not in sources:
@@ -1804,7 +1814,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/bear_territories.xml"):
+                return True, "bear_territories source", vanilla_bear_territories
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1835,55 +1851,36 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             self.assertNotIn("y", pos.attrib)
 
         managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(managed_spawn)
-        managed_positions = managed_spawn.findall("pos")
-        self.assertEqual([], managed_positions)
+        self.assertIsNone(managed_spawn)
         events_root = ET.fromstring(built["events_text"])
         vanilla_bear = events_root.find("./event[@name='AnimalBear']")
         self.assertIsNotNone(vanilla_bear)
-        self.assertEqual("0", vanilla_bear.findtext("nominal"))
+        self.assertEqual("10", vanilla_bear.findtext("nominal"))
         self.assertEqual("5", vanilla_bear.findtext("min"))
-        self.assertEqual("8", vanilla_bear.findtext("max"))
+        self.assertEqual("12", vanilla_bear.findtext("max"))
         self.assertEqual("custom", vanilla_bear.findtext("limit"))
 
         custom_bear = events_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(custom_bear)
-        self.assertEqual("2", custom_bear.findtext("nominal"))
-        self.assertEqual("2", custom_bear.findtext("min"))
-        self.assertEqual("2", custom_bear.findtext("max"))
-        self.assertEqual("custom", custom_bear.findtext("limit"))
-        child = custom_bear.find("children/child")
-        self.assertIsNotNone(child)
-        self.assertEqual("Animal_UrsusArctos", child.get("type"))
-        self.assertEqual("1", child.get("max"))
+        self.assertIsNone(custom_bear)
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
         self.assertEqual(
-            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "/dayzxb_missions/dayzOffline.enoch/env/bear_territories.xml",
             territory_files[0].get("path"),
         )
-        self.assertEqual(["AnimalWanderingBot_animal_bear"], territory_files[0].get("event_names"))
+        self.assertEqual(["AnimalBear"], territory_files[0].get("event_names"))
         territory_root = ET.fromstring(territory_files[0]["text"])
-        zone = territory_root.find(".//zone")
+        zone = next((node for node in territory_root.findall(".//zone") if node.get("x") == "5000"), None)
         self.assertIsNotNone(zone)
         self.assertEqual("HuntingGround", zone.get("name"))
         self.assertEqual("2", zone.get("dmin"))
         self.assertEqual("2", zone.get("dmax"))
         self.assertEqual("5000", zone.get("x"))
         self.assertEqual("5000", zone.get("z"))
-        env_root = ET.fromstring(built["cfgenvironment_text"])
-        env_file = env_root.find("./territories/file")
-        self.assertIsNotNone(env_file)
-        self.assertEqual("$mission:./env/wanderingbot_animal_bear_territories.xml", env_file.get("path"))
-        herd = env_root.find(".//territory[@type='Herd'][@name='WanderingBot_animal_bear']")
-        self.assertIsNotNone(herd)
-        self.assertEqual("BlissBearGroupBeh", herd.get("behavior"))
-        self.assertIsNotNone(herd.find("./file[@usable='wanderingbot_animal_bear_territories']"))
-        self.assertEqual([], herd.findall("item"))
-        self.assertNotIn("HerdWanderingBot_animal_bear", built["cfgenvironment_text"])
+        self.assertFalse(built.get("cfgenvironment_text"))
         self.assertTrue(
             any(
-                "spawns custom animal event `AnimalWanderingBot_animal_bear` from Herd template `HerdWanderingBot_animal_bear`" in str(message)
+                "reuses vanilla animal event `AnimalBear`" in str(message)
                 for message in built.get("messages", [])
             ),
             built.get("messages", []),
@@ -1897,6 +1894,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         stale_environment = (
             '<env><territories>'
+            '<file path="env/bear_territories.xml" />'
+            '<territory type="Herd" name="Bear" behavior="BlissBearGroupBeh">'
+            '<file usable="bear_territories" />'
+            '</territory>'
             '<file path="env/wanderingbot_animal_bear_territories.xml" />'
             '<territory type="Herd" name="HerdWanderingBot_animal_bear" behavior="BlissBearGroupBeh">'
             '<file usable="wanderingbot_animal_bear_territories" />'
@@ -1917,7 +1918,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/bear_territories.xml"):
+                return True, "bear_territories source", '<territory-type><territory color="889148672" /></territory-type>'
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1932,9 +1939,9 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         self.assertEqual(1, len(built.get("animal_territory_files") or []))
         self.assertTrue(built.get("cfgenvironment_text"))
-        self.assertIn("wanderingbot_animal_bear_territories.xml", built["cfgenvironment_text"])
+        self.assertNotIn("wanderingbot_animal_bear_territories.xml", built["cfgenvironment_text"])
         self.assertNotIn("HerdWanderingBot_animal_bear", built["cfgenvironment_text"])
-        self.assertIn('name="WanderingBot_animal_bear"', built["cfgenvironment_text"])
+        self.assertIn('name="Bear"', built["cfgenvironment_text"])
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
@@ -1956,8 +1963,18 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
             "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
             "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
-            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "cfgenvironment_path": (
+                '<env><territories><file path="env/bear_territories.xml" />'
+                '<territory type="Herd" name="Bear" behavior="BlissBearGroupBeh">'
+                '<file usable="bear_territories" /></territory></territories></env>',
+                f"{base_path}/cfgenvironment.xml",
+            ),
         }
+        vanilla_bear_territories = (
+            '<territory-type><territory color="889148672">'
+            '<zone name="Graze" smin="0" smax="0" dmin="0" dmax="0" x="1" z="2" r="200" />'
+            '</territory></territory-type>'
+        )
 
         def fake_download(_config, _guild_id, key, _requested_path=""):
             if key == "types_path" and key not in sources:
@@ -1965,7 +1982,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             text, path = sources[key]
             return text, path, f"{key} source"
 
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/bear_territories.xml"):
+                return True, "bear_territories source", vanilla_bear_territories
+            return False, "missing", ""
+
         bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
         config = {
             "guild_name": "Test Livonia",
             "server_map": "livonia",
@@ -1982,34 +2005,25 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         territory_files = built.get("animal_territory_files") or []
         self.assertEqual(1, len(territory_files))
         self.assertEqual(
-            "/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml",
+            "/dayzxb_missions/dayzOffline.enoch/env/bear_territories.xml",
             territory_files[0].get("path"),
         )
         territory_root = ET.fromstring(territory_files[0]["text"])
-        zones = territory_root.findall(".//zone")
+        zones = [node for node in territory_root.findall(".//zone") if node.get("x") in {"5000", "5100"}]
         self.assertEqual(2, len(zones))
         self.assertEqual({"5000", "5100"}, {zone.get("x") for zone in zones})
         self.assertEqual({"1", "2"}, {zone.get("dmax") for zone in zones})
-        env_root = ET.fromstring(built["cfgenvironment_text"])
-        env_files = env_root.findall("./territories/file")
-        self.assertEqual(1, len(env_files))
-        self.assertEqual("$mission:./env/wanderingbot_animal_bear_territories.xml", env_files[0].get("path"))
-        herd = env_root.find(".//territory[@type='Herd'][@name='WanderingBot_animal_bear']")
-        self.assertIsNotNone(herd)
-        self.assertIsNotNone(herd.find("./file[@usable='wanderingbot_animal_bear_territories']"))
-        self.assertEqual([], herd.findall("item"))
-        self.assertNotIn("HerdWanderingBot_animal_bear", built["cfgenvironment_text"])
+        self.assertFalse(built.get("cfgenvironment_text"))
         events_root = ET.fromstring(built["events_text"])
         animal_event_names = [
             node.get("name")
             for node in events_root.findall("event")
             if str(node.get("name") or "").startswith("AnimalWanderingBot")
         ]
-        self.assertEqual(["AnimalWanderingBot_animal_bear"], animal_event_names)
+        self.assertEqual([], animal_event_names)
         spawns_root = ET.fromstring(built["spawns_text"])
         managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
-        self.assertIsNotNone(managed_spawn)
-        self.assertEqual([], managed_spawn.findall("pos"))
+        self.assertIsNone(managed_spawn)
 
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
