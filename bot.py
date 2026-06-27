@@ -34101,6 +34101,76 @@ def scenario_start_speed_label(event):
     return SCENARIO_START_SPEED_OPTIONS.get(key, SCENARIO_START_SPEED_OPTIONS["fast"])
 
 
+def scenario_timing_preset_key(event):
+    key = normalize_discord_name((event or {}).get("timing_preset") or "")
+    aliases = {
+        "vanillami8": "vanilla_mi8",
+        "vanillahelicrash": "vanilla_mi8",
+        "statichelicrash": "vanilla_mi8",
+        "fastairdrop": "fast_airdrop",
+        "animalpack": "animal_pack",
+        "zombiehorde": "zombie_horde",
+        "vehiclespawn": "vehicle_spawn",
+        "gaszone": "gas_zone",
+        "custom": "custom",
+    }
+    return aliases.get(key, "")
+
+
+def scenario_timing_defaults(event_type, event):
+    key = scenario_timing_preset_key(event)
+    radius = safe_int((event or {}).get("radius"), 70)
+    defaults = {
+        "vanilla_mi8": {
+            "lifetime": 2100,
+            "restock": 0,
+            "saferadius": 1000,
+            "distanceradius": 1000,
+            "cleanupradius": 1000,
+        },
+        "fast_airdrop": {
+            "lifetime": 7200,
+            "restock": 0,
+            "saferadius": 0,
+            "distanceradius": 25,
+            "cleanupradius": 380,
+        },
+        "animal_pack": {
+            "lifetime": 3600,
+            "restock": 0,
+            "saferadius": 2,
+            "distanceradius": 100,
+            "cleanupradius": 100,
+        },
+        "zombie_horde": {
+            "lifetime": 1800,
+            "restock": 0,
+            "saferadius": 0,
+            "distanceradius": 50,
+            "cleanupradius": 100,
+        },
+        "vehicle_spawn": {
+            "lifetime": 3888000,
+            "restock": 0,
+            "saferadius": 500,
+            "distanceradius": 500,
+            "cleanupradius": 200,
+        },
+        "gas_zone": {
+            "lifetime": max(60, min(3888000, safe_int((event or {}).get("gas_lifetime"), 3888000 if (event or {}).get("permanent") else 1800))),
+            "restock": 0,
+            "saferadius": 0,
+            "distanceradius": max(50, radius),
+            "cleanupradius": max(100, radius + 100),
+        },
+    }
+    if key in {"vanilla_mi8", "fast_airdrop"} and event_type not in {"airdrop", "loot_crate"}:
+        return {}
+    if key in {"animal_pack", "zombie_horde", "vehicle_spawn", "gas_zone"} and key != event_type:
+        return {}
+    return defaults.get(key, {})
+
+
 def scenario_speed_defaults(event_type, event, use_eventgroup=False):
     speed = scenario_start_speed_key(event)
     radius = safe_int((event or {}).get("radius"), 70)
@@ -34158,6 +34228,7 @@ def console_ce_records_for_event(event, map_key=""):
     event_type = str(event.get("event_type") or "").strip()
     class_name = str(event.get("class_name") or "").strip()
     original_class_name = class_name
+    timing_defaults = scenario_timing_defaults(event_type, event)
     event_name_override = ""
     records = []
     warnings = []
@@ -34187,6 +34258,8 @@ def console_ce_records_for_event(event, map_key=""):
     elif event_type == "gas_zone":
         count = 1
         lifetime = max(60, min(3888000, safe_int(event.get("gas_lifetime"), 3888000 if event.get("permanent") else 1800)))
+    if timing_defaults.get("lifetime") is not None:
+        lifetime = safe_int(timing_defaults.get("lifetime"), lifetime)
     lifetime = max(60, min(3888000, safe_int(event.get("lifetime"), lifetime)))
 
     if scenario_event_blocks_vehicle_classes(event):
@@ -34336,13 +34409,18 @@ def console_ce_records_for_event(event, map_key=""):
         }]
 
     speed_defaults = scenario_speed_defaults(event_type, event, use_eventgroup=use_eventgroup)
+    if timing_defaults:
+        speed_defaults = {
+            **speed_defaults,
+            **{key: timing_defaults[key] for key in ("restock", "saferadius", "distanceradius", "cleanupradius") if key in timing_defaults},
+        }
     restock = max(0, min(3888000, safe_int(event.get("restock"), speed_defaults["restock"])))
     if event_type in {"airdrop", "loot_crate"} and restock == 3600:
         restock = 0
     saferadius = max(0, min(5000, safe_int(event.get("saferadius"), speed_defaults["saferadius"])))
     distanceradius = max(0, min(30000, safe_int(event.get("distanceradius"), speed_defaults["distanceradius"])))
     cleanupradius = max(0, min(30000, safe_int(event.get("cleanupradius"), speed_defaults["cleanupradius"])))
-    if event_type in {"airdrop", "loot_crate"}:
+    if event_type in {"airdrop", "loot_crate"} and not scenario_timing_preset_key(event):
         if distanceradius in {0, 1000}:
             distanceradius = speed_defaults["distanceradius"]
         if cleanupradius == 1500:

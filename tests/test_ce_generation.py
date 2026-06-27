@@ -120,6 +120,30 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual("Wreck_Mi8_Crashed", child.get("type"))
         self.assertGreater(int(child.get("lootmax") or 0), 0)
 
+    def test_airdrop_vanilla_mi8_timing_preserves_large_radii(self):
+        event = _base_event(
+            30,
+            "airdrop",
+            "Wreck_Mi8_Crashed",
+            timing_preset="vanilla_mi8",
+            lifetime=2100,
+            restock=0,
+            saferadius=1000,
+            distanceradius=1000,
+            cleanupradius=1000,
+        )
+        record, events_root, _spawns, _groups = self._build_airdrop_event_node(event)
+
+        self.assertEqual(record.get("distanceradius"), 1000)
+        self.assertEqual(record.get("cleanupradius"), 1000)
+        event_node = events_root.find("event")
+        self.assertIsNotNone(event_node)
+        self.assertEqual(event_node.findtext("lifetime"), "2100")
+        self.assertEqual(event_node.findtext("restock"), "0")
+        self.assertEqual(event_node.findtext("saferadius"), "1000")
+        self.assertEqual(event_node.findtext("distanceradius"), "1000")
+        self.assertEqual(event_node.findtext("cleanupradius"), "1000")
+
     def test_airdrop_cfgeventspawns_pos_carries_group(self):
         """cfgeventspawns.xml <pos> must NOT contain ``y``. For direct MI8
         airdrops it also does not reference a cfgeventgroups group."""
