@@ -42026,23 +42026,43 @@ async def maybe_save_map_image_from_message(message, lower):
 
 async def send_live_map_response(interaction: discord.Interaction):
 
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
+    guild_id = str(getattr(getattr(interaction, "guild", None), "id", "") or "unknown")
+    user_id = str(getattr(getattr(interaction, "user", None), "id", "") or "unknown")
+
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except discord.NotFound:
+        print(f"[LIVE MAP] Ignoring expired /map interaction for guild={guild_id} user={user_id}")
+        return
+    except discord.HTTPException as error:
+        print(f"[LIVE MAP] Could not defer /map interaction for guild={guild_id} user={user_id}: {error}")
         return
 
-    await interaction.response.defer(ephemeral=True)
+    async def send_map_followup(*args, **kwargs):
+        try:
+            await interaction.followup.send(*args, **kwargs)
+            return True
+        except discord.NotFound:
+            print(f"[LIVE MAP] Followup expired for guild={guild_id} user={user_id}")
+            return False
+        except discord.HTTPException as error:
+            print(f"[LIVE MAP] Followup failed for guild={guild_id} user={user_id}: {error}")
+            return False
 
-    guild_id = str(interaction.guild.id)
+    if not has_interaction_admin_power(interaction):
+        await send_map_followup("Admin only.", ephemeral=True)
+        return
+
     ensure_guild_runtime(guild_id)
 
     if not online_players.get(guild_id):
-        await interaction.followup.send("No online survivors are currently tracked.", ephemeral=True)
+        await send_map_followup("No online survivors are currently tracked.", ephemeral=True)
         return
 
     map_path, error = await asyncio.to_thread(generate_live_player_map_image, guild_id)
 
     if not map_path:
-        await interaction.followup.send(f"Could not render live map: {error}", ephemeral=True)
+        await send_map_followup(f"Could not render live map: {error}", ephemeral=True)
         return
 
     online_count = len(online_players.get(guild_id, set()))
@@ -42067,7 +42087,7 @@ async def send_live_map_response(interaction: discord.Interaction):
     embed.set_footer(text="Wandering Bot Alpha - Admin Live Map")
 
     file = discord.File(map_path, filename="live_player_map.png")
-    await interaction.followup.send(embed=style_embed(embed), file=file, ephemeral=True)
+    await send_map_followup(embed=style_embed(embed), file=file, ephemeral=True)
 
     try:
         os.remove(map_path)
