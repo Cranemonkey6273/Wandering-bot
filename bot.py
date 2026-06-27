@@ -30994,14 +30994,24 @@ def repair_cherno_revamp_backup_static_event_names(root):
     return renamed, merged, names
 
 
-def cleanup_cherno_revamp_backup_spawn_groups(spawns_root):
+def cleanup_cherno_revamp_backup_spawn_groups(spawns_root, events_root=None):
     removed = 0
     names = []
     if spawns_root is None:
         return removed, names
+    event_names_with_children = None
+    if events_root is not None:
+        event_names_with_children = {
+            cherno_revamp_static_event_name(event_node.get("name"))
+            for event_node in events_root.findall("event")
+            if cherno_revamp_event_has_child_classname(event_node)
+        }
     for event_node in spawns_root.findall("event"):
         name = str(event_node.get("name") or "").strip()
         if not is_cherno_revamp_backup_event_name(name):
+            continue
+        static_name = cherno_revamp_static_event_name(name)
+        if event_names_with_children is not None and static_name not in event_names_with_children:
             continue
         event_removed = 0
         for pos_node in event_node.findall("pos"):
@@ -31013,6 +31023,90 @@ def cleanup_cherno_revamp_backup_spawn_groups(spawns_root):
         if event_removed:
             names.append(name)
     return removed, sorted(names)
+
+
+def cherno_revamp_event_has_child_classname(event_node):
+    if event_node is None:
+        return False
+    for child_node in event_node.findall("./children/child"):
+        if str(child_node.get("type") or "").strip():
+            return True
+    return False
+
+
+def cherno_revamp_eventgroup_child_to_event_attrs(group_node):
+    if group_node is None:
+        return None
+    for child_node in group_node.findall("child"):
+        child_type = str(child_node.get("type") or "").strip()
+        if not child_type or dayz_class_looks_like_vehicle(child_type):
+            continue
+        if str(child_node.get("spawnsecondary") or "").strip().lower() == "false":
+            continue
+        attrs = {
+            "type": child_type,
+            "lootmin": str(max(0, safe_int(child_node.get("lootmin"), 0))),
+            "lootmax": str(max(0, safe_int(child_node.get("lootmax"), safe_int(child_node.get("max"), 0)))),
+            "min": str(max(1, safe_int(child_node.get("min"), 1))),
+            "max": str(max(1, safe_int(child_node.get("max"), 1))),
+        }
+        return attrs
+    return None
+
+
+def repair_cherno_revamp_backup_children_from_eventgroups(events_root, spawns_root, eventgroups_root):
+    repaired = 0
+    names = []
+    if events_root is None or spawns_root is None or eventgroups_root is None:
+        return repaired, names
+    eventgroups_by_name = {
+        str(group_node.get("name") or "").strip(): group_node
+        for group_node in eventgroups_root.findall("group")
+        if str(group_node.get("name") or "").strip()
+    }
+    if not eventgroups_by_name:
+        return repaired, names
+
+    spawn_group_candidates = {}
+    for spawn_node in spawns_root.findall("event"):
+        spawn_name = cherno_revamp_static_event_name(spawn_node.get("name"))
+        if not spawn_name:
+            continue
+        candidates = spawn_group_candidates.setdefault(spawn_name, [])
+        for pos_node in spawn_node.findall("pos"):
+            group_name = str(pos_node.get("group") or "").strip()
+            if group_name and group_name not in candidates:
+                candidates.append(group_name)
+        if spawn_name not in candidates:
+            candidates.append(spawn_name)
+
+    for event_node in events_root.findall("event"):
+        event_name = cherno_revamp_static_event_name(event_node.get("name"))
+        if not event_name or cherno_revamp_event_has_child_classname(event_node):
+            continue
+        candidates = spawn_group_candidates.get(event_name, [])
+        if event_name not in candidates:
+            candidates.append(event_name)
+        attrs = None
+        source_group_name = ""
+        for group_name in candidates:
+            group_node = eventgroups_by_name.get(group_name)
+            attrs = cherno_revamp_eventgroup_child_to_event_attrs(group_node)
+            if attrs:
+                source_group_name = group_name
+                break
+        if not attrs:
+            continue
+        children_node = event_node.find("children")
+        if children_node is None:
+            children_node = ET.SubElement(event_node, "children")
+        for child_node in list(children_node.findall("child")):
+            if not str(child_node.get("type") or "").strip():
+                children_node.remove(child_node)
+        ET.SubElement(children_node, "child", attrs)
+        repaired += 1
+        names.append(f"{event_name} from {source_group_name}")
+    return repaired, sorted(names)
 
 
 def collect_cherno_revamp_backup_mapgroupproto_classes(events_root):
@@ -34825,7 +34919,46 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     )
     repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = repair_cherno_revamp_backup_static_event_names(events_root)
     repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = repair_cherno_revamp_backup_static_event_names(spawns_root)
-    removed_revamp_spawn_groups, removed_revamp_spawn_group_names = cleanup_cherno_revamp_backup_spawn_groups(spawns_root)
+    revamp_event_names_with_spawn_groups = set()
+    for spawn_node in spawns_root.findall("event"):
+        spawn_name = cherno_revamp_static_event_name(spawn_node.get("name"))
+        if not spawn_name:
+            continue
+        if any(str(pos_node.get("group") or "").strip() for pos_node in spawn_node.findall("pos")):
+            revamp_event_names_with_spawn_groups.add(spawn_name)
+    needs_revamp_eventgroup_repair = any(
+        cherno_revamp_static_event_name(event_node.get("name")) in revamp_event_names_with_spawn_groups
+        and not cherno_revamp_event_has_child_classname(event_node)
+        for event_node in events_root.findall("event")
+    )
+    repaired_revamp_eventgroup_children = 0
+    repaired_revamp_eventgroup_child_names = []
+    if needs_revamp_eventgroup_repair:
+        revamp_eventgroups_text, revamp_eventgroups_path, revamp_eventgroups_source = download_console_ce_source(
+            config,
+            guild_id,
+            "eventgroups_path",
+            "",
+        )
+        revamp_eventgroups_root, revamp_eventgroups_parse_warning, revamp_eventgroups_parse_blocker = parse_console_ce_xml_source(
+            config,
+            "cfgeventgroups.xml",
+            revamp_eventgroups_text,
+            "eventgroupdef",
+            revamp_eventgroups_path,
+        )
+        if revamp_eventgroups_parse_blocker:
+            source_fallbacks.append(revamp_eventgroups_parse_blocker)
+        elif revamp_eventgroups_parse_warning:
+            warnings.append(f"cfgeventgroups.xml: {revamp_eventgroups_parse_warning}")
+        repaired_revamp_eventgroup_children, repaired_revamp_eventgroup_child_names = repair_cherno_revamp_backup_children_from_eventgroups(
+            events_root,
+            spawns_root,
+            revamp_eventgroups_root,
+        )
+        if console_ce_source_is_fallback(revamp_eventgroups_source):
+            source_fallbacks.append(f"cfgeventgroups.xml: {revamp_eventgroups_source}")
+    removed_revamp_spawn_groups, removed_revamp_spawn_group_names = cleanup_cherno_revamp_backup_spawn_groups(spawns_root, events_root)
     revamp_mapgroupproto_classes = collect_cherno_revamp_backup_mapgroupproto_classes(events_root)
     removed_stale_spawn_only, removed_stale_spawn_names = cleanup_stale_spawn_only_events(events_root, spawns_root)
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
@@ -34914,6 +35047,12 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"`{repaired_revamp_events}` event definition(s), `{repaired_revamp_spawns}` spawn block(s), "
             f"`{merged_revamp_event_children + merged_revamp_spawn_children}` merged child node(s). "
             + ", ".join(f"`{name}`" for name in repaired_names)
+        )
+    if repaired_revamp_eventgroup_children:
+        messages.append(
+            f"Repaired `{repaired_revamp_eventgroup_children}` Charnarus revamp backup static event child classname(s) "
+            "from their old cfgeventgroups.xml group(s): "
+            + ", ".join(f"`{name}`" for name in repaired_revamp_eventgroup_child_names[:12])
         )
     if removed_revamp_spawn_groups:
         messages.append(
@@ -39412,7 +39551,12 @@ async def restart_delivery_processor():
 
         try:
 
-            applied_damage = apply_due_damage_schedule(guild_id, config, now)
+            applied_damage = await asyncio.to_thread(
+                apply_due_damage_schedule,
+                guild_id,
+                config,
+                now,
+            )
             if applied_damage:
                 for damage_result in applied_damage:
                     status = "APPLIED" if damage_result.get("ok") else "FAILED"

@@ -1783,6 +1783,86 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("Repaired Charnarus revamp backup" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
+
+    def test_cherno_revamp_backup_childless_events_copy_child_from_eventgroup_before_group_cleanup(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        legacy_events = (
+            '<events>'
+            '<event name="StaticChernoRevampBackupLoot_23"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children />'
+            '</event>'
+            '</events>'
+        )
+        legacy_spawns = (
+            '<eventposdef>'
+            '<event name="StaticChernoRevampBackupLoot_23">'
+            '<pos x="4770" z="7950" a="0" group="ChernoRevampBackupLootGrp_23" />'
+            '</event>'
+            '</eventposdef>'
+        )
+        legacy_eventgroups = (
+            '<eventgroupdef>'
+            '<group name="ChernoRevampBackupLootGrp_23">'
+            '<child type="StaticObj_Wreck_HMMWV_DE" lootmin="7" lootmax="15" min="1" max="1" x="0" y="0" z="0" a="0" />'
+            '</group>'
+            '</eventgroupdef>'
+        )
+        sources = {
+            "events_path": (legacy_events, f"{base_path}/db/events.xml"),
+            "spawns_path": (legacy_spawns, f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": (legacy_eventgroups, f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        spawns_root = ET.fromstring(built["spawns_text"])
+        event_node = events_root.find("./event[@name='StaticChernoRevampBackupLoot_23']")
+        self.assertIsNotNone(event_node)
+        child = event_node.find("./children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual(child.get("type"), "StaticObj_Wreck_HMMWV_DE")
+        self.assertEqual(child.get("lootmax"), "15")
+        spawn_pos = spawns_root.find("./event[@name='StaticChernoRevampBackupLoot_23']/pos")
+        self.assertIsNotNone(spawn_pos)
+        self.assertIsNone(spawn_pos.get("group"))
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, messages)
+        self.assertFalse(
+            any("has no `<child>` classname" in str(message) for message in messages),
+            messages,
+        )
+        self.assertTrue(
+            any("static event child classname" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
         self.assertTrue(
             any("obsolete cfgeventgroups reference" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
