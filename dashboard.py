@@ -130,20 +130,7 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
     ],
 }
 DASHBOARD_MAP_LABELS = {
-    "livonia": [
-        {"name": "Lukow", "x": 3560, "z": 11900, "kind": "major"},
-        {"name": "Brena", "x": 6600, "z": 11300, "kind": "major"},
-        {"name": "Tarnow", "x": 9317, "z": 10861, "kind": "major"},
-        {"name": "Dolnik", "x": 11350, "z": 11350, "kind": "major"},
-        {"name": "Sobotka", "x": 6280, "z": 10330, "kind": "major"},
-        {"name": "Topolin", "x": 1510, "z": 7660, "kind": "major"},
-        {"name": "Polana", "x": 3906, "z": 2211, "kind": "major"},
-        {"name": "Nadbor", "x": 5306, "z": 3676, "kind": "major"},
-        {"name": "Lembork", "x": 8500, "z": 8700, "kind": "minor"},
-        {"name": "Radunin", "x": 9130, "z": 3500, "kind": "minor"},
-        {"name": "Swarog", "x": 5424, "z": 1501, "kind": "minor"},
-        {"name": "Lukow Airfield", "x": 4064, "z": 10224, "kind": "landmark"},
-    ],
+    "livonia": [],
     "chernarus": [
         {"name": "NWAF", "x": 4481, "z": 10355, "kind": "landmark"},
         {"name": "Tisy", "x": 1612, "z": 14175, "kind": "landmark"},
@@ -2701,6 +2688,19 @@ PAGE_TEMPLATE = """
     .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .mini-card { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
     .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
+    .schedule-status-box { margin-bottom: 1rem; }
+    .schedule-status-list { display: grid; gap: .6rem; }
+    .schedule-status-row { display: grid; grid-template-columns: minmax(9rem, .75fr) minmax(0, 1.45fr) minmax(0, 1.1fr); gap: .7rem; align-items: start; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: .45rem; padding: .75rem; background: rgba(2, 8, 10, .64); }
+    .schedule-status-row.is-ok { border-left-color: #75d89a; }
+    .schedule-status-row.is-warn { border-left-color: var(--gold); }
+    .schedule-status-row.is-danger { border-left-color: #ff5f6d; }
+    .schedule-status-row.is-off { border-left-color: #59646c; }
+    .schedule-kicker { display: block; color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: 0; }
+    .schedule-status-row strong { display: block; color: var(--gold); font-size: 1.05rem; line-height: 1.25; overflow-wrap: anywhere; }
+    .schedule-status-main, .schedule-status-meta { display: grid; gap: .25rem; color: var(--muted); min-width: 0; }
+    .schedule-status-main span, .schedule-status-meta span, .schedule-status-main small, .schedule-status-meta small { overflow-wrap: anywhere; }
+    .schedule-pill { display: inline-block; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: .12rem .45rem; background: rgba(255,255,255,.04); color: color-mix(in srgb, var(--muted) 80%, #fff); font-size: .78rem; }
+    .schedule-error { color: #ffb4bd; }
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
     .notification small { display: block; color: var(--muted); margin-top: .15rem; }
@@ -3010,6 +3010,7 @@ PAGE_TEMPLATE = """
     .hidden-field { display: none; }
     @media (max-width: 980px) {
       .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
       .ai-codex-side { position: static; max-height: none; overflow: visible; }
@@ -7078,14 +7079,36 @@ PAGE_TEMPLATE = """
       {% set dmg_next = (dmg.next_run_local or dmg.next_run_utc or '') if dmg else '' %}
       {% set dmg_restore_next = (dmg_restore.next_run_local or dmg_restore.next_run_utc or '') if dmg_restore else '' %}
       {% set vr_next = (vr.next_run_local or vr.next_run_utc or '') if vr else '' %}
-      <div class="mini-grid" style="margin-bottom:1rem">
-        <div class="mini-card"><span class="muted">Restart schedule</span><strong>{{ 'On' if restart_on else 'Off' }}</strong><span>Every {{ restart_hours }}h from {{ '%02d'|format(restart_start|int) }}:00 {{ restart_timezone }}</span></div>
-        <div class="mini-card"><span class="muted">Next restart</span><strong>{{ restart_status.next_restart_uk }}</strong><span>{% if restart_status.minutes_until is not none %}In about {{ restart_status.minutes_until }} min{% else %}Schedule disabled{% endif %}</span></div>
-        <div class="mini-card"><span class="muted">Last restart</span><strong>{{ restart_status.last_restart.status|default('No log yet')|replace('_', ' ')|title }}</strong><span>{{ restart_status.last_restart.source|default('Waiting for bot/RPT')|replace('_', ' ')|title }}</span></div>
-        <div class="mini-card"><span class="muted">Damage</span><strong>Base {{ base_state|title }} / Containers {{ container_state|title }}</strong><span>{{ 'Scheduled' if dmg_enabled else 'Manual toggles' }}{% if dmg_next %} · Next {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %} · From {{ dmg_first_date }} {{ dmg_time }}{% endif %}</span></div>
-        <div class="mini-card"><span class="muted">Vehicle reset</span><strong>{{ 'On' if vr_enabled else 'Off' }}</strong><span>{{ vr_method|replace('_', ' ')|title }}{% if vr_next %} · Next {{ vr_next[:16]|replace('T', ' ') }}{% elif vr_first_date %} · From {{ vr_first_date }} {{ vr_time }}{% endif %}</span></div>
-        <div class="mini-card"><span class="muted">Damage restore</span><strong>{{ 'On' if dmg_restore_enabled else 'Off' }}</strong><span>{% if dmg_restore_next %}Off write {{ dmg_restore_next[:16]|replace('T', ' ') }}{% elif dmg_restore_first_date and dmg_restore_enabled %}Off from {{ dmg_restore_first_date }} {{ dmg_restore_time }}{% elif dmg_restore_enabled %}Waiting for date{% else %}Manual until enabled{% endif %}</span></div>
-      </div>
+      <article class="admin-panel full schedule-status-box">
+        <h3>Live Schedules</h3>
+        <div class="schedule-status-list">
+          <div class="schedule-status-row is-{{ schedule_status.worker.status_class }}">
+            <div><span class="schedule-kicker">Worker</span><strong>{{ schedule_status.worker.status }}</strong><span class="schedule-pill">Server-control processor</span></div>
+            <div class="schedule-status-main"><span>Last checked: {{ schedule_status.worker.last_checked_label }}</span><small>The bot updates this while the background schedule worker is running.</small></div>
+            <div class="schedule-status-meta">{% if schedule_status.worker.last_error %}<span class="schedule-error">{{ schedule_status.worker.last_error }}</span><small>{{ schedule_status.worker.last_error_label }}</small>{% else %}<span>No current worker error recorded.</span>{% endif %}</div>
+          </div>
+          <div class="schedule-status-row is-{{ schedule_status.restart.status_class }}">
+            <div><span class="schedule-kicker">Restart</span><strong>{{ schedule_status.restart.status }}</strong><span class="schedule-pill">{{ schedule_status.restart.minutes_label }}</span></div>
+            <div class="schedule-status-main"><span>Next restart: {{ schedule_status.restart.next_label }}</span><span>{{ schedule_status.restart.interval_label }}</span><small>Warnings: {{ schedule_status.restart.warnings_label }} minutes</small></div>
+            <div class="schedule-status-meta"><span>Last: {{ schedule_status.restart.last_status }}</span><small>{{ schedule_status.restart.last_source }}</small></div>
+          </div>
+          <div class="schedule-status-row is-{{ schedule_status.damage_on.status_class }}">
+            <div><span class="schedule-kicker">Raid Start</span><strong>{{ schedule_status.damage_on.status }}</strong><span class="schedule-pill">Base {{ schedule_status.damage_on.base_state }} / Containers {{ schedule_status.damage_on.container_state }}</span></div>
+            <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_on.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_on.write_label }}</span><small>{{ schedule_status.damage_on.interval_label }}</small></div>
+            <div class="schedule-status-meta"><span>Last applied: {{ schedule_status.damage_on.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_on.last_attempt_label }}</small>{% if schedule_status.damage_on.last_cfggameplay_path %}<small>{{ schedule_status.damage_on.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_on.flags_label %}<small>{{ schedule_status.damage_on.flags_label }}</small>{% endif %}{% if schedule_status.damage_on.last_error %}<small class="schedule-error">{{ schedule_status.damage_on.last_error }}</small>{% endif %}</div>
+          </div>
+          <div class="schedule-status-row is-{{ schedule_status.damage_off.status_class }}">
+            <div><span class="schedule-kicker">Raid End</span><strong>{{ schedule_status.damage_off.status }}</strong><span class="schedule-pill">Base {{ schedule_status.damage_off.base_state }} / Containers {{ schedule_status.damage_off.container_state }}</span></div>
+            <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_off.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_off.write_label }}</span><small>{{ schedule_status.damage_off.interval_label }}</small></div>
+            <div class="schedule-status-meta"><span>Last applied: {{ schedule_status.damage_off.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_off.last_attempt_label }}</small>{% if schedule_status.damage_off.last_cfggameplay_path %}<small>{{ schedule_status.damage_off.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_off.flags_label %}<small>{{ schedule_status.damage_off.flags_label }}</small>{% endif %}{% if schedule_status.damage_off.last_error %}<small class="schedule-error">{{ schedule_status.damage_off.last_error }}</small>{% endif %}</div>
+          </div>
+          <div class="schedule-status-row is-{{ schedule_status.vehicle_reset.status_class }}">
+            <div><span class="schedule-kicker">Vehicle Reset</span><strong>{{ schedule_status.vehicle_reset.status }}</strong><span class="schedule-pill">{{ schedule_status.vehicle_reset.method_label }}</span></div>
+            <div class="schedule-status-main"><span>Target restart: {{ schedule_status.vehicle_reset.target_label }}</span><span>Bot prepares reset: {{ schedule_status.vehicle_reset.write_label }}</span><small>{{ schedule_status.vehicle_reset.interval_label }}</small></div>
+            <div class="schedule-status-meta"><span>Last queued: {{ schedule_status.vehicle_reset.last_queued_label }}</span></div>
+          </div>
+        </div>
+      </article>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Restart Schedule</h3>
@@ -18531,6 +18554,235 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def dashboard_parse_schedule_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def dashboard_format_utc_time(value: Any, fallback: str = "Never") -> str:
+    parsed = dashboard_parse_schedule_datetime(value)
+    if not parsed:
+        return fallback
+    return parsed.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def dashboard_schedule_target_label(schedule: dict[str, Any], timezone_default: str = "Europe/Dublin") -> str:
+    if not isinstance(schedule, dict):
+        return "Not scheduled"
+    next_run = str(schedule.get("next_run_local") or schedule.get("next_run_utc") or "").strip()
+    if next_run:
+        parsed = dashboard_parse_schedule_datetime(next_run)
+        if parsed and str(schedule.get("next_run_utc") or "").strip() == next_run:
+            return dashboard_format_utc_time(next_run, "Not scheduled")
+        return next_run[:16].replace("T", " ")
+    first_date = str(schedule.get("first_date") or "").strip()
+    run_time = str(schedule.get("time") or "").strip()
+    timezone_name = str(schedule.get("timezone") or timezone_default or "Europe/Dublin").strip()
+    if first_date and run_time:
+        return f"{first_date} {run_time} {timezone_name}"
+    return "Not scheduled"
+
+
+def dashboard_schedule_interval_label(schedule: dict[str, Any], default_value: int, default_unit: str) -> str:
+    if not isinstance(schedule, dict):
+        return f"Every {default_value} {default_unit}"
+    value = max(1, min(999, safe_int(schedule.get("interval_value"), default_value)))
+    unit = str(schedule.get("interval_unit") or default_unit or "days").strip().lower()
+    if unit not in {"hours", "days", "weeks", "months"}:
+        unit = default_unit
+    day = str(schedule.get("day_of_week") or "").strip().lower()
+    month_day = safe_int(schedule.get("day_of_month"), 0)
+    label = f"Every {value} {unit}"
+    if day:
+        label += f" on {day.title()}"
+    if 1 <= month_day <= 31:
+        label += f" on day {month_day}"
+    return label
+
+
+def dashboard_schedule_preflight_minutes(config: dict[str, Any], key: str, fallback_key: str = "") -> int:
+    raw = config.get(key)
+    if raw in (None, "") and fallback_key:
+        raw = config.get(fallback_key)
+    return max(2, min(120, safe_int(raw, 15)))
+
+
+def dashboard_schedule_write_label(schedule: dict[str, Any], preflight_minutes: int, mode: str = "before") -> str:
+    if not isinstance(schedule, dict):
+        return "Not scheduled"
+    next_run = dashboard_parse_schedule_datetime(schedule.get("next_run_utc"))
+    if next_run:
+        if mode == "at":
+            return dashboard_format_utc_time(next_run, "Not scheduled")
+        return (next_run - timedelta(minutes=preflight_minutes)).strftime("%Y-%m-%d %H:%M UTC")
+    if dashboard_schedule_target_label(schedule) == "Not scheduled":
+        return "Not scheduled"
+    if mode == "at":
+        return "At target time"
+    return f"{preflight_minutes} min before target"
+
+
+def dashboard_damage_flags_label(flags: Any) -> str:
+    if not isinstance(flags, dict):
+        return ""
+    if "disableBaseDamage" not in flags and "disableContainerDamage" not in flags:
+        return ""
+    base = "true" if bool(flags.get("disableBaseDamage")) else "false"
+    container = "true" if bool(flags.get("disableContainerDamage")) else "false"
+    return f"disableBaseDamage={base}, disableContainerDamage={container}"
+
+
+def dashboard_damage_schedule_status(config: dict[str, Any], schedule_key: str, flag_key: str, title: str, default_base: str, default_container: str) -> dict[str, Any]:
+    schedule = config.get(schedule_key) if isinstance(config.get(schedule_key), dict) else {}
+    enabled = dashboard_bool(config.get(flag_key), dashboard_bool(schedule.get("enabled"), False))
+    preflight = dashboard_schedule_preflight_minutes(config, "damage_preflight_minutes", "vehicle_reset_preflight_minutes")
+    target_label = dashboard_schedule_target_label(schedule, dashboard_server_timezone_name(config))
+    last_error = str(schedule.get("last_error") or "").strip()
+    last_applied = dashboard_format_utc_time(schedule.get("last_applied_at"))
+    if not enabled:
+        status = "Off"
+        status_class = "off"
+    elif last_error:
+        status = "Needs attention"
+        status_class = "danger"
+    elif target_label == "Not scheduled":
+        status = "Missing date"
+        status_class = "warn"
+    elif schedule.get("last_applied_at"):
+        status = "Applied"
+        status_class = "ok"
+    else:
+        status = "Armed"
+        status_class = "ok"
+    return {
+        "title": title,
+        "status": status,
+        "status_class": status_class,
+        "enabled": enabled,
+        "target_label": target_label,
+        "write_label": dashboard_schedule_write_label(schedule, preflight),
+        "interval_label": dashboard_schedule_interval_label(schedule, 7 if schedule_key == "damage_schedule" else 14, "days"),
+        "base_state": str(schedule.get("base_state") or default_base or "on").title(),
+        "container_state": str(schedule.get("container_state") or default_container or "on").title(),
+        "last_attempt_label": dashboard_format_utc_time(schedule.get("last_attempt_at")),
+        "last_applied_label": last_applied,
+        "last_error": last_error[:240],
+        "last_cfggameplay_path": str(schedule.get("last_cfggameplay_path") or "").strip(),
+        "flags_label": dashboard_damage_flags_label(schedule.get("last_flags")),
+    }
+
+
+def dashboard_vehicle_reset_schedule_status(config: dict[str, Any]) -> dict[str, Any]:
+    schedule = config.get("vehicle_reset_schedule") if isinstance(config.get("vehicle_reset_schedule"), dict) else {}
+    enabled = dashboard_bool(config.get("vehicle_reset_schedule_enabled"), dashboard_bool(schedule.get("enabled"), False))
+    method = str(schedule.get("method") or config.get("vehicle_reset_method") or "cfgignorelist").strip().lower()
+    if method == "economy_xml":
+        method = "cfgignorelist"
+    if method not in {"cfgignorelist", "bridge"}:
+        method = "cfgignorelist"
+    preflight = dashboard_schedule_preflight_minutes(config, "vehicle_reset_preflight_minutes")
+    target_label = dashboard_schedule_target_label(schedule, dashboard_server_timezone_name(config))
+    queued = str(schedule.get("last_queued_at") or "").strip()
+    if not enabled:
+        status = "Off"
+        status_class = "off"
+    elif target_label == "Not scheduled":
+        status = "Missing date"
+        status_class = "warn"
+    elif queued:
+        status = "Queued"
+        status_class = "ok"
+    else:
+        status = "Armed"
+        status_class = "ok"
+    return {
+        "title": "Vehicle Reset",
+        "status": status,
+        "status_class": status_class,
+        "enabled": enabled,
+        "target_label": target_label,
+        "write_label": dashboard_schedule_write_label(schedule, preflight, "before" if method == "cfgignorelist" else "at"),
+        "interval_label": dashboard_schedule_interval_label(schedule, 7, "days"),
+        "method_label": method.replace("_", " ").title(),
+        "last_queued_label": dashboard_format_utc_time(queued),
+    }
+
+
+def dashboard_worker_schedule_status(config: dict[str, Any]) -> dict[str, Any]:
+    status = config.get("server_control_scheduler_status") if isinstance(config.get("server_control_scheduler_status"), dict) else {}
+    last_checked = dashboard_parse_schedule_datetime(status.get("last_checked_at"))
+    last_error = str(status.get("last_error") or "").strip()
+    if last_error:
+        state = "Error"
+        status_class = "danger"
+    elif not last_checked:
+        state = "Waiting"
+        status_class = "warn"
+    elif (datetime.now(UTC) - last_checked) > timedelta(minutes=10):
+        state = "Stale"
+        status_class = "warn"
+    else:
+        state = "Running"
+        status_class = "ok"
+    return {
+        "title": "Scheduler Worker",
+        "status": state,
+        "status_class": status_class,
+        "last_checked_label": dashboard_format_utc_time(status.get("last_checked_at"), "No check recorded yet"),
+        "last_error": last_error[:240],
+        "last_error_label": dashboard_format_utc_time(status.get("last_error_at"), ""),
+    }
+
+
+def dashboard_live_schedule_status(config: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        config = {}
+    normalize_dashboard_server_control_schedules(config)
+    restart = dashboard_restart_status(config)
+    restart_enabled = dashboard_bool(restart.get("enabled"), False)
+    restart_status_label = "On" if restart_enabled else "Off"
+    restart_status_class = "ok" if restart_enabled else "off"
+    return {
+        "worker": dashboard_worker_schedule_status(config),
+        "restart": {
+            "title": "Restarts",
+            "status": restart_status_label,
+            "status_class": restart_status_class,
+            "next_label": restart.get("next_restart_local") or "Not scheduled",
+            "interval_label": f"Every {restart.get('interval_hours', 4)}h from {int(restart.get('start_hour') or 0):02d}:00 {restart.get('timezone') or 'Europe/Dublin'}",
+            "warnings_label": ", ".join(str(item) for item in restart.get("warnings", [])) or "None",
+            "minutes_label": f"In about {restart.get('minutes_until')} min" if restart.get("minutes_until") is not None else "Schedule disabled",
+            "last_status": str((restart.get("last_restart") or {}).get("status") or "No log yet").replace("_", " ").title(),
+            "last_source": str((restart.get("last_restart") or {}).get("source") or "Waiting for bot/RPT").replace("_", " ").title(),
+        },
+        "damage_on": dashboard_damage_schedule_status(
+            config,
+            "damage_schedule",
+            "damage_schedule_enabled",
+            "Raid Damage On",
+            str(config.get("base_damage_state") or "on"),
+            str(config.get("container_damage_state") or "on"),
+        ),
+        "damage_off": dashboard_damage_schedule_status(
+            config,
+            "damage_restore_schedule",
+            "damage_restore_schedule_enabled",
+            "Raid Damage Off",
+            "off",
+            "off",
+        ),
+        "vehicle_reset": dashboard_vehicle_reset_schedule_status(config),
+    }
+
+
 def discord_guild_channels(guild_id: str) -> list[dict[str, str]]:
     if not DISCORD_TOKEN or not guild_id:
         return []
@@ -20864,6 +21116,7 @@ def page(mode: str, auth: dict[str, Any]):
                 shop_bundle_rows = min(250, max(shop_bundle_rows, len(item.get("bundle_items") or []), 6))
                 break
     restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
+    schedule_status = dashboard_live_schedule_status(selected_config if isinstance(selected_config, dict) else {})
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -20909,6 +21162,7 @@ def page(mode: str, auth: dict[str, Any]):
         shop_bundle_rows=shop_bundle_rows,
         onboarding_reaction_options=ONBOARDING_REACTION_OPTIONS,
         restart_status=restart_status,
+        schedule_status=schedule_status,
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
         ai_agent_tasks=ai_agent_state.get("tasks", []),

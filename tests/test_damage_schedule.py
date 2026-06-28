@@ -89,6 +89,44 @@ class DamageRestoreScheduleTests(unittest.TestCase):
         self.assertTrue(results[0]["flags"]["disableContainerDamage"])
         self.assertGreaterEqual(self.save_calls, 1)
 
+    def test_nested_only_damage_schedule_enabled_still_applies(self):
+        now = datetime(2026, 6, 19, 20, 45, tzinfo=UTC)
+        config = {
+            "damage_preflight_minutes": 15,
+            "base_damage_state": "on",
+            "container_damage_state": "on",
+            "damage_schedule": {
+                "enabled": True,
+                "base_state": "on",
+                "container_state": "on",
+                "first_date": "2026-06-19",
+                "time": "21:00",
+                "timezone": "UTC",
+                "interval_value": 7,
+                "interval_unit": "days",
+            },
+        }
+
+        results = self.bot.apply_due_damage_schedule("guild-1", config, now)
+
+        self.assertIsNotNone(results)
+        self.assertTrue(config["damage_schedule_enabled"])
+        self.assertEqual(["raid_damage_on"], [item["schedule_label"] for item in results])
+        self.assertEqual([("guild-1", "on", "on")], self.upload_calls)
+
+    def test_scheduler_status_heartbeat_and_error_are_recorded(self):
+        now = datetime(2026, 6, 19, 20, 45, tzinfo=UTC)
+        config = {}
+
+        self.assertTrue(self.bot.mark_server_control_scheduler_status(config, now))
+        self.assertEqual(now.isoformat(), config["server_control_scheduler_status"]["last_checked_at"])
+        self.assertFalse(self.bot.mark_server_control_scheduler_status(config, now))
+
+        later = datetime(2026, 6, 19, 20, 51, tzinfo=UTC)
+        self.assertTrue(self.bot.mark_server_control_scheduler_status(config, later, "boom"))
+        self.assertEqual(later.isoformat(), config["server_control_scheduler_status"]["last_checked_at"])
+        self.assertEqual("boom", config["server_control_scheduler_status"]["last_error"])
+
     def test_restore_schedule_wins_when_start_and_restore_are_due(self):
         now = datetime(2026, 6, 19, 20, 45, tzinfo=UTC)
         due_schedule = {

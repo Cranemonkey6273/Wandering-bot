@@ -38504,6 +38504,33 @@ def _parse_schedule_datetime(value):
     return parsed.astimezone(UTC)
 
 
+def mark_server_control_scheduler_status(config, now_utc, error=""):
+    if not isinstance(config, dict):
+        return False
+    status = config.setdefault("server_control_scheduler_status", {})
+    if not isinstance(status, dict):
+        status = {}
+        config["server_control_scheduler_status"] = status
+
+    changed = False
+    last_checked = _parse_schedule_datetime(status.get("last_checked_at"))
+    if not last_checked or (now_utc - last_checked) >= timedelta(minutes=5):
+        status["last_checked_at"] = now_utc.isoformat()
+        changed = True
+
+    error_text = str(error or "").strip()
+    if error_text:
+        if status.get("last_error") != error_text:
+            status["last_error"] = error_text[:500]
+            status["last_error_at"] = now_utc.isoformat()
+            changed = True
+    elif status.get("last_error"):
+        status["last_error"] = ""
+        changed = True
+
+    return changed
+
+
 def _vehicle_reset_schedule_timezone(schedule):
     try:
         return ZoneInfo(str(schedule.get("timezone") or "Europe/Dublin"))
@@ -38765,7 +38792,7 @@ def _apply_due_damage_schedule_entry(guild_id, config, schedule, now_utc, label,
 
 
 def apply_due_damage_schedule(guild_id, config, now_utc):
-    normalize_server_control_schedules(config)
+    changed = normalize_server_control_schedules(config)
     results = []
 
     if schedule_bool(config.get("damage_schedule_enabled"), False):
@@ -38817,6 +38844,9 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
         )
         if result:
             results.append(result)
+
+    if changed and not results:
+        save_guild_configs()
 
     return results or None
 
@@ -39551,6 +39581,8 @@ async def restart_delivery_processor():
 
         try:
 
+            scheduler_status_changed = mark_server_control_scheduler_status(config, now)
+
             applied_damage = await asyncio.to_thread(
                 apply_due_damage_schedule,
                 guild_id,
@@ -39585,6 +39617,8 @@ async def restart_delivery_processor():
                     print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
 
             if await process_dashboard_scenario_xml_upload(guild_id, config):
+                save_guild_configs()
+            elif scheduler_status_changed:
                 save_guild_configs()
 
             restart_interval = config.get(
@@ -39643,6 +39677,8 @@ async def restart_delivery_processor():
 
         except Exception as error:
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
+            if mark_server_control_scheduler_status(config, now, error):
+                save_guild_configs()
 
 
 def pending_dashboard_scenario_xml_events(config):
