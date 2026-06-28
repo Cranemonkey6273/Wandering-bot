@@ -609,64 +609,176 @@ PUBLIC_LANDING_TEMPLATE = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Bot</title>
   <style>
-    :root { color-scheme: dark; --bg: #02090c; --panel: rgba(7,20,24,.9); --line: rgba(103,245,231,.2); --text: #ecfeff; --muted: #9fc3c8; --accent: #24efe1; --green: #8ee85f; }
+    :root {
+      color-scheme: dark;
+      --bg: #050806;
+      --panel: rgba(10, 18, 16, .92);
+      --panel-strong: rgba(13, 25, 22, .96);
+      --line: rgba(126, 204, 184, .24);
+      --line-warm: rgba(236, 161, 64, .34);
+      --text: #f2f7ef;
+      --muted: #b9c8bf;
+      --teal: #35d4c2;
+      --green: #8ee85f;
+      --amber: #eca140;
+      --red: #f26363;
+      --ink: #030605;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 20% 0%, rgba(36,239,225,.16), transparent 32rem), linear-gradient(180deg, #061216, var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    main { width: min(1180px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
-    .hero { display: grid; grid-template-columns: minmax(0, .9fr) minmax(20rem, .55fr); gap: 1rem; align-items: stretch; }
-    .panel { border: 1px solid var(--line); background: var(--panel); border-radius: .85rem; padding: 1rem; box-shadow: 0 1rem 3rem rgba(0,0,0,.25); }
-    .brand { display: flex; gap: .9rem; align-items: center; margin-bottom: 1rem; }
-    .brand img { width: 5rem; height: 5rem; border-radius: .8rem; border: 1px solid var(--line); object-fit: cover; }
-    h1 { margin: 0; font-size: clamp(2rem, 4vw, 4.5rem); line-height: 1; text-transform: uppercase; letter-spacing: 0; }
-    h2 { margin: 0 0 .65rem; font-size: 1rem; text-transform: uppercase; letter-spacing: .04em; }
-    p, li { color: var(--muted); line-height: 1.55; }
-    .actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1rem; }
-    a.button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(36,239,225,.42); border-radius: .55rem; padding: .78rem 1rem; color: var(--text); text-decoration: none; font-weight: 900; background: rgba(36,239,225,.13); }
-    a.button.primary { background: linear-gradient(135deg, rgba(36,239,225,.28), rgba(142,232,95,.18)); }
-    .steps { display: grid; gap: .75rem; margin-top: 1rem; }
-    .step { border: 1px solid var(--line); border-radius: .7rem; padding: .8rem; background: rgba(0,0,0,.22); }
-    .step strong { display: block; color: var(--text); margin-bottom: .25rem; }
-    code { color: var(--green); font-weight: 800; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
-    .mini { border: 1px solid var(--line); border-radius: .7rem; padding: .8rem; background: rgba(0,0,0,.2); }
-    .mini strong { display: block; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(7, 18, 15, .94), rgba(5, 8, 6, 1)),
+        url("/brand-character") right 7vw bottom -4rem / min(34rem, 46vw) auto no-repeat;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(236, 161, 64, .09), transparent 34rem),
+        linear-gradient(180deg, transparent, rgba(0, 0, 0, .28));
+    }
+    a { color: inherit; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-height: 4.25rem;
+      padding: .75rem max(1rem, calc((100vw - 1180px) / 2));
+      border-bottom: 1px solid rgba(126, 204, 184, .16);
+      background: rgba(4, 8, 7, .82);
+      backdrop-filter: blur(14px);
+    }
+    .mark { display: inline-flex; align-items: center; gap: .65rem; min-width: 0; text-decoration: none; font-weight: 950; }
+    .mark img { width: 2.75rem; height: 2.75rem; border-radius: .45rem; border: 1px solid var(--line); object-fit: cover; }
+    .mark span { overflow-wrap: anywhere; }
+    .top-actions { display: flex; align-items: center; gap: .55rem; }
+    main { position: relative; width: min(1180px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
+    .hero {
+      min-height: calc(100vh - 4.25rem);
+      display: grid;
+      grid-template-columns: minmax(0, .98fr) minmax(19rem, .58fr);
+      gap: 1rem;
+      align-items: center;
+      padding: 1rem 0 2rem;
+    }
+    .hero-copy { max-width: 47rem; }
+    .eyebrow { margin: 0 0 .8rem; color: var(--amber); font-weight: 950; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(2.45rem, 7vw, 6.4rem); line-height: .92; text-transform: uppercase; letter-spacing: 0; }
+    h2 { margin: 0 0 .65rem; font-size: 1rem; text-transform: uppercase; letter-spacing: 0; }
+    h3 { margin: 0 0 .35rem; font-size: 1rem; }
+    p, li, span { color: var(--muted); line-height: 1.55; }
+    .lead { max-width: 41rem; margin: 1rem 0 0; font-size: 1.08rem; color: #d7e4dc; }
+    .actions { display: flex; flex-wrap: wrap; gap: .65rem; margin-top: 1.15rem; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 2.7rem;
+      border: 1px solid rgba(126, 204, 184, .36);
+      border-radius: .45rem;
+      padding: .72rem .95rem;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 950;
+      background: rgba(11, 27, 23, .86);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05);
+    }
+    .button.primary { border-color: rgba(142, 232, 95, .48); background: var(--green); color: var(--ink); }
+    .button.ghost { background: rgba(0, 0, 0, .18); }
+    .setup-panel, .band, .feature {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: .5rem;
+      box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28);
+    }
+    .setup-panel { padding: 1rem; }
+    .setup-panel header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+    .setup-panel header span { color: var(--amber); font-weight: 950; }
+    .steps { display: grid; gap: .65rem; }
+    .step { display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: .65rem; padding: .75rem; border: 1px solid rgba(126, 204, 184, .16); border-radius: .45rem; background: rgba(0,0,0,.22); }
+    .num { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: 50%; background: rgba(53, 212, 194, .17); color: var(--teal); font-weight: 950; }
+    code { color: var(--green); font-weight: 900; overflow-wrap: anywhere; }
+    .band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; margin-top: 1rem; padding: .85rem; background: var(--panel-strong); }
+    .need { min-width: 0; }
+    .need strong, .feature strong { display: block; color: var(--text); margin-bottom: .2rem; }
+    .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .9rem; }
+    .feature { padding: .85rem; background: rgba(0, 0, 0, .2); }
     .muted { color: var(--muted); }
-    @media (max-width: 820px) { main { width: min(100vw - 1rem, 42rem); padding-top: 1rem; } .hero, .grid { grid-template-columns: 1fr; } h1 { font-size: 2.35rem; } }
+    @media (max-width: 900px) {
+      body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
+      .hero, .band, .features { grid-template-columns: 1fr; }
+      .hero { min-height: auto; align-items: start; padding-top: 1rem; }
+      .topbar { position: relative; align-items: flex-start; }
+      .top-actions { flex-wrap: wrap; justify-content: flex-end; }
+    }
+    @media (max-width: 560px) {
+      main { width: min(100vw - 1rem, 42rem); padding-top: .75rem; }
+      h1 { font-size: 2.6rem; }
+      .topbar { padding: .7rem; }
+      .mark img { width: 2.35rem; height: 2.35rem; }
+      .button { width: 100%; }
+      .top-actions { width: 100%; }
+    }
   </style>
 </head>
 <body>
+  <header class="topbar">
+    <a class="mark" href="/">
+      <img src="/brand-image" alt="Wandering Bot logo">
+      <span>Wandering Bot</span>
+    </a>
+    <div class="top-actions">
+      <a class="button ghost" href="/login">Existing users log in</a>
+      <a class="button" href="/agent/login">AI Agent</a>
+    </div>
+  </header>
   <main>
     <section class="hero">
-      <div class="panel">
-        <div class="brand">
-          <img src="/brand-image" alt="Wandering Bot logo">
-          <div>
-            <h1>Wandering Bot</h1>
-            <p class="muted">DayZ Discord bot, dashboard, live events, XML tools, moderation, economy, zones, and AI workspace.</p>
-          </div>
-        </div>
-        <p>Add the bot to your Discord first, then run the setup command inside your server. Dashboard login stays private until the server owner enables it.</p>
+      <div class="hero-copy">
+        <p class="eyebrow">DayZ console server control</p>
+        <h1>Add me to your server</h1>
+        <p class="lead">Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, events, XML tools, economy, trader systems, bans, zones, and server setup.</p>
         <div class="actions">
-          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Bot To Discord</a>
-          <a class="button" href="/login">Dashboard Login</a>
-          <a class="button" href="/agent/login">AI Agent Login</a>
+          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Wandering Bot</a>
+          <a class="button" href="/login">Open existing dashboard</a>
           {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
         </div>
-        <div class="grid">
-          <div class="mini"><strong>Works With Nitrado</strong><span class="muted">Live ADM feeds, player tracking, XML uploads, restarts, and banlist tools.</span></div>
-          <div class="mini"><strong>Server Tools</strong><span class="muted">PVE events, zones, economy, shop, loadouts, moderation, and help pages.</span></div>
+        <div class="features">
+          <div class="feature"><strong>Live operations</strong><span>ADM feeds, online players, heatmaps, longshots, raid pings, restart alerts, and banlist checks.</span></div>
+          <div class="feature"><strong>Server building</strong><span>Native CE events, loot drops, hordes, animals, zones, loadouts, shop bundles, and XML workshop tools.</span></div>
+          <div class="feature"><strong>Staff control</strong><span>Dashboard access, audit logs, linked gamertags, moderation tools, trader logs, and owner-only controls.</span></div>
         </div>
       </div>
-      <div class="panel">
-        <h2>Quick Setup</h2>
+      <aside class="setup-panel" aria-label="Setup guide">
+        <header>
+          <h2>Onboarding</h2>
+          <span>Basic access after setup</span>
+        </header>
         <div class="steps">
-          <div class="step"><strong>1. Add the bot</strong><span>Click <code>Add Bot To Discord</code>, choose your Discord server, and grant the requested permissions.</span></div>
-          <div class="step"><strong>2. Run setup</strong><span>In Discord, run <code>/setup</code>. The bot walks you through Nitrado token, service ID, FTP details, map, and channels.</span></div>
-          <div class="step"><strong>3. Start live feeds</strong><span>Run <code>/admstatus</code> to check setup, then <code>/restartadm force</code> after the first connection.</span></div>
-          <div class="step"><strong>4. Link players</strong><span>Players use <code>/linkgamer</code>. Admins can check links with <code>/mylink</code> and dashboard moderation tools.</span></div>
-          <div class="step"><strong>Need help?</strong><span>Use <code>/supportbot</code> with the issue. It opens an admin support ticket back to the bot owner.</span></div>
+          <div class="step"><div class="num">1</div><div><strong>Invite the bot</strong><span>Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.</span></div></div>
+          <div class="step"><div class="num">2</div><div><strong>Run <code>/setup</code></strong><span>Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.</span></div></div>
+          <div class="step"><div class="num">3</div><div><strong>Check the connection</strong><span>Use <code>/admstatus</code>, then <code>/restartadm force</code> once your ADM log is available so feeds can begin tracking players.</span></div></div>
+          <div class="step"><div class="num">4</div><div><strong>Open the dashboard</strong><span>Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.</span></div></div>
+          <div class="step"><div class="num">5</div><div><strong>Bring players in</strong><span>Players can use <code>/linkgamer</code>. Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.</span></div></div>
         </div>
-      </div>
+      </aside>
+    </section>
+    <section class="band" aria-label="Information needed for setup">
+      <div class="need"><strong>Nitrado token</strong><span>Created from your Nitrado account so the bot can read server status and settings.</span></div>
+      <div class="need"><strong>Service ID</strong><span>Your DayZ server service number from Nitrado.</span></div>
+      <div class="need"><strong>FTP details</strong><span>FTP username and password so approved XML tools can upload safely.</span></div>
+      <div class="need"><strong>Server basics</strong><span>Map, platform, restart timing, staff roles, and the channels you want feeds posted into.</span></div>
     </section>
   </main>
 </body>
