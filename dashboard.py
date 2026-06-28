@@ -2700,6 +2700,14 @@ PAGE_TEMPLATE = """
     .schedule-status-main, .schedule-status-meta { display: grid; gap: .25rem; color: var(--muted); min-width: 0; }
     .schedule-status-main span, .schedule-status-meta span, .schedule-status-main small, .schedule-status-meta small { overflow-wrap: anywhere; }
     .schedule-pill { display: inline-block; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; padding: .12rem .45rem; background: rgba(255,255,255,.04); color: color-mix(in srgb, var(--muted) 80%, #fff); font-size: .78rem; }
+    .schedule-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .2rem; }
+    .schedule-action-form { display: inline-flex; width: auto; margin: 0; }
+    .schedule-mini-button { display: inline-flex; align-items: center; justify-content: center; min-height: 2rem; border: 1px solid var(--line); border-radius: .38rem; padding: .28rem .65rem; background: #0a2025; color: var(--text); font-weight: 800; font-size: .82rem; line-height: 1.1; cursor: pointer; text-decoration: none; }
+    .schedule-mini-button:hover { border-color: var(--accent); color: #fff; }
+    .schedule-mini-button.danger { border-color: rgba(255,95,109,.55); color: #ffd9dd; background: rgba(72,12,18,.68); }
+    .schedule-details { margin-top: .35rem; color: var(--muted); }
+    .schedule-details summary { cursor: pointer; color: var(--gold); font-weight: 800; }
+    .schedule-details div { display: grid; gap: .18rem; margin-top: .25rem; }
     .schedule-error { color: #ffb4bd; }
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
@@ -7090,29 +7098,84 @@ PAGE_TEMPLATE = """
           <div class="schedule-status-row is-{{ schedule_status.restart.status_class }}">
             <div><span class="schedule-kicker">Restart</span><strong>{{ schedule_status.restart.status }}</strong><span class="schedule-pill">{{ schedule_status.restart.minutes_label }}</span></div>
             <div class="schedule-status-main"><span>Next restart: {{ schedule_status.restart.next_label }}</span><span>{{ schedule_status.restart.interval_label }}</span><small>Warnings: {{ schedule_status.restart.warnings_label }} minutes</small></div>
-            <div class="schedule-status-meta"><span>Last: {{ schedule_status.restart.last_status }}</span><small>{{ schedule_status.restart.last_source }}</small></div>
+            <div class="schedule-status-meta">
+              <span>Notify: {{ channel_label(server.channels if server else [], restart_status.warning_channel_id or restart_status.warning_channel_key, 'Not set') }}</span>
+              <span>Audit: {{ channel_label(server.channels if server else [], restart_status.log_channel_id or restart_status.log_channel_key, 'Not set') }}</span>
+              <div class="schedule-actions">
+                <a class="schedule-mini-button" href="#restart-schedule-form">Edit</a>
+                {% if restart_on %}
+                <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the restart schedule for {{ server.guild_name if server else 'this server' }}?">
+                  <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="schedule_delete" value="restart">
+                  <button class="schedule-mini-button danger" type="submit">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+              <details class="schedule-details"><summary>Details</summary><div><span>Last: {{ schedule_status.restart.last_status }}</span><small>{{ schedule_status.restart.last_source }}</small></div></details>
+            </div>
           </div>
           <div class="schedule-status-row is-{{ schedule_status.damage_on.status_class }}">
             <div><span class="schedule-kicker">Raid Start</span><strong>{{ schedule_status.damage_on.status }}</strong><span class="schedule-pill">Base {{ schedule_status.damage_on.base_state }} / Containers {{ schedule_status.damage_on.container_state }}</span></div>
             <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_on.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_on.write_label }}</span><small>{{ schedule_status.damage_on.interval_label }}</small></div>
-            <div class="schedule-status-meta"><span>Last applied: {{ schedule_status.damage_on.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_on.last_attempt_label }}</small>{% if schedule_status.damage_on.last_cfggameplay_path %}<small>{{ schedule_status.damage_on.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_on.flags_label %}<small>{{ schedule_status.damage_on.flags_label }}</small>{% endif %}{% if schedule_status.damage_on.last_error %}<small class="schedule-error">{{ schedule_status.damage_on.last_error }}</small>{% endif %}</div>
+            <div class="schedule-status-meta">
+              <span>Audit: dashboard status only</span>
+              <span>Notify: no public countdown</span>
+              <div class="schedule-actions">
+                <a class="schedule-mini-button" href="#damage-settings-form">Edit</a>
+                {% if dmg_enabled %}
+                <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the raid start schedule for {{ server.guild_name if server else 'this server' }}?">
+                  <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="schedule_delete" value="damage">
+                  <button class="schedule-mini-button danger" type="submit">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+              <details class="schedule-details"><summary>Details</summary><div><span>Last applied: {{ schedule_status.damage_on.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_on.last_attempt_label }}</small>{% if schedule_status.damage_on.last_cfggameplay_path %}<small>{{ schedule_status.damage_on.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_on.flags_label %}<small>{{ schedule_status.damage_on.flags_label }}</small>{% endif %}{% if schedule_status.damage_on.last_error %}<small class="schedule-error">{{ schedule_status.damage_on.last_error }}</small>{% endif %}</div></details>
+            </div>
           </div>
           <div class="schedule-status-row is-{{ schedule_status.damage_off.status_class }}">
             <div><span class="schedule-kicker">Raid End</span><strong>{{ schedule_status.damage_off.status }}</strong><span class="schedule-pill">Base {{ schedule_status.damage_off.base_state }} / Containers {{ schedule_status.damage_off.container_state }}</span></div>
             <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_off.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_off.write_label }}</span><small>{{ schedule_status.damage_off.interval_label }}</small></div>
-            <div class="schedule-status-meta"><span>Last applied: {{ schedule_status.damage_off.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_off.last_attempt_label }}</small>{% if schedule_status.damage_off.last_cfggameplay_path %}<small>{{ schedule_status.damage_off.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_off.flags_label %}<small>{{ schedule_status.damage_off.flags_label }}</small>{% endif %}{% if schedule_status.damage_off.last_error %}<small class="schedule-error">{{ schedule_status.damage_off.last_error }}</small>{% endif %}</div>
+            <div class="schedule-status-meta">
+              <span>Audit: dashboard status only</span>
+              <span>Notify: no public countdown</span>
+              <div class="schedule-actions">
+                <a class="schedule-mini-button" href="#damage-settings-form">Edit</a>
+                {% if dmg_restore_enabled %}
+                <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the raid end schedule for {{ server.guild_name if server else 'this server' }}?">
+                  <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="schedule_delete" value="damage_restore">
+                  <button class="schedule-mini-button danger" type="submit">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+              <details class="schedule-details"><summary>Details</summary><div><span>Last applied: {{ schedule_status.damage_off.last_applied_label }}</span><small>Last attempt: {{ schedule_status.damage_off.last_attempt_label }}</small>{% if schedule_status.damage_off.last_cfggameplay_path %}<small>{{ schedule_status.damage_off.last_cfggameplay_path }}</small>{% endif %}{% if schedule_status.damage_off.flags_label %}<small>{{ schedule_status.damage_off.flags_label }}</small>{% endif %}{% if schedule_status.damage_off.last_error %}<small class="schedule-error">{{ schedule_status.damage_off.last_error }}</small>{% endif %}</div></details>
+            </div>
           </div>
           <div class="schedule-status-row is-{{ schedule_status.vehicle_reset.status_class }}">
             <div><span class="schedule-kicker">Vehicle Reset</span><strong>{{ schedule_status.vehicle_reset.status }}</strong><span class="schedule-pill">{{ schedule_status.vehicle_reset.method_label }}</span></div>
             <div class="schedule-status-main"><span>Target restart: {{ schedule_status.vehicle_reset.target_label }}</span><span>Bot prepares reset: {{ schedule_status.vehicle_reset.write_label }}</span><small>{{ schedule_status.vehicle_reset.interval_label }}</small></div>
-            <div class="schedule-status-meta"><span>Last queued: {{ schedule_status.vehicle_reset.last_queued_label }}</span></div>
+            <div class="schedule-status-meta">
+              <span>Audit: {{ channel_label(server.channels if server else [], restart_status.log_channel_id or restart_status.log_channel_key, 'Not set') }}</span>
+              <span>Last queued: {{ schedule_status.vehicle_reset.last_queued_label }}</span>
+              <div class="schedule-actions">
+                <a class="schedule-mini-button" href="#vehicle-reset-form">Edit</a>
+                {% if vr_enabled %}
+                <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the vehicle reset schedule for {{ server.guild_name if server else 'this server' }}?">
+                  <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="schedule_delete" value="vehicle_reset">
+                  <button class="schedule-mini-button danger" type="submit">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+            </div>
           </div>
         </div>
       </article>
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Restart Schedule</h3>
-          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
+          <form class="admin-form" id="restart-schedule-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Restart schedule <select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
@@ -7164,7 +7227,7 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Damage Settings</h3>
-          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
+          <form class="admin-form" id="damage-settings-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage bases. The bot writes disableBaseDamage=false before restart.</small></label>
@@ -7216,7 +7279,7 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Vehicle Reset Schedule</h3>
-          <form class="admin-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
+          <form class="admin-form" id="vehicle-reset-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
@@ -23964,6 +24027,46 @@ def api_server_control():
     if not isinstance(guild_configs, dict):
         guild_configs = {}
     config = guild_configs.setdefault(guild_id, {"channels": {}})
+    schedule_delete = str(payload.get("schedule_delete") or "").strip().lower()
+    if schedule_delete == "restart":
+        config["restart_schedule_enabled"] = False
+        config["restart_schedule_confirmed"] = False
+    elif schedule_delete == "damage":
+        config["damage_schedule_enabled"] = False
+        config["damage_schedule"] = {"enabled": False, "updated_at": datetime.now(UTC).isoformat()}
+        for key in (
+            "damage_first_date",
+            "damage_time",
+            "damage_day_of_week",
+            "damage_day_of_month",
+            "damage_interval_value",
+            "damage_interval_unit",
+        ):
+            config.pop(key, None)
+    elif schedule_delete == "damage_restore":
+        config["damage_restore_schedule_enabled"] = False
+        config["damage_restore_schedule"] = {"enabled": False, "updated_at": datetime.now(UTC).isoformat()}
+        for key in (
+            "damage_restore_first_date",
+            "damage_restore_time",
+            "damage_restore_day_of_week",
+            "damage_restore_day_of_month",
+            "damage_restore_interval_value",
+            "damage_restore_interval_unit",
+        ):
+            config.pop(key, None)
+    elif schedule_delete == "vehicle_reset":
+        config["vehicle_reset_schedule_enabled"] = False
+        config["vehicle_reset_schedule"] = {"enabled": False, "updated_at": datetime.now(UTC).isoformat()}
+        for key in (
+            "vehicle_reset_first_date",
+            "vehicle_reset_time",
+            "vehicle_reset_day_of_week",
+            "vehicle_reset_day_of_month",
+            "vehicle_reset_interval_value",
+            "vehicle_reset_interval_unit",
+        ):
+            config.pop(key, None)
 
     if "restart_schedule_enabled" in payload:
         config["restart_schedule_enabled"] = safe_bool(payload.get("restart_schedule_enabled"), False)
@@ -24172,6 +24275,8 @@ def api_server_control():
         saved_parts.append("damage settings")
     if vehicle_schedule_keys.intersection(payload.keys()):
         saved_parts.append("vehicle reset schedule")
+    if schedule_delete:
+        saved_parts.append(f"deleted {schedule_delete.replace('_', ' ')} schedule")
     note = "Saved " + (", ".join(saved_parts) if saved_parts else "server control") + " for this server."
     return dashboard_api_response(
         raw_payload,
