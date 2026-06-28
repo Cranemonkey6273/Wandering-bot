@@ -114,6 +114,32 @@ class DamageRestoreScheduleTests(unittest.TestCase):
         self.assertEqual(["raid_damage_on"], [item["schedule_label"] for item in results])
         self.assertEqual([("guild-1", "on", "on")], self.upload_calls)
 
+    def test_weekday_only_damage_schedule_applies_without_first_date(self):
+        now = datetime(2026, 6, 19, 20, 45, tzinfo=UTC)
+        config = {
+            "damage_preflight_minutes": 15,
+            "base_damage_state": "on",
+            "container_damage_state": "on",
+            "damage_schedule_enabled": True,
+            "damage_schedule": {
+                "enabled": True,
+                "base_state": "on",
+                "container_state": "on",
+                "first_date": "",
+                "time": "21:00",
+                "timezone": "UTC",
+                "interval_value": 7,
+                "interval_unit": "days",
+                "day_of_week": "friday",
+            },
+        }
+
+        results = self.bot.apply_due_damage_schedule("guild-1", config, now)
+
+        self.assertIsNotNone(results)
+        self.assertEqual(["raid_damage_on"], [item["schedule_label"] for item in results])
+        self.assertEqual([("guild-1", "on", "on")], self.upload_calls)
+
     def test_scheduler_status_heartbeat_and_error_are_recorded(self):
         now = datetime(2026, 6, 19, 20, 45, tzinfo=UTC)
         config = {}

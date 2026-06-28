@@ -444,6 +444,15 @@ VISUAL_LOADOUT_SIZE_HINTS = {
     "knife": 2,
     "pistol": 6,
 }
+DASHBOARD_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 DASHBOARD_HOST = os.getenv("WANDERING_DASHBOARD_HOST", "0.0.0.0")
 DASHBOARD_PORT = int(os.getenv("PORT") or os.getenv("WANDERING_DASHBOARD_PORT", "8080"))
 DASHBOARD_REFRESH_SECONDS = int(os.getenv("WANDERING_DASHBOARD_REFRESH_SECONDS", "45"))
@@ -2708,6 +2717,9 @@ PAGE_TEMPLATE = """
     .schedule-details { margin-top: .35rem; color: var(--muted); }
     .schedule-details summary { cursor: pointer; color: var(--gold); font-weight: 800; }
     .schedule-details div { display: grid; gap: .18rem; margin-top: .25rem; }
+    .form-advanced { grid-column: 1 / -1; border: 1px solid var(--line); border-radius: .45rem; padding: .65rem .75rem; background: rgba(255,255,255,.025); color: var(--muted); }
+    .form-advanced summary { cursor: pointer; color: var(--gold); font-weight: 900; }
+    .form-advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .65rem; }
     .schedule-error { color: #ffb4bd; }
     .stack { display: grid; gap: .65rem; }
     .notification { display: grid; gap: .2rem; border-left: 3px solid var(--gold); background: #070b08; border-radius: .35rem; padding: .65rem .75rem; color: var(--muted); }
@@ -3017,7 +3029,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
@@ -7233,7 +7245,13 @@ PAGE_TEMPLATE = """
             <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage bases. The bot writes disableBaseDamage=false before restart.</small></label>
             <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage containers. Off writes disableContainerDamage=true.</small></label>
             <label>Schedule damage changes <select name="damage_schedule_enabled"><option value="false" {% if not dmg_enabled %}selected{% endif %}>Off</option><option value="true" {% if dmg_enabled %}selected{% endif %}>On</option></select></label>
-            <label>First change date <input name="damage_first_date" type="date" value="{{ dmg_first_date }}"></label>
+            <label>Start day
+              <select name="damage_day_of_week">
+                <option value="">Choose day</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Leave exact date blank below and the bot uses the next selected weekday.</small>
+            </label>
             <label>Change time <input name="damage_time" type="time" value="{{ dmg_time }}"></label>
             <label>Timezone <input name="damage_timezone" value="{{ dmg_timezone }}"></label>
             <label>Repeat every <input name="damage_interval_value" type="number" min="1" max="999" value="{{ dmg_interval_value }}"></label>
@@ -7245,16 +7263,22 @@ PAGE_TEMPLATE = """
                 <option value="months" {% if dmg_interval_unit == 'months' %}selected{% endif %}>Months</option>
               </select>
             </label>
-            <label>Preferred weekday
-              <select name="damage_day_of_week">
-                <option value="">Use first date</option>
-                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
+            <details class="form-advanced">
+              <summary>Advanced exact date / monthly options</summary>
+              <div class="form-advanced-grid">
+                <label>Exact first date <input name="damage_first_date" type="date" value="{{ dmg_first_date }}"><small class="field-help">Optional. Use this only when the first run must start on a specific date.</small></label>
+                <label>Monthly day <input name="damage_day_of_month" type="number" min="1" max="31" value="{{ dmg_month_day }}" placeholder="optional"></label>
+              </div>
+            </details>
             <div class="full embed-preview"><strong>Auto-off schedule</strong><span>Use this for the restart that should restore base and container protection after raid time.</span></div>
             <label>Auto turn damage off <select name="damage_restore_schedule_enabled"><option value="false" {% if not dmg_restore_enabled %}selected{% endif %}>Off</option><option value="true" {% if dmg_restore_enabled %}selected{% endif %}>On</option></select><small class="field-help">Writes disableBaseDamage=true and disableContainerDamage=true before the chosen restart.</small></label>
-            <label>Turn-off date <input name="damage_restore_first_date" type="date" value="{{ dmg_restore_first_date }}"></label>
+            <label>End day
+              <select name="damage_restore_day_of_week">
+                <option value="">Choose day</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_restore_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+              <small class="field-help">For raid weekends, pick the weekday the protection should come back on.</small>
+            </label>
             <label>Turn-off time <input name="damage_restore_time" type="time" value="{{ dmg_restore_time }}"></label>
             <label>Turn-off timezone <input name="damage_restore_timezone" value="{{ dmg_restore_timezone }}"></label>
             <label>Repeat off every <input name="damage_restore_interval_value" type="number" min="1" max="999" value="{{ dmg_restore_interval_value }}"></label>
@@ -7266,13 +7290,13 @@ PAGE_TEMPLATE = """
                 <option value="months" {% if dmg_restore_interval_unit == 'months' %}selected{% endif %}>Months</option>
               </select>
             </label>
-            <label>Off preferred weekday
-              <select name="damage_restore_day_of_week">
-                <option value="">Use turn-off date</option>
-                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if dmg_restore_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Off monthly day <input name="damage_restore_day_of_month" type="number" min="1" max="31" value="{{ dmg_restore_month_day }}" placeholder="optional"></label>
+            <details class="form-advanced">
+              <summary>Advanced exact date / monthly options</summary>
+              <div class="form-advanced-grid">
+                <label>Exact turn-off date <input name="damage_restore_first_date" type="date" value="{{ dmg_restore_first_date }}"><small class="field-help">Optional. Leave blank to use the next selected end day.</small></label>
+                <label>Off monthly day <input name="damage_restore_day_of_month" type="number" min="1" max="31" value="{{ dmg_restore_month_day }}" placeholder="optional"></label>
+              </div>
+            </details>
             <div class="full embed-preview"><strong>Current Damage Plan</strong><span>Raid start {{ 'enabled' if dmg_enabled else 'disabled' }}{% if dmg_next %}: {{ dmg_next[:16]|replace('T', ' ') }}{% elif dmg_first_date %}: around 15 minutes before {{ dmg_first_date }} {{ dmg_time }} {{ dmg_timezone }}{% endif %}, every {{ dmg_interval_value }} {{ dmg_interval_unit }}{% if dmg_weekday %} on {{ dmg_weekday|title }}{% endif %}{% if dmg_month_day %} on day {{ dmg_month_day }}{% endif %}. Protection restore {{ 'enabled' if dmg_restore_enabled else 'disabled' }}{% if dmg_restore_next %}: {{ dmg_restore_next[:16]|replace('T', ' ') }}{% elif dmg_restore_first_date %}: around 15 minutes before {{ dmg_restore_first_date }} {{ dmg_restore_time }} {{ dmg_restore_timezone }}{% endif %}, every {{ dmg_restore_interval_value }} {{ dmg_restore_interval_unit }}{% if dmg_restore_weekday %} on {{ dmg_restore_weekday|title }}{% endif %}{% if dmg_restore_month_day %} on day {{ dmg_restore_month_day }}{% endif %}. Restart is required before DayZ applies staged damage flags.{% if dmg.last_error %} Start error: {{ dmg.last_error[:180] }}{% endif %}{% if dmg_restore.last_error %} Restore error: {{ dmg_restore.last_error[:180] }}{% endif %}</span></div>
             <div class="full"><button type="submit">Save Damage Settings</button> <span class="result muted"></span></div>
           </form>
@@ -7284,7 +7308,13 @@ PAGE_TEMPLATE = """
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
             <label>Method <select name="vehicle_reset_method"><option value="cfgignorelist" {% if vr_method != 'bridge' %}selected{% endif %}>cfgignorelist.xml vehicle-only reset</option><option value="bridge" {% if vr_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
-            <label>First reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"></label>
+            <label>Reset day
+              <select name="vehicle_reset_day_of_week">
+                <option value="">Choose day</option>
+                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
+              </select>
+              <small class="field-help">The next selected weekday becomes the first reset if no exact date is set.</small>
+            </label>
             <label>Reset time <input name="vehicle_reset_time" type="time" value="{{ vr_time }}"></label>
             <label>Timezone <input name="vehicle_reset_timezone" value="{{ vr_timezone }}"></label>
             <label>Repeat every <input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vr_interval_value }}"></label>
@@ -7296,13 +7326,13 @@ PAGE_TEMPLATE = """
                 <option value="months" {% if vr_interval_unit == 'months' %}selected{% endif %}>Months</option>
               </select>
             </label>
-            <label>Preferred weekday
-              <select name="vehicle_reset_day_of_week">
-                <option value="">Use first date</option>
-                {% for day in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] %}<option value="{{ day|lower }}" {% if vr_weekday == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}
-              </select>
-            </label>
-            <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
+            <details class="form-advanced">
+              <summary>Advanced exact date / monthly options</summary>
+              <div class="form-advanced-grid">
+                <label>Exact first reset date <input name="vehicle_reset_first_date" type="date" value="{{ vr_first_date }}"><small class="field-help">Optional. Leave blank to use the next selected reset day.</small></label>
+                <label>Monthly day <input name="vehicle_reset_day_of_month" type="number" min="1" max="31" value="{{ vr_month_day }}" placeholder="optional"></label>
+              </div>
+            </details>
             <div class="full embed-preview"><strong>Current Reset</strong><span>{{ 'Enabled' if vr_enabled else 'Disabled' }}{% if vr_next %}: next reset {{ vr_next[:16]|replace('T', ' ') }}{% elif vr_first_date %}: {{ vr_first_date }} {{ vr_time }} {{ vr_timezone }}{% endif %}, repeating every {{ vr_interval_value }} {{ vr_interval_unit }}{% if vr_weekday %} on {{ vr_weekday|title }}{% endif %}{% if vr_month_day %} on day {{ vr_month_day }}{% endif %}. The default method stages vehicle classes in cfgignorelist.xml before the restart, waits for the server to return, restores the backup, then requests the restore restart.</span></div>
             <div class="full"><button type="submit">Save Vehicle Reset Schedule</button> <span class="result muted"></span></div>
           </form>
@@ -18651,6 +18681,35 @@ def dashboard_schedule_target_label(schedule: dict[str, Any], timezone_default: 
     timezone_name = str(schedule.get("timezone") or timezone_default or "Europe/Dublin").strip()
     if first_date and run_time:
         return f"{first_date} {run_time} {timezone_name}"
+    weekday = DASHBOARD_WEEKDAYS.get(str(schedule.get("day_of_week") or "").strip().lower())
+    if weekday is not None and run_time:
+        clean_tz, _ = validate_dashboard_timezone_name(timezone_name, "Europe/Dublin")
+        try:
+            local_tz = ZoneInfo(clean_tz or "UTC")
+        except Exception:
+            local_tz = UTC
+        try:
+            hour_text, minute_text = run_time.split(":", 1)
+            hour = max(0, min(23, int(hour_text)))
+            minute = max(0, min(59, int(minute_text)))
+        except Exception:
+            hour = 4
+            minute = 0
+        now_local = datetime.now(UTC).astimezone(local_tz)
+        days_ahead = (weekday - now_local.weekday()) % 7
+        target_date = now_local.date() + timedelta(days=days_ahead)
+        candidate = datetime(
+            target_date.year,
+            target_date.month,
+            target_date.day,
+            hour,
+            minute,
+            tzinfo=local_tz,
+        )
+        if candidate <= now_local:
+            candidate += timedelta(days=7)
+        weekday_label = str(schedule.get("day_of_week") or "").strip().title()
+        return f"{candidate.strftime('%Y-%m-%d')} {run_time} {timezone_name} ({weekday_label})"
     return "Not scheduled"
 
 
@@ -24124,7 +24183,7 @@ def api_server_control():
         if interval_unit not in {"hours", "days", "weeks", "months"}:
             interval_unit = "days"
         interval_value = max(1, min(999, safe_int(payload.get("damage_interval_value"), safe_int(config.get("damage_interval_value"), 7))))
-        first_date = safe_date(payload.get("damage_first_date") or config.get("damage_first_date"))
+        first_date = safe_date(payload.get("damage_first_date")) if "damage_first_date" in payload else safe_date(config.get("damage_first_date"))
         damage_time = safe_time(payload.get("damage_time") or config.get("damage_time") or "04:00")
         timezone = str(payload.get("damage_timezone") or config.get("damage_timezone") or "Europe/Dublin").strip()[:80]
         day_of_week = str(payload.get("damage_day_of_week") or "").strip().lower()
@@ -24171,7 +24230,7 @@ def api_server_control():
         if interval_unit not in {"hours", "days", "weeks", "months"}:
             interval_unit = "days"
         interval_value = max(1, min(999, safe_int(payload.get("damage_restore_interval_value"), safe_int(config.get("damage_restore_interval_value"), 14))))
-        first_date = safe_date(payload.get("damage_restore_first_date") or config.get("damage_restore_first_date"))
+        first_date = safe_date(payload.get("damage_restore_first_date")) if "damage_restore_first_date" in payload else safe_date(config.get("damage_restore_first_date"))
         restore_time = safe_time(payload.get("damage_restore_time") or config.get("damage_restore_time") or "04:00")
         timezone = str(payload.get("damage_restore_timezone") or config.get("damage_restore_timezone") or "Europe/Dublin").strip()[:80]
         day_of_week = str(payload.get("damage_restore_day_of_week") or "").strip().lower()
@@ -24226,7 +24285,7 @@ def api_server_control():
         if interval_unit not in {"hours", "days", "weeks", "months"}:
             interval_unit = "days"
         interval_value = max(1, min(999, safe_int(payload.get("vehicle_reset_interval_value"), safe_int(config.get("vehicle_reset_interval_value"), 7))))
-        first_date = safe_date(payload.get("vehicle_reset_first_date") or config.get("vehicle_reset_first_date"))
+        first_date = safe_date(payload.get("vehicle_reset_first_date")) if "vehicle_reset_first_date" in payload else safe_date(config.get("vehicle_reset_first_date"))
         reset_time = safe_time(payload.get("vehicle_reset_time") or config.get("vehicle_reset_time") or "04:00")
         timezone = str(payload.get("vehicle_reset_timezone") or config.get("vehicle_reset_timezone") or "Europe/Dublin").strip()[:80]
         day_of_week = str(payload.get("vehicle_reset_day_of_week") or "").strip().lower()
