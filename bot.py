@@ -18747,6 +18747,80 @@ def money_event_value(value, limit=260):
     return text or "blank"
 
 
+DISCORD_USER_MENTION_RE = re.compile(r"<@\u200b!?(\d{15,25})>|<@!?(\d{15,25})>")
+DISCORD_ROLE_MENTION_RE = re.compile(r"<@&\u200b?(\d{15,25})>|<@&(\d{15,25})>")
+
+
+async def discord_member_label(guild, user_id, cache):
+    user_id = str(user_id or "").strip()
+    if not guild or not user_id.isdigit():
+        return "Unknown survivor"
+    if user_id in cache:
+        return cache[user_id]
+    member = None
+    try:
+        member = guild.get_member(int(user_id))
+    except Exception:
+        member = None
+    if member is None:
+        try:
+            member = await guild.fetch_member(int(user_id))
+        except Exception:
+            member = None
+    if member is None:
+        label = f"Discord user {user_id}"
+    else:
+        display = str(
+            getattr(member, "display_name", None)
+            or getattr(member, "global_name", None)
+            or getattr(member, "name", None)
+            or user_id
+        ).strip()
+        username = str(getattr(member, "name", "") or "").strip()
+        if username and display and normalize_discord_name(username) != normalize_discord_name(display):
+            label = f"{display} (@{username})"
+        else:
+            label = display or username or f"Discord user {user_id}"
+    cache[user_id] = label
+    return label
+
+
+def discord_role_label(guild, role_id, cache):
+    role_id = str(role_id or "").strip()
+    if not guild or not role_id.isdigit():
+        return "Unknown role"
+    if role_id in cache:
+        return cache[role_id]
+    role = None
+    try:
+        role = guild.get_role(int(role_id))
+    except Exception:
+        role = None
+    label = f"@{getattr(role, 'name', '')}" if role else f"Discord role {role_id}"
+    cache[role_id] = label
+    return label
+
+
+async def money_feed_display_text(guild, value, user_cache=None, role_cache=None):
+    text = str(value or "")
+    if not text or not guild:
+        return text
+    user_cache = user_cache if isinstance(user_cache, dict) else {}
+    role_cache = role_cache if isinstance(role_cache, dict) else {}
+
+    replacements = {}
+    for match in DISCORD_USER_MENTION_RE.finditer(text):
+        user_id = match.group(1) or match.group(2)
+        replacements[match.group(0)] = await discord_member_label(guild, user_id, user_cache)
+    for match in DISCORD_ROLE_MENTION_RE.finditer(text):
+        role_id = match.group(1) or match.group(2)
+        replacements[match.group(0)] = discord_role_label(guild, role_id, role_cache)
+
+    for raw, label in replacements.items():
+        text = text.replace(raw, label)
+    return text
+
+
 async def send_money_feed(guild, config, title, description="", fields=None, *, color=0xF1C40F, footer="Money Feed"):
     if not guild:
         return None
@@ -18762,17 +18836,21 @@ async def send_money_feed(guild, config, title, description="", fields=None, *, 
         )
         if not channel:
             return None
+        user_cache = {}
+        role_cache = {}
+        clean_description = await money_feed_display_text(guild, description, user_cache, role_cache)
         embed = discord.Embed(
             title=money_event_value(title, 256),
-            description=discord_safe_content(discord.utils.escape_mentions(str(description or "")), 900) if description else "",
+            description=discord_safe_content(discord.utils.escape_mentions(str(clean_description or "")), 900) if clean_description else "",
             color=color,
         )
         for field in fields or []:
             if not isinstance(field, dict):
                 continue
+            clean_value = await money_feed_display_text(guild, field.get("value"), user_cache, role_cache)
             embed.add_field(
                 name=money_event_value(field.get("name"), 256),
-                value=discord_safe_content(money_event_value(field.get("value"), 1024), 1024),
+                value=discord_safe_content(money_event_value(clean_value, 1024), 1024),
                 inline=bool(field.get("inline", True)),
             )
         embed.set_thumbnail(url=BOT_IMAGE)
@@ -18810,17 +18888,21 @@ async def send_livo_trader_feed(guild, config, channel_key, title, description="
         )
         if not channel:
             return None
+        user_cache = {}
+        role_cache = {}
+        clean_description = await money_feed_display_text(guild, description, user_cache, role_cache)
         embed = discord.Embed(
             title=money_event_value(title, 256),
-            description=discord_safe_content(discord.utils.escape_mentions(str(description or "")), 900) if description else "",
+            description=discord_safe_content(discord.utils.escape_mentions(str(clean_description or "")), 900) if clean_description else "",
             color=color,
         )
         for field in fields or []:
             if not isinstance(field, dict):
                 continue
+            clean_value = await money_feed_display_text(guild, field.get("value"), user_cache, role_cache)
             embed.add_field(
                 name=money_event_value(field.get("name"), 256),
-                value=discord_safe_content(money_event_value(field.get("value"), 1024), 1024),
+                value=discord_safe_content(money_event_value(clean_value, 1024), 1024),
                 inline=bool(field.get("inline", True)),
             )
         embed.set_thumbnail(url=BOT_IMAGE)
