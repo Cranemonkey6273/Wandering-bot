@@ -21628,6 +21628,14 @@ def brand_character():
     return ("", 404)
 
 
+@APP.get("/google6d2facbfcf642623.html")
+def google_site_verification():
+    return Response(
+        "google-site-verification: google6d2facbfcf642623.html\n",
+        mimetype="text/html",
+    )
+
+
 @APP.get("/map-image/<map_key>")
 def map_image(map_key: str):
     key = map_key_for(map_key)
