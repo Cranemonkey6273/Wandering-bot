@@ -12,6 +12,7 @@ import io
 import os
 import re
 import random
+import html
 import secrets
 import hashlib
 import subprocess
@@ -485,6 +486,92 @@ DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_ROLE_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_MEMBER_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_GUILD_COUNT_CACHE: dict[str, tuple[datetime, int]] = {}
+PUBLIC_SEO_PAGES = {
+    "home": {
+        "path": "/",
+        "title": "Wandering Bot - DayZ Console Killfeed and Server Dashboard",
+        "description": "Wandering Bot is a DayZ console Discord bot for killfeeds, ADM logs, Nitrado tools, heatmaps, raid alerts, economy, trader shops, XML events, and server dashboards.",
+        "eyebrow": "DayZ console server control",
+        "headline": "Add Wandering Bot to your DayZ server",
+        "lead": "Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, events, XML tools, economy, trader systems, bans, zones, and server setup.",
+        "focus": "DayZ console killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.",
+        "features": [
+            ("DayZ killfeed and ADM feeds", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs."),
+            ("Console server dashboard", "Give trusted admins a private web dashboard for live events, XML tools, schedules, shops, economy, zones, and moderation."),
+            ("Nitrado and Discord automation", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible."),
+        ],
+    },
+    "dayz-killfeed-bot": {
+        "path": "/dayz-killfeed-bot",
+        "title": "DayZ Killfeed Bot for Console Servers - Wandering Bot",
+        "description": "A DayZ killfeed bot for Xbox and PlayStation console servers with ADM log tracking, Discord kill feeds, longshots, heatmaps, player activity, and admin dashboard tools.",
+        "eyebrow": "DayZ killfeed bot",
+        "headline": "DayZ console killfeeds without the mess",
+        "lead": "Turn DayZ ADM logs into clean Discord feeds for kills, deaths, longshots, online players, server restarts, and player activity so your staff can see what is happening without digging through raw logs.",
+        "focus": "Built for DayZ Xbox and PlayStation communities that need readable killfeeds, longshot records, heatmaps, and player tracking.",
+        "features": [
+            ("Killfeed channels", "Post readable kill, death, weapon, distance, and location information into the Discord channels you choose."),
+            ("Longshot and leaderboard tracking", "Keep competitive records for PvP servers, faction wars, events, and community challenges."),
+            ("Live server context", "Pair killfeeds with online player counts, restart detection, ADM refresh tools, and dashboard audit logs."),
+        ],
+    },
+    "dayz-console-discord-bot": {
+        "path": "/dayz-console-discord-bot",
+        "title": "DayZ Console Discord Bot for Server Owners - Wandering Bot",
+        "description": "Wandering Bot helps DayZ console server owners run Discord automation, linked gamertags, moderation, economy, staff feeds, live events, and private dashboards.",
+        "eyebrow": "DayZ console Discord bot",
+        "headline": "One Discord bot for serious DayZ console servers",
+        "lead": "Run your DayZ community from Discord and the web dashboard with gamertag linking, staff tools, moderation guard, economy features, live events, feeds, audit logs, and server-specific admin access.",
+        "focus": "Made for DayZ console owners who need Discord automation and a dashboard without handing every staff member full Nitrado access.",
+        "features": [
+            ("Gamertag linking", "Let players link Discord users to survivor names and help staff keep ban, whitelist, and identity checks organised."),
+            ("Role and channel control", "Use server-scoped dashboards, staff-only views, moderation guard settings, and clean Discord feed channels."),
+            ("Owner and admin views", "Keep owner controls protected while letting trusted admins manage the server tools they need."),
+        ],
+    },
+    "dayz-nitrado-server-tools": {
+        "path": "/dayz-nitrado-server-tools",
+        "title": "DayZ Nitrado Server Tools and XML Dashboard - Wandering Bot",
+        "description": "DayZ Nitrado server tools for console communities, including restart alerts, CE XML events, airdrops, hordes, animals, loadouts, shop files, and safer dashboard workflows.",
+        "eyebrow": "Nitrado and CE XML tools",
+        "headline": "Control DayZ server work from one dashboard",
+        "lead": "Use guided tools for Nitrado-connected DayZ console servers: restart schedules, CE XML events, airdrops, hordes, animals, loadouts, economy files, and safer upload workflows with audit visibility.",
+        "focus": "Designed for server owners who want event and XML workflows without constantly hand-editing every file.",
+        "features": [
+            ("Event builder", "Queue crash scenes, loot drops, zombie hordes, animal packs, gas zones, and custom locations from the dashboard."),
+            ("XML workshop", "Manage DayZ files with safer validation, backups, generated snippets, and server-scoped upload logic."),
+            ("Restart and schedule tools", "Show live restart status, raid weekend damage schedules, vehicle reset schedules, and worker health checks."),
+        ],
+    },
+    "dayz-economy-trader-bot": {
+        "path": "/dayz-economy-trader-bot",
+        "title": "DayZ Trader Economy and Discord Shop Bot - Wandering Bot",
+        "description": "Create DayZ console trader economies with Discord money, shop items, bundles, admin transaction logs, cigarette trade-ins, and server-specific economy controls.",
+        "eyebrow": "Trader economy and shop",
+        "headline": "Build a DayZ trader economy players understand",
+        "lead": "Run Discord cash, shop items, bundles, trader logs, cigarette trade-ins, role restrictions, and staff-visible balance updates for console servers that want loot to feel valuable again.",
+        "focus": "Good for survival, PvP, and trader-style servers that want an economy without requiring PC mods.",
+        "features": [
+            ("Shop items and bundles", "Create buyable kits, base supplies, weapons, medical packs, bags, and custom bundles from the dashboard."),
+            ("Trader logs", "Record trade-ins, admin credits, Discord balances, and transaction history in dedicated channels."),
+            ("Server economy balance", "Tune loot, prices, role access, purchase limits, and event rewards around your server style."),
+        ],
+    },
+    "dayz-raid-alerts-heatmaps": {
+        "path": "/dayz-raid-alerts-heatmaps",
+        "title": "DayZ Raid Alerts, Heatmaps and Radar Pings - Wandering Bot",
+        "description": "DayZ console raid intelligence tools with Discord radar pings, raid alerts, heatmaps, zones, player activity, faction support, and staff audit feeds.",
+        "eyebrow": "Raid alerts and heatmaps",
+        "headline": "See the action before staff miss it",
+        "lead": "Use raid alerts, radar ping channels, heatmaps, faction zones, build and kill detection, player activity, and staff feeds to keep PvP servers easier to manage.",
+        "focus": "Built for active PvP communities that need better visibility into raids, hotspots, factions, and player movement patterns.",
+        "features": [
+            ("Raid intelligence", "Send raid-style events, structure hits, tool usage, player names, and map links into the channels you choose."),
+            ("Heatmaps and zones", "Track player activity, hotspots, radar zones, faction areas, and suspicious movement patterns."),
+            ("Staff audit feeds", "Keep evidence, moderation decisions, restart notices, and server events easier to review later."),
+        ],
+    },
+}
 
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
@@ -603,7 +690,21 @@ PUBLIC_LANDING_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wandering Bot</title>
+  <title>{{ page.title }}</title>
+  <meta name="description" content="{{ page.description }}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{{ page.canonical_url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Wandering Bot">
+  <meta property="og:title" content="{{ page.title }}">
+  <meta property="og:description" content="{{ page.description }}">
+  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:image" content="{{ page.image_url }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ page.title }}">
+  <meta name="twitter:description" content="{{ page.description }}">
+  <meta name="twitter:image" content="{{ page.image_url }}">
+  <script type="application/ld+json">{{ structured_data|tojson }}</script>
   <style>
     :root {
       color-scheme: dark;
@@ -659,6 +760,27 @@ PUBLIC_LANDING_TEMPLATE = """
     .mark img { width: 2.75rem; height: 2.75rem; border-radius: .45rem; border: 1px solid var(--line); object-fit: cover; }
     .mark span { overflow-wrap: anywhere; }
     .top-actions { display: flex; align-items: center; gap: .55rem; }
+    .seo-nav {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: .65rem max(1rem, calc((100vw - 1180px) / 2));
+      border-bottom: 1px solid rgba(126, 204, 184, .12);
+      background: rgba(4, 8, 7, .58);
+    }
+    .seo-nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 850;
+      font-size: .88rem;
+      border: 1px solid rgba(126, 204, 184, .14);
+      border-radius: .45rem;
+      padding: .45rem .62rem;
+      background: rgba(0, 0, 0, .14);
+    }
+    .seo-nav a.active { color: var(--ink); background: var(--amber); border-color: var(--amber); }
     main { position: relative; width: min(1180px, calc(100vw - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
     .hero {
       min-height: calc(100vh - 4.25rem);
@@ -710,6 +832,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .need strong, .feature strong { display: block; color: var(--text); margin-bottom: .2rem; }
     .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .9rem; }
     .feature { padding: .85rem; background: rgba(0, 0, 0, .2); }
+    .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
@@ -739,22 +862,28 @@ PUBLIC_LANDING_TEMPLATE = """
       <a class="button" href="/agent/login">AI Agent</a>
     </div>
   </header>
+  <nav class="seo-nav" aria-label="Wandering Bot pages">
+    {% for item in nav_pages %}
+      <a href="{{ item.path }}" class="{{ 'active' if item.path == page.path else '' }}">{{ item.nav_label }}</a>
+    {% endfor %}
+  </nav>
   <main>
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">DayZ console server control</p>
-        <h1>Add me to your server</h1>
-        <p class="lead">Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, events, XML tools, economy, trader systems, bans, zones, and server setup.</p>
+        <p class="eyebrow">{{ page.eyebrow }}</p>
+        <h1>{{ page.headline }}</h1>
+        <p class="lead">{{ page.lead }}</p>
         <div class="actions">
           <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Wandering Bot</a>
           <a class="button" href="/login">Open existing dashboard</a>
           {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
         </div>
         <div class="features">
-          <div class="feature"><strong>Live operations</strong><span>ADM feeds, online players, heatmaps, longshots, raid pings, restart alerts, and banlist checks.</span></div>
-          <div class="feature"><strong>Server building</strong><span>Native CE events, loot drops, hordes, animals, zones, loadouts, shop bundles, and XML workshop tools.</span></div>
-          <div class="feature"><strong>Staff control</strong><span>Dashboard access, audit logs, linked gamertags, moderation tools, trader logs, and owner-only controls.</span></div>
+          {% for feature in page.features %}
+          <div class="feature"><strong>{{ feature[0] }}</strong><span>{{ feature[1] }}</span></div>
+          {% endfor %}
         </div>
+        <div class="search-copy"><strong>What it covers</strong><span>{{ page.focus }}</span></div>
       </div>
       <aside class="setup-panel" aria-label="Setup guide">
         <header>
@@ -16004,9 +16133,55 @@ def dashboard_bot_invite_url() -> str:
     return DEFAULT_BOT_INVITE_URL
 
 
-def public_landing_page():
+def dashboard_public_origin() -> str:
+    configured = str(DASHBOARD_PUBLIC_URL or "").strip().rstrip("/")
+    if configured:
+        return configured
+    return str(request.url_root or "").strip().rstrip("/")
+
+
+def public_page_url(path: str) -> str:
+    clean_path = str(path or "/").strip()
+    if not clean_path.startswith("/"):
+        clean_path = f"/{clean_path}"
+    return f"{dashboard_public_origin()}{clean_path}"
+
+
+def public_seo_nav_pages() -> list[dict[str, str]]:
+    labels = {
+        "home": "Overview",
+        "dayz-killfeed-bot": "Killfeed",
+        "dayz-console-discord-bot": "Discord Bot",
+        "dayz-nitrado-server-tools": "Nitrado Tools",
+        "dayz-economy-trader-bot": "Trader Economy",
+        "dayz-raid-alerts-heatmaps": "Raid Alerts",
+    }
+    pages = []
+    for key, data in PUBLIC_SEO_PAGES.items():
+        pages.append({"path": str(data.get("path") or "/"), "nav_label": labels.get(key, key.replace("-", " ").title())})
+    return pages
+
+
+def public_landing_page(page_key: str = "home"):
+    base_page = PUBLIC_SEO_PAGES.get(page_key) or PUBLIC_SEO_PAGES["home"]
+    page = dict(base_page)
+    page["canonical_url"] = public_page_url(str(page.get("path") or "/"))
+    page["image_url"] = public_page_url("/brand-character")
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Wandering Bot",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Web, Discord, Xbox, PlayStation",
+        "url": page["canonical_url"],
+        "image": page["image_url"],
+        "description": page["description"],
+    }
     return render_template_string(
         PUBLIC_LANDING_TEMPLATE,
+        page=page,
+        nav_pages=public_seo_nav_pages(),
+        structured_data=structured_data,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
     )
@@ -21687,6 +21862,64 @@ def index():
     if auth.get("kind") == "agent_account":
         return redirect("/agent")
     return page("overview", auth)
+
+
+@APP.get("/dayz-killfeed-bot")
+def public_dayz_killfeed_bot():
+    return public_landing_page("dayz-killfeed-bot")
+
+
+@APP.get("/dayz-console-discord-bot")
+def public_dayz_console_discord_bot():
+    return public_landing_page("dayz-console-discord-bot")
+
+
+@APP.get("/dayz-nitrado-server-tools")
+def public_dayz_nitrado_server_tools():
+    return public_landing_page("dayz-nitrado-server-tools")
+
+
+@APP.get("/dayz-economy-trader-bot")
+def public_dayz_economy_trader_bot():
+    return public_landing_page("dayz-economy-trader-bot")
+
+
+@APP.get("/dayz-raid-alerts-heatmaps")
+def public_dayz_raid_alerts_heatmaps():
+    return public_landing_page("dayz-raid-alerts-heatmaps")
+
+
+@APP.get("/robots.txt")
+def robots_txt():
+    body = "\n".join([
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /login",
+        "Disallow: /agent",
+        "Disallow: /admin",
+        "Disallow: /owner",
+        "Disallow: /api/",
+        f"Sitemap: {public_page_url('/sitemap.xml')}",
+        "",
+    ])
+    return Response(body, mimetype="text/plain")
+
+
+@APP.get("/sitemap.xml")
+def sitemap_xml():
+    lastmod = datetime.now(UTC).strftime("%Y-%m-%d")
+    entries = []
+    for page_data in PUBLIC_SEO_PAGES.values():
+        loc = html.escape(public_page_url(str(page_data.get("path") or "/")), quote=True)
+        priority = "1.0" if str(page_data.get("path") or "/") == "/" else "0.8"
+        entries.append(
+            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>{priority}</priority></url>"
+        )
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    body += "\n".join(entries)
+    body += "\n</urlset>\n"
+    return Response(body, mimetype="application/xml")
 
 
 @APP.get("/admin")
