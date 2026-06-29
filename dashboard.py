@@ -3549,10 +3549,10 @@ PAGE_TEMPLATE = """
           <div class="owner-switcher-actions">
             <a class="button" href="/owner?guild_id={{ item.guild_id }}">Open</a>
             <a class="button" href="/owner?section=access&guild_id={{ item.guild_id }}#access">Edit</a>
-            <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete dashboard data for {{ item.guild_name }}? This removes it from the owner list but does not touch the live Discord server.">
+            <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete {{ item.guild_name }}? This makes the bot leave that Discord server and removes its saved dashboard data. A redacted archive entry is kept for owner audit only.">
               <input class="hidden-field" name="guild_id" value="{{ item.guild_id }}">
               <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
-              <input class="hidden-field" name="action" value="remove_data">
+              <input class="hidden-field" name="action" value="leave_and_remove">
               <button type="submit" class="danger">Delete</button> <span class="result muted"></span>
             </form>
           </div>
@@ -11899,7 +11899,7 @@ PAGE_TEMPLATE = """
             if (action === "delete") {
               if (removeInlineActionItem(form)) return;
             }
-            if (action === "remove" || action === "leave" || action === "purge") {
+            if (action === "remove" || action === "remove_data" || action === "leave" || action === "leave_and_remove" || action === "purge") {
               if (removeInlineActionItem(form)) return;
             }
             window.location.reload();
