@@ -642,6 +642,88 @@ FILES = {
     "agent_accounts": "agent_accounts.json",
     "rpt_event_tracker": "rpt_event_tracker.json",
 }
+
+DASHBOARD_FEATURE_LABELS = {
+    "leaderboards": "Leaderboards",
+    "economy": "Economy",
+    "factions": "Factions",
+    "embeds": "Embeds & welcome",
+    "safe_zones": "Radar / zones",
+    "members": "Member actions",
+    "heatmaps": "Heatmaps",
+    "pve_quests": "Live events / airdrops",
+    "quest_workshop": "PVE workshop",
+    "shop": "Shop control",
+    "xml_workshop": "XML workshop",
+    "server_rules": "Server rules",
+    "server_control": "Server control",
+    "wages": "Economy wages",
+    "moderation": "Moderation tools",
+    "ai_agent": "AI development agent",
+}
+DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
+DEFAULT_BILLING_PLANS = [
+    {
+        "id": "free_bot",
+        "name": "Free Bot",
+        "price_text": "Free",
+        "description": "Basic Discord bot access while dashboard tools stay locked.",
+        "enabled": True,
+        "features": {"leaderboards": True, "embeds": True, "server_rules": True},
+        "payment_url": "",
+    },
+    {
+        "id": "dashboard",
+        "name": "Dashboard Pro",
+        "price_text": "Set monthly price",
+        "description": "Full server dashboard with economy, shop, maps, XML tools, events and server controls.",
+        "enabled": True,
+        "features": {
+            "leaderboards": True,
+            "economy": True,
+            "factions": True,
+            "embeds": True,
+            "safe_zones": True,
+            "members": True,
+            "heatmaps": True,
+            "pve_quests": True,
+            "quest_workshop": True,
+            "shop": True,
+            "xml_workshop": True,
+            "server_rules": True,
+            "server_control": True,
+            "wages": True,
+            "moderation": True,
+        },
+        "payment_url": "",
+    },
+    {
+        "id": "dashboard_ai",
+        "name": "Dashboard + AI",
+        "price_text": "Set monthly price",
+        "description": "Everything in Dashboard Pro plus the private AI development agent features.",
+        "enabled": True,
+        "features": {
+            "leaderboards": True,
+            "economy": True,
+            "factions": True,
+            "embeds": True,
+            "safe_zones": True,
+            "members": True,
+            "heatmaps": True,
+            "pve_quests": True,
+            "quest_workshop": True,
+            "shop": True,
+            "xml_workshop": True,
+            "server_rules": True,
+            "server_control": True,
+            "wages": True,
+            "moderation": True,
+            "ai_agent": True,
+        },
+        "payment_url": "",
+    },
+]
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
 
@@ -2910,6 +2992,37 @@ PAGE_TEMPLATE = """
     .owner-server-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
+    .owner-switcher-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .65rem; }
+    .owner-switcher-card { display: grid; gap: .55rem; border: 1px solid var(--line); border-radius: .55rem; padding: .75rem; background: linear-gradient(135deg, rgba(13,33,36,.9), rgba(6,10,8,.96)); text-decoration: none; color: inherit; min-width: 0; }
+    .owner-switcher-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
+    .owner-switcher-title { display: flex; justify-content: space-between; gap: .55rem; align-items: start; }
+    .owner-switcher-title strong { color: var(--text); overflow-wrap: anywhere; }
+    .owner-switcher-actions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+    .button.danger, button.danger { border-color: rgba(255,122,138,.58); color: #ffdce1; background: rgba(92,20,29,.28); }
+    .billing-plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .75rem; }
+    .billing-plan-card { display: grid; gap: .65rem; border: 1px solid var(--line); border-radius: .55rem; padding: .8rem; background: #070b08; min-width: 0; }
+    .billing-plan-card h4 { margin: 0; color: var(--gold); overflow-wrap: anywhere; }
+    .billing-plan-card p { margin: 0; color: var(--muted); line-height: 1.4; }
+    .billing-feature-list { display: flex; flex-wrap: wrap; gap: .32rem; }
+    .billing-feature-list span { border: 1px solid var(--line); border-radius: 999px; padding: .16rem .42rem; background: rgba(255,255,255,.035); color: var(--muted); font-size: .76rem; }
+    .billing-feature-list span.on { color: #c8f28b; border-color: rgba(142,232,95,.38); background: rgba(142,232,95,.08); }
+    .plan-edit-form { grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+    .plan-edit-form .check-grid { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+    .types-engine-layout { display: grid; grid-template-columns: minmax(19rem, .75fr) minmax(24rem, 1.25fr); gap: .85rem; align-items: start; }
+    .types-engine-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: .55rem; }
+    .types-stat { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; }
+    .types-stat strong { display: block; color: var(--gold); font-size: 1.35rem; line-height: 1; }
+    .types-stat span { display: block; margin-top: .25rem; color: var(--muted); font-size: .78rem; }
+    .types-preview-list { max-height: 18rem; overflow: auto; display: grid; gap: .4rem; }
+    .types-preview-row { display: grid; grid-template-columns: minmax(9rem, 1fr) auto auto; gap: .45rem; align-items: center; border: 1px solid var(--line); border-radius: .45rem; padding: .45rem; background: #070b08; color: var(--muted); }
+    .types-preview-row strong { color: var(--text); overflow-wrap: anywhere; }
+    .types-preview-row b { color: var(--gold); font-weight: 900; }
+    .capacity-meter { display: grid; gap: .25rem; }
+    .capacity-meter-line { height: .55rem; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #070b08; }
+    .capacity-meter-line span { display: block; height: 100%; width: var(--used, 0%); background: linear-gradient(90deg, var(--olive), var(--gold)); }
+    .capacity-meter-line span.bad { background: linear-gradient(90deg, #ff9b42, var(--red)); }
+    .vehicle-preset-row { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+    .vehicle-preset-row button { min-height: 2rem; padding: .35rem .55rem; font-size: .78rem; }
     .shop-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, .35fr) auto; gap: .65rem; align-items: end; margin-bottom: .75rem; }
     .admin-panel form[data-route="/api/admin/xml-workshop"] { grid-template-columns: 1fr; }
     .item-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; display: grid; gap: .55rem; min-width: 0; overflow: hidden; }
@@ -3158,7 +3271,7 @@ PAGE_TEMPLATE = """
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
@@ -3355,7 +3468,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
-      {% if section_allowed('visual-loadout') %}<a class="{{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
@@ -3364,6 +3476,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Console</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% if auth.kind == "owner" and mode == "owner" %}<a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% endif %}
     </nav>
     {% if auth.kind != "agent_account" %}
@@ -3416,15 +3529,43 @@ PAGE_TEMPLATE = """
     <section class="section-panel server-switcher" id="servers">
       <div class="section-head">
         <div>
-          <h2>Server Switcher</h2>
-          <p class="tool-note">{% if auth.kind == "owner" and mode == "owner" %}Owner view only: every server the bot knows about is visible here.{% else %}Admin view is scoped to the private dashboard login and linked servers only. Pick a server, then every category below uses that server's data and locked server identity.{% endif %}</p>
+          <h2>{% if auth.kind == "owner" and mode == "owner" %}Owner Server Manager{% else %}Server Switcher{% endif %}</h2>
+          <p class="tool-note">{% if auth.kind == "owner" and mode == "owner" %}Every known server is visible here. Open, edit access, or delete stale dashboard data without relying on the Discord leave action.{% else %}Admin view is scoped to the private dashboard login and linked servers only. Pick a server, then every category below uses that server's data and locked server identity.{% endif %}</p>
         </div>
       </div>
+      {% if auth.kind == "owner" and mode == "owner" %}
+      <div class="owner-switcher-grid">
+        {% for item in servers %}
+        <div class="owner-switcher-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}">
+          <div class="owner-switcher-title">
+            <strong>{{ item.guild_name }}</strong>
+            <span class="pill">{{ item.map|upper }}</span>
+          </div>
+          <div class="owner-server-meta">
+            <span class="pill {{ 'ok' if item.dashboard_access.enabled else 'bad' }}">{{ 'Dashboard on' if item.dashboard_access.enabled else 'Dashboard locked' }}</span>
+            <span class="pill">{{ item.dashboard_access.tier or item.dashboard_access.plan_status or 'none' }}</span>
+            <span class="pill">{{ item.channels|length }} channels</span>
+          </div>
+          <div class="owner-switcher-actions">
+            <a class="button" href="/owner?guild_id={{ item.guild_id }}">Open</a>
+            <a class="button" href="/owner?section=access&guild_id={{ item.guild_id }}#access">Edit</a>
+            <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete dashboard data for {{ item.guild_name }}? This removes it from the owner list but does not touch the live Discord server.">
+              <input class="hidden-field" name="guild_id" value="{{ item.guild_id }}">
+              <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
+              <input class="hidden-field" name="action" value="remove_data">
+              <button type="submit" class="danger">Delete</button> <span class="result muted"></span>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
       <div class="server-tabs">
         {% for item in servers %}
         <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section={{ active_section }}{% if active_section == 'pve' %}&pve_tool={{ pve_tool }}{% endif %}&guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
         {% endfor %}
       </div>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -3445,7 +3586,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
       {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
       {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
-      {% if section_allowed('visual-loadout') %}<a class="tab-link {{ 'active' if active_section == 'visual-loadout' else '' }}" href="/admin?section=visual-loadout{{ server_qs }}">Visual Loadout</a>{% endif %}
       {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
@@ -3453,6 +3593,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
+      {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
     </section>
     <section class="mobile-section-picker" aria-label="Dashboard section picker">
@@ -3474,7 +3615,6 @@ PAGE_TEMPLATE = """
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
           {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
           {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
-          {% if section_allowed('visual-loadout') %}<option value="/admin?section=visual-loadout{{ server_qs }}" {{ 'selected' if active_section == 'visual-loadout' else '' }}>Visual Loadout</option>{% endif %}
           {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk Economy</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
@@ -3482,6 +3622,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
+          {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
           <option value="{{ logout_path }}">Logout</option>
         </select>
@@ -3557,14 +3698,14 @@ PAGE_TEMPLATE = """
 
         <article class="command-card">
           <div class="command-card-head">
-            <h3>Visual Loadout</h3>
-            <a class="button" href="/admin?section=visual-loadout{{ server_qs }}#visual-loadout">Open Builder</a>
+            <h3>Player Loadout</h3>
+            <a class="button" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">Open Builder</a>
           </div>
           <div class="command-loadout">
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[:4] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -3574,7 +3715,7 @@ PAGE_TEMPLATE = """
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[4:8] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -3583,7 +3724,7 @@ PAGE_TEMPLATE = """
             <div class="command-loadout-extra">
               {% for card in visual_loadout_slot_cards[8:13] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=visual-loadout{{ server_qs }}&loadout_slot={{ card.slot.key|urlencode }}#visual-loadout">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -3655,8 +3796,8 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=dayz-converter{{ server_qs }}"><strong>Map Converter</strong><span>Turn DayZ Editor JSON into events, spawns and event group XML snippets.</span></a>
-      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Engine</strong><span>Edit types.xml values and generate player or vehicle loadout XML.</span></a>
-      <a class="category-link" href="/admin?section=visual-loadout{{ server_qs }}"><strong>Visual Loadout</strong><span>Build spawn gear visually and download the cfggameplay package.</span></a>
+      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Engine</strong><span>Boost or reduce types.xml categories with preview, stats and output.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
       <a class="category-link" href="/admin?section=bulk-economy{{ server_qs }}"><strong>Bulk Economy</strong><span>Batch-edit types.xml counts and lifetimes with validation.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
@@ -3736,6 +3877,7 @@ PAGE_TEMPLATE = """
               </div>
               <div class="owner-server-actions">
                 <a class="button" href="/owner?guild_id={{ owned.guild_id }}">Open</a>
+                <a class="button" href="/owner?section=access&guild_id={{ owned.guild_id }}#access">Edit Access</a>
                 {% if owned.dashboard_access.owner_admin_visible %}
                 <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
@@ -3781,6 +3923,12 @@ PAGE_TEMPLATE = """
                   <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="leave_and_remove">
                   <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
+                </form>
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete dashboard data for {{ owned.guild_name }}? This does not make the bot leave Discord and does not touch live DayZ files.">
+                  <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
+                  <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
+                  <input class="hidden-field" name="action" value="remove_data">
+                  <button type="submit" class="danger">Delete Dashboard Data</button> <span class="result muted"></span>
                 </form>
               </div>
             </div>
@@ -6275,6 +6423,11 @@ PAGE_TEMPLATE = """
                 </label>
                 <label>Spawn damage <select name="damage"><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
                 <label>Maximum cargo slots <input name="capacity_hint" type="number" value="0" placeholder="optional"></label>
+                <div class="capacity-meter" data-capacity-meter>
+                  <div class="row-between"><span>Used slots</span><strong><span data-capacity-used>0</span>/<span data-capacity-total>0</span></strong></div>
+                  <div class="capacity-meter-line"><span data-capacity-bar style="width:0%"></span></div>
+                  <small class="field-help">Capacity is a helper estimate from known bag/container slot sizes; always check final XML before upload.</small>
+                </div>
                 <div class="item-picker" data-item-picker data-picker-mode="xml" data-picker-group="cargo">
                   <div class="item-picker-controls">
                     <label>Find item
@@ -6400,6 +6553,35 @@ PAGE_TEMPLATE = """
                   </select>
                 </label>
                 <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
+                <label>Inventory preset
+                  <select name="vehicle_inventory_preset" data-vehicle-preset-select>
+                    <option value="">Manual cargo</option>
+                    <option value="builder">Builder truck</option>
+                    <option value="medical">Medical support</option>
+                    <option value="military">Military patrol</option>
+                    <option value="repair">Repair / recovery</option>
+                    <option value="survival">Survival run</option>
+                  </select>
+                </label>
+                <div class="vehicle-preset-row">
+                  <button type="button" data-vehicle-preset="builder">Builder</button>
+                  <button type="button" data-vehicle-preset="medical">Medical</button>
+                  <button type="button" data-vehicle-preset="military">Military</button>
+                  <button type="button" data-vehicle-preset="repair">Repair</button>
+                  <button type="button" data-vehicle-preset="survival">Survival</button>
+                </div>
+                <div class="check-grid">
+                  <label class="check"><input type="checkbox" name="part_battery" checked> Battery</label>
+                  <label class="check"><input type="checkbox" name="part_sparkplug" checked> Spark plug</label>
+                  <label class="check"><input type="checkbox" name="part_radiator" checked> Radiator</label>
+                  <label class="check"><input type="checkbox" name="part_wheels" checked> Wheels</label>
+                  <label class="check"><input type="checkbox" name="part_doors" checked> Doors / panels</label>
+                </div>
+                <div class="capacity-meter" data-capacity-meter>
+                  <div class="row-between"><span>Vehicle cargo used</span><strong><span data-capacity-used>0</span>/<span data-capacity-total>600</span></strong></div>
+                  <div class="capacity-meter-line"><span data-capacity-bar style="width:0%"></span></div>
+                  <small class="field-help">Vehicle cargo capacity is an estimate for planning. Trucks default to 600 slots, cars to 300.</small>
+                </div>
                 <div class="vehicle-workbench">
                   <div class="item-picker" data-item-picker data-picker-mode="vehicle_cargo" data-picker-group="cargo">
                     <div class="item-picker-controls">
@@ -6561,61 +6743,69 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>DayZ Loot & Loadout Engine</h2>
-          <p class="tool-note">Separate generators for economy XML, player loadout snippets and vehicle spawnabletypes. These tools generate guarded XML text only; live file upload stays separate.</p>
+          <p class="tool-note">Balance <code>types.xml</code> by category, usage, tier or classname. Preview the impact first, then copy or guarded-upload the generated file.</p>
         </div>
       </div>
-      <div class="panel-grid">
+      <div class="types-engine-layout">
         <article class="admin-panel full">
-          <h3>types.xml Loot Tweaker</h3>
-          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loot-tweak">
+          <h3>types.xml Economy Balancer</h3>
+          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loot-bulk-tweak">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <label class="full">Paste full types.xml or one type block
-              <textarea name="xml_text" placeholder='<types><type name="M4A1"><nominal>10</nominal><min>5</min><lifetime>3600</lifetime><restock>0</restock><flags count_in_map="1" /></type></types>'></textarea>
+            <div class="full">
+              <label>Paste full types.xml
+                <textarea name="xml_text" placeholder='<types><type name="M4A1"><nominal>10</nominal><min>5</min><category name="weapons" /><usage name="Military" /></type></types>'></textarea>
+              </label>
+            </div>
+            <label>Action
+              <select name="operation">
+                <option value="reduce">Reduce selected loot</option>
+                <option value="boost">Boost selected loot</option>
+              </select>
             </label>
-            <label>Item classname <input name="item_name" value="M4A1"></label>
-            <label>nominal <input type="number" min="0" name="nominal" placeholder="leave blank to keep"></label>
-            <label>min <input type="number" min="0" name="min" placeholder="leave blank to keep"></label>
-            <label>lifetime <input type="number" min="0" name="lifetime" placeholder="leave blank to keep"></label>
-            <label>restock <input type="number" min="0" name="restock" placeholder="leave blank to keep"></label>
-            <div class="full toolbar"><button type="submit">Generate Tweaked XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
-            <label class="full">Generated XML
-              <textarea readonly data-tool-output="generated_xml"></textarea>
+            <label>Percent <input type="number" name="percent" min="0" max="500" step="1" value="20"></label>
+            <label>Filter mode
+              <select name="filter_mode">
+                <option value="all">All non-skipped items</option>
+                <option value="category">DayZ category tag</option>
+                <option value="dashboard_category">Dashboard category guess</option>
+                <option value="usage">Usage tag</option>
+                <option value="value">Tier/value tag</option>
+                <option value="classname">Classname text</option>
+              </select>
             </label>
-          </form>
-        </article>
-        <article class="admin-panel">
-          <h3>Player Spawn Loadout Generator</h3>
-          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/loadout-generate">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <label>Main item <input name="item_name" value="M4A1"></label>
-            <label>Chance <input name="chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
-            <label class="full">Attachments, comma-separated
-              <input name="attachments" value="M4_RISHndgrd, M4_MPBttstck">
+            <label>Dashboard category
+              <select name="category_filter">
+                <option value="">Choose when using dashboard category</option>
+                {% for category in shop_category_options %}<option value="{{ category }}">{{ category }}</option>{% endfor %}
+              </select>
             </label>
-            <label class="full">Extra item lines
-              <textarea name="items" placeholder="BandageDressing | | 1.00&#10;WaterBottle | | 1.00"></textarea>
-            </label>
-            <div class="full toolbar"><button type="submit">Generate Loadout XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
-            <label class="full">Generated XML
-              <textarea readonly data-tool-output="generated_xml"></textarea>
-            </label>
-          </form>
-        </article>
-        <article class="admin-panel">
-          <h3>Vehicle Spawn Loadout Injector</h3>
-          <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/vehicle-loadout-generate">
-            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <label>Vehicle classname <input name="vehicle_class" value="OffroadHatchback"></label>
-            <label>Wheel chance <input name="wheel_chance" type="number" min="0" max="1" step="0.01" value="0.80"></label>
-            <label>Door chance <input name="door_chance" type="number" min="0" max="1" step="0.01" value="0.50"></label>
-            <label>Radiator chance <input name="radiator_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
-            <label>Battery chance <input name="battery_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
-            <label>Fuel / spark chance <input name="fuel_chance" type="number" min="0" max="1" step="0.01" value="1.00"></label>
-            <label class="full">Cargo items, comma-separated
-              <input name="cargo_items" placeholder="CanisterGasoline, TireRepairKit">
-            </label>
-            <div class="full toolbar"><button type="submit">Generate Vehicle XML</button><button type="button" data-tool-copy="generated_xml">Copy Output</button><span class="result muted" data-tool-result></span></div>
-            <label class="full">Generated XML
+            <label class="full">Filter text <input name="filter_text" placeholder="weapons, Military, Tier3, M4A1, Gorka"></label>
+            <div class="check-grid full">
+              <label class="check"><input type="checkbox" name="auto_min" checked> Auto-adjust min to roughly 60% of new nominal</label>
+              <label class="check"><input type="checkbox" name="skip_zero" checked> Leave existing zero-nominal items alone</label>
+              <label class="check"><input type="checkbox" name="skip_vehicles" checked> Skip vehicles and vehicle parts</label>
+              <label class="check"><input type="checkbox" name="skip_seasonal" checked> Skip obvious seasonal/event items</label>
+            </div>
+            <label class="full">Live server types.xml path <input name="target_path" value="{{ ce_defaults.types_path }}"></label>
+            <div class="full toolbar">
+              <button type="submit">Preview & Generate</button>
+              <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+              <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
+              <label class="check"><input type="checkbox" name="allow_create"> Create file if missing</label>
+              <span class="result muted" data-tool-result></span>
+            </div>
+            <div class="types-engine-stats full">
+              <div class="types-stat"><span>Total items</span><strong data-result-field="total_items">0</strong></div>
+              <div class="types-stat"><span>Matched</span><strong data-result-field="matched">0</strong></div>
+              <div class="types-stat"><span>Changed</span><strong data-result-field="changed">0</strong></div>
+              <div class="types-stat"><span>Min adjusted</span><strong data-result-field="min_adjusted">0</strong></div>
+              <div class="types-stat"><span>Skipped</span><strong data-result-field="skipped">0</strong></div>
+              <div class="types-stat"><span>Avg change</span><strong data-result-field="average_change">0%</strong></div>
+            </div>
+            <div class="full types-preview-list" data-preview-list>
+              <span class="muted">Preview rows appear here after generation.</span>
+            </div>
+            <label class="full">Generated types.xml
               <textarea readonly data-tool-output="generated_xml"></textarea>
             </label>
           </form>
@@ -7578,10 +7768,29 @@ PAGE_TEMPLATE = """
           <h3>Feature Access</h3>
           <form class="admin-form" method="post" action="/api/admin/guild-access" data-route="/api/admin/guild-access">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#access">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&guild_id={{ server.guild_id if server else '' }}#access">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Enabled <select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
-            <label>Tier <select name="tier"><option value="owner">owner</option><option value="premium">premium</option><option value="trial">trial</option><option value="none">none</option></select></label>
+            <label>Enabled
+              <select name="enabled">
+                <option value="true" {% if server and server.dashboard_access.enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if not server or not server.dashboard_access.enabled %}selected{% endif %}>Off</option>
+              </select>
+            </label>
+            <label>Plan preset
+              <select name="plan_preset">
+                <option value="">Manual feature checkboxes</option>
+                {% for plan in billing_plans %}<option value="{{ plan.id }}" {% if server and server.dashboard_access.tier == plan.id %}selected{% endif %}>{{ plan.name }} - {{ plan.price_text or 'price unset' }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Selecting a preset applies that plan's feature list when you save.</small>
+            </label>
+            <label>Tier
+              <select name="tier">
+                {% for plan in billing_plans %}<option value="{{ plan.id }}" {% if server and server.dashboard_access.tier == plan.id %}selected{% endif %}>{{ plan.id }}</option>{% endfor %}
+                <option value="owner" {% if server and server.dashboard_access.tier == 'owner' %}selected{% endif %}>owner</option>
+                <option value="trial" {% if server and server.dashboard_access.tier == 'trial' %}selected{% endif %}>trial</option>
+                <option value="none" {% if not server or server.dashboard_access.tier == 'none' %}selected{% endif %}>none</option>
+              </select>
+            </label>
             <label>Plan status
               <select name="plan_status">
                 <option value="trial" {% if server and server.dashboard_access.plan_status == 'trial' %}selected{% endif %}>Trial</option>
@@ -7593,6 +7802,9 @@ PAGE_TEMPLATE = """
             </label>
             <label>Trial ends <input name="trial_ends_at" type="date" value="{{ server.dashboard_access.trial_ends_at if server else '' }}"></label>
             <label>Subscription ends <input name="subscription_ends_at" type="date" value="{{ server.dashboard_access.subscription_ends_at if server else '' }}"></label>
+            <label>Billing reference <input name="billing_reference" value="{{ server.dashboard_access.billing_reference if server else '' }}" placeholder="invoice, Stripe, PayPal, manual note"></label>
+            <label>Customer / contact <input name="billing_customer" value="{{ server.dashboard_access.billing_customer if server else '' }}" placeholder="customer email, Discord user, or account ID"></label>
+            <label class="full">Payment / checkout URL <input name="payment_url" value="{{ server.dashboard_access.payment_url if server else '' }}" placeholder="https://..."></label>
             <label>Daily trial notice
               <select name="trial_notice_enabled">
                 <option value="true" {% if not server or server.dashboard_access.trial_notice_enabled %}selected{% endif %}>On</option>
@@ -7611,6 +7823,7 @@ PAGE_TEMPLATE = """
                 <label class="check"><input type="checkbox" name="feature_embeds" {% if features.embeds %}checked{% endif %}> Auto messages</label>
                 <label class="check"><input type="checkbox" name="feature_safe_zones" {% if features.safe_zones %}checked{% endif %}> Radar zones</label>
                 <label class="check"><input type="checkbox" name="feature_members" {% if features.members %}checked{% endif %}> Member actions</label>
+                <label class="check"><input type="checkbox" name="feature_moderation" {% if features.moderation %}checked{% endif %}> Moderation tools</label>
                 <label class="check"><input type="checkbox" name="feature_heatmaps" {% if features.heatmaps %}checked{% endif %}> Heatmaps</label>
                 <label class="check"><input type="checkbox" name="feature_pve_quests" {% if features.pve_quests %}checked{% endif %}> PVE quests</label>
                 <label class="check"><input type="checkbox" name="feature_quest_workshop" {% if features.quest_workshop %}checked{% endif %}> Quest workshop</label>
@@ -7619,6 +7832,7 @@ PAGE_TEMPLATE = """
                 <label class="check"><input type="checkbox" name="feature_server_rules" {% if features.server_rules %}checked{% endif %}> Server rules</label>
                 <label class="check"><input type="checkbox" name="feature_server_control" {% if features.server_control %}checked{% endif %}> Server control</label>
                 <label class="check"><input type="checkbox" name="feature_wages" {% if features.wages %}checked{% endif %}> Economy wages</label>
+                <label class="check"><input type="checkbox" name="feature_ai_agent" {% if features.ai_agent %}checked{% endif %}> AI agent</label>
               </div>
             </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
@@ -7720,6 +7934,60 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </article>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode == "owner" and active_section == "billing" %}
+    <section class="section-panel" id="billing">
+      <div class="section-head">
+        <div>
+          <h2>Plans & Billing</h2>
+          <p class="tool-note">Owner-only controls for what each paid tier unlocks. Add the checkout URL you use now; full payment automation can sit behind these saved plans later.</p>
+        </div>
+        <span class="pill">{{ billing_plans|length }} plan(s)</span>
+      </div>
+      <div class="billing-plan-grid">
+        {% for plan in billing_plans %}
+        <article class="billing-plan-card">
+          <div class="row-between">
+            <div>
+              <h4>{{ plan.name }}</h4>
+              <p>{{ plan.price_text or 'Price not set' }}</p>
+            </div>
+            <span class="pill {{ 'ok' if plan.enabled else 'bad' }}">{{ 'Live' if plan.enabled else 'Hidden' }}</span>
+          </div>
+          <p>{{ plan.description }}</p>
+          <div class="billing-feature-list">
+            {% for key, label in dashboard_feature_labels.items() %}
+            <span class="{{ 'on' if plan.features.get(key) else '' }}">{{ label }}</span>
+            {% endfor %}
+          </div>
+          <form class="admin-form plan-edit-form" method="post" action="/api/owner/billing-plan" data-route="/api/owner/billing-plan">
+            <input class="hidden-field" name="return_to" value="/owner?section=billing#billing">
+            <label>Plan ID <input name="plan_id" value="{{ plan.id }}" autocomplete="off"></label>
+            <label>Name <input name="name" value="{{ plan.name }}"></label>
+            <label>Price label <input name="price_text" value="{{ plan.price_text }}" placeholder="£9.99 / month"></label>
+            <label>Enabled
+              <select name="enabled">
+                <option value="true" {% if plan.enabled %}selected{% endif %}>On</option>
+                <option value="false" {% if not plan.enabled %}selected{% endif %}>Off</option>
+              </select>
+            </label>
+            <label class="full">Checkout / payment URL <input name="payment_url" value="{{ plan.payment_url }}" placeholder="Stripe, PayPal, Ko-fi, Tebex, etc"></label>
+            <label class="full">Description <textarea name="description">{{ plan.description }}</textarea></label>
+            <div class="full">
+              <span class="muted">Features in this plan</span>
+              <div class="check-grid">
+                {% for key, label in dashboard_feature_labels.items() %}
+                <label class="check"><input type="checkbox" name="feature_{{ key }}" {% if plan.features.get(key) %}checked{% endif %}> {{ label }}</label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="full"><button type="submit">Save Plan</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        {% endfor %}
       </div>
     </section>
     {% endif %}
@@ -8233,7 +8501,16 @@ PAGE_TEMPLATE = """
     }
     const itemLookup = new Map((ITEM_LOOKUP || []).map((item) => [String(item.name || "").toLowerCase(), item]));
     function itemInfo(name) {
-      return itemLookup.get(String(name || "").trim().toLowerCase()) || {};
+      const key = String(name || "").trim().toLowerCase();
+      if (!key) return {};
+      const base = itemLookup.get(key) || {};
+      const groups = XML_PICKER_GROUPS || {};
+      for (const rows of Object.values(groups)) {
+        if (!Array.isArray(rows)) continue;
+        const found = rows.find((item) => String(item.name || "").trim().toLowerCase() === key);
+        if (found) return Object.assign({}, base, found);
+      }
+      return base;
     }
     function syncShopEditFromSelectedItem(select, forcePrice) {
       const form = select ? select.closest("#shop-edit-form") : null;
@@ -8247,6 +8524,51 @@ PAGE_TEMPLATE = """
     function fallbackThumb(category) {
       return `/item-thumb/${encodeURIComponent(category || "General")}`;
     }
+    const VEHICLE_INVENTORY_PRESETS = {
+      builder: [
+        "WoodenPlank, 20, -1, pristine",
+        "Nail, 99, -1, pristine",
+        "MetalWire, 4, -1, pristine",
+        "Rope, 4, -1, pristine",
+        "Hatchet, 2, -1, pristine",
+        "Handsaw, 2, -1, pristine",
+        "Shovel, 1, -1, pristine",
+        "CombinationLock4, 2, -1, pristine",
+      ],
+      medical: [
+        "BandageDressing, 10, -1, pristine",
+        "SalineBagIV, 6, -1, pristine",
+        "Morphine, 4, -1, pristine",
+        "Epinephrine, 4, -1, pristine",
+        "TetracyclineAntibiotics, 4, -1, pristine",
+        "BloodTestKit, 2, -1, pristine",
+      ],
+      military: [
+        "AmmoBox_556x45_20Rnd, 3, -1, pristine",
+        "AmmoBox_762x39_20Rnd, 3, -1, pristine",
+        "Mag_STANAG_30Rnd, 4, 100, pristine",
+        "PlateCarrierVest, 1, -1, pristine",
+        "BandageDressing, 6, -1, pristine",
+        "M67Grenade, 2, -1, pristine",
+      ],
+      repair: [
+        "CanisterGasoline, 2, 100, pristine",
+        "TireRepairKit, 3, -1, pristine",
+        "ElectronicRepairKit, 2, -1, pristine",
+        "Wrench, 2, -1, pristine",
+        "Blowtorch, 1, 100, pristine",
+        "CarBattery, 1, -1, pristine",
+        "SparkPlug, 2, -1, pristine",
+      ],
+      survival: [
+        "Canteen, 4, 100, pristine",
+        "TacticalBaconCan, 8, -1, pristine",
+        "HuntingKnife, 2, -1, pristine",
+        "Matchbox, 4, -1, pristine",
+        "BandageDressing, 6, -1, pristine",
+        "Compass, 1, -1, pristine",
+      ],
+    };
     const LOADOUT_SLOT_TERMS = {
       "Head": {include: ["helmet", "cap", "beanie", "beret", "ushanka", "boonie", "cowboyhat", "leatherhat", "baseballcap", "zsh3", "mich", "headtorch"], exclude: ["armband", "mask", "glove", "pants", "boots", "bag", "vest"]},
       "Eyes": {include: ["glasses", "eyewear", "nvg", "goggles"], exclude: ["armband", "mask", "helmet", "pants", "boots", "bag"]},
@@ -8380,6 +8702,9 @@ PAGE_TEMPLATE = """
         title.textContent = item.name;
         card.appendChild(img);
         card.appendChild(title);
+        const meta = document.createElement("small");
+        meta.textContent = [item.category || "General", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
+        card.appendChild(meta);
         visual.appendChild(card);
       });
     }
@@ -8429,7 +8754,7 @@ PAGE_TEMPLATE = """
         const title = document.createElement("strong");
         title.textContent = item.name || "";
         const meta = document.createElement("small");
-        meta.textContent = item.category || "General";
+        meta.textContent = [item.category || "General", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
         card.appendChild(img);
         card.appendChild(title);
         card.appendChild(meta);
@@ -8531,7 +8856,8 @@ PAGE_TEMPLATE = """
         row.dataset.index = String(index);
         row.innerHTML = `<img class="item-thumb" src="${item.image_url || fallbackThumb(item.category)}" alt=""><span><strong></strong><small></small></span><button type="button" data-remove-selected>&times;</button>`;
         row.querySelector("strong").textContent = info.name;
-        row.querySelector("small").textContent = info.meta || line;
+        const slotHint = item.size ? `${item.size * Math.max(1, Number(lineParts(line).meta?.match(/([0-9]+)x/)?.[1] || 1))} slots` : "";
+        row.querySelector("small").textContent = [info.meta || line, slotHint].filter(Boolean).join(" - ");
         row.querySelector("img").onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
         board.appendChild(row);
       });
@@ -8576,18 +8902,106 @@ PAGE_TEMPLATE = """
         };
       }).filter((item) => item.item);
     }
+    function itemSlotSize(name) {
+      const value = Number(itemInfo(name).size || 1);
+      return Number.isFinite(value) && value > 0 ? value : 1;
+    }
+    function usedCargoSlots(items) {
+      return items.reduce((total, item) => total + (itemSlotSize(item.item) * Math.max(1, Number(item.quantity || 1) || 1)), 0);
+    }
+    function vehicleCapacity(vehicleClass) {
+      const lower = String(vehicleClass || "").toLowerCase();
+      if (lower.includes("truck")) return 600;
+      if (lower.includes("boat")) return 200;
+      return 300;
+    }
+    function containerCapacity(form) {
+      const manual = Number(form?.elements.capacity_hint?.value || 0);
+      if (Number.isFinite(manual) && manual > 0) return manual;
+      const container = form?.elements.container_class?.value || "";
+      const capacity = Number(itemInfo(container).capacity || 0);
+      return Number.isFinite(capacity) ? capacity : 0;
+    }
+    function updateCapacityMeter(form, items, kind) {
+      const meter = form ? form.querySelector("[data-capacity-meter]") : null;
+      if (!meter) return;
+      const used = usedCargoSlots(items);
+      const total = kind === "vehicle_loadout" ? vehicleCapacity(form.elements.vehicle_class?.value) : containerCapacity(form);
+      const usedNode = meter.querySelector("[data-capacity-used]");
+      const totalNode = meter.querySelector("[data-capacity-total]");
+      const bar = meter.querySelector("[data-capacity-bar]");
+      if (usedNode) usedNode.textContent = String(used);
+      if (totalNode) totalNode.textContent = String(total || 0);
+      if (bar) {
+        const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+        bar.style.width = `${pct}%`;
+        bar.classList.toggle("bad", total > 0 && used > total);
+      }
+    }
     function damageRange(damage) {
       return {pristine: [1, 1], worn: [0.7, 1], damaged: [0.45, 0.7], badly_damaged: [0.2, 0.45], ruined: [0, 0.2], random: [0.2, 1]}[damage] || [1, 1];
     }
     function buildCargoXml(typeName, items) {
       const lines = [`<type name="${xmlEscape(typeName || "Classname")}">`];
-      items.forEach((item) => {
+      if (items.length) {
         lines.push(`    <cargo chance="1.00">`);
-        lines.push(`        <item name="${xmlEscape(item.item)}" chance="1.00" />`);
+        items.forEach((item) => {
+          const qty = Math.max(1, Number(item.quantity || 1) || 1);
+          for (let index = 0; index < qty; index += 1) {
+            lines.push(`        <item name="${xmlEscape(item.item)}" chance="1.00" />`);
+          }
+        });
         lines.push(`    </cargo>`);
-      });
+      }
       lines.push(`</type>`);
       return lines.join("\n");
+    }
+    function vehiclePartItems(vehicleClass, includeWheels, includeDoors) {
+      const lower = String(vehicleClass || "").toLowerCase();
+      const parts = [];
+      if (includeWheels) {
+        const wheel = lower.includes("truck") ? "Truck_01_Wheel" : lower.includes("sedan") ? "CivSedanWheel" : lower.includes("hatchback_02") ? "Hatchback_02_Wheel" : "HatchbackWheel";
+        parts.push(wheel, wheel, wheel, wheel);
+      }
+      if (includeDoors) {
+        if (lower.includes("truck")) parts.push("Truck_01_Door_1_1", "Truck_01_Door_2_1", "Truck_01_Hood");
+        else if (lower.includes("sedan")) parts.push("CivSedanDoors_Driver", "CivSedanDoors_CoDriver", "CivSedanHood", "CivSedanTrunk");
+        else parts.push("HatchbackDoors_Driver", "HatchbackDoors_CoDriver", "HatchbackHood", "HatchbackTrunk");
+      }
+      return parts;
+    }
+    function buildVehicleXmlPreview(form, items) {
+      const vehicle = form.elements.vehicle_class?.value || "VehicleClass";
+      const lines = [`<type name="${xmlEscape(vehicle)}">`, `    <attachments chance="1.00">`];
+      vehiclePartItems(vehicle, form.elements.part_wheels?.checked, form.elements.part_doors?.checked).forEach((part) => {
+        lines.push(`        <item name="${xmlEscape(part)}" chance="1.00" />`);
+      });
+      if (form.elements.part_battery?.checked) lines.push(`        <item name="CarBattery" chance="1.00" />`);
+      if (form.elements.part_sparkplug?.checked) lines.push(`        <item name="SparkPlug" chance="1.00" />`);
+      if (form.elements.part_radiator?.checked) lines.push(`        <item name="CarRadiator" chance="1.00" />`);
+      lines.push(`    </attachments>`);
+      if (items.length && String(form.elements.vehicle_mode?.value || "") !== "full_no_cargo") {
+        lines.push(`    <cargo chance="1.00">`);
+        items.forEach((item) => {
+          const qty = Math.max(1, Number(item.quantity || 1) || 1);
+          for (let index = 0; index < qty; index += 1) {
+            lines.push(`        <item name="${xmlEscape(item.item)}" chance="1.00" />`);
+          }
+        });
+        lines.push(`    </cargo>`);
+      }
+      lines.push(`</type>`);
+      return lines.join("\n");
+    }
+    function setVehiclePreset(form, presetKey) {
+      if (!form || !presetKey || !VEHICLE_INVENTORY_PRESETS[presetKey]) return;
+      const output = form.querySelector("[data-picker-output]");
+      if (!output) return;
+      if (form.elements.vehicle_inventory_preset) form.elements.vehicle_inventory_preset.value = presetKey;
+      if (form.elements.recipe_name && !String(form.elements.recipe_name.value || "").trim()) {
+        form.elements.recipe_name.value = `${presetKey.charAt(0).toUpperCase()}${presetKey.slice(1)} Vehicle`;
+      }
+      setOutputLines(output, VEHICLE_INVENTORY_PRESETS[presetKey]);
     }
     function buildLoadoutPreview(form, items) {
       const bySlot = {};
@@ -8766,10 +9180,11 @@ PAGE_TEMPLATE = """
       if (!preview) return;
       const kind = form.elements.recipe_kind ? String(form.elements.recipe_kind.value || "") : "";
       const items = parsedOutputItems(form);
+      updateCapacityMeter(form, items, kind);
       if (kind === "player_loadout") {
         preview.textContent = buildLoadoutPreview(form, items);
       } else if (kind === "vehicle_loadout") {
-        preview.textContent = buildCargoXml(form.elements.vehicle_class?.value || "VehicleClass", items);
+        preview.textContent = buildVehicleXmlPreview(form, items);
       } else if (kind === "container") {
         preview.textContent = buildCargoXml(form.elements.container_class?.value || "ContainerClass", items);
       } else if (kind === "airdrop") {
@@ -8834,6 +9249,12 @@ PAGE_TEMPLATE = """
       const visualSelect = event.target.closest("select[data-visual-select]");
       if (visualSelect) {
         renderVisualSelect(visualSelect);
+      }
+      const vehiclePreset = event.target.closest("[data-vehicle-preset]");
+      if (vehiclePreset) {
+        event.preventDefault();
+        setVehiclePreset(vehiclePreset.closest("form"), vehiclePreset.dataset.vehiclePreset || "");
+        return;
       }
       const airdropTab = event.target.closest("[data-airdrop-file]");
       if (airdropTab) {
@@ -8960,6 +9381,7 @@ PAGE_TEMPLATE = """
         }).catch(() => {});
       }
       if (event.target.matches("select[data-visual-select]")) renderVisualSelect(event.target);
+      if (event.target.matches("[data-vehicle-preset-select]")) setVehiclePreset(event.target.closest("form"), event.target.value || "");
       if (event.target.matches('select[name="placement_mode"], select[name="random_count"]')) {
         const form = event.target.closest("form");
         const placement = String(form?.elements.placement_mode?.value || "manual");
@@ -9584,6 +10006,36 @@ PAGE_TEMPLATE = """
           output.value = value;
           if (value) filled += 1;
         });
+        form.querySelectorAll("[data-result-field]").forEach((node) => {
+          const key = node.dataset.resultField || "";
+          const value = body[key] ?? (body.stats && body.stats[key]);
+          if (value !== undefined && value !== null) node.textContent = String(value);
+        });
+        const previewList = form.querySelector("[data-preview-list]");
+        if (previewList) {
+          const rows = Array.isArray(body.preview) ? body.preview : [];
+          previewList.innerHTML = "";
+          if (!rows.length) {
+            const empty = document.createElement("span");
+            empty.className = "muted";
+            empty.textContent = "No preview rows returned.";
+            previewList.appendChild(empty);
+          } else {
+            rows.slice(0, 40).forEach((row) => {
+              const item = document.createElement("div");
+              item.className = "types-preview-row";
+              const name = row.name || "unknown";
+              const nominal = row.old_nominal !== undefined ? `${row.old_nominal} -> ${row.new_nominal}` : "";
+              const min = row.old_min !== undefined ? `min ${row.old_min} -> ${row.new_min}` : "";
+              const reason = row.reason || "";
+              item.innerHTML = `<strong></strong><span></span><small></small>`;
+              item.querySelector("strong").textContent = name;
+              item.querySelector("span").textContent = [nominal, min].filter(Boolean).join(" | ");
+              item.querySelector("small").textContent = reason;
+              previewList.appendChild(item);
+            });
+          }
+        }
         if (outputGroup) outputGroup.hidden = filled === 0;
         const warnings = Array.isArray(body.warnings) && body.warnings.length ? ` ${body.warnings.length} warning${body.warnings.length === 1 ? "" : "s"}.` : "";
         setToolResult(form, `${body.note || "Generated."}${warnings}`, true);
@@ -13517,6 +13969,74 @@ def save_store(name: str, data: Any) -> None:
     if name == "guild_configs":
         write_split_guild_configs(data)
     sync_runtime_store(name, data)
+
+
+def default_billing_plan_map() -> dict[str, dict[str, Any]]:
+    return {str(plan["id"]): json.loads(json.dumps(plan)) for plan in DEFAULT_BILLING_PLANS}
+
+
+def dashboard_billing_plans() -> list[dict[str, Any]]:
+    admin = load_store("dashboard_admin", {})
+    if not isinstance(admin, dict):
+        admin = {}
+    saved = admin.get("billing_plans")
+    if not isinstance(saved, dict):
+        saved = {}
+    plans = default_billing_plan_map()
+    for plan_id, plan in saved.items():
+        if not isinstance(plan, dict):
+            continue
+        clean_id = re.sub(r"[^a-z0-9_]+", "_", str(plan_id).strip().lower()).strip("_")
+        if not clean_id:
+            continue
+        base = plans.get(clean_id, {"id": clean_id, "features": {}})
+        features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
+        base.update({
+            "id": clean_id,
+            "name": str(plan.get("name") or base.get("name") or clean_id).strip()[:80],
+            "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
+            "description": str(plan.get("description") or base.get("description") or "").strip()[:400],
+            "payment_url": str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500],
+            "enabled": safe_bool(plan.get("enabled"), safe_bool(base.get("enabled"), True)),
+            "features": {key: safe_bool(features.get(key), False) for key in DASHBOARD_FEATURE_KEYS},
+            "updated_at": str(plan.get("updated_at") or base.get("updated_at") or ""),
+        })
+        plans[clean_id] = base
+    return sorted(plans.values(), key=lambda item: (0 if item.get("id") in {"free_bot", "dashboard", "dashboard_ai"} else 1, str(item.get("id"))))
+
+
+def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    admin = load_store("dashboard_admin", {})
+    if not isinstance(admin, dict):
+        admin = {}
+    plans = admin.setdefault("billing_plans", {})
+    if not isinstance(plans, dict):
+        plans = {}
+        admin["billing_plans"] = plans
+    plan_id = re.sub(r"[^a-z0-9_]+", "_", str(plan.get("id") or "").strip().lower()).strip("_")
+    if not plan_id:
+        raise ValueError("plan_id is required.")
+    record = {
+        "id": plan_id,
+        "name": str(plan.get("name") or plan_id).strip()[:80],
+        "price_text": str(plan.get("price_text") or "").strip()[:80],
+        "description": str(plan.get("description") or "").strip()[:400],
+        "payment_url": str(plan.get("payment_url") or "").strip()[:500],
+        "enabled": safe_bool(plan.get("enabled"), True),
+        "features": {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS},
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    plans[plan_id] = record
+    save_store("dashboard_admin", admin)
+    return record
+
+
+def dashboard_plan_by_id(plan_id: Any) -> dict[str, Any]:
+    wanted = str(plan_id or "").strip().lower()
+    for plan in dashboard_billing_plans():
+        if str(plan.get("id") or "").lower() == wanted:
+            return plan
+    return {}
 
 
 
@@ -17816,6 +18336,177 @@ def type_matches_bulk_filter(type_node: ET.Element, filter_text: str, match_mode
     return needle in haystack
 
 
+def type_child_names(type_node: ET.Element, tag: str) -> list[str]:
+    return [
+        str(child.get("name") or "").strip()
+        for child in type_node.findall(tag)
+        if str(child.get("name") or "").strip()
+    ]
+
+
+def type_dashboard_category(type_node: ET.Element) -> str:
+    name = str(type_node.get("name") or "")
+    categories = type_child_names(type_node, "category")
+    usages = type_child_names(type_node, "usage")
+    return infer_shop_category(name, categories[0] if categories else "", usages[0] if usages else "")
+
+
+def type_name_is_vehicle_or_part(name: str, category: str = "") -> bool:
+    lower = str(name or "").strip().lower()
+    category_lower = str(category or "").strip().lower()
+    vehicle_terms = (
+        "offroadhatchback",
+        "hatchback_02",
+        "civilian",
+        "sedan_02",
+        "truck_01",
+        "bus",
+        "boat_",
+        "carbattery",
+        "truckbattery",
+        "carradiator",
+        "sparkplug",
+        "wheel",
+        "doors",
+        "door_",
+        "hood",
+        "trunk",
+    )
+    return category_lower == "vehicle parts" or any(term in lower for term in vehicle_terms)
+
+
+def type_name_is_seasonal(name: str) -> bool:
+    lower = str(name or "").strip().lower()
+    seasonal_terms = (
+        "christmas",
+        "xmas",
+        "santa",
+        "halloween",
+        "witch",
+        "mummy",
+        "spooky",
+        "easter",
+        "valentine",
+        "cupid",
+        "anniversary",
+        "bonfire",
+        "pumpkin",
+    )
+    return any(term in lower for term in seasonal_terms)
+
+
+def type_matches_balancer_filter(type_node: ET.Element, filter_mode: str, filter_text: str, category_filter: str) -> bool:
+    name = str(type_node.get("name") or "")
+    needle = str(filter_text or "").strip().lower()
+    mode = str(filter_mode or "all").strip().lower()
+    if mode == "all":
+        return True
+    if mode == "classname":
+        return not needle or needle in name.lower()
+    if mode == "category":
+        categories = [item.lower() for item in type_child_names(type_node, "category")]
+        return bool(needle and needle in categories)
+    if mode == "usage":
+        usages = [item.lower() for item in type_child_names(type_node, "usage")]
+        return bool(needle and needle in usages)
+    if mode == "value":
+        values = [item.lower() for item in type_child_names(type_node, "value")]
+        return bool(needle and needle in values)
+    if mode == "dashboard_category":
+        wanted = normalize_shop_category(category_filter or filter_text, "")
+        return bool(wanted and type_dashboard_category(type_node).lower() == wanted.lower())
+    return True
+
+
+def balance_types_xml_values(root: ET.Element, payload: dict[str, Any]) -> dict[str, Any]:
+    operation = str(payload.get("operation") or "reduce").strip().lower()
+    if operation not in {"reduce", "boost"}:
+        operation = "reduce"
+    try:
+        percent = max(0.0, min(500.0, float(str(payload.get("percent") or 0).strip() or "0")))
+    except ValueError as error:
+        raise ValueError("Percent must be a number.") from error
+    factor = (1.0 - min(100.0, percent) / 100.0) if operation == "reduce" else (1.0 + percent / 100.0)
+    filter_mode = str(payload.get("filter_mode") or "all").strip().lower()
+    filter_text = str(payload.get("filter_text") or "").strip()
+    category_filter = str(payload.get("category_filter") or "").strip()
+    auto_min = safe_bool(payload.get("auto_min"), True)
+    skip_zero = safe_bool(payload.get("skip_zero"), True)
+    skip_vehicles = safe_bool(payload.get("skip_vehicles"), True)
+    skip_seasonal = safe_bool(payload.get("skip_seasonal"), True)
+    type_nodes = [root] if root.tag == "type" else list(root.findall(".//type"))
+    total_items = len(type_nodes)
+    matched = changed = skipped = min_adjusted = 0
+    total_delta_percent = 0.0
+    preview: list[dict[str, Any]] = []
+    for type_node in type_nodes:
+        name = str(type_node.get("name") or "").strip()
+        dashboard_category = type_dashboard_category(type_node)
+        if not type_matches_balancer_filter(type_node, filter_mode, filter_text, category_filter):
+            continue
+        matched += 1
+        nominal_node = type_node.find("nominal")
+        min_node = type_node.find("min")
+        old_nominal = safe_int(nominal_node.text if nominal_node is not None else 0, 0)
+        old_min = safe_int(min_node.text if min_node is not None else 0, 0)
+        skip_reason = ""
+        if skip_zero and old_nominal <= 0:
+            skip_reason = "zero nominal"
+        elif skip_vehicles and type_name_is_vehicle_or_part(name, dashboard_category):
+            skip_reason = "vehicle or vehicle part"
+        elif skip_seasonal and type_name_is_seasonal(name):
+            skip_reason = "seasonal/event item"
+        if skip_reason:
+            skipped += 1
+            if len(preview) < 40:
+                preview.append({"name": name, "old_nominal": old_nominal, "new_nominal": old_nominal, "old_min": old_min, "new_min": old_min, "reason": f"Skipped: {skip_reason}"})
+            continue
+        new_nominal = max(0, int(round(old_nominal * factor)))
+        if old_nominal > 0 and operation == "boost":
+            new_nominal = max(1, new_nominal)
+        if old_nominal != new_nominal:
+            set_simple_xml_child(type_node, "nominal", new_nominal)
+            changed += 1
+            total_delta_percent += ((new_nominal - old_nominal) / old_nominal * 100.0) if old_nominal else 0.0
+        new_min = old_min
+        if auto_min:
+            if new_nominal <= 0:
+                new_min = 0
+            else:
+                new_min = min(new_nominal, max(1, int(round(new_nominal * 0.6))))
+            if new_min != old_min:
+                set_simple_xml_child(type_node, "min", new_min)
+                min_adjusted += 1
+        if len(preview) < 40:
+            preview.append({"name": name, "old_nominal": old_nominal, "new_nominal": new_nominal, "old_min": old_min, "new_min": new_min, "reason": dashboard_category})
+    if matched <= 0:
+        raise ValueError("No <type> entries matched that filter.")
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+    generated_xml = ET.tostring(root, encoding="unicode")
+    try:
+        generated_root = ET.fromstring(generated_xml)
+        validate_types_xml_flags(generated_root)
+    except ET.ParseError as error:
+        raise ValueError(f"Generated XML failed validation: {error}") from error
+    average_change = "0%"
+    if changed:
+        average_change = f"{total_delta_percent / changed:+.0f}%"
+    return {
+        "generated_xml": generated_xml,
+        "total_items": total_items,
+        "matched": matched,
+        "changed": changed,
+        "min_adjusted": min_adjusted,
+        "skipped": skipped,
+        "average_change": average_change,
+        "preview": preview,
+        "note": f"{operation.title()} generated for {changed} item(s).",
+    }
+
+
 def set_simple_xml_child(type_node: ET.Element, tag: str, value: int) -> bool:
     node = type_node.find(tag)
     if node is None:
@@ -17838,6 +18529,8 @@ def bulk_tweak_types_xml(payload: dict[str, Any]) -> dict[str, Any]:
     if root.tag not in {"types", "type"}:
         raise ValueError("Input must be a types.xml file or a single <type> block.")
     validate_types_xml_flags(root)
+    if payload.get("operation") or payload.get("filter_mode") or payload.get("percent") is not None:
+        return balance_types_xml_values(root, payload)
 
     filter_text = str(payload.get("filter_text") or "").strip()
     match_mode = str(payload.get("match_mode") or "contains").strip().lower()
@@ -18580,15 +19273,54 @@ def visual_loadout_slot_cards(draft_value: Any, groups: dict[str, Any]) -> list[
 def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> str:
     safe_type = safe_dayz_class(type_name) or "Classname"
     lines = [f'<type name="{safe_type}">']
+    cargo_lines: list[str] = []
     for item in items:
         if not isinstance(item, dict):
             continue
         item_name = safe_dayz_class(item.get("item"))
         if not item_name:
             continue
+        for _ in range(max(1, min(999, safe_int(item.get("quantity"), 1)))):
+            cargo_lines.append(f'        <item name="{item_name}" chance="1.00" />')
+    if cargo_lines:
         lines.append('    <cargo chance="1.00">')
-        lines.append(f'        <item name="{item_name}" chance="1.00" />')
+        lines.extend(cargo_lines)
         lines.append('    </cargo>')
+    lines.append("</type>")
+    return "\n".join(lines)
+
+
+def build_vehicle_workshop_xml(record: dict[str, Any], items: list[dict[str, Any]]) -> str:
+    safe_type = safe_dayz_class(record.get("vehicle_class")) or "VehicleClass"
+    parts = default_vehicle_spawn_parts(safe_type)
+    lines = [f'<type name="{safe_type}">', '    <attachments chance="1.00">']
+    if safe_bool(record.get("part_wheels"), True):
+        for item_name in parts.get("wheels", []):
+            lines.append(f'        <item name="{xml_attr(item_name)}" chance="1.00" />')
+    if safe_bool(record.get("part_doors"), True):
+        for item_name in parts.get("doors", []):
+            lines.append(f'        <item name="{xml_attr(item_name)}" chance="1.00" />')
+    if safe_bool(record.get("part_battery"), True):
+        lines.append('        <item name="CarBattery" chance="1.00" />')
+    if safe_bool(record.get("part_sparkplug"), True):
+        lines.append('        <item name="SparkPlug" chance="1.00" />')
+    if safe_bool(record.get("part_radiator"), True):
+        lines.append('        <item name="CarRadiator" chance="1.00" />')
+    lines.append('    </attachments>')
+    if str(record.get("vehicle_mode") or "") != "full_no_cargo":
+        cargo_lines: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_name = safe_dayz_class(item.get("item"))
+            if not item_name:
+                continue
+            for _ in range(max(1, min(999, safe_int(item.get("quantity"), 1)))):
+                cargo_lines.append(f'        <item name="{item_name}" chance="1.00" />')
+        if cargo_lines:
+            lines.append('    <cargo chance="1.00">')
+            lines.extend(cargo_lines)
+            lines.append('    </cargo>')
     lines.append("</type>")
     return "\n".join(lines)
 
@@ -19816,6 +20548,9 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
         "plan_status": plan_status,
         "trial_ends_at": str(access.get("trial_ends_at") or ""),
         "subscription_ends_at": str(access.get("subscription_ends_at") or ""),
+        "billing_reference": str(access.get("billing_reference") or ""),
+        "billing_customer": str(access.get("billing_customer") or ""),
+        "payment_url": str(access.get("payment_url") or ""),
         "trial_notice_enabled": safe_bool(access.get("trial_notice_enabled"), True),
         "owner_note": str(access.get("owner_note") or ""),
         "owner_admin_visible": safe_bool(access.get("owner_admin_visible"), False),
@@ -19833,6 +20568,7 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "heatmaps": bool(features.get("heatmaps", False)),
             "leaderboards": bool(features.get("leaderboards", True)),
             "members": bool(features.get("members", False)),
+            "moderation": bool(features.get("moderation", False)),
             "pve_quests": bool(features.get("pve_quests", False)),
             "quest_workshop": bool(features.get("quest_workshop", False)),
             "safe_zones": bool(features.get("safe_zones", False)),
@@ -19841,6 +20577,7 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "shop": bool(features.get("shop", False)),
             "wages": bool(features.get("wages", False)),
             "xml_workshop": bool(features.get("xml_workshop", False)),
+            "ai_agent": bool(features.get("ai_agent", False)),
         },
     }
 
@@ -19939,6 +20676,7 @@ COMMAND_SECTION_META = {
     "server-control": {"kicker": "Console", "title": "Server Control", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
     "help": {"kicker": "Guide", "title": "Help", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
     "access": {"kicker": "Servers", "title": "Servers & Login", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
+    "billing": {"kicker": "Owner", "title": "Plans & Billing", "body": "Define dashboard tiers, enabled features, checkout links and owner-only subscription controls."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
     "ai-agent": {"kicker": "Private AI", "title": "AI Development Agent", "body": "Owner-controlled software engineering workspace with planning, approval gates, sandbox intent, audit logs and God Mode locked off by default."},
 }
@@ -20392,6 +21130,8 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             "label": name,
             "image_url": item_image_url(name),
             "fallback_image_url": "",
+            "capacity": visual_item_capacity(name),
+            "size": visual_item_size(name),
         }
 
     whole_vehicle_names = {
@@ -20559,7 +21299,10 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
             if not key or key in seen:
                 continue
             seen.add(key)
-            unique.append(item)
+            row = dict(item)
+            row["capacity"] = safe_int(row.get("capacity"), visual_item_capacity(name))
+            row["size"] = safe_int(row.get("size"), visual_item_size(name))
+            unique.append(row)
         return sorted(unique, key=lambda item: str(item.get("name", "")).lower())
 
     def fallback_category_for_name(name: str, slot: str = "") -> str:
@@ -21311,9 +22054,17 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
+    if active_section == "visual-loadout":
+        guild_qs = ""
+        focused = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
+        if focused:
+            guild_qs = f"&guild_id={urllib.parse.quote(focused)}"
+        return redirect(f"/{mode}?section=xml-workshop&xml_tool=player-loadout{guild_qs}#player-loadout-builder")
+    if auth.get("kind") != "owner" and active_section == "billing":
+        active_section = "overview"
     if auth.get("kind") != "owner" and active_section == "owner":
         active_section = "overview"
     if auth.get("kind") == "owner" and mode != "owner" and active_section == "owner":
@@ -21474,6 +22225,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
+        billing_plans=dashboard_billing_plans(),
+        dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" else [],
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
@@ -23089,12 +23842,18 @@ def api_xml_workshop():
         record.update({
             "vehicle_class": safe_dayz_class(payload.get("vehicle_class")),
             "vehicle_mode": str(payload.get("vehicle_mode") or "full_with_cargo").strip(),
+            "vehicle_inventory_preset": str(payload.get("vehicle_inventory_preset") or "").strip(),
+            "part_battery": safe_bool(payload.get("part_battery"), True),
+            "part_sparkplug": safe_bool(payload.get("part_sparkplug"), True),
+            "part_radiator": safe_bool(payload.get("part_radiator"), True),
+            "part_wheels": safe_bool(payload.get("part_wheels"), True),
+            "part_doors": safe_bool(payload.get("part_doors"), True),
         })
         if not record["vehicle_class"]:
             return jsonify({"ok": False, "error": "vehicle_class must be a valid DayZ classname"}), 400
         if disallowed_vehicle_part_class(record["vehicle_class"]):
             return jsonify({"ok": False, "error": "pick a whole vehicle class, not a hood, trunk, wheel, or vehicle part"}), 400
-        record["generated_xml"] = build_spawnable_cargo_xml(record["vehicle_class"], items)
+        record["generated_xml"] = build_vehicle_workshop_xml(record, items)
 
     collection = recipes.setdefault(target_key, [])
     if not isinstance(collection, list):
@@ -25354,7 +26113,7 @@ def api_owner_guild_action():
     action = str(payload.get("action") or "leave").strip().lower()
     if not guild_id:
         return jsonify({"ok": False, "error": "guild_id is required"}), 400
-    if action not in {"leave", "leave_and_remove", "show_in_owner_admin", "hide_from_owner_admin"}:
+    if action not in {"leave", "leave_and_remove", "remove_data", "show_in_owner_admin", "hide_from_owner_admin"}:
         return jsonify({"ok": False, "error": "unsupported owner guild action"}), 400
 
     guild_configs = load_store("guild_configs", {})
@@ -25376,6 +26135,15 @@ def api_owner_guild_action():
         return dashboard_api_response(
             raw_payload,
             {"ok": True, "guild_id": guild_id, "owner_admin_visible": dashboard["owner_admin_visible"]},
+            "owner",
+            "#owner-servers",
+        )
+
+    if action == "remove_data":
+        remove_guild_dashboard_data(guild_id, config)
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "message": "Dashboard data removed. Discord server was not touched.", "removed": True},
             "owner",
             "#owner-servers",
         )
@@ -25402,6 +26170,38 @@ def api_owner_guild_action():
         {"ok": True, "message": message, "removed": False},
         "owner",
         "#owner-servers",
+    )
+
+
+@APP.post("/api/owner/billing-plan")
+def api_owner_billing_plan():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    features = payload.get("features")
+    if not isinstance(features, dict):
+        features = {}
+    try:
+        record = save_dashboard_billing_plan(
+            {
+                "id": payload.get("plan_id") or payload.get("id"),
+                "name": payload.get("name"),
+                "price_text": payload.get("price_text"),
+                "description": payload.get("description"),
+                "payment_url": payload.get("payment_url"),
+                "enabled": payload.get("enabled"),
+                "features": features,
+            }
+        )
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "plan": record, "note": "Saved billing plan."},
+        "billing",
+        "#billing",
     )
 
 
@@ -25565,13 +26365,18 @@ def api_guild_access():
         access = {}
         config["dashboard"] = access
     access["enabled"] = safe_bool(payload.get("enabled"), safe_bool(access.get("enabled"), True))
-    access["tier"] = str(payload.get("tier") or access.get("tier") or "owner")
+    plan_preset = str(payload.get("plan_preset") or "").strip()
+    selected_plan = dashboard_plan_by_id(plan_preset) if plan_preset else {}
+    access["tier"] = str((selected_plan.get("id") if selected_plan else payload.get("tier")) or access.get("tier") or "owner")
     plan_status = str(payload.get("plan_status") or access.get("plan_status") or access.get("tier") or "trial").strip().lower()
     if plan_status not in {"trial", "subscription", "lifetime", "suspended", "none"}:
         plan_status = "trial"
     access["plan_status"] = plan_status
     access["trial_ends_at"] = str(payload.get("trial_ends_at") or access.get("trial_ends_at") or "")
     access["subscription_ends_at"] = str(payload.get("subscription_ends_at") or access.get("subscription_ends_at") or "")
+    access["billing_reference"] = str(payload.get("billing_reference") or access.get("billing_reference") or "")
+    access["billing_customer"] = str(payload.get("billing_customer") or access.get("billing_customer") or "")
+    access["payment_url"] = str(payload.get("payment_url") or selected_plan.get("payment_url") or access.get("payment_url") or "")
     access["trial_notice_enabled"] = safe_bool(payload.get("trial_notice_enabled"), safe_bool(access.get("trial_notice_enabled"), True))
     access["owner_note"] = str(payload.get("owner_note") or access.get("owner_note") or "")
     role_ids = payload.get("allowed_role_ids", access.get("allowed_role_ids", []))
@@ -25582,8 +26387,11 @@ def api_guild_access():
         user_ids = [item.strip() for item in user_ids.split(",") if item.strip()]
     access["allowed_role_ids"] = [str(item) for item in role_ids if item]
     access["allowed_user_ids"] = [str(item) for item in user_ids if item]
-    features = payload.get("features", access.get("features", {}))
-    access["features"] = features if isinstance(features, dict) else {}
+    if selected_plan:
+        access["features"] = {key: safe_bool((selected_plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+    else:
+        features = payload.get("features", access.get("features", {}))
+        access["features"] = {key: safe_bool((features if isinstance(features, dict) else {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     access["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return dashboard_api_response(
