@@ -7626,6 +7626,75 @@ def translation_embed_title(target_language):
     return f"{target} translation" if label == target else f"{label} translation"
 
 
+def _translation_embed_value(value, limit=1000):
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text or "-"
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def translation_batch_embed_payload(original_text, translations):
+    clean_translations = [
+        item for item in (translations or [])
+        if isinstance(item, dict) and str(item.get("translated") or "").strip()
+    ]
+    primary_target = clean_translations[0].get("target_language", "en") if clean_translations else "en"
+    payload = {
+        "title": "Multi-language translation" if len(clean_translations) != 1 else translation_embed_title(primary_target),
+        "fields": [
+            {
+                "name": "Original",
+                "value": _translation_embed_value(original_text, 1000),
+                "inline": False,
+            }
+        ],
+        "footer": f"{len(clean_translations)} translation(s)",
+    }
+    for item in clean_translations[:10]:
+        target_lang = normalize_translation_language(item.get("target_language"), "en")
+        used_source = normalize_translation_language(item.get("used_source") or item.get("source_language"), "auto")
+        label = _translation_language_label(target_lang)
+        if label == target_lang.upper():
+            label = target_lang.upper()
+        payload["fields"].append({
+            "name": f"{label} ({used_source.upper()} -> {target_lang.upper()})",
+            "value": _translation_embed_value(item.get("translated"), 1000),
+            "inline": False,
+        })
+    if len(clean_translations) > 10:
+        payload["fields"].append({
+            "name": "More translations",
+            "value": f"{len(clean_translations) - 10} more target language(s) were configured but Discord embeds only show the first 10 here.",
+            "inline": False,
+        })
+    return payload
+
+
+def build_translation_batch_embed(message, translations, include_route=False):
+    payload = translation_batch_embed_payload(getattr(message, "content", ""), translations)
+    embed = discord.Embed(
+        title=payload["title"],
+        color=0x1ABC9C,
+    )
+    author_name = getattr(getattr(message, "author", None), "display_name", None) or str(getattr(message, "author", "Unknown"))
+    avatar_url = getattr(getattr(getattr(message, "author", None), "display_avatar", None), "url", None)
+    if avatar_url:
+        embed.set_author(name=str(author_name), icon_url=avatar_url)
+    else:
+        embed.set_author(name=str(author_name))
+    for field in payload["fields"]:
+        embed.add_field(
+            name=field["name"],
+            value=field["value"],
+            inline=bool(field.get("inline")),
+        )
+    if include_route:
+        embed.add_field(name="From", value=getattr(getattr(message, "author", None), "mention", str(author_name)), inline=True)
+        embed.add_field(name="Original Channel", value=getattr(getattr(message, "channel", None), "mention", "Unknown"), inline=True)
+    embed.set_footer(text=payload["footer"])
+    return embed
+
+
 def _translation_provider_order():
     provider = (TRANSLATION_PROVIDER or "auto").strip().lower()
     if provider in {"openai", "gpt", "chatgpt"}:
@@ -7945,6 +8014,7 @@ async def maybe_translate_message(message):
         return
 
     fired_targets = set()
+    translation_batches = OrderedDict()
     for rule_index, rule in enumerate(rules, start=1):
         if not _rule_matches_channel(rule, message.channel):
             continue
@@ -8038,22 +8108,26 @@ async def maybe_translate_message(message):
             continue
         fired_targets.add(target_key)
 
-        embed = discord.Embed(
-            title=translation_embed_title(target_lang),
-            description=translated[:1500],
-            color=0x1ABC9C,
-        )
-        author_name = getattr(message.author, "display_name", None) or str(message.author)
-        avatar_url = getattr(getattr(message.author, "display_avatar", None), "url", None)
-        if avatar_url:
-            embed.set_author(name=str(author_name), icon_url=avatar_url)
-        else:
-            embed.set_author(name=str(author_name))
-        if mode == "channel":
-            embed.add_field(name="From", value=message.author.mention, inline=True)
-            embed.add_field(name="Original Channel", value=message.channel.mention, inline=True)
-        embed.set_footer(text=f"{used_source.upper()} -> {target_lang.upper()}")
+        batch_key = int(getattr(target_channel, "id", 0) or 0)
+        batch = translation_batches.setdefault(batch_key, {
+            "target_channel": target_channel,
+            "translations": [],
+        })
+        batch["translations"].append({
+            "rule_index": rule_index,
+            "mode": mode,
+            "target_language": target_lang,
+            "used_source": used_source,
+            "translated": translated,
+        })
 
+    for batch in translation_batches.values():
+        target_channel = batch["target_channel"]
+        translations = batch["translations"]
+        if not translations:
+            continue
+        include_route = any(str(item.get("mode") or "").lower() == "channel" for item in translations)
+        embed = build_translation_batch_embed(message, translations, include_route=include_route)
         try:
             same_channel = int(getattr(target_channel, "id", 0) or 0) == int(getattr(message.channel, "id", -1) or -1)
             send_kwargs = {"embed": style_embed(embed)}
@@ -8064,17 +8138,26 @@ async def maybe_translate_message(message):
                     "allowed_mentions": discord.AllowedMentions.none(),
                 })
             await target_channel.send(**send_kwargs)
-            record_translation_runtime_stat(guild_id, "posted", f"rule#{rule_index} posted to {getattr(target_channel, 'id', '')}")
-            print(f"[TRANSLATE] rule#{rule_index} posted to "
-                  f"#{getattr(target_channel, 'name', target_channel.id)}")
+            for item in translations:
+                rule_index = item.get("rule_index", "?")
+                record_translation_runtime_stat(guild_id, "posted", f"rule#{rule_index} posted to {getattr(target_channel, 'id', '')}")
+            rule_list = ", ".join(f"rule#{item.get('rule_index', '?')}" for item in translations)
+            print(
+                f"[TRANSLATE] {rule_list} posted as one embed to "
+                f"#{getattr(target_channel, 'name', target_channel.id)}"
+            )
         except discord.Forbidden as forbidden_err:
-            print(f"[TRANSLATE] rule#{rule_index} FORBIDDEN posting to "
+            rule_list = ", ".join(f"rule#{item.get('rule_index', '?')}" for item in translations)
+            print(f"[TRANSLATE] {rule_list} FORBIDDEN posting to "
                   f"#{getattr(target_channel, 'name', '?')}: {forbidden_err}. "
                   f"Bot is missing 'Send Messages' / 'Embed Links' in that channel.")
-            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} forbidden in target channel")
+            for item in translations:
+                record_translation_runtime_stat(guild_id, "failed", f"rule#{item.get('rule_index', '?')} forbidden in target channel")
         except Exception as send_err:
-            print(f"[TRANSLATE] rule#{rule_index} send failed: {send_err}")
-            record_translation_runtime_stat(guild_id, "failed", f"rule#{rule_index} send failed: {send_err}")
+            rule_list = ", ".join(f"rule#{item.get('rule_index', '?')}" for item in translations)
+            print(f"[TRANSLATE] {rule_list} send failed: {send_err}")
+            for item in translations:
+                record_translation_runtime_stat(guild_id, "failed", f"rule#{item.get('rule_index', '?')} send failed: {send_err}")
 
 
 async def apply_chat_reward_punishment_rules(message, lower):
