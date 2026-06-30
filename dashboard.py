@@ -59,6 +59,7 @@ BUILD_COMMIT = (
     or ""
 )
 DASHBOARD_VERSION = os.getenv("WANDERING_DASHBOARD_VERSION", "1.26")
+DAYZ_CE_FILE_VERSION = os.getenv("WANDERING_DAYZ_CE_FILE_VERSION", "1.29")
 SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
 SCENARIO_AIRDROP_SCENE_MARKERS = {
     "compact_crater": SCENARIO_AIRDROP_MARKER_CLASS,
@@ -6474,8 +6475,8 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
             <div class="full xml-tool-layout player-loadout-layout">
               <div class="stack">
-                <label>Loadout name <input name="recipe_name" value="Fresh Spawn Plus"></label>
-                <label>Custom file path <input name="custom_path" value="./custom/WanderingLoadout.json"></label>
+                <label>Loadout name <input name="recipe_name" value="{{ player_loadout_draft_name }}"></label>
+                <label>Custom file path <input name="custom_path" value="{{ player_loadout_draft_custom_path }}"></label>
                 <label>Role restriction
                   <select name="role_ids">
                     <option value="">No role restriction</option>
@@ -6558,8 +6559,14 @@ PAGE_TEMPLATE = """
                 <div class="mini-grid">
                   <div class="mini-card"><span class="muted">Output</span><strong>loadout JSON</strong></div>
                   <div class="mini-card"><span class="muted">File</span><strong>custom</strong></div>
+                  <div class="mini-card"><span class="muted">DayZ files</span><strong>{{ dayz_ce_file_version }}</strong></div>
                 </div>
-                <pre class="save-preview" data-live-output></pre>
+                <div class="toolbar">
+                  <button type="submit">Save Draft</button>
+                  <button type="submit" formaction="/api/admin/xml-workshop-loadout-download" formmethod="post">Download JSON</button>
+                  <button type="button" data-copy-live-output>Copy JSON</button>
+                </div>
+                <pre class="save-preview" data-live-output>{{ player_loadout_json_text }}</pre>
                 <div class="embed-preview"><strong>Where this goes</strong><span>Save this as the custom JSON file, then reference it in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.</span></div>
               </aside>
             </div>
@@ -8082,6 +8089,7 @@ PAGE_TEMPLATE = """
   <div class="command-status-bar" aria-label="Command connection status">
     <span>UK Time: <strong>{{ generated_at }}</strong></span>
     <span>Dashboard: <strong>{{ dashboard_version }}</strong></span>
+    <span>DayZ Files: <strong>{{ dayz_ce_file_version }}</strong></span>
     <span>Platform: <strong>{{ server.platform_label if server else 'Xbox' }}</strong></span>
     <span>Map: <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
     <span><span class="ok">Database: Connected</span> | <span class="ok">Nitrado: Connected</span></span>
@@ -9054,15 +9062,16 @@ PAGE_TEMPLATE = """
         }
       });
       const preset = {
-        name: form?.elements.recipe_name?.value || "Wandering Bot Loadout",
         spawnWeight: 1,
+        name: form?.elements.recipe_name?.value || "Wandering Bot Loadout",
+        characterTypes: [],
         attachmentSlotItemSets: Object.keys(bySlot).sort().map((slot) => ({
           slotName: slot,
           discreteItemSets: [{spawnWeight: 1, items: bySlot[slot]}],
         })),
       };
       if (unsorted.length) preset.discreteUnsortedItemSets = [{spawnWeight: 1, items: unsorted}];
-      return JSON.stringify({presets: [preset]}, null, 2);
+      return JSON.stringify(preset, null, 2);
     }
     function safeXmlName(value, fallback) {
       const text = String(value || "").trim().replace(/[^A-Za-z0-9_]/g, "_").replace(/^_+|_+$/g, "");
@@ -9238,6 +9247,24 @@ PAGE_TEMPLATE = """
           credentials: "same-origin",
           body: JSON.stringify({theme, guild_id: guildId})
         }).catch(() => {});
+        return;
+      }
+      const copyLiveOutput = event.target.closest("[data-copy-live-output]");
+      if (copyLiveOutput) {
+        event.preventDefault();
+        const form = copyLiveOutput.closest("form");
+        const output = form ? form.querySelector("[data-live-output]") : null;
+        const result = form ? form.querySelector(".result") : null;
+        const text = output ? String(output.textContent || "").trim() : "";
+        if (!text) {
+          if (result) result.textContent = "Build the loadout JSON first.";
+          return;
+        }
+        navigator.clipboard.writeText(text).then(() => {
+          if (result) result.textContent = "Copied loadout JSON.";
+        }).catch(() => {
+          if (result) result.textContent = "Copy blocked by browser. Select the JSON and copy it manually.";
+        });
         return;
       }
       const pickerCard = event.target.closest("[data-picker-card]");
@@ -13045,6 +13072,7 @@ ADMIN_ROUTES = [
     "/api/admin/loadout-generate",
     "/api/admin/loadout-package",
     "/api/admin/xml-workshop-loadout-add",
+    "/api/admin/xml-workshop-loadout-download",
     "/api/admin/visual-loadout-draft",
     "/api/admin/vehicle-loadout-generate",
     "/api/admin/xml-workshop",
@@ -13123,6 +13151,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/loadout-generate": "xml_workshop",
     "/api/admin/loadout-package": "xml_workshop",
     "/api/admin/xml-workshop-loadout-add": "xml_workshop",
+    "/api/admin/xml-workshop-loadout-download": "xml_workshop",
     "/api/admin/visual-loadout-draft": "xml_workshop",
     "/api/admin/loadout-package-inject": "xml_workshop",
     "/api/admin/dayz-converter-inject": "xml_workshop",
@@ -18861,17 +18890,18 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
             slot_items.setdefault(slot, []).append(entry)
         else:
             unsorted.append(entry)
-    return {
-        "presets": [{
-            "name": record.get("name") or "Wandering Bot Loadout",
-            "spawnWeight": 1,
-            "attachmentSlotItemSets": [
-                {"slotName": slot, "discreteItemSets": [{"spawnWeight": 1, "items": items}]}
-                for slot, items in sorted(slot_items.items())
-            ],
-            "discreteUnsortedItemSets": [{"spawnWeight": 1, "items": unsorted}] if unsorted else [],
-        }]
+    preset: dict[str, Any] = {
+        "spawnWeight": 1,
+        "name": record.get("name") or "Wandering Bot Loadout",
+        "characterTypes": [],
+        "attachmentSlotItemSets": [
+            {"slotName": slot, "discreteItemSets": [{"spawnWeight": 1, "items": items}]}
+            for slot, items in sorted(slot_items.items())
+        ],
     }
+    if unsorted:
+        preset["discreteUnsortedItemSets"] = [{"spawnWeight": 1, "items": unsorted}]
+    return preset
 
 
 def empty_visual_loadout_draft() -> dict[str, Any]:
@@ -22171,7 +22201,22 @@ def page(mode: str, auth: dict[str, Any]):
     player_loadout_draft = xml_workshop_config.get("player_loadout_draft", {})
     if not isinstance(player_loadout_draft, dict):
         player_loadout_draft = {}
+    player_loadout_draft_name = str(player_loadout_draft.get("name") or "Fresh Spawn Plus").strip()[:120] or "Fresh Spawn Plus"
+    player_loadout_draft_custom_path = safe_custom_json_path(player_loadout_draft.get("custom_path"), "WanderingLoadout")
     player_loadout_draft_items_text = str(player_loadout_draft.get("items_text") or "")
+    player_loadout_draft_items = parse_xml_workshop_items(player_loadout_draft_items_text)
+    player_loadout_json_text = (
+        json.dumps(
+            build_player_loadout_json({
+                "name": player_loadout_draft_name,
+                "items": player_loadout_draft_items,
+            }),
+            indent=2,
+            ensure_ascii=False,
+        )
+        if player_loadout_draft_items
+        else ""
+    )
     player_loadout_slots = ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"]
     player_loadout_active_slot = str(request.args.get("loadout_slot") or "Head").strip()
     if player_loadout_active_slot not in player_loadout_slots:
@@ -22190,7 +22235,7 @@ def page(mode: str, auth: dict[str, Any]):
         if isinstance(item, dict) and str(item.get("name") or "").strip()
     }
     player_loadout_draft_rows = []
-    for row in parse_xml_workshop_items(player_loadout_draft_items_text):
+    for row in player_loadout_draft_items:
         item_name = str(row.get("item") or "").strip()
         if not item_name:
             continue
@@ -22262,6 +22307,7 @@ def page(mode: str, auth: dict[str, Any]):
         xml_tool=xml_tool,
         dashboard_theme=dashboard_theme,
         dashboard_version=DASHBOARD_VERSION,
+        dayz_ce_file_version=DAYZ_CE_FILE_VERSION,
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
@@ -22278,8 +22324,11 @@ def page(mode: str, auth: dict[str, Any]):
         player_loadout_active_slot=player_loadout_active_slot,
         player_loadout_slot_items=player_loadout_slot_items,
         player_loadout_selected_item=player_loadout_selected_item,
+        player_loadout_draft_name=player_loadout_draft_name,
+        player_loadout_draft_custom_path=player_loadout_draft_custom_path,
         player_loadout_draft_items_text=player_loadout_draft_items_text,
         player_loadout_draft_rows=player_loadout_draft_rows,
+        player_loadout_json_text=player_loadout_json_text,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
@@ -23587,13 +23636,51 @@ def api_xml_workshop_loadout_add():
     if not isinstance(workshop, dict):
         workshop = {}
         config["xml_workshop"] = workshop
+    draft_name = str(raw_payload.get("recipe_name") or "Fresh Spawn Plus").strip()[:120] or "Fresh Spawn Plus"
+    draft_custom_path = safe_custom_json_path(raw_payload.get("custom_path"), "WanderingLoadout")
     workshop["player_loadout_draft"] = {
+        "name": draft_name,
+        "custom_path": draft_custom_path,
         "items_text": "\n".join(current_lines[-80:]),
         "updated_at": datetime.now(UTC).isoformat(),
     }
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
     return redirect(return_to)
+
+
+@APP.post("/api/admin/xml-workshop-loadout-download")
+def api_xml_workshop_loadout_download():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    draft: dict[str, Any] = {}
+    guild_configs = load_store("guild_configs", {})
+    if isinstance(guild_configs, dict):
+        config = guild_configs.get(guild_id, {})
+        workshop = config.get("xml_workshop", {}) if isinstance(config, dict) else {}
+        saved_draft = workshop.get("player_loadout_draft", {}) if isinstance(workshop, dict) else {}
+        if isinstance(saved_draft, dict):
+            draft = saved_draft
+    items = parse_xml_workshop_items(raw_payload.get("items"))
+    if not items:
+        items = parse_xml_workshop_items(draft.get("items_text"))
+    if not items:
+        return jsonify({"ok": False, "error": "add at least one valid loadout item before downloading"}), 400
+    name = str(raw_payload.get("recipe_name") or draft.get("name") or "Wandering Bot Loadout").strip()[:120] or "Wandering Bot Loadout"
+    custom_path = safe_custom_json_path(raw_payload.get("custom_path") or draft.get("custom_path"), "custom_loadout")
+    filename = os.path.basename(custom_path.replace("\\", "/")) or "custom_loadout.json"
+    if not filename.lower().endswith(".json"):
+        filename += ".json"
+    text = json.dumps(build_player_loadout_json({"name": name, "items": items}), indent=2, ensure_ascii=False) + "\n"
+    return send_file(
+        io.BytesIO(text.encode("utf-8")),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @APP.post("/api/admin/visual-loadout-draft")
