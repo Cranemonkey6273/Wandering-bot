@@ -14670,7 +14670,8 @@ async def setup_command(
                 "Railway cannot use Windows paths like `C:\\Users\\...`. If heatmaps show the drawn fallback map, set public map URLs:\n"
                 "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
                 "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
-                "Use `/mapimagestatus` after setting them. You can also upload a map with `/uploadmapimage`."
+                "Sakhal has a bundled map image. Use `/uploadmapimage map_name: sakhal` only if you want to replace it.\n"
+                "Use `/mapimagestatus` after setting or uploading a map."
             ),
             inline=False
         )
@@ -20355,6 +20356,7 @@ async def helpme(ctx):
             "If heatmaps use the drawn fallback map, Railway probably cannot read a Windows file path. Use public map URLs:\n"
             "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
             "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
+            "Sakhal has a bundled map image, or you can replace it with `/uploadmapimage map_name: sakhal`.\n"
             "Then check `/mapimagestatus`."
         ),
         inline=False
@@ -29420,8 +29422,6 @@ SCENARIO_SPAWN_PRESETS = {
     "boar": {"label": "Boar", "class": "Animal_SusScrofa", "event_type": "animal_pack"},
     "military_crate": {"label": "Military ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
     "wooden_crate": {"label": "Survival ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
-    "sea_chest": {"label": "Sea chest", "class": "SeaChest", "event_type": "airdrop"},
-    "green_barrel": {"label": "Green barrel", "class": "Barrel_Green", "event_type": "airdrop"},
     "medical_crate": {"label": "Medical ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
     "survival_crate": {"label": "Survival ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
     "building_crate": {"label": "Building ground loot", "class": "Wreck_Mi8_Crashed", "event_type": "airdrop"},
@@ -29691,6 +29691,12 @@ STALE_SPAWN_ONLY_EVENT_NAMES = {
 }
 INVALID_MAPGROUPPROTO_USAGE_NAMES = {"crash"}
 VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES = {"Wreck_Mi8_Crashed"}
+VANILLA_STATIC_AIRPLANECRATE_EVENT_NAME = "StaticAirplaneCrate"
+VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES = {"StaticObj_Misc_SupplyBox3_DE"}
+VANILLA_STATIC_REFERENCE_PROTO_REPAIR_CLASSES = (
+    VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
+    | VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES
+)
 ALLOW_SCENARIO_DELIVERY_BRIDGE = str(os.getenv("WANDERING_ALLOW_SCENARIO_DELIVERY_BRIDGE", "true")).strip().lower() in {"1", "true", "yes", "on"}
 INVALID_SPAWNABLETYPE_ITEM_KEYS = {
     normalize_discord_name("Flaregun"),
@@ -29942,7 +29948,7 @@ def scenario_spawn_preset_options(map_key, event_type=None):
         if event_type in (None, "animal_pack", "custom_spawn"):
             for class_name in reference["animals"][:40]:
                 options.append((class_name.replace("_", " "), f"class:{class_name}"))
-        if event_type in (None, "loot_crate", "airdrop", "custom_spawn"):
+        if event_type in (None, "loot_crate", "custom_spawn"):
             for class_name in reference["containers"][:30]:
                 options.append((class_name.replace("_", " "), f"class:{class_name}"))
 
@@ -32923,8 +32929,14 @@ def mapgroupproto_positive_int(value, default=0):
 def mapgroupproto_group_has_usable_loot_container(group_node):
     if group_node is None:
         return False
+    group_lootmax = mapgroupproto_positive_int(group_node.get("lootmax"))
+    if (
+        group_lootmax > 0
+        and group_node.findall("point")
+    ):
+        return True
     for container_node in group_node.findall("container"):
-        if mapgroupproto_positive_int(container_node.get("lootmax")) <= 0:
+        if mapgroupproto_positive_int(container_node.get("lootmax")) <= 0 and group_lootmax <= 0:
             continue
         if (
             container_node.findall("category")
@@ -33038,6 +33050,47 @@ def repair_vanilla_static_helicrash_mapgroupproto(root, map_key=""):
     return repaired
 
 
+def event_definition_uses_loot_child(events_root, event_name, child_class):
+    if events_root is None:
+        return False
+    wanted_event = str(event_name or "").strip().lower()
+    wanted_child = str(child_class or "").strip().lower()
+    if not wanted_event or not wanted_child:
+        return False
+    for event_node in events_root.findall("event"):
+        if str(event_node.get("name") or "").strip().lower() != wanted_event:
+            continue
+        for child_node in event_node.findall("./children/child"):
+            if str(child_node.get("type") or "").strip().lower() != wanted_child:
+                continue
+            if mapgroupproto_positive_int(child_node.get("lootmax")) > 0:
+                return True
+    return False
+
+
+def repair_vanilla_static_airplanecrate_mapgroupproto(root, events_root, map_key=""):
+    if root is None:
+        return []
+    repaired = []
+    for class_name in sorted(VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES):
+        if not event_definition_uses_loot_child(events_root, VANILLA_STATIC_AIRPLANECRATE_EVENT_NAME, class_name):
+            continue
+        reference_group = dayz_reference_mapgroupproto_group(map_key, class_name)
+        if reference_group is None:
+            continue
+        existing_groups = mapgroupproto_groups_named(root, class_name)
+        if (
+            len(existing_groups) == 1
+            and not mapgroupproto_static_helicrash_group_needs_repair(existing_groups[0], map_key, class_name)
+        ):
+            continue
+        for group_node in existing_groups:
+            root.remove(group_node)
+        root.append(reference_group)
+        repaired.append(class_name)
+    return repaired
+
+
 def bump_static_helicrash_mapgroupproto_lootmax(group_node, lootmax):
     if group_node is None:
         return False
@@ -33127,7 +33180,7 @@ def mapgroupproto_static_helicrash_repair_change_is_safe(key, original_root, mer
         return False
     class_lookup = {
         class_name.lower(): class_name
-        for class_name in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
+        for class_name in VANILLA_STATIC_REFERENCE_PROTO_REPAIR_CLASSES
     }
     class_name = class_lookup.get(str(attr_value or "").strip().lower())
     if not class_name:
@@ -35399,8 +35452,12 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
     repair_static_helicrash_proto = bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
+    repair_static_airplanecrate_proto = any(
+        event_definition_uses_loot_child(events_root, VANILLA_STATIC_AIRPLANECRATE_EVENT_NAME, class_name)
+        for class_name in VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES
+    )
     should_cleanup_group_files = bool(eventgroup_records or mapgroupproto_records or revamp_mapgroupproto_classes)
-    if eventgroup_records or mapgroupproto_records or repair_static_helicrash_proto or should_cleanup_group_files:
+    if eventgroup_records or mapgroupproto_records or repair_static_helicrash_proto or repair_static_airplanecrate_proto or should_cleanup_group_files:
         eventgroups_text = ""
         resolved_eventgroups_path = console_ce_default_paths(guild_id)["eventgroups_path"]
         eventgroups_source = "cfgeventgroups.xml unchanged; no direct eventgroup-routed event needed."
@@ -35443,6 +35500,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         repaired_static_proto_classes = (
             repair_vanilla_static_helicrash_mapgroupproto(mapgroupproto_root, ce_map_key)
             if repair_static_helicrash_proto
+            else []
+        )
+        repaired_airplanecrate_proto_classes = (
+            repair_vanilla_static_airplanecrate_mapgroupproto(mapgroupproto_root, events_root, ce_map_key)
+            if repair_static_airplanecrate_proto
             else []
         )
         added_proto = 0
@@ -35503,7 +35565,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or repaired_static_proto_classes or removed_invalid_usages or eventgroup_records or revamp_mapgroupproto_classes or cleanup_pending:
+        if proto_changed or added_proto or repaired_static_proto_classes or repaired_airplanecrate_proto_classes or removed_invalid_usages or eventgroup_records or revamp_mapgroupproto_classes or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
@@ -35529,6 +35591,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["messages"].append(
                 "Restored vanilla Livonia StaticHeliCrash mapgroupproto group(s) from bundled DayZ reference: "
                 + ", ".join(f"`{class_name}`" for class_name in repaired_static_proto_classes)
+            )
+        if repaired_airplanecrate_proto_classes:
+            output["messages"].append(
+                "Restored vanilla StaticAirplaneCrate mapgroupproto group(s) from bundled DayZ reference: "
+                + ", ".join(f"`{class_name}`" for class_name in repaired_airplanecrate_proto_classes)
             )
         if eventgroups_parse_warning:
             output["messages"].append(eventgroups_parse_warning)
@@ -42084,6 +42151,11 @@ async def setheatmapmode(interaction: discord.Interaction, mode: str):
 @bot.tree.command(name="setservermap", description="Admin: set heatmap scaling to Chernarus, Livonia, or Sakhal")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, or sakhal")
+@app_commands.choices(map_name=[
+    app_commands.Choice(name="Chernarus", value="chernarus"),
+    app_commands.Choice(name="Livonia", value="livonia"),
+    app_commands.Choice(name="Sakhal", value="sakhal"),
+])
 async def setservermap(interaction: discord.Interaction, map_name: str):
 
     if not has_interaction_admin_power(interaction):
@@ -42117,6 +42189,12 @@ async def setservermap(interaction: discord.Interaction, map_name: str):
 @bot.tree.command(name="setheatmapimage", description="Admin: set the real map image used behind heatmap dots")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image_source="Direct image URL or server file path")
+@app_commands.choices(map_name=[
+    app_commands.Choice(name="Chernarus", value="chernarus"),
+    app_commands.Choice(name="Livonia", value="livonia"),
+    app_commands.Choice(name="Sakhal", value="sakhal"),
+    app_commands.Choice(name="Default", value="default"),
+])
 async def setheatmapimage(interaction: discord.Interaction, map_name: str, image_source: str):
 
     if not has_interaction_admin_power(interaction):
@@ -42150,6 +42228,12 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
 @bot.tree.command(name="uploadmapimage", description="Admin: upload the real map image for heatmaps and /map")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(map_name="chernarus, livonia, sakhal, or default", image="Map image file")
+@app_commands.choices(map_name=[
+    app_commands.Choice(name="Chernarus", value="chernarus"),
+    app_commands.Choice(name="Livonia", value="livonia"),
+    app_commands.Choice(name="Sakhal", value="sakhal"),
+    app_commands.Choice(name="Default", value="default"),
+])
 async def uploadmapimage(interaction: discord.Interaction, map_name: str, image: discord.Attachment):
 
     if not has_interaction_admin_power(interaction):
@@ -43222,18 +43306,6 @@ SCENARIO_LOOT_PRESET_OPTIONS = [
     ("Food - canned food and drinks", "food"),
 ]
 
-SCENARIO_CRATE_CLASS_OPTIONS = [
-    ("Helicopter wreck - ground loot anchor", "Wreck_Mi8_Crashed"),
-    ("Sea chest - large storage chest", "SeaChest"),
-    ("Barrel green - persistent barrel", "Barrel_Green"),
-    ("Barrel blue - persistent barrel", "Barrel_Blue"),
-    ("Barrel red - persistent barrel", "Barrel_Red"),
-    ("Protector case - small waterproof case", "SmallProtectorCase"),
-    ("First aid kit - medical themed box", "FirstAidKit"),
-    ("Ammo box - military themed container", "AmmoBox"),
-]
-
-
 def autocomplete_matches(options, current):
     try:
         current_key = normalize_discord_name(current)
@@ -43304,19 +43376,6 @@ async def scenario_loot_autocomplete(interaction: discord.Interaction, current: 
     return autocomplete_matches(SCENARIO_LOOT_PRESET_OPTIONS, current)
 
 
-async def scenario_crate_autocomplete(interaction: discord.Interaction, current: str):
-    options = list(SCENARIO_CRATE_CLASS_OPTIONS)
-    try:
-        guild_id = str(interaction.guild.id) if interaction.guild else ""
-        map_key = server_map_key(guild_id) if guild_id else "chernarus"
-        reference = load_dayz_reference(map_key)
-        for class_name in reference.get("containers", [])[:40]:
-            options.append((class_name.replace("_", " "), class_name))
-    except Exception as error:
-        print(f"CRATE AUTOCOMPLETE REFERENCE ERROR: {error}")
-    return autocomplete_matches(options, current)
-
-
 async def scenario_vehicle_autocomplete(interaction: discord.Interaction, current: str):
     return autocomplete_matches(scenario_vehicle_preset_options(), current)
 
@@ -43342,12 +43401,12 @@ async def scenario_animal_autocomplete(interaction: discord.Interaction, current
 @app_commands.describe(
     event_type="What kind of scenario to create",
     location="Preset location or custom coordinates",
-    spawn_preset="Specific infected, animal, loot, or custom classname",
-    count="How many to spawn. Crates usually use 1.",
+    spawn_preset="Specific infected, animal, ground loot, or custom classname",
+    count="How many to spawn. Airdrop ground-loot anchors use 1.",
     radius="Spread spawns around the location in metres",
     start_speed="How quickly CE should try this after restart",
     permanent="True keeps spawning every restart. False is one restart only.",
-    loot_preset="Loot to put inside crates/airdrops where possible",
+    loot_preset="Ground-loot tags/categories for airdrops where possible",
     custom_class="Required only if spawn_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
@@ -43430,9 +43489,15 @@ async def event_create(
     if chosen_event_type == "gas_zone":
         count = 1
         radius = max(30, radius)
+    if chosen_event_type == "airdrop":
+        class_name = SCENARIO_AIRDROP_MARKER_CLASS
+        count = 1
+        radius = max(radius, scenario_airdrop_scene_min_radius({"scene_type": "helicopter_crash"}))
 
     loot_key = loot_preset or "none"
-    if spawn_preset in {"military_crate"} and loot_key == "none":
+    if chosen_event_type == "airdrop" and loot_key == "none":
+        loot_key = "military_high"
+    elif spawn_preset in {"military_crate"} and loot_key == "none":
         loot_key = "military"
     elif spawn_preset in {"medical_crate"} and loot_key == "none":
         loot_key = "medical"
@@ -43460,6 +43525,10 @@ async def event_create(
         "loot_preset": loot_key,
         "loot": SCENARIO_LOOT_PRESETS.get(loot_key, []),
         "gas_lifetime": 3888000 if permanent else 1800,
+        "visual_marker": True if chosen_event_type == "airdrop" else False,
+        "marker_class": SCENARIO_AIRDROP_MARKER_CLASS if chosen_event_type == "airdrop" else "",
+        "scene_type": "helicopter_crash" if chosen_event_type == "airdrop" else "",
+        "timing_preset": "vanilla_mi8" if chosen_event_type == "airdrop" else "",
         **restart_count_fields(0 if permanent else 1),
         "enabled": True,
         "created_by": str(interaction.user.id),
@@ -43813,7 +43882,6 @@ async def event_vehicle(
     guard_preset="Guard infected type",
     guard_count="How many guards to spawn",
     guard_radius="Guard spread around the airdrop in metres",
-    crate_class="Optional non-crate anchor classname when the visual scene is off.",
     custom_guard_class="Required only if guard_preset is custom",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
@@ -43834,7 +43902,6 @@ async def event_vehicle(
 @app_commands.autocomplete(
     location=scenario_location_autocomplete,
     guard_preset=scenario_guard_autocomplete,
-    crate_class=scenario_crate_autocomplete,
 )
 async def event_airdrop(
     interaction: discord.Interaction,
@@ -43849,7 +43916,6 @@ async def event_airdrop(
     guard_preset: str = "military_zombie",
     guard_count: int = 8,
     guard_radius: int = 35,
-    crate_class: str = "Wreck_Mi8_Crashed",
     custom_guard_class: str = "",
     x: str = "",
     z: str = "",
@@ -43868,11 +43934,6 @@ async def event_airdrop(
         await interaction.followup.send(location_error, ephemeral=True)
         return
 
-    crate_class = str(crate_class or SCENARIO_AIRDROP_MARKER_CLASS).strip()[:80]
-    if not crate_class:
-        await interaction.followup.send("Provide an anchor classname.", ephemeral=True)
-        return
-
     loot_key = loot_preset if loot_preset in SCENARIO_LOOT_PRESETS else "military_high"
     guard_class = ""
     guard_label = "No guards"
@@ -43889,7 +43950,7 @@ async def event_airdrop(
         scene_type = "helicopter_crash"
     scene_type = SCENARIO_AIRDROP_UNSAFE_SCENE_FALLBACKS.get(scene_type, scene_type)
     scene_radius = scenario_airdrop_scene_min_radius({"scene_type": scene_type}) if visual_marker else 35
-    airdrop_class = crate_class
+    airdrop_class = SCENARIO_AIRDROP_MARKER_CLASS
     if visual_marker:
         airdrop_class = str(SCENARIO_AIRDROP_SCENES[scene_type].get("marker") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
     events = scenario_events_for_config(config)

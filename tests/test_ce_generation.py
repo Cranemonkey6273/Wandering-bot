@@ -1153,6 +1153,59 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         bot.download_text_file_from_nitrado = self.original_download_text
         bot.guild_configs.pop(self.guild_id, None)
 
+    def test_static_airplanecrate_missing_proto_is_restored_for_horde_upload(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        live_events = (
+            '<events>'
+            '<event name="StaticAirplaneCrate"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>2100</lifetime><restock>0</restock><saferadius>1000</saferadius>'
+            '<distanceradius>1000</distanceradius><cleanupradius>1000</cleanupradius>'
+            '<flags deletable="1" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="StaticObj_Misc_SupplyBox3_DE" lootmin="4" lootmax="8" min="2" max="4" /></children>'
+            '</event>'
+            '</events>'
+        )
+        sources = {
+            "events_path": (live_events, f"{base_path}/db/events.xml"),
+            "spawns_path": ('<eventposdef><event name="StaticAirplaneCrate"><pos x="4847" z="10083" a="0" /></event></eventposdef>', f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(8, "zombie_horde", "ZmbM_usSoldier_Heavy_Woodland", preset="heavy_military_zombie")
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        proto_root = ET.fromstring(built["mapgroupproto_text"])
+        self.assertIsNotNone(proto_root.find("./group[@name='StaticObj_Misc_SupplyBox3_DE']"))
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, messages)
+        self.assertTrue(
+            any("Restored vanilla StaticAirplaneCrate mapgroupproto" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+
     def test_cfgspawnabletypes_scope_block_skips_optional_cargo_tuning(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
         sources = {

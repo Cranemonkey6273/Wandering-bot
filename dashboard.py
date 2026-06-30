@@ -47,6 +47,7 @@ DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.j
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
+    "sakhal": os.getenv("WANDERING_SAKHAL_MAP_FILE", os.path.join(APP_ROOT, "sakhal_map.webp")),
 }
 DEFAULT_MAP_IMAGE_SOURCES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_URL", "https://i.redd.it/a2mn8bzx93gd1.jpeg"),
@@ -84,8 +85,6 @@ SCENARIO_SPAWN_PRESETS = {
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
     "military_crate": {"label": "Military ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "military_high"},
     "wooden_crate": {"label": "Survival ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "survival"},
-    "sea_chest": {"label": "Sea chest container", "class": "SeaChest", "event_type": "airdrop", "loot_preset": "survival"},
-    "green_barrel": {"label": "Green barrel container", "class": "Barrel_Green", "event_type": "airdrop", "loot_preset": "survival"},
     "medical_crate": {"label": "Medical ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "medical"},
     "building_crate": {"label": "Building ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "building"},
     "food_crate": {"label": "Food ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "food"},
@@ -21578,6 +21577,8 @@ def map_size_for(server_map: str) -> int:
     name = str(server_map or "").strip().lower()
     if "livonia" in name or name == "enoch":
         return 12800
+    if "sakhal" in name:
+        return 15360
     return 15360
 
 
@@ -21585,6 +21586,8 @@ def map_key_for(server_map: str) -> str:
     name = str(server_map or "").strip().lower()
     if "livonia" in name or name == "enoch":
         return "livonia"
+    if "sakhal" in name:
+        return "sakhal"
     return "chernarus"
 
 
