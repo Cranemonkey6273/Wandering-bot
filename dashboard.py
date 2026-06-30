@@ -20928,6 +20928,23 @@ def item_thumb_fallback(category: Any = "General") -> str:
 
 
 _SHOP_CATALOG_SEED_CACHE: list[dict[str, Any]] | None = None
+_SHOP_CATALOG_ITEMS_CACHE: dict[str, list[dict[str, Any]]] = {}
+_XML_PICKER_GROUPS_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def dashboard_cache_key(value: Any) -> str:
+    try:
+        text = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    except (TypeError, ValueError):
+        text = str(value)
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def remember_small_cache(cache: dict[str, Any], key: str, value: Any, limit: int = 32) -> Any:
+    if len(cache) >= limit and key not in cache:
+        cache.pop(next(iter(cache)))
+    cache[key] = value
+    return value
 
 
 def read_shop_catalog_seed_file(path: Any) -> list[dict[str, str]]:
@@ -21116,6 +21133,14 @@ def shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
             "configured": False,
         }
     return sorted(catalog.values(), key=lambda item: (str(item.get("category", "")).lower(), str(item.get("name", "")).lower()))
+
+
+def cached_shop_catalog_items(shop: Any) -> list[dict[str, Any]]:
+    key = dashboard_cache_key(shop)
+    cached = _SHOP_CATALOG_ITEMS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    return remember_small_cache(_SHOP_CATALOG_ITEMS_CACHE, key, shop_catalog_items(shop))
 
 
 def shop_category_map_from_items(items: Any) -> dict[str, list[dict[str, Any]]]:
@@ -21476,6 +21501,24 @@ def xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
     groups["player_cargo"] = groups["player_cargo"] or groups["cargo"]
     groups["Unsorted"] = groups["cargo"]
     return groups
+
+
+def cached_xml_picker_groups(items: list[dict[str, Any]]) -> dict[str, Any]:
+    key = dashboard_cache_key([
+        (
+            str(item.get("name") or ""),
+            str(item.get("category") or ""),
+            str(item.get("type") or ""),
+            safe_bool(item.get("enabled"), True),
+            safe_bool(item.get("configured"), False),
+        )
+        for item in items
+        if isinstance(item, dict)
+    ])
+    cached = _XML_PICKER_GROUPS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    return remember_small_cache(_XML_PICKER_GROUPS_CACHE, key, xml_picker_groups(items))
 
 
 def is_shop_record(value: Any) -> bool:
@@ -21895,12 +21938,12 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     active_section = str(active_section or "overview").strip().lower()
     selected_guild_id = normalize_guild_id(selected_guild_id)
     full_sections = {"overview", "owner", "access"}
+    shop_detail_sections = {"shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}
     needs_full = active_section in full_sections
-    selected_shop_sections = {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}
     needs_player_counts = True
     needs_shop_counts = True
     needs_players = needs_full or active_section in {"leaderboards", "members", "economy"}
-    needs_shop = needs_full or active_section in {"shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"}
+    needs_shop = active_section in shop_detail_sections
     needs_wallets = needs_full or active_section in {"economy", "members"}
     needs_factions = needs_full or active_section in {"factions", "zones", "members", "economy"}
     needs_wages = needs_full or active_section == "economy"
@@ -21937,7 +21980,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     rpt_event_tracker_store = (runtime_state.get("rpt_event_tracker") or load_store("rpt_event_tracker", {})) if needs_pve else {}
     swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
-    shop_items = shop_catalog_items({}) if needs_shop else []
+    shop_items: list[dict[str, Any]] = []
     shop_categories = shop_category_map_from_items(shop_items) if needs_shop else {}
     shop_status_groups = shop_status_map_from_items(shop_items) if needs_shop else {}
 
@@ -21954,6 +21997,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     total_players = 0
     total_kills = 0
     dashboard_enabled = 0
+    selected_config_included = False
 
     for guild_id, config in sorted(guild_configs.items(), key=lambda item: str(item[1].get("guild_name", item[0])).lower() if isinstance(item[1], dict) else str(item[0])):
         if not isinstance(config, dict):
@@ -21973,9 +22017,10 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         safe_zones = config.get("safe_zones") or []
         if not isinstance(safe_zones, list):
             safe_zones = []
+        include_full_config = guild_id == selected_guild_id or (not selected_guild_id and not selected_config_included)
         server_shop = shop_for_guild(shop, guild_id) if needs_shop or needs_shop_counts else {}
-        build_shop_detail = needs_shop and (active_section not in selected_shop_sections or not selected_guild_id or guild_id == selected_guild_id)
-        server_shop_items = shop_catalog_items(server_shop) if build_shop_detail else []
+        build_shop_detail = needs_shop and include_full_config
+        server_shop_items = cached_shop_catalog_items(server_shop) if build_shop_detail else []
         server_shop_item_count = len(server_shop_items) if build_shop_detail else (count_shop_items(server_shop) if needs_shop_counts else 0)
         server_shop_categories = shop_category_map_from_items(server_shop_items) if build_shop_detail else {}
         server_shop_status_groups = shop_status_map_from_items(server_shop_items) if build_shop_detail else {}
@@ -21990,7 +22035,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         if discord_member_count is None:
             discord_member_count = len(discord_members) if discord_members else len(server_members)
         server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
-        scenario_events = visible_scenario_events(config)
+        scenario_events = visible_scenario_events(config) if needs_pve else []
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
         scenario_summary = scenario_upload_summary(config, scenario_events) if needs_pve else {}
         tracker_summary = scenario_tracker_summary(rpt_event_tracker_store, guild_id) if needs_pve else {}
@@ -22004,6 +22049,8 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         total_players += player_count
         total_kills += totals["kills"]
         dashboard_enabled += 1 if access["enabled"] else 0
+        if include_full_config:
+            selected_config_included = True
         servers.append(
             {
                 "guild_id": guild_id,
@@ -22049,7 +22096,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "reaction_role_panels": redact(dashboard_admin_records(dashboard_admin, "reaction_role_panels", guild_id)),
                 "heatmap": server_heatmap,
                 "pve": server_pve,
-                "config": redact(config),
+                "config": redact(config) if include_full_config else {},
             }
         )
 
@@ -22084,7 +22131,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         "shop_items": redact(shop_items),
         "shop_categories": redact(shop_categories),
         "shop_status_groups": redact(shop_status_groups),
-        "shop_category_options": shop_category_options(shop_categories.keys()),
+        "shop_category_options": shop_category_options(shop_categories.keys()) if shop_categories else list(SHOP_CATEGORY_PRESETS),
         "wallets": redact(wallets),
         "delivery_queue": redact(delivery_queue),
         "dashboard_admin": redact(dashboard_admin),
@@ -22160,14 +22207,27 @@ def page(mode: str, auth: dict[str, Any]):
     selected_server = state["servers"][0] if state.get("servers") else {}
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
-    ai_agent_state = load_ai_agent_state()
-    ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
-    ai_agent_subject_key = str(ai_agent_access.get("subject_key") or ai_agent_subject_for_auth(auth))
-    ai_agent_all_runs = ai_agent_state.get("runs", []) if isinstance(ai_agent_state.get("runs"), list) else []
-    ai_agent_runs = ai_agent_all_runs if auth.get("kind") == "owner" else ai_agent_runs_for_subject(ai_agent_state, ai_agent_subject_key)
-    ai_agent_active_run = ai_agent_latest_run_for_subject(ai_agent_state, ai_agent_subject_key)
-    if not ai_agent_active_run and auth.get("kind") == "owner":
-        ai_agent_active_run = next((item for item in ai_agent_all_runs if isinstance(item, dict)), None)
+    ai_agent_state: dict[str, Any] = {}
+    ai_agent_access: dict[str, Any] = {
+        "allowed": False,
+        "role": "disabled",
+        "status": "locked",
+        "permissions": {},
+        "subject_key": ai_agent_subject_for_auth(auth),
+    }
+    if auth.get("kind") in {"owner", "agent_account"}:
+        ai_agent_access = ai_agent_access_for_auth(auth, {})
+    ai_agent_runs: list[dict[str, Any]] = []
+    ai_agent_active_run: dict[str, Any] | None = None
+    if active_section == "ai-agent" or auth.get("kind") == "agent_account":
+        ai_agent_state = load_ai_agent_state()
+        ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
+        ai_agent_subject_key = str(ai_agent_access.get("subject_key") or ai_agent_subject_for_auth(auth))
+        ai_agent_all_runs = ai_agent_state.get("runs", []) if isinstance(ai_agent_state.get("runs"), list) else []
+        ai_agent_runs = ai_agent_all_runs if auth.get("kind") == "owner" else ai_agent_runs_for_subject(ai_agent_state, ai_agent_subject_key)
+        ai_agent_active_run = ai_agent_latest_run_for_subject(ai_agent_state, ai_agent_subject_key)
+        if not ai_agent_active_run and auth.get("kind") == "owner":
+            ai_agent_active_run = next((item for item in ai_agent_all_runs if isinstance(item, dict)), None)
 
     def section_allowed(section: str) -> bool:
         if auth.get("kind") == "agent_account":
@@ -22194,7 +22254,7 @@ def page(mode: str, auth: dict[str, Any]):
     server_map = str(selected_config.get("server_map") or selected_config.get("map") or "chernarus") if isinstance(selected_config, dict) else "chernarus"
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
-    picker_groups = xml_picker_groups(picker_source_items)
+    picker_groups = cached_xml_picker_groups(picker_source_items)
     xml_workshop_config = selected_config.get("xml_workshop", {}) if isinstance(selected_config, dict) else {}
     if not isinstance(xml_workshop_config, dict):
         xml_workshop_config = {}
@@ -22370,7 +22430,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         billing_plans=dashboard_billing_plans(),
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
-        agent_accounts=agent_account_rows() if auth.get("kind") == "owner" else [],
+        agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
@@ -23401,7 +23461,7 @@ def api_shop_bulk():
     if action not in {"set_category", "set_price", "adjust_price", "enable", "disable", "delete"}:
         return jsonify({"ok": False, "error": "choose a valid bulk action"}), 400
     selected_names = set(csv_list(payload.get("item_names")))
-    catalog_items = {str(item.get("name") or ""): item for item in shop_catalog_items(guild_shop) if isinstance(item, dict)}
+    catalog_items = {str(item.get("name") or ""): item for item in cached_shop_catalog_items(guild_shop) if isinstance(item, dict)}
     if scope == "category":
         source_category = normalize_shop_category(payload.get("source_category"), "")
         target_names = {
@@ -23704,7 +23764,7 @@ def api_visual_loadout_draft():
         guild_configs = {}
     config = guild_configs.setdefault(guild_id, {"channels": {}})
     draft = normalize_visual_loadout_draft(config.get("visual_loadout_draft"))
-    picker_groups = xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id)))
+    picker_groups = cached_xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id)))
     if action == "clear":
         draft = empty_visual_loadout_draft()
     elif action == "remove":
