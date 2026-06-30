@@ -6468,9 +6468,9 @@ PAGE_TEMPLATE = """
         {% if xml_tool == "player-loadout" %}
         <article class="admin-panel full">
           <h3>Player Loadout</h3>
-          <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
+          <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#player-loadout-builder">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={{ server.guild_id if server else '' }}&loadout_slot={{ player_loadout_active_slot|urlencode }}#player-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
             <div class="full xml-tool-layout player-loadout-layout">
               <div class="stack">
@@ -6504,24 +6504,24 @@ PAGE_TEMPLATE = """
                   <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="{{ player_loadout_active_slot }}">
                     <div class="item-picker-controls">
                       <label>Find item
-                        <select class="picker-select" data-picker-item>
+                        <select class="picker-select" name="loadout_item" data-picker-item>
                           <option value="">Choose item</option>
                           {% for item in player_loadout_slot_items %}<option value="{{ item.name }}" {{ 'selected' if item.name == player_loadout_selected_item else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
                         </select>
                       </label>
-                      <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
-                      <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                      <label>Slot <select data-picker-slot>{% for slot in player_loadout_slots %}<option {{ 'selected' if slot == player_loadout_active_slot else '' }}>{{ slot }}</option>{% endfor %}<option value="">Unsorted</option></select></label>
-                      <button type="button" data-picker-add>Add</button>
+                      <label>Qty <input name="loadout_qty" data-picker-qty type="number" min="1" max="999" value="1"></label>
+                      <label>Fill <select name="loadout_quantity" data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
+                      <label>Slot <select name="loadout_slot" data-picker-slot>{% for slot in player_loadout_slots %}<option {{ 'selected' if slot == player_loadout_active_slot else '' }}>{{ slot }}</option>{% endfor %}<option value="">Unsorted</option></select></label>
+                      <button type="submit" formaction="/api/admin/xml-workshop-loadout-add">Add</button>
                     </div>
                     <label>Attachment for weapon/item
-                      <select class="picker-select" data-picker-attachment>
+                      <select class="picker-select" name="loadout_attachment" data-picker-attachment>
                         <option value="">None</option>
                         {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
                       </select>
                     </label>
-                    <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
-                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
+                    <input class="hidden-field" name="loadout_damage" value="pristine" data-picker-damage>
+                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot and quantity.</span></div>
                     <details class="loadout-html-picker" data-visual-picker open>
                       <summary>{{ player_loadout_active_slot }} item cards</summary>
                       <div class="visual-picker-grid" data-visual-grid>
@@ -6538,9 +6538,18 @@ PAGE_TEMPLATE = """
                     </details>
                   </div>
                   <label>Loadout items
-                    <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
-                    <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine"></textarea>
-                    <small class="field-help">Generated by the picker. Keep damage on Pristine for clean spawn kits.</small>
+                    <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet">
+                      {% for row in player_loadout_draft_rows %}
+                      <div class="selected-row">
+                        <img class="item-thumb" src="{{ row.image_url }}" onerror="this.onerror=null;this.src='{{ row.fallback_image_url }}';" alt="">
+                        <span><strong>{{ row.item }}</strong><small>{{ row.meta }}</small></span>
+                      </div>
+                      {% else %}
+                      <span class="muted">No loadout items added yet</span>
+                      {% endfor %}
+                    </div>
+                    <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine">{{ player_loadout_draft_items_text }}</textarea>
+                    <small class="field-help">Loadout JSON spawns these as pristine items.</small>
                   </label>
                 </div>
                 <div><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
@@ -8851,7 +8860,7 @@ PAGE_TEMPLATE = """
       }
       return {
         name: parts[0] || "",
-        meta: [parts[1] ? `${parts[1]}x` : "", parts[3] || "", parts[4] || ""].filter(Boolean).join(" - "),
+        meta: [parts[1] ? `${parts[1]}x` : "", parts[4] || ""].filter(Boolean).join(" - "),
       };
     }
     function syncSelectedItems(output) {
@@ -9028,11 +9037,10 @@ PAGE_TEMPLATE = """
       const bySlot = {};
       const unsorted = [];
       items.forEach((item) => {
-        const range = damageRange(item.damage);
         const entry = {
           itemType: item.item,
           spawnWeight: item.quantity,
-          attributes: {healthMin: range[0], healthMax: range[1]},
+          attributes: {healthMin: 1.0, healthMax: 1.0},
         };
         if (item.quantityPercent >= 0) {
           entry.attributes.quantityMin = item.quantityPercent / 100;
@@ -13036,6 +13044,7 @@ ADMIN_ROUTES = [
     "/api/admin/loot-bulk-tweak",
     "/api/admin/loadout-generate",
     "/api/admin/loadout-package",
+    "/api/admin/xml-workshop-loadout-add",
     "/api/admin/visual-loadout-draft",
     "/api/admin/vehicle-loadout-generate",
     "/api/admin/xml-workshop",
@@ -13113,6 +13122,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
     "/api/admin/loadout-package": "xml_workshop",
+    "/api/admin/xml-workshop-loadout-add": "xml_workshop",
     "/api/admin/visual-loadout-draft": "xml_workshop",
     "/api/admin/loadout-package-inject": "xml_workshop",
     "/api/admin/dayz-converter-inject": "xml_workshop",
@@ -18789,6 +18799,28 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
     return rows
 
 
+def format_player_loadout_line(
+    item_name: Any,
+    quantity: Any,
+    quantity_percent: Any,
+    slot: Any,
+    attachment_for: Any = "",
+) -> str:
+    parts = [
+        safe_dayz_class(item_name),
+        str(max(1, min(999, safe_int(quantity, 1)))),
+        str(max(-1, min(100, safe_int(quantity_percent, -1)))),
+        "pristine",
+    ]
+    slot_text = str(slot or "").strip()[:40]
+    attachment_text = safe_dayz_class(attachment_for)
+    if slot_text or attachment_text:
+        parts.append(slot_text)
+    if attachment_text:
+        parts.append(attachment_text)
+    return ", ".join(parts)
+
+
 def safe_custom_json_path(value: Any, fallback_name: str) -> str:
     text = str(value or "").strip().replace("\\", "/")
     if not text:
@@ -18802,16 +18834,7 @@ def safe_custom_json_path(value: Any, fallback_name: str) -> str:
 
 
 def loadout_item_attributes(item: dict[str, Any]) -> dict[str, Any]:
-    damage = str(item.get("damage") or "pristine")
-    health = {
-        "pristine": (1.0, 1.0),
-        "worn": (0.7, 1.0),
-        "damaged": (0.45, 0.7),
-        "badly_damaged": (0.2, 0.45),
-        "ruined": (0.0, 0.2),
-        "random": (0.2, 1.0),
-    }.get(damage, (1.0, 1.0))
-    attrs: dict[str, Any] = {"healthMin": health[0], "healthMax": health[1]}
+    attrs: dict[str, Any] = {"healthMin": 1.0, "healthMax": 1.0}
     quantity = safe_int(item.get("quantity_percent"), -1)
     if quantity >= 0:
         attrs["quantityMin"] = quantity / 100
@@ -22142,6 +22165,13 @@ def page(mode: str, auth: dict[str, Any]):
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
     picker_groups = xml_picker_groups(picker_source_items)
+    xml_workshop_config = selected_config.get("xml_workshop", {}) if isinstance(selected_config, dict) else {}
+    if not isinstance(xml_workshop_config, dict):
+        xml_workshop_config = {}
+    player_loadout_draft = xml_workshop_config.get("player_loadout_draft", {})
+    if not isinstance(player_loadout_draft, dict):
+        player_loadout_draft = {}
+    player_loadout_draft_items_text = str(player_loadout_draft.get("items_text") or "")
     player_loadout_slots = ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"]
     player_loadout_active_slot = str(request.args.get("loadout_slot") or "Head").strip()
     if player_loadout_active_slot not in player_loadout_slots:
@@ -22154,6 +22184,31 @@ def page(mode: str, auth: dict[str, Any]):
         if isinstance(item, dict)
     }:
         player_loadout_selected_item = ""
+    player_loadout_item_lookup = {
+        str(item.get("name") or "").strip().lower(): item
+        for item in (picker_groups.get("all") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    player_loadout_draft_rows = []
+    for row in parse_xml_workshop_items(player_loadout_draft_items_text):
+        item_name = str(row.get("item") or "").strip()
+        if not item_name:
+            continue
+        info = player_loadout_item_lookup.get(item_name.lower(), {})
+        qty = max(1, safe_int(row.get("quantity"), 1))
+        slot = str(row.get("slot") or "").strip()
+        attachment_for = str(row.get("attachment_for") or "").strip()
+        meta_parts = [f"{qty}x"]
+        if slot:
+            meta_parts.append(slot)
+        if attachment_for:
+            meta_parts.append(f"attached to {attachment_for}")
+        player_loadout_draft_rows.append({
+            "item": item_name,
+            "meta": " - ".join(meta_parts),
+            "image_url": str(info.get("image_url") or item_image_url(item_name)),
+            "fallback_image_url": str(info.get("fallback_image_url") or item_thumb_fallback(str(info.get("category") or "General"))),
+        })
     visual_player_cargo_names = [
         str(item.get("name") or "").strip()
         for item in (picker_groups.get("player_cargo") or [])
@@ -22223,6 +22278,8 @@ def page(mode: str, auth: dict[str, Any]):
         player_loadout_active_slot=player_loadout_active_slot,
         player_loadout_slot_items=player_loadout_slot_items,
         player_loadout_selected_item=player_loadout_selected_item,
+        player_loadout_draft_items_text=player_loadout_draft_items_text,
+        player_loadout_draft_rows=player_loadout_draft_rows,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
@@ -23490,6 +23547,53 @@ def api_loadout_package():
         as_attachment=True,
         download_name="MyDayZServerSettings.zip",
     )
+
+
+@APP.post("/api/admin/xml-workshop-loadout-add")
+def api_xml_workshop_loadout_add():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    active_slot = str(raw_payload.get("loadout_slot") or "Head").strip()[:40]
+    return_to = safe_dashboard_return(
+        None,
+        f"/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={guild_id}&loadout_slot={urllib.parse.quote(active_slot or 'Head')}#player-loadout-builder",
+    )
+    item_name = safe_dayz_class(raw_payload.get("loadout_item"))
+    if not item_name:
+        return redirect(return_to)
+    quantity = max(1, min(999, safe_int(raw_payload.get("loadout_qty"), 1)))
+    quantity_percent = max(-1, min(100, safe_int(raw_payload.get("loadout_quantity"), -1)))
+    attachment_for = safe_dayz_class(raw_payload.get("loadout_attachment"))
+    current_lines = [
+        line.strip()
+        for line in re.split(r"[\n;]+", str(raw_payload.get("items") or ""))
+        if line.strip()
+    ]
+    current_lines.append(format_player_loadout_line(
+        item_name,
+        quantity,
+        quantity_percent,
+        active_slot,
+        attachment_for,
+    ))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    workshop = config.setdefault("xml_workshop", {})
+    if not isinstance(workshop, dict):
+        workshop = {}
+        config["xml_workshop"] = workshop
+    workshop["player_loadout_draft"] = {
+        "items_text": "\n".join(current_lines[-80:]),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return redirect(return_to)
 
 
 @APP.post("/api/admin/visual-loadout-draft")
