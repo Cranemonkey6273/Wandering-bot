@@ -3059,6 +3059,7 @@ PAGE_TEMPLATE = """
     .visual-picker input { width: 100%; }
     .visual-picker-grid { max-height: 22rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; padding: .15rem; }
     .visual-picker-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; min-width: 0; }
+    a.visual-picker-card { text-decoration: none; }
     .visual-picker-card:hover, .visual-picker-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
     .visual-picker-card::after { content: "Select"; display: inline-flex; justify-content: center; align-items: center; min-height: 2rem; border: 1px solid var(--line); border-radius: .35rem; color: var(--text); font-weight: 800; background: #070b08; }
     .visual-picker-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
@@ -3106,10 +3107,13 @@ PAGE_TEMPLATE = """
     .item-table .item-name-cell strong { overflow-wrap: anywhere; }
     .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; align-items: start; }
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
-    .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; }
+    .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; text-align: center; text-decoration: none; font-weight: 800; }
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
+    .loadout-slot-count { display: block; margin-top: .15rem; color: var(--muted); font-size: .72rem; font-weight: 700; }
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
     .loadout-selected-slot strong { display: block; color: var(--gold); margin-bottom: .25rem; }
+    .loadout-html-picker { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(7,11,8,.9); display: grid; gap: .55rem; }
+    .loadout-html-picker summary { cursor: pointer; color: var(--gold); font-weight: 900; }
     .loadout-workbench { display: grid; gap: .75rem; }
     .player-loadout-layout { display: block; }
     .player-loadout-layout .xml-output-panel { position: static; margin-top: .85rem; }
@@ -6482,29 +6486,32 @@ PAGE_TEMPLATE = """
                   <div>
                     <h4>Player Slots</h4>
                     <div class="loadout-slots">
-                      {% for slot in ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"] %}
-                      <button class="loadout-slot" type="button" data-loadout-slot="{{ slot }}">{{ slot }}</button>
+                      {% for slot in player_loadout_slots %}
+                      <a class="loadout-slot {{ 'active' if slot == player_loadout_active_slot else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}&loadout_slot={{ slot|urlencode }}#player-loadout-builder">
+                        {{ slot }}
+                        <span class="loadout-slot-count">{{ (xml_picker_groups.get(slot) or [])|length }} options</span>
+                      </a>
                       {% endfor %}
                     </div>
                   </div>
                   <div class="loadout-selected-slot">
-                    <strong data-active-slot-label>Selected slot: Head</strong>
-                    <p class="tool-note" data-active-slot-note>Showing Head options below. Pick a card or use the dropdown, then press Add.</p>
+                    <strong data-active-slot-label>Selected slot: {{ player_loadout_active_slot }}</strong>
+                    <p class="tool-note" data-active-slot-note>Showing {{ player_loadout_active_slot }} options below. Pick a card or use the dropdown, then press Add.</p>
                   </div>
                 </div>
                 <div class="loadout-workbench">
                   <div class="embed-preview"><strong>Player loadout builder</strong><span>Pick a body slot, add items from the picker, then drag selected rows to reorder the generated loadout.</span></div>
-                  <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="Head">
+                  <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="{{ player_loadout_active_slot }}">
                     <div class="item-picker-controls">
                       <label>Find item
                         <select class="picker-select" data-picker-item>
                           <option value="">Choose item</option>
-                          {% for item in xml_picker_groups.Head %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                          {% for item in player_loadout_slot_items %}<option value="{{ item.name }}" {{ 'selected' if item.name == player_loadout_selected_item else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
                         </select>
                       </label>
                       <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                       <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                      <label>Slot <select data-picker-slot><option selected>Head</option><option>Eyes</option><option>Mask</option><option>Body</option><option>Vest</option><option>Back</option><option>Hips</option><option>Legs</option><option>Feet</option><option>Hands</option><option>Left Shoulder</option><option>Right Shoulder</option><option>Gloves</option><option>Armband</option><option value="">Unsorted</option></select></label>
+                      <label>Slot <select data-picker-slot>{% for slot in player_loadout_slots %}<option {{ 'selected' if slot == player_loadout_active_slot else '' }}>{{ slot }}</option>{% endfor %}<option value="">Unsorted</option></select></label>
                       <button type="button" data-picker-add>Add</button>
                     </div>
                     <label>Attachment for weapon/item
@@ -6515,6 +6522,20 @@ PAGE_TEMPLATE = """
                     </label>
                     <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
                     <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot, quantity and damage.</span></div>
+                    <details class="loadout-html-picker" data-visual-picker open>
+                      <summary>{{ player_loadout_active_slot }} item cards</summary>
+                      <div class="visual-picker-grid" data-visual-grid>
+                        {% for item in player_loadout_slot_items[:72] %}
+                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder">
+                          <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
+                          <strong>{{ item.name }}</strong>
+                          <small>{{ item.category }}{% if item.size %} - {{ item.size }} slots{% endif %}</small>
+                        </a>
+                        {% else %}
+                        <p class="muted">No matching items for this slot yet.</p>
+                        {% endfor %}
+                      </div>
+                    </details>
                   </div>
                   <label>Loadout items
                     <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet"></div>
@@ -8064,7 +8085,7 @@ PAGE_TEMPLATE = """
     const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
-    const DEFAULT_LOADOUT_SLOT = "Head";
+    const DEFAULT_LOADOUT_SLOT = {{ player_loadout_active_slot|tojson }};
     document.body.dataset.section = "{{ active_section }}";
     function secureDashboardUrl(path) {
       const fallback = window.location.origin;
@@ -22121,6 +22142,18 @@ def page(mode: str, auth: dict[str, Any]):
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
     picker_groups = xml_picker_groups(picker_source_items)
+    player_loadout_slots = ["Head", "Eyes", "Mask", "Body", "Vest", "Back", "Hips", "Legs", "Feet", "Hands", "Left Shoulder", "Right Shoulder", "Gloves", "Armband"]
+    player_loadout_active_slot = str(request.args.get("loadout_slot") or "Head").strip()
+    if player_loadout_active_slot not in player_loadout_slots:
+        player_loadout_active_slot = "Head"
+    player_loadout_slot_items = picker_groups.get(player_loadout_active_slot) or []
+    player_loadout_selected_item = safe_dayz_class(request.args.get("loadout_item"))
+    if player_loadout_selected_item and player_loadout_selected_item not in {
+        str(item.get("name") or "").strip()
+        for item in player_loadout_slot_items
+        if isinstance(item, dict)
+    }:
+        player_loadout_selected_item = ""
     visual_player_cargo_names = [
         str(item.get("name") or "").strip()
         for item in (picker_groups.get("player_cargo") or [])
@@ -22186,6 +22219,10 @@ def page(mode: str, auth: dict[str, Any]):
         shop_categories=state.get("shop_categories", {}),
         shop_category_options=state.get("shop_category_options", list(SHOP_CATEGORY_PRESETS)),
         xml_picker_groups=picker_groups,
+        player_loadout_slots=player_loadout_slots,
+        player_loadout_active_slot=player_loadout_active_slot,
+        player_loadout_slot_items=player_loadout_slot_items,
+        player_loadout_selected_item=player_loadout_selected_item,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
