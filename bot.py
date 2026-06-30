@@ -13369,20 +13369,7 @@ ZONE_POINTS_BY_MAP = {
 }
 
 MAP_LABELS_BY_MAP = {
-    "livonia": [
-        ("Lukow", 3560, 11880, "major"),
-        ("Brena", 6660, 11160, "major"),
-        ("Tarnow", 9200, 10450, "major"),
-        ("Dolnik", 11350, 11350, "major"),
-        ("Sobotka", 6350, 8200, "major"),
-        ("Topolin", 10800, 7900, "major"),
-        ("Polana", 10700, 5400, "major"),
-        ("Nadbor", 6050, 3920, "major"),
-        ("Lembork", 8500, 8700, "minor"),
-        ("Radunin", 9130, 3500, "minor"),
-        ("Swarog", 4800, 2270, "minor"),
-        ("Lukow Airfield", 3800, 11700, "landmark"),
-    ],
+    "livonia": [],
     "chernarus": [
         ("NWAF", 4481, 10355, "landmark"),
         ("Tisy", 1612, 14175, "landmark"),
