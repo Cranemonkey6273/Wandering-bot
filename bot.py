@@ -8184,11 +8184,11 @@ async def apply_chat_reward_punishment_rules(message, lower):
 
         if kind == "reward":
             wallet_credit(wallet, amount, "cash")
-            matched.append(f"Reward: +{amount} pennies for `{keyword}`")
+            matched.append(f"Reward: +{format_currency(amount, guild_id)} for `{keyword}`")
 
         elif kind == "punishment":
             wallet_debit(wallet, amount, "cash")
-            matched.append(f"Punishment: -{amount} pennies for `{keyword}`")
+            matched.append(f"Punishment: -{format_currency(amount, guild_id)} for `{keyword}`")
 
     if not matched:
         return
@@ -26834,7 +26834,7 @@ async def wages_payout_loop():
                         title="💰 WAGE PAYOUT",
                         description=(
                             f"Auto-payout fired for **{wage.get('target_label', '?')}**.\n"
-                            f"**{amount} pennies** paid to **{len(paid_to)}** {'target' if len(paid_to) == 1 else 'targets'}."
+                            f"**{format_currency(amount, guild_id)}** paid to **{len(paid_to)}** {'target' if len(paid_to) == 1 else 'targets'}."
                             + (f"\nAccrued **{periods_due}** missed periods." if periods_due > 1 else "")
                         ),
                         color=0xF1C40F,
@@ -28368,6 +28368,14 @@ wallets = {}
 delivery_queue = []
 vehicle_rentals_queue = []
 
+ECONOMY_CURRENCY_OPTIONS = {
+    "pennies": {"label": "pennies", "singular": "penny"},
+    "euros": {"label": "euros", "singular": "euro"},
+    "pounds": {"label": "pounds", "singular": "pound"},
+    "dollars": {"label": "dollars", "singular": "dollar"},
+}
+DEFAULT_ECONOMY_CURRENCY = "pennies"
+
 SHOP_CATEGORY_PRESETS = (
     "Weapons", "Ammunition", "Attachments", "Explosives", "Clothing", "Backpacks",
     "Medical", "Food & Drink", "Building", "Base Storage", "Tools", "Navigation",
@@ -28991,6 +28999,45 @@ def guild_shop_items(guild_id):
     return block
 
 
+def normalize_economy_currency(value):
+    text = str(value or "").strip().lower()
+    aliases = {
+        "penny": "pennies",
+        "pennies": "pennies",
+        "coin": "pennies",
+        "coins": "pennies",
+        "eur": "euros",
+        "euro": "euros",
+        "euros": "euros",
+        "gbp": "pounds",
+        "pound": "pounds",
+        "pounds": "pounds",
+        "usd": "dollars",
+        "dollar": "dollars",
+        "dollars": "dollars",
+    }
+    return aliases.get(text, DEFAULT_ECONOMY_CURRENCY)
+
+
+def guild_economy_currency(guild_id=None, config=None):
+    if config is None and guild_id:
+        config = guild_configs.get(str(guild_id), {})
+    if isinstance(config, dict):
+        return normalize_economy_currency(config.get("economy_currency") or config.get("currency"))
+    return DEFAULT_ECONOMY_CURRENCY
+
+
+def format_currency(amount, guild_id=None, config=None):
+    try:
+        amount = int(float(str(amount).replace(",", "").strip()))
+    except Exception:
+        amount = 0
+    key = guild_economy_currency(guild_id, config)
+    labels = ECONOMY_CURRENCY_OPTIONS.get(key, ECONOMY_CURRENCY_OPTIONS[DEFAULT_ECONOMY_CURRENCY])
+    label = labels["singular"] if abs(amount) == 1 else labels["label"]
+    return f"{amount} {label}"
+
+
 def wallet_key(guild_id, user_id):
     return f"{guild_id}:{user_id}" if guild_id else str(user_id)
 
@@ -29165,16 +29212,22 @@ def wallet_move(wallet, amount, from_account, to_account):
 
 def wallet_balance_lines(wallet):
     ensure_wallet_accounts(wallet)
+    guild_id = (wallet or {}).get("guild_id")
     return (
-        f"Cash: **{wallet_cash(wallet)} pennies**\n"
-        f"Bank: **{wallet_bank(wallet)} pennies**\n"
-        f"Total: **{wallet_balance(wallet)} pennies**"
+        f"Cash: **{format_currency(wallet_cash(wallet), guild_id)}**\n"
+        f"Bank: **{format_currency(wallet_bank(wallet), guild_id)}**\n"
+        f"Total: **{format_currency(wallet_balance(wallet), guild_id)}**"
     )
 
 
 def wallet_balance_brief(wallet):
     ensure_wallet_accounts(wallet)
-    return f"cash {wallet_cash(wallet)} | bank {wallet_bank(wallet)} | total {wallet_balance(wallet)} pennies"
+    guild_id = (wallet or {}).get("guild_id")
+    return (
+        f"cash {format_currency(wallet_cash(wallet), guild_id)} | "
+        f"bank {format_currency(wallet_bank(wallet), guild_id)} | "
+        f"total {format_currency(wallet_balance(wallet), guild_id)}"
+    )
 
 
 DEFAULT_ECONOMY_GAME_SETTINGS = {
@@ -29189,6 +29242,13 @@ DEFAULT_ECONOMY_GAME_SETTINGS = {
     "steal_max_percent": 20,
     "steal_penalty_percent": 10,
     "steal_cooldown_minutes": 120,
+    "gamble_enabled": True,
+    "gamble_min_bet": 10,
+    "gamble_max_bet": 500,
+    "gamble_cooldown_minutes": 5,
+    "slots_pair_multiplier": 2,
+    "slots_jackpot_multiplier": 5,
+    "hilo_win_multiplier": 2,
 }
 
 
@@ -29211,6 +29271,13 @@ def economy_game_settings(guild_id):
     settings["steal_max_percent"] = max(settings["steal_min_percent"], min(100, wallet_int(settings.get("steal_max_percent"), 20)))
     settings["steal_penalty_percent"] = max(0, min(100, wallet_int(settings.get("steal_penalty_percent"), 10)))
     settings["steal_cooldown_minutes"] = max(0, wallet_int(settings.get("steal_cooldown_minutes"), 120))
+    settings["gamble_enabled"] = wallet_bool(settings.get("gamble_enabled"), True)
+    settings["gamble_min_bet"] = max(1, wallet_int(settings.get("gamble_min_bet"), 10))
+    settings["gamble_max_bet"] = max(settings["gamble_min_bet"], wallet_int(settings.get("gamble_max_bet"), 500))
+    settings["gamble_cooldown_minutes"] = max(0, wallet_int(settings.get("gamble_cooldown_minutes"), 5))
+    settings["slots_pair_multiplier"] = max(1, min(25, wallet_int(settings.get("slots_pair_multiplier"), 2)))
+    settings["slots_jackpot_multiplier"] = max(settings["slots_pair_multiplier"], min(100, wallet_int(settings.get("slots_jackpot_multiplier"), 5)))
+    settings["hilo_win_multiplier"] = max(1, min(25, wallet_int(settings.get("hilo_win_multiplier"), 2)))
     return settings
 
 
@@ -29390,6 +29457,64 @@ def shop_bundle_items(item_config):
         if item_name:
             rows.append({"item": item_name, "quantity": quantity})
     return rows
+
+
+def purchase_catalog_for_guild(guild_id):
+    rows = []
+    for item_name, data in guild_shop_items(guild_id).items():
+        if not isinstance(data, dict):
+            data = {}
+        is_bundle = str(data.get("type") or "").lower() == "bundle"
+        category = normalize_shop_category(data.get("category") or ("Bundles" if is_bundle else guess_shop_category(item_name)))
+        if not is_bundle and not is_shop_sellable_item(item_name, category):
+            continue
+        if not data.get("enabled", True):
+            continue
+        rows.append((str(item_name), data, category, is_bundle))
+    rows.sort(key=lambda row: (row[2].lower(), row[0].lower()))
+    return rows
+
+
+def resolve_purchase_item(guild_id, requested_name):
+    requested = str(requested_name or "").strip()
+    if not requested:
+        return None, None, "Choose an item from the shop list."
+    rows = purchase_catalog_for_guild(guild_id)
+    exact = {name: (name, data) for name, data, _category, _is_bundle in rows}
+    if requested in exact:
+        return exact[requested][0], exact[requested][1], None
+    folded = {name.lower(): (name, data) for name, data, _category, _is_bundle in rows}
+    match = folded.get(requested.lower())
+    if match:
+        return match[0], match[1], None
+    partial = [
+        (name, data)
+        for name, data, _category, _is_bundle in rows
+        if requested.lower() in name.lower()
+    ]
+    if len(partial) == 1:
+        return partial[0][0], partial[0][1], None
+    if partial:
+        shown = ", ".join(name for name, _data in partial[:8])
+        return None, None, f"More than one shop item matched: {shown}. Pick the exact item from the dropdown."
+    return None, None, "That item is not in this server's shop. Use the `/buy` item dropdown/search."
+
+
+async def purchase_item_autocomplete(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id) if interaction.guild else None
+    search = str(current or "").strip().lower()
+    choices = []
+    for item_name, data, category, is_bundle in purchase_catalog_for_guild(guild_id):
+        haystack = f"{item_name} {category}".lower()
+        if search and search not in haystack:
+            continue
+        price_label = format_currency(data.get("price", 0), guild_id)
+        bundle_label = " bundle" if is_bundle else ""
+        label = f"{item_name}{bundle_label} - {price_label}"
+        choices.append(app_commands.Choice(name=label[:100], value=item_name[:100]))
+        if len(choices) >= 25:
+            break
+    return choices
 
 
 def queue_entry_for_guild(entry, guild_id):
@@ -39095,7 +39220,7 @@ async def wallet(ctx):
 @bot.command()
 async def shop(ctx):
     guild_id = str(ctx.guild.id) if ctx.guild else None
-    items = guild_shop_items(guild_id)
+    items = purchase_catalog_for_guild(guild_id)
 
     if not items:
 
@@ -39104,20 +39229,20 @@ async def shop(ctx):
 
     lines = []
 
-    for item_name, data in items.items():
+    for item_name, data, _category, _is_bundle in items:
 
         lines.append(
-            f"• {item_name} — {data.get('price', 0)} pennies 🪙"
+            f"• {item_name} - {format_currency(data.get('price', 0), guild_id)}"
         )
 
     embed = discord.Embed(
         title="🛒 BLACK MARKET SHOP",
-        description="Items are grouped by server shop category. Use `/buy item_name x y` to order for next restart delivery.",
+        description="Items are grouped by server shop category. Use `/buy` and pick an item from the search/dropdown to order for next restart delivery.",
         color=0x9B59B6
     )
 
     categories = defaultdict(list)
-    for item_name, data in items.items():
+    for item_name, data, _category, _is_bundle in items:
         if not isinstance(data, dict):
             data = {}
         is_bundle = str(data.get("type") or "").lower() == "bundle"
@@ -39132,7 +39257,7 @@ async def shop(ctx):
             shown = ", ".join(f"{row['quantity']}x {row['item']}" for row in bundle_items[:4])
             more = f" +{len(bundle_items) - 4} more" if len(bundle_items) > 4 else ""
             bundle_note = f" ({shown}{more})"
-        categories[category].append(f"- `{item_name}` - {data.get('price', 0)} pennies{bundle_note}")
+        categories[category].append(f"- `{item_name}` - {format_currency(data.get('price', 0), guild_id)}{bundle_note}")
 
     field_count = 0
     for category in shop_category_options(categories.keys()):
@@ -39171,14 +39296,11 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400`.")
         return
 
-    items = guild_shop_items(guild_id)
-
-    if item_name not in items:
-
-        await ctx.send("That item does not exist in the shop.")
+    item_name, item_config, error = resolve_purchase_item(guild_id, item_name)
+    if error:
+        await ctx.send(error)
         return
 
-    item_config = items.get(item_name, {})
     bundle_items = shop_bundle_items(item_config)
     is_bundle = bool(bundle_items)
 
@@ -39186,7 +39308,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("That class is not allowed in the player shop.")
         return
 
-    if not items[item_name].get("enabled", True):
+    if not item_config.get("enabled", True):
 
         await ctx.send("❌ That item is currently disabled.")
         return
@@ -39221,11 +39343,11 @@ async def buy(ctx, item_name: str, x: str, y: str):
         await ctx.send("❌ Daily delivery limit reached.")
         return
 
-    price = items[item_name].get("price", 0)
+    price = item_config.get("price", 0)
 
     if wallet_balance(wallet) < price:
 
-        await ctx.send("❌ Not enough pennies.")
+        await ctx.send(f"Not enough {guild_economy_currency(guild_id)}.")
         return
 
     wallet_debit(wallet, price, "cash")
@@ -39285,7 +39407,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
     embed.add_field(
         name="💰 Cost",
-        value=f"{price} pennies 🪙",
+        value=format_currency(price, guild_id),
         inline=True
     )
 
@@ -39319,11 +39441,11 @@ async def buy(ctx, item_name: str, x: str, y: str):
         ctx.guild,
         config,
         "BLACK MARKET PURCHASE",
-        f"{ctx.author.mention} spent **{price} pennies**.",
+        f"{ctx.author.mention} spent **{format_currency(price, guild_id)}**.",
         [
             {"name": "Survivor", "value": ctx.author.mention, "inline": True},
             {"name": "Item", "value": item_name, "inline": True},
-            {"name": "Cost", "value": f"{price} pennies", "inline": True},
+            {"name": "Cost", "value": format_currency(price, guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
             {"name": "Delivery Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
         ],
@@ -39356,7 +39478,7 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
         log_embed.add_field(
             name="💰 Price",
-            value=f"{price} pennies 🪙",
+            value=format_currency(price, guild_id),
             inline=True
         )
 
@@ -39533,7 +39655,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
     if wallet_balance(wallet) < rental_price:
 
-        await ctx.send("❌ Not enough pennies.")
+        await ctx.send(f"❌ Not enough {guild_economy_currency(guild_id)}.")
         return
 
     wallet_debit(wallet, rental_price, "cash")
@@ -39578,7 +39700,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
     embed.add_field(
         name="💰 Cost",
-        value=f"{rental_price} pennies 🪙",
+        value=format_currency(rental_price, guild_id),
         inline=True
     )
 
@@ -39604,12 +39726,12 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
         ctx.guild,
         config,
         "VEHICLE RENTAL PAYMENT",
-        f"{ctx.author.mention} spent **{rental_price} pennies** on a vehicle rental.",
+        f"{ctx.author.mention} spent **{format_currency(rental_price, guild_id)}** on a vehicle rental.",
         [
             {"name": "Survivor", "value": ctx.author.mention, "inline": True},
             {"name": "Vehicle", "value": vehicle_name, "inline": True},
             {"name": "Rental Time", "value": f"{rental_hours} hours", "inline": True},
-            {"name": "Cost", "value": f"{rental_price} pennies", "inline": True},
+            {"name": "Cost", "value": format_currency(rental_price, guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
             {"name": "Spawn Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
         ],
@@ -39648,7 +39770,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
         rental_embed.add_field(
             name="💰 Cost",
-            value=f"{rental_price} pennies 🪙",
+            value=format_currency(rental_price, guild_id),
             inline=True
         )
 
@@ -40102,7 +40224,7 @@ async def addshopitem(
 
     embed.add_field(
         name="💰 Price",
-        value=f"{price} pennies 🪙",
+        value=format_currency(price, str(ctx.guild.id) if ctx.guild else None),
         inline=True
     )
 
@@ -40297,12 +40419,12 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     await send_money_feed(
         ctx.guild,
         guild_configs.get(str(ctx.guild.id), {}) if ctx.guild else {},
-        "ADMIN PENNIES ADDED",
-        f"{ctx.author.mention} added **{amount} pennies** to {member.mention}.",
+        "ADMIN CURRENCY ADDED",
+        f"{ctx.author.mention} added **{format_currency(amount, guild_id)}** to {member.mention}.",
         [
             {"name": "Admin", "value": ctx.author.mention, "inline": True},
             {"name": "Recipient", "value": member.mention, "inline": True},
-            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
             {"name": "Recipient Balance", "value": wallet_balance_brief(wallet), "inline": True},
         ],
         color=0x2ECC71,
@@ -40310,7 +40432,7 @@ async def givepennies(ctx, member: discord.Member, amount: int):
     )
 
     await ctx.send(
-        f"💰 Added {amount} pennies 🪙 to {member.mention}"
+        f"💰 Added {format_currency(amount, guild_id)} to {member.mention}"
     )
 
 
@@ -41744,9 +41866,9 @@ async def translationclear(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="addreward", description="Admin: reward pennies when a keyword appears in chat")
+@bot.tree.command(name="addreward", description="Admin: reward currency when a keyword appears in chat")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to add")
+@app_commands.describe(keyword="Word or phrase to detect", amount="Amount to add")
 async def addreward(interaction: discord.Interaction, keyword: str, amount: int):
 
     if not has_interaction_admin_power(interaction):
@@ -41763,12 +41885,12 @@ async def addreward(interaction: discord.Interaction, keyword: str, amount: int)
     rules.append({"kind": "reward", "keyword": keyword.lower().strip(), "amount": amount})
     save_guild_configs()
 
-    await interaction.response.send_message(f"Reward rule added: `{keyword}` gives {amount} pennies.", ephemeral=True)
+    await interaction.response.send_message(f"Reward rule added: `{keyword}` gives {format_currency(amount, guild_id)}.", ephemeral=True)
 
 
-@bot.tree.command(name="addpunishment", description="Admin: remove pennies when a keyword appears in chat")
+@bot.tree.command(name="addpunishment", description="Admin: remove currency when a keyword appears in chat")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(keyword="Word or phrase to detect", amount="Pennies to remove")
+@app_commands.describe(keyword="Word or phrase to detect", amount="Amount to remove")
 async def addpunishment(interaction: discord.Interaction, keyword: str, amount: int):
 
     if not has_interaction_admin_power(interaction):
@@ -41785,12 +41907,12 @@ async def addpunishment(interaction: discord.Interaction, keyword: str, amount: 
     rules.append({"kind": "punishment", "keyword": keyword.lower().strip(), "amount": amount})
     save_guild_configs()
 
-    await interaction.response.send_message(f"Punishment rule added: `{keyword}` removes {amount} pennies.", ephemeral=True)
+    await interaction.response.send_message(f"Punishment rule added: `{keyword}` removes {format_currency(amount, guild_id)}.", ephemeral=True)
 
 
-@bot.tree.command(name="addwage", description="Admin: pay a member recurring pennies")
+@bot.tree.command(name="addwage", description="Admin: pay a member recurring currency")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(member="Member to pay", amount="Pennies per payment", interval_hours="Every how many hours", reason="Reason shown in payroll")
+@app_commands.describe(member="Member to pay", amount="Amount per payment", interval_hours="Every how many hours", reason="Reason shown in payroll")
 async def addwage(interaction: discord.Interaction, member: discord.Member, amount: int, interval_hours: int, reason: str = "Server wage"):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -41817,7 +41939,7 @@ async def addwage(interaction: discord.Interaction, member: discord.Member, amou
     })
     save_guild_configs()
     await interaction.response.send_message(
-        f"Wage `{next_id}` created for {member.mention}: `{amount}` pennies every `{interval_hours}` hours.",
+        f"Wage `{next_id}` created for {member.mention}: `{format_currency(amount, guild_id)}` every `{interval_hours}` hours.",
         ephemeral=True
     )
 
@@ -41838,12 +41960,12 @@ async def listwages(interaction: discord.Interaction):
         status = "on" if wage.get("active", True) else "off"
         lines.append(
             f"`{wage.get('id')}` {status} {wage.get('target_label') or wage.get('target_id') or '?'} - "
-            f"{wage.get('amount', 0)} pennies every {wage.get('cadence', 'weekly')} - next {next_pay} UTC"
+            f"{format_currency(wage.get('amount', 0), guild_id)} every {wage.get('cadence', 'weekly')} - next {next_pay} UTC"
         )
     for wage in legacy_wages[: max(0, 25 - len(lines))]:
         lines.append(
             f"`{wage.get('id')}` {'on' if wage.get('enabled', True) else 'off'} <@{wage.get('user_id')}> - "
-            f"{wage.get('amount')} pennies every {wage.get('interval_hours')}h - {wage.get('reason', 'Server wage')}"
+            f"{format_currency(wage.get('amount'), guild_id)} every {wage.get('interval_hours')}h - {wage.get('reason', 'Server wage')}"
         )
     if not lines:
         await interaction.response.send_message("No recurring wages configured.", ephemeral=True)
@@ -41897,7 +42019,7 @@ async def listrules(interaction: discord.Interaction):
         return
 
     lines = [
-        f"{idx}. {rule.get('kind')} `{rule.get('keyword')}` - {rule.get('amount')} pennies"
+        f"{idx}. {rule.get('kind')} `{rule.get('keyword')}` - {format_currency(rule.get('amount'), str(interaction.guild.id))}"
         for idx, rule in enumerate(rules, start=1)
     ]
 
@@ -45305,7 +45427,7 @@ async def slash_mylink(interaction: discord.Interaction, remove_alt: bool = Fals
 async def slash_wallet(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "wallet")
 
 
-@bot.tree.command(name="checkbalance", description="Check your penny balance")
+@bot.tree.command(name="checkbalance", description="Check your wallet balance")
 @app_commands.describe(member="Optional member to check (admin only)")
 async def slash_checkbalance(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
@@ -45325,23 +45447,23 @@ async def slash_checkbalance(interaction: discord.Interaction, member: discord.M
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.tree.command(name="sendmoney", description="Send pennies to another survivor")
-@app_commands.describe(recipient="Member to pay", amount="Pennies to send", note="Optional note for the money feed")
+@bot.tree.command(name="sendmoney", description="Send currency to another survivor")
+@app_commands.describe(recipient="Member to pay", amount="Amount to send", note="Optional note for the money feed")
 async def slash_sendmoney(interaction: discord.Interaction, recipient: discord.Member, amount: int, note: str = ""):
     if amount <= 0:
         await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
         return
     if recipient.bot:
-        await interaction.response.send_message("You cannot send pennies to a bot.", ephemeral=True)
+        await interaction.response.send_message("You cannot send currency to a bot.", ephemeral=True)
         return
     if recipient.id == interaction.user.id:
-        await interaction.response.send_message("You already have those pennies.", ephemeral=True)
+        await interaction.response.send_message("You already have that currency.", ephemeral=True)
         return
     guild_id = str(interaction.guild.id)
     sender_wallet = guild_wallet(guild_id, str(interaction.user.id), str(interaction.user))
     recipient_wallet = guild_wallet(guild_id, str(recipient.id), str(recipient))
     if wallet_balance(sender_wallet) < amount:
-        await interaction.response.send_message("Not enough pennies.", ephemeral=True)
+        await interaction.response.send_message(f"Not enough {guild_economy_currency(guild_id)}.", ephemeral=True)
         return
     wallet_debit(sender_wallet, amount, "cash")
     wallet_credit(recipient_wallet, amount, "cash")
@@ -45350,11 +45472,11 @@ async def slash_sendmoney(interaction: discord.Interaction, recipient: discord.M
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "PLAYER MONEY TRANSFER",
-        f"{interaction.user.mention} sent **{amount} pennies** to {recipient.mention}.",
+        f"{interaction.user.mention} sent **{format_currency(amount, guild_id)}** to {recipient.mention}.",
         [
             {"name": "From", "value": interaction.user.mention, "inline": True},
             {"name": "To", "value": recipient.mention, "inline": True},
-            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
             {"name": "Sender Balance", "value": wallet_balance_brief(sender_wallet), "inline": True},
             {"name": "Recipient Balance", "value": wallet_balance_brief(recipient_wallet), "inline": True},
             {"name": "Note", "value": note or "No note.", "inline": False},
@@ -45363,14 +45485,14 @@ async def slash_sendmoney(interaction: discord.Interaction, recipient: discord.M
         footer="Money Feed - Transfer",
     )
     await interaction.response.send_message(
-        f"Sent **{amount} pennies** to {recipient.mention}. Your wallet is now {wallet_balance_brief(sender_wallet)}.",
+        f"Sent **{format_currency(amount, guild_id)}** to {recipient.mention}. Your wallet is now {wallet_balance_brief(sender_wallet)}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
-@bot.tree.command(name="deposit", description="Move pennies from cash into your bank")
-@app_commands.describe(amount="Pennies to deposit")
+@bot.tree.command(name="deposit", description="Move currency from cash into your bank")
+@app_commands.describe(amount="Amount to deposit")
 async def slash_deposit(interaction: discord.Interaction, amount: int):
     if amount <= 0:
         await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
@@ -45385,24 +45507,24 @@ async def slash_deposit(interaction: discord.Interaction, amount: int):
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "BANK DEPOSIT",
-        f"{interaction.user.mention} deposited **{amount} pennies**.",
+        f"{interaction.user.mention} deposited **{format_currency(amount, guild_id)}**.",
         [
             {"name": "Survivor", "value": interaction.user.mention, "inline": True},
-            {"name": "Cash", "value": f"{wallet_cash(wallet_record)} pennies", "inline": True},
-            {"name": "Bank", "value": f"{wallet_bank(wallet_record)} pennies", "inline": True},
+            {"name": "Cash", "value": format_currency(wallet_cash(wallet_record), guild_id), "inline": True},
+            {"name": "Bank", "value": format_currency(wallet_bank(wallet_record), guild_id), "inline": True},
         ],
         color=0x3498DB,
         footer="Money Feed - Bank",
     )
     await interaction.response.send_message(
-        f"Deposited **{amount} pennies**. {wallet_balance_brief(wallet_record)}.",
+        f"Deposited **{format_currency(amount, guild_id)}**. {wallet_balance_brief(wallet_record)}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
-@bot.tree.command(name="withdraw", description="Move pennies from your bank into cash")
-@app_commands.describe(amount="Pennies to withdraw")
+@bot.tree.command(name="withdraw", description="Move currency from your bank into cash")
+@app_commands.describe(amount="Amount to withdraw")
 async def slash_withdraw(interaction: discord.Interaction, amount: int):
     if amount <= 0:
         await interaction.response.send_message("Amount must be more than zero.", ephemeral=True)
@@ -45410,30 +45532,30 @@ async def slash_withdraw(interaction: discord.Interaction, amount: int):
     guild_id = str(interaction.guild.id)
     wallet_record = guild_wallet(guild_id, str(interaction.user.id), str(interaction.user))
     if not wallet_move(wallet_record, amount, "bank", "cash"):
-        await interaction.response.send_message("You do not have enough banked pennies to withdraw that.", ephemeral=True)
+        await interaction.response.send_message(f"You do not have enough banked {guild_economy_currency(guild_id)} to withdraw that.", ephemeral=True)
         return
     save_wallets()
     await send_money_feed(
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "BANK WITHDRAWAL",
-        f"{interaction.user.mention} withdrew **{amount} pennies**.",
+        f"{interaction.user.mention} withdrew **{format_currency(amount, guild_id)}**.",
         [
             {"name": "Survivor", "value": interaction.user.mention, "inline": True},
-            {"name": "Cash", "value": f"{wallet_cash(wallet_record)} pennies", "inline": True},
-            {"name": "Bank", "value": f"{wallet_bank(wallet_record)} pennies", "inline": True},
+            {"name": "Cash", "value": format_currency(wallet_cash(wallet_record), guild_id), "inline": True},
+            {"name": "Bank", "value": format_currency(wallet_bank(wallet_record), guild_id), "inline": True},
         ],
         color=0x3498DB,
         footer="Money Feed - Bank",
     )
     await interaction.response.send_message(
-        f"Withdrew **{amount} pennies**. {wallet_balance_brief(wallet_record)}.",
+        f"Withdrew **{format_currency(amount, guild_id)}**. {wallet_balance_brief(wallet_record)}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
-@bot.tree.command(name="work", description="Do a quick job and earn cash pennies")
+@bot.tree.command(name="work", description="Do a quick job and earn cash")
 async def slash_work(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     settings = economy_game_settings(guild_id)
@@ -45460,7 +45582,7 @@ async def slash_work(interaction: discord.Interaction):
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "WORK PAYOUT",
-        f"{interaction.user.mention} earned **{payout} pennies** cash.",
+        f"{interaction.user.mention} earned **{format_currency(payout, guild_id)}** cash.",
         [
             {"name": "Survivor", "value": interaction.user.mention, "inline": True},
             {"name": "Roll", "value": f"{percent}% of {base}", "inline": True},
@@ -45470,13 +45592,13 @@ async def slash_work(interaction: discord.Interaction):
         footer="Money Feed - Work",
     )
     await interaction.response.send_message(
-        f"Work complete. You earned **{payout} cash pennies**. {wallet_balance_brief(wallet_record)}.",
+        f"Work complete. You earned **{format_currency(payout, guild_id)} cash**. {wallet_balance_brief(wallet_record)}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
-@bot.tree.command(name="steal", description="Try to steal cash pennies from another survivor")
+@bot.tree.command(name="steal", description="Try to steal cash from another survivor")
 @app_commands.describe(target="Survivor to try stealing from")
 async def slash_steal(interaction: discord.Interaction, target: discord.Member):
     if target.bot:
@@ -45517,16 +45639,16 @@ async def slash_steal(interaction: discord.Interaction, target: discord.Member):
     if success:
         wallet_debit(target_wallet, amount, "cash", allow_bank_fallback=False)
         wallet_credit(thief_wallet, amount, "cash")
-        result = f"{interaction.user.mention} stole **{amount} cash pennies** from {target.mention}."
+        result = f"{interaction.user.mention} stole **{format_currency(amount, guild_id)} cash** from {target.mention}."
         fields = [
             {"name": "Thief", "value": interaction.user.mention, "inline": True},
             {"name": "Target", "value": target.mention, "inline": True},
             {"name": "Result", "value": f"Success ({success_chance}% chance)", "inline": True},
-            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
             {"name": "Thief Wallet", "value": wallet_balance_brief(thief_wallet), "inline": True},
             {"name": "Target Wallet", "value": wallet_balance_brief(target_wallet), "inline": True},
         ]
-        response = f"Success. You stole **{amount} cash pennies** from {target.mention}. {wallet_balance_brief(thief_wallet)}."
+        response = f"Success. You stole **{format_currency(amount, guild_id)} cash** from {target.mention}. {wallet_balance_brief(thief_wallet)}."
         color = 0xF1C40F
     else:
         penalty_percent = int(settings.get("steal_penalty_percent", 10) or 10)
@@ -45538,11 +45660,11 @@ async def slash_steal(interaction: discord.Interaction, target: discord.Member):
             {"name": "Thief", "value": interaction.user.mention, "inline": True},
             {"name": "Target", "value": target.mention, "inline": True},
             {"name": "Result", "value": f"Failed ({success_chance}% chance)", "inline": True},
-            {"name": "Penalty", "value": f"{penalty} cash pennies", "inline": True},
+            {"name": "Penalty", "value": f"{format_currency(penalty, guild_id)} cash", "inline": True},
             {"name": "Thief Wallet", "value": wallet_balance_brief(thief_wallet), "inline": True},
             {"name": "Target Wallet", "value": wallet_balance_brief(target_wallet), "inline": True},
         ]
-        response = f"Failed. You lost **{penalty} cash pennies**. {wallet_balance_brief(thief_wallet)}."
+        response = f"Failed. You lost **{format_currency(penalty, guild_id)} cash**. {wallet_balance_brief(thief_wallet)}."
         color = 0xE74C3C
 
     save_wallets()
@@ -45558,11 +45680,133 @@ async def slash_steal(interaction: discord.Interaction, target: discord.Member):
     await interaction.response.send_message(response, ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.tree.command(name="economyconfig", description="Admin: configure work and steal economy commands")
+def validate_gamble_bet(settings, wallet_record, bet):
+    bet = wallet_int(bet)
+    if not bool(settings.get("gamble_enabled", True)):
+        return bet, "Gambling commands are currently disabled on this server."
+    if bet < int(settings.get("gamble_min_bet", 10)):
+        return bet, f"Minimum bet is {format_currency(settings.get('gamble_min_bet', 10), wallet_record.get('guild_id'))}."
+    if bet > int(settings.get("gamble_max_bet", 500)):
+        return bet, f"Maximum bet is {format_currency(settings.get('gamble_max_bet', 500), wallet_record.get('guild_id'))}."
+    if wallet_cash(wallet_record) < bet:
+        return bet, "You do not have enough cash for that bet."
+    return bet, ""
+
+
+@bot.tree.command(name="slots", description="Bet cash on a slot-machine roll")
+@app_commands.describe(bet="Cash amount to bet")
+async def slash_slots(interaction: discord.Interaction, bet: int):
+    guild_id = str(interaction.guild.id)
+    settings = economy_game_settings(guild_id)
+    wallet_record = guild_wallet(guild_id, str(interaction.user.id), str(interaction.user))
+    ready, remaining = wallet_cooldown_ready(wallet_record, "gamble", int(settings.get("gamble_cooldown_minutes", 5)))
+    if not ready:
+        await interaction.response.send_message(f"You can gamble again in **{cooldown_text(remaining)}**.", ephemeral=True)
+        return
+    bet, error = validate_gamble_bet(settings, wallet_record, bet)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+
+    symbols = ["7", "BAR", "CROWN", "SKULL", "CHERRY", "BELL"]
+    roll = [random.choice(symbols) for _ in range(3)]
+    unique = len(set(roll))
+    wallet_debit(wallet_record, bet, "cash", allow_bank_fallback=False)
+    payout = 0
+    result = "Lost"
+    if unique == 1:
+        payout = bet * int(settings.get("slots_jackpot_multiplier", 5))
+        result = "Jackpot"
+    elif unique == 2:
+        payout = bet * int(settings.get("slots_pair_multiplier", 2))
+        result = "Pair"
+    if payout:
+        wallet_credit(wallet_record, payout, "cash")
+    set_wallet_cooldown(wallet_record, "gamble")
+    save_wallets()
+
+    net = payout - bet
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "SLOTS RESULT",
+        f"{interaction.user.mention} rolled **{' | '.join(roll)}** and {result.lower()} with a net **{format_currency(net, guild_id)}**.",
+        [
+            {"name": "Survivor", "value": interaction.user.mention, "inline": True},
+            {"name": "Bet", "value": format_currency(bet, guild_id), "inline": True},
+            {"name": "Payout", "value": format_currency(payout, guild_id), "inline": True},
+            {"name": "Wallet", "value": wallet_balance_brief(wallet_record), "inline": True},
+        ],
+        color=0xF1C40F if payout else 0xE74C3C,
+        footer="Money Feed - Slots",
+    )
+    await interaction.response.send_message(
+        f"Slots: **{' | '.join(roll)}**. {result}. Net: **{format_currency(net, guild_id)}**. {wallet_balance_brief(wallet_record)}.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@bot.tree.command(name="hilo", description="Bet cash on high or low")
+@app_commands.describe(bet="Cash amount to bet", choice="High wins on 8-13, low wins on 1-6. Seven is house.")
+@app_commands.choices(
+    choice=[
+        app_commands.Choice(name="High", value="high"),
+        app_commands.Choice(name="Low", value="low"),
+    ]
+)
+async def slash_hilo(interaction: discord.Interaction, bet: int, choice: str):
+    guild_id = str(interaction.guild.id)
+    settings = economy_game_settings(guild_id)
+    wallet_record = guild_wallet(guild_id, str(interaction.user.id), str(interaction.user))
+    ready, remaining = wallet_cooldown_ready(wallet_record, "gamble", int(settings.get("gamble_cooldown_minutes", 5)))
+    if not ready:
+        await interaction.response.send_message(f"You can gamble again in **{cooldown_text(remaining)}**.", ephemeral=True)
+        return
+    bet, error = validate_gamble_bet(settings, wallet_record, bet)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+
+    choice = str(choice or "").lower()
+    roll = random.randint(1, 13)
+    won = (choice == "high" and roll >= 8) or (choice == "low" and roll <= 6)
+    wallet_debit(wallet_record, bet, "cash", allow_bank_fallback=False)
+    payout = bet * int(settings.get("hilo_win_multiplier", 2)) if won else 0
+    if payout:
+        wallet_credit(wallet_record, payout, "cash")
+    set_wallet_cooldown(wallet_record, "gamble")
+    save_wallets()
+
+    net = payout - bet
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "HI-LO RESULT",
+        f"{interaction.user.mention} picked **{choice}**, rolled **{roll}**, and {'won' if won else 'lost'} a net **{format_currency(net, guild_id)}**.",
+        [
+            {"name": "Survivor", "value": interaction.user.mention, "inline": True},
+            {"name": "Choice", "value": choice.title(), "inline": True},
+            {"name": "Roll", "value": str(roll), "inline": True},
+            {"name": "Bet", "value": format_currency(bet, guild_id), "inline": True},
+            {"name": "Payout", "value": format_currency(payout, guild_id), "inline": True},
+            {"name": "Wallet", "value": wallet_balance_brief(wallet_record), "inline": True},
+        ],
+        color=0xF1C40F if won else 0xE74C3C,
+        footer="Money Feed - Hi-Lo",
+    )
+    await interaction.response.send_message(
+        f"Hi-Lo rolled **{roll}**. You {'won' if won else 'lost'}. Net: **{format_currency(net, guild_id)}**. {wallet_balance_brief(wallet_record)}.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
+@bot.tree.command(name="economyconfig", description="Admin: configure work, steal and gambling economy commands")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     work_enabled="Turn /work on or off",
-    work_base="Base pennies used by /work",
+    work_base="Base currency amount used by /work",
     work_min_percent="Minimum work payout percent",
     work_max_percent="Maximum work payout percent",
     work_cooldown_minutes="Minutes between /work payouts",
@@ -45572,6 +45816,13 @@ async def slash_steal(interaction: discord.Interaction, target: discord.Member):
     steal_max_percent="Maximum percent of target cash stolen",
     steal_penalty_percent="Percent of thief cash lost on failure",
     steal_cooldown_minutes="Minutes between /steal attempts",
+    gamble_enabled="Turn /slots and /hilo on or off",
+    gamble_min_bet="Minimum cash bet",
+    gamble_max_bet="Maximum cash bet",
+    gamble_cooldown_minutes="Minutes between gambling attempts",
+    slots_pair_multiplier="Payout multiplier for two matching slot symbols",
+    slots_jackpot_multiplier="Payout multiplier for three matching slot symbols",
+    hilo_win_multiplier="Payout multiplier for a winning hi-lo bet",
 )
 async def slash_economyconfig(
     interaction: discord.Interaction,
@@ -45586,6 +45837,13 @@ async def slash_economyconfig(
     steal_max_percent: int = None,
     steal_penalty_percent: int = None,
     steal_cooldown_minutes: int = None,
+    gamble_enabled: bool = None,
+    gamble_min_bet: int = None,
+    gamble_max_bet: int = None,
+    gamble_cooldown_minutes: int = None,
+    slots_pair_multiplier: int = None,
+    slots_jackpot_multiplier: int = None,
+    hilo_win_multiplier: int = None,
 ):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -45604,6 +45862,13 @@ async def slash_economyconfig(
         "steal_max_percent": steal_max_percent,
         "steal_penalty_percent": steal_penalty_percent,
         "steal_cooldown_minutes": steal_cooldown_minutes,
+        "gamble_enabled": gamble_enabled,
+        "gamble_min_bet": gamble_min_bet,
+        "gamble_max_bet": gamble_max_bet,
+        "gamble_cooldown_minutes": gamble_cooldown_minutes,
+        "slots_pair_multiplier": slots_pair_multiplier,
+        "slots_jackpot_multiplier": slots_jackpot_multiplier,
+        "hilo_win_multiplier": hilo_win_multiplier,
     }
     changed = []
     for key, value in updates.items():
@@ -45640,6 +45905,17 @@ async def slash_economyconfig(
         ),
         inline=True,
     )
+    embed.add_field(
+        name="Gamble",
+        value=(
+            f"Enabled: **{'On' if settings.get('gamble_enabled', True) else 'Off'}**\n"
+            f"Bet: **{format_currency(settings['gamble_min_bet'], guild_id)}-{format_currency(settings['gamble_max_bet'], guild_id)}**\n"
+            f"Cooldown: **{settings['gamble_cooldown_minutes']} min**\n"
+            f"Slots: pair **x{settings['slots_pair_multiplier']}**, jackpot **x{settings['slots_jackpot_multiplier']}**\n"
+            f"Hi-Lo win: **x{settings['hilo_win_multiplier']}**"
+        ),
+        inline=False,
+    )
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - Economy Config")
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
@@ -45662,6 +45938,94 @@ def resolve_faction_for_command(interaction, faction_name=""):
     faction = dict(faction)
     faction["name"] = display_name
     return display_name, faction, ""
+
+
+@bot.tree.command(name="factionsteal", description="Try to steal cash from another faction treasury")
+@app_commands.describe(
+    from_faction="Your faction treasury to use; leave blank if you only manage one",
+    target_faction="Faction treasury to try stealing from",
+)
+@app_commands.autocomplete(from_faction=faction_name_autocomplete, target_faction=faction_name_autocomplete)
+async def slash_factionsteal(interaction: discord.Interaction, target_faction: str, from_faction: str = ""):
+    guild_id = str(interaction.guild.id)
+    settings = economy_game_settings(guild_id)
+    if not bool(settings.get("steal_enabled", True)):
+        await interaction.response.send_message("Stealing is currently disabled on this server.", ephemeral=True)
+        return
+
+    source_name, source_faction, error = resolve_faction_for_command(interaction, from_faction)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    if not can_manage_faction_treasury(interaction, source_faction):
+        await interaction.response.send_message("Only the faction leader or an admin can risk that faction treasury.", ephemeral=True)
+        return
+
+    target_name, target_record = find_guild_faction(guild_id, target_faction)
+    if not target_record:
+        await interaction.response.send_message(f"Faction `{target_faction}` was not found.", ephemeral=True)
+        return
+    if faction_key(source_name) == faction_key(target_name):
+        await interaction.response.send_message("A faction cannot steal from itself.", ephemeral=True)
+        return
+
+    source_wallet = guild_faction_wallet(guild_id, source_name)
+    target_wallet = guild_faction_wallet(guild_id, target_name)
+    ready, remaining = wallet_cooldown_ready(source_wallet, "faction_steal", int(settings.get("steal_cooldown_minutes", 120)))
+    if not ready:
+        await interaction.response.send_message(f"That faction can try stealing again in **{cooldown_text(remaining)}**.", ephemeral=True)
+        return
+
+    target_cash = max(0, wallet_cash(target_wallet))
+    if target_cash <= 0:
+        set_wallet_cooldown(source_wallet, "faction_steal")
+        save_wallets()
+        await interaction.response.send_message("That faction has no cash to steal.", ephemeral=True)
+        return
+
+    success_chance = int(settings.get("steal_success_percent", 35) or 35)
+    steal_percent = random.randint(int(settings.get("steal_min_percent", 5) or 5), int(settings.get("steal_max_percent", 20) or 20))
+    amount = max(1, int(round(target_cash * (steal_percent / 100))))
+    success = random.randint(1, 100) <= success_chance
+    set_wallet_cooldown(source_wallet, "faction_steal")
+    if success:
+        wallet_debit(target_wallet, amount, "cash", allow_bank_fallback=False)
+        wallet_credit(source_wallet, amount, "cash")
+        result = f"**{discord.utils.escape_mentions(source_name)}** stole **{format_currency(amount, guild_id)} cash** from **{discord.utils.escape_mentions(target_name)}**."
+        color = 0xF1C40F
+        outcome = "Success"
+    else:
+        penalty_percent = int(settings.get("steal_penalty_percent", 10) or 10)
+        penalty = max(0, int(round(wallet_cash(source_wallet) * (penalty_percent / 100))))
+        if penalty:
+            wallet_debit(source_wallet, penalty, "cash", allow_bank_fallback=False)
+        amount = penalty
+        result = f"**{discord.utils.escape_mentions(source_name)}** failed to steal from **{discord.utils.escape_mentions(target_name)}**."
+        color = 0xE74C3C
+        outcome = "Failed"
+    save_wallets()
+
+    await send_money_feed(
+        interaction.guild,
+        guild_configs.get(guild_id, {}),
+        "FACTION STEAL ATTEMPT",
+        result,
+        [
+            {"name": "Attacking Faction", "value": source_name, "inline": True},
+            {"name": "Target Faction", "value": target_name, "inline": True},
+            {"name": "Result", "value": f"{outcome} ({success_chance}% chance)", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
+            {"name": "Attacker Balance", "value": wallet_balance_brief(source_wallet), "inline": True},
+            {"name": "Target Balance", "value": wallet_balance_brief(target_wallet), "inline": True},
+        ],
+        color=color,
+        footer="Money Feed - Faction Steal",
+    )
+    await interaction.response.send_message(
+        f"{outcome}. {wallet_balance_brief(source_wallet)}",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 
 @bot.tree.command(name="factionbalance", description="Check a faction treasury balance")
@@ -45687,9 +46051,9 @@ async def slash_factionbalance(interaction: discord.Interaction, faction: str = 
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
 
-@bot.tree.command(name="factionpay", description="Admin: pay pennies into a faction treasury")
+@bot.tree.command(name="factionpay", description="Admin: pay currency into a faction treasury")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(faction="Faction to pay", amount="Pennies to add", note="Optional note for the money feed")
+@app_commands.describe(faction="Faction to pay", amount="Amount to add", note="Optional note for the money feed")
 @app_commands.autocomplete(faction=faction_name_autocomplete)
 async def slash_factionpay(interaction: discord.Interaction, faction: str, amount: int, note: str = ""):
     if not has_interaction_admin_power(interaction):
@@ -45702,17 +46066,18 @@ async def slash_factionpay(interaction: discord.Interaction, faction: str, amoun
     if error:
         await interaction.response.send_message(error, ephemeral=True)
         return
-    wallet_record = guild_faction_wallet(str(interaction.guild.id), faction_name)
+    guild_id = str(interaction.guild.id)
+    wallet_record = guild_faction_wallet(guild_id, faction_name)
     wallet_credit(wallet_record, amount, "cash")
     save_wallets()
     await send_money_feed(
         interaction.guild,
-        guild_configs.get(str(interaction.guild.id), {}),
+        guild_configs.get(guild_id, {}),
         "ADMIN FACTION PAYOUT",
-        f"{interaction.user.mention} paid **{amount} pennies** into **{discord.utils.escape_mentions(faction_name)}**.",
+        f"{interaction.user.mention} paid **{format_currency(amount, guild_id)}** into **{discord.utils.escape_mentions(faction_name)}**.",
         [
             {"name": "Faction", "value": faction_name, "inline": True},
-            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
             {"name": "Faction Balance", "value": wallet_balance_brief(wallet_record), "inline": True},
             {"name": "Note", "value": note or "No note.", "inline": False},
         ],
@@ -45720,7 +46085,7 @@ async def slash_factionpay(interaction: discord.Interaction, faction: str, amoun
         footer="Money Feed - Faction Pay",
     )
     await interaction.response.send_message(
-        f"Paid **{amount} pennies** into **{faction_name}** cash. Treasury is now {wallet_balance_brief(wallet_record)}.",
+        f"Paid **{format_currency(amount, guild_id)}** into **{faction_name}** cash. Treasury is now {wallet_balance_brief(wallet_record)}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
@@ -45768,33 +46133,33 @@ async def slash_factioncollect(interaction: discord.Interaction, faction: str = 
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "FACTION INCOME COLLECTED",
-        f"**{discord.utils.escape_mentions(faction_name)}** collected **{total} pennies**.",
+        f"**{discord.utils.escape_mentions(faction_name)}** collected **{format_currency(total, guild_id)}**.",
         [
             {"name": "Faction", "value": faction_name, "inline": True},
-            {"name": "Amount", "value": f"{total} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(total, guild_id), "inline": True},
             {"name": "Faction Balance", "value": wallet_balance_brief(wallet_record), "inline": True},
-            {"name": "Details", "value": "\n".join(f"{wage_id}: {amount} pennies" for wage_id, _, amount, _ in collected[:10]), "inline": False},
+            {"name": "Details", "value": "\n".join(f"{wage_id}: {format_currency(amount, guild_id)}" for wage_id, _, amount, _ in collected[:10]), "inline": False},
         ],
         color=0xF1C40F,
         footer="Money Feed - Faction Collect",
     )
     details = "\n".join(
-        f"`{wage_id}`: {amount} pennies ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
+        f"`{wage_id}`: {format_currency(amount, guild_id)} ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
         for wage_id, periods, amount, next_pay in collected[:10]
     )
     await interaction.response.send_message(
-        f"Collected **{total} pennies** for **{faction_name}**.\n{details}",
+        f"Collected **{format_currency(total, guild_id)}** for **{faction_name}**.\n{details}",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
 
 
-@bot.tree.command(name="factionsend", description="Send pennies from a faction treasury to a member or another faction")
+@bot.tree.command(name="factionsend", description="Send currency from a faction treasury to a member or another faction")
 @app_commands.describe(
     from_faction="Faction treasury to spend from",
-    amount="Pennies to send",
-    recipient="Discord member to receive pennies",
-    to_faction="Faction treasury to receive pennies",
+    amount="Amount to send",
+    recipient="Discord member to receive currency",
+    to_faction="Faction treasury to receive currency",
     note="Optional note for the money feed",
 )
 @app_commands.autocomplete(from_faction=faction_name_autocomplete, to_faction=faction_name_autocomplete)
@@ -45823,13 +46188,13 @@ async def slash_factionsend(
         await interaction.response.send_message("Choose a member or a faction to receive the money.", ephemeral=True)
         return
     if recipient and recipient.bot:
-        await interaction.response.send_message("You cannot send pennies to a bot.", ephemeral=True)
+        await interaction.response.send_message("You cannot send currency to a bot.", ephemeral=True)
         return
 
     guild_id = str(interaction.guild.id)
     source_wallet = guild_faction_wallet(guild_id, source_name)
     if wallet_balance(source_wallet) < amount:
-        await interaction.response.send_message("That faction does not have enough pennies.", ephemeral=True)
+        await interaction.response.send_message(f"That faction does not have enough {guild_economy_currency(guild_id)}.", ephemeral=True)
         return
 
     target_label = ""
@@ -45858,11 +46223,11 @@ async def slash_factionsend(
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "FACTION MONEY TRANSFER",
-        f"**{discord.utils.escape_mentions(source_name)}** sent **{amount} pennies** to {target_label}.",
+        f"**{discord.utils.escape_mentions(source_name)}** sent **{format_currency(amount, guild_id)}** to {target_label}.",
         [
             {"name": "From", "value": source_name, "inline": True},
             {"name": "To", "value": target_label, "inline": True},
-            {"name": "Amount", "value": f"{amount} pennies", "inline": True},
+            {"name": "Amount", "value": format_currency(amount, guild_id), "inline": True},
             {"name": "Source Balance", "value": wallet_balance_brief(source_wallet), "inline": True},
             {"name": "Recipient Balance", "value": target_balance, "inline": True},
             {"name": "Note", "value": note or "No note.", "inline": False},
@@ -45871,7 +46236,7 @@ async def slash_factionsend(
         footer="Money Feed - Faction Transfer",
     )
     await interaction.response.send_message(
-        f"Sent **{amount} pennies** from **{source_name}** to {target_label}.",
+        f"Sent **{format_currency(amount, guild_id)}** from **{source_name}** to {target_label}.",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
@@ -45909,21 +46274,21 @@ async def slash_collectincome(interaction: discord.Interaction):
         interaction.guild,
         guild_configs.get(guild_id, {}),
         "WAGE INCOME COLLECTED",
-        f"{interaction.user.mention} collected **{total} pennies**.",
+        f"{interaction.user.mention} collected **{format_currency(total, guild_id)}**.",
         [
             {"name": "Survivor", "value": interaction.user.mention, "inline": True},
-            {"name": "Amount", "value": f"{total} pennies", "inline": True},
-            {"name": "Details", "value": "\n".join(f"{wage_id}: {amount} pennies" for wage_id, _, amount, _ in collected[:10]), "inline": False},
+            {"name": "Amount", "value": format_currency(total, guild_id), "inline": True},
+            {"name": "Details", "value": "\n".join(f"{wage_id}: {format_currency(amount, guild_id)}" for wage_id, _, amount, _ in collected[:10]), "inline": False},
         ],
         color=0xF1C40F,
         footer="Money Feed - Wage Collection",
     )
     details = "\n".join(
-        f"`{wage_id}`: {amount} pennies ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
+        f"`{wage_id}`: {format_currency(amount, guild_id)} ({periods} period{'s' if periods != 1 else ''}), next {next_pay[:16].replace('T', ' ')} UTC"
         for wage_id, periods, amount, next_pay in collected[:10]
     )
     await interaction.response.send_message(
-        f"Collected **{total} pennies**.\n{details}",
+        f"Collected **{format_currency(total, guild_id)}**.\n{details}",
         ephemeral=True,
     )
 @bot.tree.command(name="shop", description="Show shop")
@@ -47488,7 +47853,7 @@ async def slash_server_shopbackfill(interaction: discord.Interaction, default_pr
 @server_group.command(name="bulkprice", description="Admin: mass update shop prices by category or item-name match")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    price="New price in pennies",
+    price="New currency price",
     category="Optional category scope, e.g. Medical, Building, Tools",
     name_contains="Optional comma-separated name match, e.g. plank,wire,bandage",
     enabled="Optional: enable or disable all matched items",
@@ -47781,7 +48146,7 @@ async def slash_faction_delete(interaction: discord.Interaction, faction: str):
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     target_type="Pay a user, a role, or a faction balance",
-    amount="Pennies paid each cycle",
+    amount="Currency paid each cycle",
     cadence="daily, weekly, or monthly",
     user="Discord user (when target_type=user)",
     role="Discord role (when target_type=role)",
@@ -47857,7 +48222,7 @@ async def slash_wage_add(
     })
     save_wages()
     await interaction.response.send_message(
-        f"💰 Wage `{wage_id}` set: **{amount} pennies** to {target_label} every **{cadence.value}**. "
+        f"💰 Wage `{wage_id}` set: **{format_currency(amount, str(interaction.guild.id))}** to {target_label} every **{cadence.value}**. "
         f"First payout in ~{cadence.value}.",
         ephemeral=True,
     )
@@ -47877,7 +48242,7 @@ async def slash_wage_list(interaction: discord.Interaction):
             name=f"`{w.get('id', '?')}`",
             value=(
                 f"{w.get('target_label', '?')}\n"
-                f"**{w.get('amount', 0)}** pennies / **{w.get('cadence', '?')}**\n"
+                f"**{format_currency(w.get('amount', 0), str(interaction.guild.id))}** / **{w.get('cadence', '?')}**\n"
                 f"Next: {next_pay} UTC"
             ),
             inline=False,
@@ -48862,6 +49227,7 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
 
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(item_name="Item", x="Map X", y="Map Y")
+@app_commands.autocomplete(item_name=purchase_item_autocomplete)
 async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
 def auto_fetch_types_xml_from_server(config, guild_id):
     """Try every standard Nitrado console & PC types.xml path and return
@@ -49016,14 +49382,14 @@ async def slash_importtypesxml(
     embed.add_field(name="Total Shop Items", value=str(len(guild_shop_items(guild_id))), inline=True)
     embed.add_field(
         name="Default Price",
-        value=f"`{default_price}` pennies (applied to items without a price in types.xml)",
+        value=f"`{format_currency(default_price, guild_id)}` (applied to items without a price in types.xml)",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
     await interaction.followup.send(embed=style_embed(embed), ephemeral=False)
 @bot.tree.command(name="addshopitem", description="Admin: add an item to the shop")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(item_name="Item classname", price="Price in pennies", category="Shop category")
+@app_commands.describe(item_name="Item classname", price="Currency price", category="Shop category")
 @app_commands.autocomplete(category=shop_category_autocomplete)
 async def slash_addshopitem(interaction: discord.Interaction, item_name: str, price: int, category: str = "General"):
     if not has_interaction_admin_power(interaction):
@@ -49057,9 +49423,9 @@ async def slash_removeshopitem(interaction: discord.Interaction, item_name: str)
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     await run_legacy_as_slash(interaction, "removeshopitem", item_name=item_name)
-@bot.tree.command(name="givepennies", description="Admin: give pennies to a member")
+@bot.tree.command(name="givepennies", description="Admin: give wallet currency to a member")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(member="Discord member", amount="Pennies to add")
+@app_commands.describe(member="Discord member", amount="Currency amount to add")
 async def slash_givepennies(interaction: discord.Interaction, member: discord.Member, amount: int):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)

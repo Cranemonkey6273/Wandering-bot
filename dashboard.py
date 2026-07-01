@@ -5775,6 +5775,23 @@ PAGE_TEMPLATE = """
       </div>
       <div class="panel-grid">
         <article class="admin-panel">
+          <h3>Currency</h3>
+          <form class="admin-form" method="post" action="/api/admin/economy-settings" data-route="/api/admin/economy-settings">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Display currency
+              <select name="economy_currency">
+                {% for currency in economy_currency_options %}
+                <option value="{{ currency.value }}" {% if server and server.economy_currency == currency.value %}selected{% endif %}>{{ currency.label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <p class="tool-note full">This changes the wording shown in wallet, shop, and economy feeds. It does not convert or reset stored balances.</p>
+            <div class="full"><button type="submit">Save Currency</button> <span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
           <h3>Wage</h3>
           <form class="admin-form" method="post" action="/api/admin/wage" data-route="/api/admin/wage" id="wage-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -6036,7 +6053,7 @@ PAGE_TEMPLATE = """
                 <div class="bundle-manager-meta">
                   <span>{{ item.category }}</span>
                   <span>{{ 'On' if item.enabled else 'Off' }}</span>
-                  <span>{{ item.price }} pennies</span>
+                  <span>{{ format_currency(item.price, server.economy_currency if server else 'pennies') }}</span>
                   <span>{{ item.bundle_items|length }} item(s)</span>
                   {% if item.daily_limit %}<span>Limit {{ item.daily_limit }}</span>{% endif %}
                 </div>
@@ -6138,7 +6155,7 @@ PAGE_TEMPLATE = """
                       <strong>{{ item.name }}</strong>
                       {% if item.type == 'bundle' %}<small class="muted">{{ item.bundle_summary }}</small>{% endif %}
                       <div class="shop-item-meta">
-                        <span>{{ item.price }} pennies</span>
+                        <span>{{ format_currency(item.price, server.economy_currency if server else 'pennies') }}</span>
                         <span>{{ 'On' if item.enabled else 'Off' }}</span>
                         <span>Limit {{ item.daily_limit if item.daily_limit else 'default' }}</span>
                         {% if not item.configured %}<span>catalog</span>{% endif %}
@@ -6181,7 +6198,7 @@ PAGE_TEMPLATE = """
                       <strong>{{ item.name }}</strong>
                       {% if item.type == 'bundle' %}<small class="muted">{{ item.bundle_summary }}</small>{% endif %}
                       <div class="shop-item-meta">
-                        <span>{{ item.price }} pennies</span>
+                        <span>{{ format_currency(item.price, server.economy_currency if server else 'pennies') }}</span>
                         <span>{{ 'On' if item.enabled else 'Off' }}</span>
                         <span>Limit {{ item.daily_limit if item.daily_limit else 'default' }}</span>
                         {% if not item.configured %}<span>catalog</span>{% endif %}
@@ -10692,6 +10709,7 @@ PAGE_TEMPLATE = """
       "/api/admin/member-action",
       "/api/admin/wage",
       "/api/admin/wallet-adjustment",
+      "/api/admin/economy-settings",
       "/api/admin/economy-rule",
       "/api/admin/shop-item",
       "/api/admin/shop-bundle",
@@ -13061,6 +13079,7 @@ ADMIN_ROUTES = [
     "/api/admin/survival-milestones",
     "/api/admin/utility-config",
     "/api/admin/reaction-role-panel",
+    "/api/admin/economy-settings",
     "/api/admin/shop-item",
     "/api/admin/shop-bundle",
     "/api/admin/shop-bulk",
@@ -13132,6 +13151,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/scenario-event": "pve_quests",
     "/api/admin/scenario-event-action": "pve_quests",
     "/api/admin/economy-rule": "economy",
+    "/api/admin/economy-settings": "economy",
     "/api/admin/zone": "safe_zones",
     "/api/admin/zone-action": "safe_zones",
     "/api/admin/member-action": "members",
@@ -20033,6 +20053,62 @@ def runtime_discord_member_count(guild_id: str, guild_counts: Any) -> int | None
     return value if value >= 0 else None
 
 
+def runtime_discord_guild_name(guild_id: str, guild_counts: Any) -> str:
+    if not isinstance(guild_counts, dict):
+        return ""
+    target = normalize_guild_id(guild_id)
+    raw = guild_counts.get(target)
+    if raw is None:
+        for key, value in guild_counts.items():
+            if normalize_guild_id(key) == target:
+                raw = value
+                break
+    if isinstance(raw, dict):
+        return str(raw.get("guild_name") or raw.get("name") or "").strip()
+    return ""
+
+
+ECONOMY_CURRENCY_OPTIONS = (
+    {"value": "pennies", "label": "Pennies"},
+    {"value": "euros", "label": "Euros"},
+    {"value": "pounds", "label": "Pounds"},
+    {"value": "dollars", "label": "Dollars"},
+)
+
+
+def normalize_economy_currency(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "penny": "pennies",
+        "pennies": "pennies",
+        "coin": "pennies",
+        "coins": "pennies",
+        "eur": "euros",
+        "euro": "euros",
+        "euros": "euros",
+        "gbp": "pounds",
+        "pound": "pounds",
+        "pounds": "pounds",
+        "usd": "dollars",
+        "dollar": "dollars",
+        "dollars": "dollars",
+    }
+    return aliases.get(text, "pennies")
+
+
+def dashboard_format_currency(amount: Any, currency: Any = "pennies") -> str:
+    value = safe_int(amount)
+    key = normalize_economy_currency(currency)
+    labels = {
+        "pennies": ("penny", "pennies"),
+        "euros": ("euro", "euros"),
+        "pounds": ("pound", "pounds"),
+        "dollars": ("dollar", "dollars"),
+    }
+    singular, plural = labels.get(key, labels["pennies"])
+    return f"{value} {singular if abs(value) == 1 else plural}"
+
+
 def discord_guild_member_count(guild_id: str) -> int | None:
     if not DISCORD_TOKEN or not guild_id:
         return None
@@ -22001,11 +22077,17 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     total_kills = 0
     dashboard_enabled = 0
     selected_config_included = False
+    guild_name_store_changed = False
 
     for guild_id, config in sorted(guild_configs.items(), key=lambda item: str(item[1].get("guild_name", item[0])).lower() if isinstance(item[1], dict) else str(item[0])):
         if not isinstance(config, dict):
             continue
         guild_id = normalize_guild_id(guild_id)
+        live_guild_name = runtime_discord_guild_name(guild_id, discord_guild_counts)
+        if live_guild_name and live_guild_name != str(config.get("guild_name") or ""):
+            config["guild_name"] = live_guild_name
+            guild_name_store_changed = True
+        display_guild_name = str(config.get("guild_name") or live_guild_name or f"Guild {guild_id}")
         players = guild_players(player_stats, guild_id) if needs_players else []
         player_count = len(players) if needs_players else (len(guild_players(player_stats, guild_id)) if needs_player_counts else 0)
         online = sorted(str(player) for player in online_players.get(guild_id, []) if player)
@@ -22057,7 +22139,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         servers.append(
             {
                 "guild_id": guild_id,
-                "guild_name": str(config.get("guild_name") or f"Guild {guild_id}"),
+                "guild_name": display_guild_name,
                 "active": not bool(config.get("bot_removed")),
                 "map": server_map,
                 "map_key": map_key_for(server_map),
@@ -22089,6 +22171,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "shop_categories": redact(server_shop_categories),
                 "shop_status_groups": redact(server_shop_status_groups),
                 "shop_category_options": server_shop_category_options,
+                "economy_currency": normalize_economy_currency(config.get("economy_currency") or config.get("currency")),
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
                 "survival_milestones": redact(dashboard_survival_milestone_settings(config, channels)),
@@ -22102,6 +22185,10 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "config": redact(config) if include_full_config else {},
             }
         )
+
+    if guild_name_store_changed:
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
 
     admin_embed_templates = dashboard_admin.get("embed_templates", {}) if isinstance(dashboard_admin, dict) else {}
     admin_welcome = dashboard_admin.get("welcome_automations", {}) if isinstance(dashboard_admin, dict) else {}
@@ -22382,6 +22469,8 @@ def page(mode: str, auth: dict[str, Any]):
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
         shop_category_options=state.get("shop_category_options", list(SHOP_CATEGORY_PRESETS)),
+        economy_currency_options=ECONOMY_CURRENCY_OPTIONS,
+        format_currency=dashboard_format_currency,
         xml_picker_groups=picker_groups,
         player_loadout_slots=player_loadout_slots,
         player_loadout_active_slot=player_loadout_active_slot,
@@ -26493,6 +26582,38 @@ def api_owner_billing_plan():
         {"ok": True, "plan": record, "note": "Saved billing plan."},
         "billing",
         "#billing",
+    )
+
+
+@APP.post("/api/admin/economy-settings")
+def api_economy_settings():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"guild_name": "", "channels": {}})
+    if not isinstance(config, dict):
+        config = {"guild_name": "", "channels": {}}
+        guild_configs[guild_id] = config
+    currency = normalize_economy_currency(payload.get("economy_currency") or payload.get("currency"))
+    config["economy_currency"] = currency
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    g.dashboard_audit_payload = {
+        "guild_id": guild_id,
+        "economy_currency": currency,
+    }
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "economy_currency": currency, "note": "Saved economy currency."},
+        "economy",
+        "#economy",
     )
 
 
