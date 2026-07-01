@@ -98,6 +98,7 @@ ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
 SWEAR_JAR_FILE = data_path("swear_jar.json")
+SWEAR_JAR_ENABLED = False
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
 LINKED_PLAYER_CLAIMS_FILE = data_path("linked_player_claims.json")
 LONGSHOT_RECORDS_FILE = data_path("longshot_records.json")
@@ -507,7 +508,7 @@ BOT_UPDATE_NOTES = [
         "id": "2026-05-16-pve-quest-ids",
         "title": "PVE Quest IDs and Difficulty Slots",
         "summary": "PVE quests now show a stable quest ID like `PVE-123456`. Each themed PVE feed keeps one Easy, one Medium, and one Hard quest active, and completing a quest replaces the same difficulty slot.",
-        "commands": "`/pvequests`, `/pvecomplete`, `/pvesetup`, `/pveconfig`",
+        "commands": "`/pvequests`, `/pvecomplete`, `/pverewards`",
         "audience": "Admins and PVE players",
     },
     {
@@ -577,14 +578,14 @@ BOT_UPDATE_NOTES = [
         "id": "2026-02-ai-pve-campaigns",
         "title": "AI-Generated PVE Quest Campaigns",
         "summary": "Server admins can generate fresh themed PVE quest campaigns on demand using the universal LLM key. Generated quests join the existing PVE rotation automatically and persist across restarts.",
-        "commands": "`/events generatequests theme:<idea> count:<4-40>`, `/events listcampaigns`, `/events deletecampaign campaign_id:<id>`",
+        "commands": "Dashboard quest workshop",
         "audience": "Admins and PVE players",
     },
     {
         "id": "2026-02-ai-quest-workshop",
         "title": "AI Quest Workshop — Talk-to-the-Bot Quest Design",
         "summary": "A new private admin channel called quest-workshop is now auto-created. Type plain English in there ('make me 12 winter outbreak quests', 'write a 6-part storyline about a lost convoy', 'post one in pve-expeditions every 12 hours') and the bot designs, schedules, and posts quests for you. Storylines are posted in order chapter by chapter. Schedules survive restarts.",
-        "commands": "`/events workshopsetup`, plus freestyle chat inside the new quest-workshop channel",
+        "commands": "Quest workshop channel and dashboard tools",
         "audience": "Admins",
     },
     {
@@ -4260,7 +4261,7 @@ async def showcase_handle_smart_response(message, lower, guild_id):
 
     # Leaderboard questions
     elif any(w in lower for w in ["leaderboard", "top kills", "stats", "ranking", "best player"]):
-        response = "Kill leaderboards, longshot records, and player stats are all tracked automatically from ADM logs. Try `/topkills` or `/toplongshots` to see the boards."
+        response = "Kill leaderboards, longshot records, and player stats are all tracked automatically from ADM logs. Try `/leaderboard hall` or `/leaderboard hall` to see the boards."
 
     # Heatmap questions
     elif any(w in lower for w in ["heatmap", "hot zone", "where is pvp", "where do people fight"]):
@@ -5463,16 +5464,16 @@ async def maybe_send_wandering_personality(message, now_ts):
 
 SHOWCASE_COMMAND_HINTS = [
     "💡 Have you tried `/linkgamer`? Link your Discord to your in-game name and unlock leaderboards, economy rewards, and quest tracking.",
-    "💡 Did you know `/topkills` shows a live leaderboard of PvP kills across the server? Give it a go.",
+    "💡 Did you know `/leaderboard hall` shows a live leaderboard of PvP kills across the server? Give it a go.",
     "💡 The `/wallet` command shows your penny balance. Earn pennies by chatting, completing quests, and avoiding the swear jar.",
-    "💡 Try `/pveinfo` to see active PVE quests — hunting, fishing, crafting, and expedition challenges with real rewards.",
+    "💡 Try `/pvequests` to see active PVE quests — hunting, fishing, crafting, and expedition challenges with real rewards.",
     "💡 `/shop` opens the server shop. Spend your pennies on items, perks, and more.",
     "💡 Ask me anything by mentioning me directly — I can help with bot commands, setup questions, and DayZ advice.",
     "💡 `/admstatus` shows whether the live feed reader is running and when it last processed your server logs.",
     "💡 Heatmaps post automatically in the configured heatmap channel when enough activity exists.",
-    "💡 `/radarstatus` shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
+    "💡 dashboard Zones & Radar shows all active radar zones. When a player enters a zone, the bot fires an alert automatically.",
     "💡 Mention the bot in chat for DayZ help, setup guidance, and server advice.",
-    "💡 `/toplongshots` is the sniper hall of fame — every kill over 300m gets automatically logged.",
+    "💡 `/leaderboard hall` is the sniper hall of fame — every kill over 300m gets automatically logged.",
     "💡 `/mylink` shows your linked gamertag and personal stats. Run it any time to check your progress.",
     "💡 The `/events airdrop` command lets admins spawn an airdrop loot crate anywhere on the map.",
     "💡 `/createfaction` starts your own faction. Recruit members, claim territory, and fight rival factions.",
@@ -5532,8 +5533,8 @@ SHOWCASE_QUESTION_RESPONSES = {
     ],
     # ── Commands ──────────────────────────────────────────
     "command": [
-        "🎮 Every command is documented in **#🎮✨・COMMANDS・✨🎮** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pveinfo`.",
-        "Key commands: `/setup` (admin), `/linkgamer` (everyone), `/wallet`, `/topkills`, `/pveinfo`. Full list in **#🎮✨・COMMANDS・✨🎮**.",
+        "🎮 Every command is documented in **#🎮✨・COMMANDS・✨🎮** with plain-English explanations. The most important ones are `/setup`, `/linkgamer`, and `/pvequests`.",
+        "Key commands: `/setup` (admin), `/linkgamer` (everyone), `/wallet`, `/leaderboard hall`, `/pvequests`. Full list in **#🎮✨・COMMANDS・✨🎮**.",
     ],
     "slash": [
         "🎮 I respond to 30+ slash commands! Check **#🎮✨・COMMANDS・✨🎮** for the complete guide.",
@@ -5574,13 +5575,13 @@ SHOWCASE_QUESTION_RESPONSES = {
     ],
     "kill": [
         "⚔️ Every kill gets tracked automatically — weapon, distance, location, with a map link. Use `/linkgamer` to make sure YOUR kills count on the leaderboard.",
-        "🎯 Killfeed updates live from your ADM logs. Check `/topkills` for the leaderboard!",
+        "🎯 Killfeed updates live from your ADM logs. Check `/leaderboard hall` for the leaderboard!",
     ],
     "snipe": [
-        "🎯 Longshot detector active! Every kill over 300m gets flagged automatically. Hall of fame: `/toplongshots`.",
+        "🎯 Longshot detector active! Every kill over 300m gets flagged automatically. Hall of fame: `/leaderboard hall`.",
     ],
     "longshot": [
-        "🏹 Run `/toplongshots` to see the sniper hall of fame — every kill 300m+ logged automatically from ADM.",
+        "🏹 Run `/leaderboard hall` to see the sniper hall of fame — every kill 300m+ logged automatically from ADM.",
     ],
     # ── Economy ───────────────────────────────────────────
     "economy": [
@@ -5626,39 +5627,39 @@ SHOWCASE_QUESTION_RESPONSES = {
     ],
     # ── Radar ─────────────────────────────────────────────
     "radar": [
-        "📡 Radar zones alert your team when a player enters a defined coordinate area. Set one up with `/addradarzone` and choose a channel with `/setradarchannel`.",
+        "📡 Radar zones alert your team when a player enters a defined coordinate area. Set one up with dashboard Zones & Radar and choose a channel with dashboard feed routing.",
     ],
     # ── PVE / quests ──────────────────────────────────────
     "pve": [
-        "🧭 The PVE quest system posts rotating challenges — hunting, fishing, crafting, collection, and expeditions — and tracks completions via ADM logs. See `/pveinfo` for active quests.",
+        "🧭 The PVE quest system posts rotating challenges — hunting, fishing, crafting, collection, and expeditions — and tracks completions via ADM logs. See `/pvequests` for active quests.",
     ],
     "quest": [
-        "🧭 PVE quests are live! Use `/pveinfo` to see active missions and `/linkgamer` to make sure rewards reach you.",
+        "🧭 PVE quests are live! Use `/pvequests` to see active missions and `/linkgamer` to make sure rewards reach you.",
     ],
     "mission": [
-        "🎯 Missions = PVE quests. `/pveinfo` shows what's active right now.",
+        "🎯 Missions = PVE quests. `/pvequests` shows what's active right now.",
     ],
     "reward": [
         "🎁 Rewards from PVE quests are paid in pennies straight to your `/wallet` once an admin verifies completion.",
     ],
     "fish": [
-        "🎣 Fishing quests are part of the PVE system — `/pveinfo` to see if one's active.",
+        "🎣 Fishing quests are part of the PVE system — `/pvequests` to see if one's active.",
     ],
     "hunt": [
-        "🦌 Hunting quests rotate in the PVE chain. Check `/pveinfo` for active ones.",
+        "🦌 Hunting quests rotate in the PVE chain. Check `/pvequests` for active ones.",
     ],
     # ── Leaderboards / stats ──────────────────────────────
     "leaderboard": [
-        "🏆 `/topkills` for the kill leaderboard, `/toplongshots` for snipers. Updates in real-time from ADM logs.",
+        "🏆 `/leaderboard hall` for the kill leaderboard, `/leaderboard hall` for snipers. Updates in real-time from ADM logs.",
     ],
     "ranking": [
-        "📊 Live rankings via `/topkills` and `/toplongshots`. Link your gamertag first with `/linkgamer` so your kills count.",
+        "📊 Live rankings via `/leaderboard hall` and `/leaderboard hall`. Link your gamertag first with `/linkgamer` so your kills count.",
     ],
     "stats": [
         "📈 Full player stats: kills, deaths, K/D, longshots, session time, zombie kills. All from ADM. Try `/mylink` for yours.",
     ],
     "top": [
-        "👑 Try `/topkills` or `/toplongshots` to see who's on top.",
+        "👑 Try `/leaderboard hall` or `/leaderboard hall` to see who's on top.",
     ],
     # ── Translation ───────────────────────────────────────
     "translate": [
@@ -5672,7 +5673,7 @@ SHOWCASE_QUESTION_RESPONSES = {
         "✅ The online dashboard updates live as players connect/disconnect. Self-cleaning so chat never gets spammed.",
     ],
     "players": [
-        "🎮 Player tracking is automatic. `/topkills`, `/toplongshots`, `/mylink` — all live from ADM.",
+        "🎮 Player tracking is automatic. `/leaderboard hall`, `/playercard`, `/mylink` — all live from ADM.",
     ],
     # ── Welcome / first impressions ───────────────────────
     "welcome": [
@@ -5718,7 +5719,7 @@ SHOWCASE_QUESTION_RESPONSES = {
         "📡 If desync hits, slow down. Use `/admstatus` to check whether the bot is still receiving log updates.",
     ],
     "dead": [
-        "💀 DayZ teaches lessons the painful way. Check `/toplongshots` to see who's been doing the teaching.",
+        "💀 DayZ teaches lessons the painful way. Check `/leaderboard hall` to see who's been doing the teaching.",
     ],
 }
 
@@ -7014,11 +7015,11 @@ async def _seed_pve_help_guides(guild, config, pve_help_channel):
             help_embed.add_field(
                 name="1. Quick — Slash Commands",
                 value=(
-                    "**`/events generatequests theme:<your idea> count:<4-40>`**\n"
+                    "**the dashboard quest workshop**\n"
                     "AI builds a themed campaign and adds it to the PVE quest pool.\n\n"
-                    "**`/events listcampaigns`** — see saved campaigns.\n"
-                    "**`/events deletecampaign campaign_id:<id>`** — remove one.\n"
-                    "**`/events workshopsetup`** — re-create the workshop channel."
+                    "**the dashboard quest workshop** — see saved campaigns.\n"
+                    "**the dashboard quest workshop** — remove one.\n"
+                    "**the dashboard quest workshop** — re-create the workshop channel."
                 ),
                 inline=False,
             )
@@ -10218,7 +10219,7 @@ async def workshop_post_one_quest_to_channel(guild, config, channel_key, quest, 
         if not server_allows_pve(config):
             return False, "PVE is disabled for this server mode."
         if is_channel_key_disabled(config, channel_key):
-            return False, f"Target channel `{channel_key}` was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
+            return False, f"Target channel `{channel_key}` was deleted by an owner. Use the dashboard PVE channel restore tools or restore the PVE channel pack to recreate it."
         # Auto-create the PVE channel set if missing.
         await ensure_pve_channels(guild, config)
         target = guild.get_channel(channels.get(channel_key))
@@ -14725,8 +14726,8 @@ async def setup_command(
                 "`/online` - current tracked survivors online\n"
                 "`/serverstatus` - bot and tracking status\n"
                 "`/map` - admin-only live survivor map using latest ADM positions\n"
-                "`/topkills` - kill leaderboard\n"
-                "`/toplongshots` - global longshot leaderboard\n"
+                "`/leaderboard hall` - kill leaderboard\n"
+                "`/leaderboard hall` - global longshot leaderboard\n"
                 "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
                 "`/setservermap` and `/setheatmapimage` - choose map scale and real map artwork\n"
                 "Auto channels: killfeed, raids, building, zombie-feed, unconscious-feed, online, leaderboards, heatmap"
@@ -14740,8 +14741,8 @@ async def setup_command(
                 "Railway cannot use Windows paths like `C:\\Users\\...`. If heatmaps show the drawn fallback map, set public map URLs:\n"
                 "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
                 "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
-                "Sakhal has a bundled map image. Use `/uploadmapimage map_name: sakhal` only if you want to replace it.\n"
-                "Use `/mapimagestatus` after setting or uploading a map."
+                "Sakhal has a bundled map image. Use the dashboard map-image tools only if you want to replace it.\n"
+                "Use the dashboard map status after setting or uploading a map."
             ),
             inline=False
         )
@@ -14759,7 +14760,7 @@ async def setup_command(
                 "`/cheatchecksetup` - create the private PC cheat-check evidence feed\n"
                 "`/purge amount` - clear recent messages\n"
                 "`/purgeuser member amount` - clear a member's messages\n"
-                "`/tools purgebots amount` - clear bot messages\n"
+                "`/purge amount` - clear bot messages\n"
                 "`/tools giverole` and `/tools removerole` - manage Discord roles\n"
                 "`/tools channelstatus` - see channels kept deleted\n"
                 "`/tools channelpacks` - see restore groups\n"
@@ -14779,9 +14780,8 @@ async def setup_command(
                 "`/listrestarts` - show restart schedule\n"
                 "`/botupdates` - create/repair the public bot updates feed and post missing notes\n"
                 "`/togglebasedamage state` - log base damage state\n"
-                "`/setradarchannel channel` - choose radar channel\n"
-                "`/radarping x y reason` - send a manual map ping\n"
-                "`/addradarzone` - alert staff when non-ignored gamertags enter an area\n"
+                "Dashboard Zones & Radar - choose radar channels, alerts and ignored gamertags\n"
+                "Dashboard map tools - send or review radar pings\n"
                 "`/forcelinkgamer` - admin override when ADM linking cannot find a player"
             ),
             inline=False
@@ -19759,6 +19759,8 @@ async def on_message(message):
         word for word in SWEAR_WORDS
         if word in lower
     ]
+    if not SWEAR_JAR_ENABLED:
+        found_words = []
 
     if found_words:
 
@@ -20353,7 +20355,7 @@ async def helpme(ctx):
             "`/leaderboard hall` — 🏅 all-time Hall of Fame for this server\n"
             "`/leaderboard challenges` — 🎯 today's daily challenge + progress\n"
             "`/leaderboard refresh / unset` — admin\n"
-            "`/topkills`, `/toplongshots`, `/online`"
+            "`/leaderboard hall`, `/playercard`, `/online`"
         ),
         inline=False,
     )
@@ -20415,7 +20417,7 @@ async def helpme(ctx):
             "`/serverstatus` - bot status\n"
             "`/map` - admin-only live survivor map\n"
             "`/backfilladmstats` - add up to 14 days of ADM history into leaderboard stats\n"
-            "`/topkills`, `/toplongshots`"
+            "`/leaderboard hall`, `/playercard`"
         ),
         inline=False
     )
@@ -20426,8 +20428,8 @@ async def helpme(ctx):
             "If heatmaps use the drawn fallback map, Railway probably cannot read a Windows file path. Use public map URLs:\n"
             "`/setheatmapimage map_name: chernarus image_source: https://i.redd.it/a2mn8bzx93gd1.jpeg`\n"
             "`/setheatmapimage map_name: livonia image_source: https://i.imgur.com/nzEp9wF.jpeg`\n"
-            "Sakhal has a bundled map image, or you can replace it with `/uploadmapimage map_name: sakhal`.\n"
-            "Then check `/mapimagestatus`."
+            "Sakhal has a bundled map image, or you can replace it with the dashboard map-image tools.\n"
+            "Then check the dashboard map status."
         ),
         inline=False
     )
@@ -20442,7 +20444,7 @@ async def helpme(ctx):
             "`/cheatchecksetup`, `/cheatcheckstatus`\n"
             "`/purge amount`\n"
             "`/purgeuser member amount`\n"
-            "`/tools purgebots amount`\n"
+            "`/purge amount`\n"
             "`/tools giverole member role`, `/tools removerole member role`\n"
             "`/tools channelstatus`, `/tools channelpacks`\n"
             "`/tools restorechannels channel_key`, `/tools restorechannelpack pack`\n"
@@ -20460,8 +20462,8 @@ async def helpme(ctx):
             "`/timezone timezone` - set local server time for ADM logs and restarts\n"
             "`/server setrestartinterval hours`, `/server setrestartstart hour`, `/server listrestarts`\n"
             "`/tools reloadguilds`\n"
-            "`/setradarchannel channel`, `/radarping x y reason`\n"
-            "`/addradarzone`, `/radarstatus`, `/forcelinkgamer`\n"
+            "Dashboard Zones & Radar - channel routing, radar pings, ignored players\n"
+            "`/forcelinkgamer` - admin override when ADM linking cannot find a player\n"
             "`/setdayzmessages` - owner-only in-game message XML upload\n"
             "`/botupdates`"
         ),
@@ -20491,7 +20493,7 @@ async def helpme(ctx):
             "`/addshopitem item_name price category`\n"
             "`/editshopitem item_name price category`\n"
             "`/toggleshopitem item_name`, `/removeshopitem item_name`\n"
-            "`/givepennies member amount`, `/tools shopcategories`, `/tools swearjar`"
+            "`/givepennies member amount`, `/tools shopcategories`, `/wallet`"
         ),
         inline=False
     )
@@ -26396,7 +26398,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     quest_channel = bot.get_channel(channels.get("pve_quests"))
     if not quest_channel:
         if is_channel_key_disabled(config, "pve_quests"):
-            return False, "PVE quest channel was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
+            return False, "PVE quest channel was deleted by an owner. Use the dashboard PVE channel restore tools or restore the PVE channel pack to recreate it."
         created = await ensure_pve_channels(guild, config)
         quest_channel = created.get("pve_quests")
 
@@ -26490,7 +26492,7 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     if not channel_key:
         return False, f"No themed PVE channel for {kind}"
     if is_channel_key_disabled(config, channel_key):
-        return False, f"PVE channel `{channel_key}` was deleted by an owner. Run `/pvesetup` or restore the PVE channel pack to recreate it."
+        return False, f"PVE channel `{channel_key}` was deleted by an owner. Use the dashboard PVE channel restore tools or restore the PVE channel pack to recreate it."
 
     difficulty = str(difficulty or random.choice(PVE_SLOT_DIFFICULTIES)).title()
 
@@ -26926,7 +26928,7 @@ async def pvesetup(interaction: discord.Interaction):
         )
         embed.add_field(name="Quest Slots", value="Each themed channel keeps one Easy, one Medium, and one Hard quest active.", inline=False)
         embed.add_field(name="Auto Replacement", value="When staff approves a quest ID with `/pvecomplete`, I post the next random quest for that same difficulty.", inline=False)
-        embed.add_field(name="Admin Controls", value="Use `/pvequests`, `/pvecomplete quest_id:PVE-123456`, and `/pveconfig` to manage the board.", inline=False)
+        embed.add_field(name="Admin Controls", value="Use `/pvequests`, `/pvecomplete quest_id:PVE-123456`, and `/pverewards` to manage the board.", inline=False)
         embed.set_thumbnail(url=BOT_IMAGE)
         await info_channel.send(embed=style_embed(embed))
 
@@ -40886,7 +40888,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
             "`/setup` — Connect your Nitrado server, FTP credentials, and Discord channels in one go.\n"
             "`/admstatus` — Check whether the ADM log reader is running and when it last processed events.\n"
             "`/restartadm` — Restart the ADM reader. Use `force` after initial setup.\n"
-            "`/mapimagestatus` — See which map images are loaded and upload custom art.\n"
+            "the dashboard map status — See which map images are loaded and upload custom art.\n"
             "`/setdayzmessages` — Push custom in-game server messages to your DayZ server."
         ),
         inline=False
@@ -40894,10 +40896,10 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="📡 Live Feeds & Radar",
         value=(
-            "`/radarstatus` — View active radar zones and their trigger settings.\n"
-            "`/setradarchannel` — Choose which channel receives radar alerts.\n"
-            "`/addradarzone` — Create a named coordinate zone that alerts when players enter.\n"
-            "`/removeradarzone` — Delete a radar zone by ID."
+            "dashboard Zones & Radar — View active radar zones and their trigger settings.\n"
+            "dashboard feed routing — Choose which channel receives radar alerts.\n"
+            "dashboard Zones & Radar — Create a named coordinate zone that alerts when players enter.\n"
+            "dashboard Zones & Radar — Delete a radar zone by ID."
         ),
         inline=False
     )
@@ -40908,8 +40910,8 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
             "`/linkgamer account:Alt` — Link one extra alt gamertag to the same Discord account.\n"
             "`/mylink` — Check which gamertag your Discord is linked to.\n"
             "`/forcelinkgamer` — Admin: manually link any member to a gamertag.\n"
-            "`/topkills` — Leaderboard of top PvP killers on the server.\n"
-            "`/toplongshots` — Leaderboard of the longest confirmed kills."
+            "`/leaderboard hall` — Leaderboard of top PvP killers on the server.\n"
+            "`/leaderboard hall` — Leaderboard of the longest confirmed kills."
         ),
         inline=False
     )
@@ -40926,9 +40928,9 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="🧭 PVE & Quests",
         value=(
-            "`/pveinfo` — See active PVE quests and how to complete them.\n"
+            "`/pvequests` — See active PVE quests and how to complete them.\n"
             "`/pvecomplete` — Admin: mark a quest as completed for a player.\n"
-            "`/pveconfig` — Admin: enable/disable PVE and set quest intervals."
+            "`/pverewards` — Admin: enable/disable PVE and set quest intervals."
         ),
         inline=False
     )
@@ -41183,7 +41185,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
     embed.add_field(
         name="Step 3 — Upload Your Map Image",
         value=(
-            "Run `/mapimagestatus` to check the current map. "
+            "Run the dashboard map status to check the current map. "
             "Upload a high-quality map image for accurate heatmap rendering."
         ),
         inline=False
@@ -42105,14 +42107,14 @@ async def addradarzone(
     save_guild_configs()
     radar_note = ""
     if not alert_channel and not config.get("channels", {}).get("radar"):
-        radar_note = " Set a default radar channel with `/setradarchannel` or pass `alert_channel:` next time — otherwise this zone has nowhere to post."
+        radar_note = " Set a default radar channel with dashboard feed routing or pass `alert_channel:` next time — otherwise this zone has nowhere to post."
     ignore_note = f" Ignoring: `{', '.join(ignored)}`." if ignored else ""
     channel_note = f" Alerts will post in {alert_channel.mention}." if alert_channel else ""
     role_note = f" Will ping {mention_role.mention} on trigger." if mention_role else ""
     await interaction.response.send_message(
         f"✅ Radar zone created — **🆔 `{next_id}`** at `({x}, {y})` with `{radius}m` radius.\n"
         f"Use **`{next_id}`** as the `zone_id` for `/tools editradarzone`, `/togglepingradarzone`, "
-        f"`/addradarignore`, `/removeradarzone`."
+        f"dashboard Zones & Radar, dashboard Zones & Radar."
         f"{channel_note}{role_note}{ignore_note}{radar_note}",
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
@@ -42191,7 +42193,7 @@ async def radarstatus(interaction: discord.Interaction):
     )
     embed.add_field(
         name="Radar Channel",
-        value=radar_channel.mention if radar_channel else "Not set. Use `/setradarchannel`.",
+        value=radar_channel.mention if radar_channel else "Not set. Use dashboard feed routing.",
         inline=False
     )
     embed.add_field(name="Zones", value=f"{len(enabled_zones)} enabled / {len(zones)} total", inline=True)
@@ -42409,7 +42411,7 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
 
     warning = ""
     if not image_source.startswith(("http://", "https://")) and not os.path.exists(image_source):
-        warning = "\nWarning: that file path is not visible from this bot process, so upload the image with `/uploadmapimage` instead."
+        warning = "\nWarning: that file path is not visible from this bot process, so use the dashboard map-image tools instead."
 
     await interaction.response.send_message(
         f"Heatmap image for `{wanted}` set. The next heatmap refresh will draw heat over that image.{warning}",
@@ -42499,7 +42501,7 @@ async def mapimagestatus(interaction: discord.Interaction):
         value=(
             "Run `/setservermap map_name:livonia` or choose the map during `/setup`. "
             "The bot now checks uploaded map images, bundled `livonia_map.jpg` / `chernarus_map.jpg`, cached maps, then the remote URL last. "
-            "If remote images are rate-limited, upload once with `/uploadmapimage` and it will stay local."
+            "If remote images are rate-limited, use the dashboard map-image tools to store a local copy."
         ),
         inline=False
     )
@@ -42557,7 +42559,7 @@ async def maybe_save_map_image_from_message(message, lower):
     save_guild_configs()
 
     await message.channel.send(
-        f"Saved `{wanted}` map image. Heatmaps and `/map` will use it on the next render. Run `/mapimagestatus` if you want to check it."
+        f"Saved `{wanted}` map image. Heatmaps and `/map` will use it on the next render. Run the dashboard map status if you want to check it."
     )
     return True
 
@@ -42963,7 +42965,7 @@ async def findinitc(interaction: discord.Interaction, ftp_host: str = ""):
                 "That usually means the FTP/API listing is hanging or very slow. "
                 "Try `/installdayzbridge install:false init_path:/dayzxb_missions/dayzOffline.enoch/init.c ftp_host:"
                 f"{config.get('ftp_host') or '<your Nitrado FTP host>'}` if you know the exact mission path, "
-                "or use `/events bridgecode` for the manual install snippet."
+                "or use the dashboard XML Workshop bridge/export tools for the manual install snippet."
             ),
             ephemeral=True
         )
@@ -43138,7 +43140,7 @@ async def installdayzbridge(
                 value=(
                     "1. Paste the attached bridge functions above `void main()` in your mission `init.c`.\n"
                     "2. Add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end.\n"
-                    "3. Restart the DayZ server. Run `/events bridgecode` any time to export this again."
+                    "3. Restart the DayZ server. Run the dashboard XML Workshop bridge/export tools any time to export this again."
                 ),
                 inline=False
             )
@@ -43196,7 +43198,7 @@ async def installdayzbridge(
                 name="What This Means",
                 value=(
                     "The bot cannot auto-patch the bridge unless the mission `init.c` is downloadable by this Nitrado account. "
-                    "Use `/events uploadce` for console-safe XML events. Use `/events bridgecode` only if you can edit `init.c` manually "
+                    "Use `/events uploadce` for console-safe XML events. Use the dashboard XML Workshop bridge/export tools only if you can edit `init.c` manually "
                     "and specifically need bridge-only hard reset/delete behavior."
                 ),
                 inline=False
@@ -43293,7 +43295,7 @@ async def installdayzbridge(
         embed.add_field(
             name="Manual Option",
             value=(
-                "Run `/events uploadce` for the bridge-free XML route. Run `/events bridgecode` only if you can edit `init.c` manually "
+                "Run `/events uploadce` for the bridge-free XML route. Run the dashboard XML Workshop bridge/export tools only if you can edit `init.c` manually "
                 "and need bridge-only hard reset/delete behavior."
             ),
             inline=False
@@ -44757,7 +44759,7 @@ async def event_delete_campaign(interaction: discord.Interaction, campaign_id: s
     cid = (campaign_id or "").strip()
     if not cid or cid not in guild_block:
         await interaction.response.send_message(
-            "Campaign not found. Use `/events listcampaigns` to see valid IDs.",
+            "Campaign not found. Use the dashboard quest workshop to see valid IDs.",
             ephemeral=True,
         )
         return
@@ -44823,7 +44825,7 @@ async def event_unlock_chain(interaction: discord.Interaction, campaign_id: str,
     campaign = campaign_block.get(campaign_id)
     if not campaign:
         await interaction.response.send_message(
-            f"No campaign `{campaign_id}`. Run `/events listcampaigns`.", ephemeral=True
+            f"No campaign `{campaign_id}`. Run the dashboard quest workshop.", ephemeral=True
         )
         return
 
@@ -46776,7 +46778,7 @@ def build_player_card_embed(guild_id, player_name):
         )
         embed.add_field(
             name=f"🏆 Achievements ({len(unlocked)}/{len(ACHIEVEMENT_DEFS)})",
-            value=badges + f"\n*Hover/tap emoji or run `/whoami` to inspect.*",
+            value=badges + "\n*Hover/tap emoji for details.*",
             inline=False,
         )
 
@@ -49659,9 +49661,85 @@ async def slash_resetvehicles(interaction: discord.Interaction):
 # =========================================================
 
 # Do not copy an old inline init.c snippet from this source file.
-# Use `/events bridgecode` or `/installdayzbridge install:true` so Nitrado gets
+# Use the dashboard XML Workshop bridge/export tools so Nitrado gets
 # the current v5 bridge that understands item deliveries, airdrops, animal
 # packs, vehicle spawns, and vehicle reset actions.
+
+HIDDEN_TOP_LEVEL_SLASH_COMMANDS = {
+    # PVE is now kept to the three player/admin commands owners actually use.
+    "pvesetup",
+    "pveconfig",
+    "pvequestnow",
+    "pveguide",
+    "pveinfo",
+    # Radar setup belongs in the dashboard.
+    "addradarzone",
+    "listradarzones",
+    "radarstatus",
+    "addradarignore",
+    "removeradarignore",
+    "removeradarzone",
+    "setradarchannel",
+    "radarping",
+    # Map images are selected during setup/dashboard map tools.
+    "uploadmapimage",
+    "mapimagestatus",
+    # Leaderboard pages cover these.
+    "toplongshots",
+    "topkills",
+    # Avoid a confusing duplicate identity command.
+    "whoami",
+}
+
+HIDDEN_SLASH_GROUPS = {
+    "console",
+}
+
+HIDDEN_GROUP_SUBCOMMANDS = {
+    "events": {
+        "create",
+        "vehiclereset",
+        "reference",
+        "bridgecode",
+        "generatequests",
+        "listcampaigns",
+        "deletecampaign",
+        "workshopsetup",
+        "unlockchain",
+    },
+    "tools": {
+        "editradarzone",
+        "swearjar",
+        "purgebots",
+        "spectator",
+    },
+}
+
+
+def prune_public_slash_commands():
+    """Hide legacy/dashboard-only slash commands before Discord sync."""
+    hidden = []
+    for command_name in sorted(HIDDEN_TOP_LEVEL_SLASH_COMMANDS):
+        if bot.tree.remove_command(command_name) is not None:
+            hidden.append(f"/{command_name}")
+
+    for group_name in sorted(HIDDEN_SLASH_GROUPS):
+        if bot.tree.remove_command(group_name) is not None:
+            hidden.append(f"/{group_name}")
+
+    for group_name, subcommands in HIDDEN_GROUP_SUBCOMMANDS.items():
+        group = bot.tree.get_command(group_name)
+        if not group or not hasattr(group, "remove_command"):
+            continue
+        for subcommand_name in sorted(subcommands):
+            if group.remove_command(subcommand_name) is not None:
+                hidden.append(f"/{group_name} {subcommand_name}")
+
+    if hidden:
+        print("HIDDEN LEGACY SLASH COMMANDS: " + ", ".join(hidden))
+
+
+prune_public_slash_commands()
 
 # =========================================================
 # READY

@@ -645,18 +645,18 @@ FILES = {
 
 DASHBOARD_FEATURE_LABELS = {
     "leaderboards": "Leaderboards",
-    "economy": "Economy",
+    "economy": "Money & economy",
     "factions": "Factions",
-    "embeds": "Embeds & welcome",
-    "safe_zones": "Radar / zones",
+    "embeds": "Discord setup",
+    "safe_zones": "Zones & radar",
     "members": "Member actions",
-    "heatmaps": "Heatmaps",
-    "pve_quests": "Live events / airdrops",
-    "quest_workshop": "PVE workshop",
+    "heatmaps": "Map & heatmaps",
+    "pve_quests": "Airdrops & events",
+    "quest_workshop": "Quest workshop",
     "shop": "Shop control",
-    "xml_workshop": "XML workshop",
+    "xml_workshop": "XML & loadouts",
     "server_rules": "Server rules",
-    "server_control": "Server control",
+    "server_control": "Server controls",
     "wages": "Economy wages",
     "moderation": "Moderation tools",
     "ai_agent": "AI development agent",
@@ -3467,18 +3467,18 @@ PAGE_TEMPLATE = """
       {% if auth.kind == "agent_account" %}
       <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
       {% else %}
-      <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
-      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
-      {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
-      {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Map</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
-      {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
-      {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
+      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Setup</a>
+      {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Airdrops & Events</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
+      {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
+      {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="{{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
-      {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Console</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
+      {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Controls</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% endif %}
@@ -3486,9 +3486,9 @@ PAGE_TEMPLATE = """
     {% if auth.kind != "agent_account" %}
     <div class="command-quick">
       <span>Quick actions</span>
-      {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Queue Event</a>{% endif %}
-      {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Create Zone</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">Upload XML</a>{% endif %}
+      {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Create Event</a>{% endif %}
+      {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">XML Tools</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=server-control{{ server_qs }}">Restart Server</a>{% endif %}
     </div>
     {% endif %}
@@ -3500,7 +3500,7 @@ PAGE_TEMPLATE = """
         <p class="command-title-mark">Wandering Bot</p>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ 'AI Development Agent' if auth.kind == 'agent_account' else view_title }}</h1>
-        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Login when you manage more than one.{% endif %}</p>
+        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Setup when you manage more than one.{% endif %}</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -3575,27 +3575,27 @@ PAGE_TEMPLATE = """
 
     {% if auth.kind != "agent_account" %}
     <section class="section-nav" aria-label="Dashboard sections">
-      <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Overview</a>
+      <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
-      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Login</a>
+      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Setup</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      {% if section_allowed('automations') %}<a class="tab-link {{ 'active' if active_section == 'automations' else '' }}" href="/admin?section=automations{{ server_qs }}">Embeds & Welcome</a>{% endif %}
+      {% if section_allowed('automations') %}<a class="tab-link {{ 'active' if active_section == 'automations' else '' }}" href="/admin?section=automations{{ server_qs }}">Discord Setup</a>{% endif %}
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
-      {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
-      {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Heatmaps</a>{% endif %}
-      {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Live Events</a>{% endif %}
-      {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Economy</a>{% endif %}
-      {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Manage Shop</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML Workshop</a>{% endif %}
+      {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Map & Heatmaps</a>{% endif %}
+      {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Airdrops & Events</a>{% endif %}
+      {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
+      {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
-      {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Engine</a>{% endif %}
-      {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk Economy</a>{% endif %}
+      {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Balancer</a>{% endif %}
+      {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk XML Edit</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
-      <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help</a>
+      <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
@@ -3604,27 +3604,27 @@ PAGE_TEMPLATE = """
       <label>
         Jump to section
         <select onchange="if (this.value) window.location.href = this.value;">
-          <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Overview</option>
+          <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
-          <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Servers & Login</option>
+          <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Servers & Setup</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
-          {% if section_allowed('automations') %}<option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Embeds & Welcome</option>{% endif %}
+          {% if section_allowed('automations') %}<option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Discord Setup</option>{% endif %}
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
-          {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones</option>{% endif %}
+          {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
-          {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Heatmaps</option>{% endif %}
-          {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Live Events</option>{% endif %}
-          {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Economy</option>{% endif %}
-          {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Manage Shop</option>{% endif %}
-          {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML Workshop</option>{% endif %}
+          {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Map & Heatmaps</option>{% endif %}
+          {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Airdrops & Events</option>{% endif %}
+          {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Money & Economy</option>{% endif %}
+          {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Shop Items</option>{% endif %}
+          {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
           {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
-          {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Engine</option>{% endif %}
-          {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk Economy</option>{% endif %}
+          {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Balancer</option>{% endif %}
+          {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk XML Edit</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
-          <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help</option>
+          <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
@@ -3790,26 +3790,45 @@ PAGE_TEMPLATE = """
         </article>
       </div>
     </section>
+    <section class="section-panel" id="where-to-go">
+      <div class="section-head">
+        <div>
+          <h2>Where Do I Go?</h2>
+          <p class="tool-note">Pick the job you are trying to do. These shortcuts take you straight to the right page for the selected server.</p>
+        </div>
+      </div>
+      <div class="category-grid" aria-label="Common dashboard jobs">
+        <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Connect a server</strong><span>Use Servers & Setup for Nitrado login, map, platform and dashboard access.</span></a>
+        <a class="category-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
+        <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>Edit XML or loadouts</strong><span>Use XML & Loadouts for player spawns, bags, vehicles, map converter and safe XML output.</span></a>
+        <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Balance loot</strong><span>Use Loot Balancer to boost or reduce types.xml categories with previews.</span></a>
+        <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
+        <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
+        <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Server Controls for restarts, base damage and container damage schedules.</span></a>
+        <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
+      </div>
+    </section>
+
     <section class="category-grid" aria-label="Main categories">
-      <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboard</strong><span>Live kills, deaths, builds and rankings.</span></a>
-      <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Embeds & Welcome</strong><span>Auto messages, welcomes and reaction roles.</span></a>
+      <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboards</strong><span>Live kills, deaths, builds and rankings.</span></a>
+      <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Discord Setup</strong><span>Auto messages, welcomes and reaction roles.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
-      <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
+      <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
-      <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
-      <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Manage Shop</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
-      <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML Workshop</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
+      <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Money & Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
+      <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Shop Items</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML & Loadouts</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=dayz-converter{{ server_qs }}"><strong>Map Converter</strong><span>Turn DayZ Editor JSON into events, spawns and event group XML snippets.</span></a>
-      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Engine</strong><span>Boost or reduce types.xml categories with preview, stats and output.</span></a>
+      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Balancer</strong><span>Boost or reduce types.xml categories with preview, stats and output.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
-      <a class="category-link" href="/admin?section=bulk-economy{{ server_qs }}"><strong>Bulk Economy</strong><span>Batch-edit types.xml counts and lifetimes with validation.</span></a>
+      <a class="category-link" href="/admin?section=bulk-economy{{ server_qs }}"><strong>Bulk XML Edit</strong><span>Batch-edit types.xml counts and lifetimes with validation.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
-      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Control</strong><span>Restart schedules and base/container damage toggles.</span></a>
-      <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}"><strong>Live Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
-      <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
-      <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
-      <a class="category-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}"><strong>Servers & Login</strong><span>Switch server, link another server, or change dashboard login.</span></a>
+      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Controls</strong><span>Restart schedules and base/container damage toggles.</span></a>
+      <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
+      <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
+      <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help & Guides</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
+      <a class="category-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}"><strong>Servers & Setup</strong><span>Switch server, link another server, or change dashboard login.</span></a>
     </section>
     {% endif %}
 
@@ -20805,26 +20824,26 @@ VALID_DASHBOARD_THEMES = {
 }
 
 COMMAND_SECTION_META = {
-    "overview": {"kicker": "Operations", "title": "Command Overview", "body": "Live server state, active events, zones, economy and loadout readiness in one control room."},
+    "overview": {"kicker": "Start", "title": "Start Here", "body": "Live server state plus plain shortcuts for the jobs admins need most."},
     "leaderboards": {"kicker": "Progression", "title": "Leaderboards", "body": "Review player rankings, activity totals and competitive server stats."},
-    "automations": {"kicker": "Comms", "title": "Embeds & Welcome", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
+    "automations": {"kicker": "Discord", "title": "Discord Setup", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
     "factions": {"kicker": "Groups", "title": "Factions", "body": "Manage faction records, balances, wages and server-linked group data."},
-    "zones": {"kicker": "Territory", "title": "Zones & Map", "body": "Draft radar, safe and PVP zones with map-first editing and coordinate readouts."},
+    "zones": {"kicker": "Territory", "title": "Zones & Radar", "body": "Draft radar, safe and PVP zones with map-first editing and coordinate readouts."},
     "members": {"kicker": "Roster", "title": "Members", "body": "Inspect linked members, wallet state, faction status and dashboard-facing player data."},
-    "heatmaps": {"kicker": "Intel", "title": "Heatmaps", "body": "Read activity hotspots and movement signals from your server logs."},
-    "pve": {"kicker": "Live Ops", "title": "PVE Workshop", "body": "Queue, upload and track airdrops, hordes, animal packs, vehicles and CE XML event scenes."},
-    "economy": {"kicker": "Banking", "title": "Economy", "body": "Control private money, faction treasury tools and transfer records."},
-    "shop": {"kicker": "Trading", "title": "Manage Shop", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
-    "xml-workshop": {"kicker": "Files", "title": "XML Workshop", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
+    "heatmaps": {"kicker": "Intel", "title": "Map & Heatmaps", "body": "Read activity hotspots and movement signals from your server logs."},
+    "pve": {"kicker": "Live Ops", "title": "Airdrops & Events", "body": "Queue, upload and track airdrops, hordes, animal packs, vehicles and CE XML event scenes."},
+    "economy": {"kicker": "Banking", "title": "Money & Economy", "body": "Control private money, faction treasury tools and transfer records."},
+    "shop": {"kicker": "Trading", "title": "Shop Items", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
+    "xml-workshop": {"kicker": "Files", "title": "XML & Loadouts", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
-    "loot-engine": {"kicker": "Loot", "title": "Loot Engine", "body": "Build curated loot pools, container cargo and pristine item templates."},
+    "loot-engine": {"kicker": "Loot", "title": "Loot Balancer", "body": "Build curated loot pools, container cargo and pristine item templates."},
     "visual-loadout": {"kicker": "Spawn Gear", "title": "Visual Loadout", "body": "Assemble player loadouts with body slots, cargo, child attachments and exportable server files."},
-    "bulk-economy": {"kicker": "Economy", "title": "Bulk Economy", "body": "Run wider economy edits and batch wallet or faction updates."},
+    "bulk-economy": {"kicker": "XML", "title": "Bulk XML Edit", "body": "Run wider economy edits and batch wallet or faction updates."},
     "server-rules": {"kicker": "Rules", "title": "Server Rules", "body": "Publish and maintain server rules for players and Discord panels."},
     "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
-    "server-control": {"kicker": "Console", "title": "Server Control", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
-    "help": {"kicker": "Guide", "title": "Help", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
-    "access": {"kicker": "Servers", "title": "Servers & Login", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
+    "server-control": {"kicker": "Console", "title": "Server Controls", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
+    "help": {"kicker": "Guide", "title": "Help & Guides", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
+    "access": {"kicker": "Servers", "title": "Servers & Setup", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
     "billing": {"kicker": "Owner", "title": "Plans & Billing", "body": "Define dashboard tiers, enabled features, checkout links and owner-only subscription controls."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
     "ai-agent": {"kicker": "Private AI", "title": "AI Development Agent", "body": "Owner-controlled software engineering workspace with planning, approval gates, sandbox intent, audit logs and God Mode locked off by default."},
