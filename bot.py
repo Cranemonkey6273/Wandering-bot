@@ -45693,7 +45693,13 @@ def validate_gamble_bet(settings, wallet_record, bet):
     return bet, ""
 
 
-@bot.tree.command(name="slots", description="Bet cash on a slot-machine roll")
+economy_group = app_commands.Group(
+    name="economy",
+    description="Wallet games and economy settings",
+)
+
+
+@economy_group.command(name="slots", description="Bet cash on a slot-machine roll")
 @app_commands.describe(bet="Cash amount to bet")
 async def slash_slots(interaction: discord.Interaction, bet: int):
     guild_id = str(interaction.guild.id)
@@ -45747,7 +45753,7 @@ async def slash_slots(interaction: discord.Interaction, bet: int):
     )
 
 
-@bot.tree.command(name="hilo", description="Bet cash on high or low")
+@economy_group.command(name="hilo", description="Bet cash on high or low")
 @app_commands.describe(bet="Cash amount to bet", choice="High wins on 8-13, low wins on 1-6. Seven is house.")
 @app_commands.choices(
     choice=[
@@ -45802,7 +45808,7 @@ async def slash_hilo(interaction: discord.Interaction, bet: int, choice: str):
     )
 
 
-@bot.tree.command(name="economyconfig", description="Admin: configure work, steal and gambling economy commands")
+@economy_group.command(name="config", description="Admin: configure work, steal and gambling economy commands")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     work_enabled="Turn /work on or off",
@@ -45940,7 +45946,7 @@ def resolve_faction_for_command(interaction, faction_name=""):
     return display_name, faction, ""
 
 
-@bot.tree.command(name="factionsteal", description="Try to steal cash from another faction treasury")
+@economy_group.command(name="factionsteal", description="Try to steal cash from another faction treasury")
 @app_commands.describe(
     from_faction="Your faction treasury to use; leave blank if you only manage one",
     target_faction="Faction treasury to try stealing from",
@@ -46026,6 +46032,9 @@ async def slash_factionsteal(interaction: discord.Interaction, target_faction: s
         ephemeral=True,
         allowed_mentions=discord.AllowedMentions.none(),
     )
+
+
+bot.tree.add_command(economy_group)
 
 
 @bot.tree.command(name="factionbalance", description="Check a faction treasury balance")
