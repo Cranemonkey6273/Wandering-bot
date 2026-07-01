@@ -7918,6 +7918,44 @@ PAGE_TEMPLATE = """
           </form>
         </article>
         {% endif %}
+        <article class="admin-panel full" id="nitrado-connection">
+          <h3>Nitrado Connection</h3>
+          <p class="tool-note">Use this when a token, service ID, FTP username or FTP password needs replacing. Leave a field blank to keep the saved value. Existing secrets are never shown back on the page.</p>
+          <form class="admin-form" method="post" action="/api/admin/nitrado-credentials" data-route="/api/admin/nitrado-credentials">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#nitrado-connection">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Connection status
+              <input value="API token: {{ 'saved' if server and server.config.nitrado_token else 'missing' }} | Service ID: {{ 'saved' if server and server.config.service_id else 'missing' }} | FTP: {{ 'saved' if server and server.config.ftp_user and server.config.ftp_password else 'missing' }}" readonly>
+              <small class="field-help">If a restart log mentions a hidden character such as U+0435, paste a fresh Nitrado API token here.</small>
+            </label>
+            <label>Nitrado API token
+              <input name="nitrado_token" type="password" autocomplete="new-password" placeholder="paste new token only when replacing it">
+              <small class="field-help">Copy directly from Nitrado. Do not type it manually; lookalike letters can break scheduled restarts.</small>
+            </label>
+            <label>Nitrado service ID
+              <input name="service_id" inputmode="numeric" placeholder="leave blank to keep current">
+              <small class="field-help">The numeric Nitrado service/server ID used by API restart and file calls.</small>
+            </label>
+            <label>Nitrado FTP username
+              <input name="nitrado_user" autocomplete="off" placeholder="example ni12345678_1">
+              <small class="field-help">Used for API file paths, for example /games/ni.../noftp.</small>
+            </label>
+            <label>FTP login username
+              <input name="ftp_user" autocomplete="off" placeholder="leave blank to keep current">
+              <small class="field-help">Usually the same Nitrado FTP username shown in the Nitrado file browser/FTP details.</small>
+            </label>
+            <label>FTP password
+              <input name="ftp_password" type="password" autocomplete="new-password" placeholder="leave blank to keep current">
+              <small class="field-help">Only paste this if FTP uploads/downloads are failing or the Nitrado password changed.</small>
+            </label>
+            <label>FTP host override
+              <input name="nitrado_ftp_host" placeholder="optional, usually leave blank">
+              <small class="field-help">Only use this if Nitrado gave a specific FTP host. The bot can usually discover it.</small>
+            </label>
+            <div class="full"><button type="submit">Save Nitrado Connection</button> <span class="result muted"></span></div>
+          </form>
+        </article>
         <article class="admin-panel">
           <h3>Link Another Server</h3>
           <form class="admin-form" method="post" action="/api/admin/link-server" data-route="/api/admin/link-server">
@@ -10754,9 +10792,10 @@ PAGE_TEMPLATE = """
       "/api/admin/link-enforcement",
       "/api/admin/on-screen-message",
       "/api/admin/server-control",
-      "/api/admin/guild-access",
-      "/api/admin/link-server",
-      "/api/owner/guild-action",
+    "/api/admin/guild-access",
+    "/api/admin/nitrado-credentials",
+    "/api/admin/link-server",
+    "/api/owner/guild-action",
     ]);
     function shouldRefreshAfterSave(form) {
       if (!form || form.classList.contains("inline-action") || form.dataset.scenarioActionForm) return false;
@@ -13135,6 +13174,7 @@ ADMIN_ROUTES = [
     "/api/admin/scenario-event-status",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
+    "/api/admin/nitrado-credentials",
     "/api/admin/temp-login",
     "/api/admin/temp-login-action",
     "/api/admin/zone",
@@ -17147,6 +17187,27 @@ def require_owner_payload() -> tuple[dict[str, Any] | None, Any | None]:
 
 def normalize_guild_id(value: Any) -> str:
     return str(value or "global").strip() or "global"
+
+
+def validate_dashboard_nitrado_api_token(token: Any) -> tuple[bool, str, str]:
+    clean = str(token or "").strip()
+    if not clean:
+        return False, "", "Nitrado API token is blank."
+    try:
+        clean.encode("ascii")
+    except UnicodeEncodeError as error:
+        bad = clean[error.start:error.end]
+        codepoints = ", ".join(f"U+{ord(ch):04X}" for ch in bad)
+        return (
+            False,
+            clean,
+            "Nitrado API token contains a hidden/lookalike character "
+            f"at token position {error.start + 1} ({codepoints}). Re-copy it directly from Nitrado.",
+        )
+    for index, char in enumerate(clean, start=1):
+        if char.isspace():
+            return False, clean, f"Nitrado API token contains whitespace at token position {index}."
+    return True, clean, ""
 
 
 def faction_wallet_id(value: Any) -> str:
@@ -24973,6 +25034,91 @@ def api_link_server():
         {"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)},
         "access",
         "#linked-servers",
+    )
+
+
+@APP.post("/api/admin/nitrado-credentials")
+def api_nitrado_credentials():
+    payload, error = require_admin()
+    if error:
+        return error
+    auth = current_auth()
+    if auth and auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot change Nitrado connection details"}), 403
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    if not guild_id or guild_id == "global":
+        return jsonify({"ok": False, "error": "server is required"}), 400
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        return jsonify({"ok": False, "error": "server config was not found"}), 404
+
+    changed_fields: list[str] = []
+    token = str(payload.get("nitrado_token") or "").strip()
+    if token:
+        ok, clean_token, token_error = validate_dashboard_nitrado_api_token(token)
+        if not ok:
+            return jsonify({"ok": False, "error": token_error}), 400
+        config["nitrado_token"] = clean_token
+        changed_fields.append("Nitrado API token")
+
+    service_id = str(payload.get("service_id") or "").strip()
+    if service_id:
+        if not re.fullmatch(r"[0-9]{3,20}", service_id):
+            return jsonify({"ok": False, "error": "Nitrado service ID should be numbers only."}), 400
+        config["service_id"] = service_id
+        changed_fields.append("service ID")
+
+    nitrado_user = str(payload.get("nitrado_user") or "").strip()
+    if nitrado_user:
+        if len(nitrado_user) > 80 or any(char.isspace() for char in nitrado_user):
+            return jsonify({"ok": False, "error": "Nitrado FTP username must not contain spaces."}), 400
+        config["nitrado_user"] = nitrado_user
+        changed_fields.append("Nitrado FTP username")
+
+    ftp_user = str(payload.get("ftp_user") or "").strip()
+    if ftp_user:
+        if len(ftp_user) > 120 or any(char.isspace() for char in ftp_user):
+            return jsonify({"ok": False, "error": "FTP login username must not contain spaces."}), 400
+        config["ftp_user"] = ftp_user
+        changed_fields.append("FTP login username")
+
+    ftp_password = str(payload.get("ftp_password") or "")
+    if ftp_password:
+        config["ftp_password"] = ftp_password
+        changed_fields.append("FTP password")
+
+    ftp_host = str(payload.get("nitrado_ftp_host") or "").strip()
+    if ftp_host:
+        if len(ftp_host) > 160 or "/" in ftp_host or "\\" in ftp_host or any(char.isspace() for char in ftp_host):
+            return jsonify({"ok": False, "error": "FTP host should be a hostname only, with no slashes or spaces."}), 400
+        config["nitrado_ftp_host"] = ftp_host
+        changed_fields.append("FTP host override")
+
+    if not changed_fields:
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "note": "No Nitrado connection fields were changed."},
+            "access",
+            "#nitrado-connection",
+        )
+
+    config["nitrado_credentials_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {
+            "ok": True,
+            "updated_fields": changed_fields,
+            "note": "Saved Nitrado connection details: " + ", ".join(changed_fields),
+        },
+        "access",
+        "#nitrado-connection",
     )
 
 
