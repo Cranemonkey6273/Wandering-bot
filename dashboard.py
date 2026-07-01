@@ -500,6 +500,11 @@ PUBLIC_SEO_PAGES = {
             ("Console server dashboard", "Give trusted admins a private web dashboard for live events, XML tools, schedules, shops, economy, zones, and moderation."),
             ("Nitrado and Discord automation", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible."),
         ],
+        "faqs": [
+            ("What is Wandering Bot?", "Wandering Bot is a Discord bot and web dashboard for DayZ console server owners who want killfeeds, Nitrado tools, live events, economy tools, zones, and admin workflows in one place."),
+            ("Does Wandering Bot work with Xbox and PlayStation DayZ servers?", "Yes. Wandering Bot is built around DayZ console server workflows, including Xbox and PlayStation communities using Nitrado and ADM logs."),
+            ("Can server admins use the dashboard without full Nitrado access?", "Yes. Owners can use server-specific dashboard logins so trusted admins can manage selected tools without sharing the full Nitrado account."),
+        ],
     },
     "dayz-killfeed-bot": {
         "path": "/dayz-killfeed-bot",
@@ -513,6 +518,11 @@ PUBLIC_SEO_PAGES = {
             ("Killfeed channels", "Post readable kill, death, weapon, distance, and location information into the Discord channels you choose."),
             ("Longshot and leaderboard tracking", "Keep competitive records for PvP servers, faction wars, events, and community challenges."),
             ("Live server context", "Pair killfeeds with online player counts, restart detection, ADM refresh tools, and dashboard audit logs."),
+        ],
+        "faqs": [
+            ("Can Wandering Bot post DayZ kills into Discord?", "Yes. It reads server activity from ADM-style logs and turns kills, deaths, longshots, and player activity into cleaner Discord feeds."),
+            ("Is this for DayZ console servers?", "Yes. The killfeed tools are designed for DayZ Xbox and PlayStation server communities."),
+            ("Can I choose where killfeed messages go?", "Yes. Server owners can route feeds and alerts into the Discord channels that fit their server layout."),
         ],
     },
     "dayz-console-discord-bot": {
@@ -528,6 +538,11 @@ PUBLIC_SEO_PAGES = {
             ("Role and channel control", "Use server-scoped dashboards, staff-only views, moderation guard settings, and clean Discord feed channels."),
             ("Owner and admin views", "Keep owner controls protected while letting trusted admins manage the server tools they need."),
         ],
+        "faqs": [
+            ("What can the Discord bot do for a DayZ server?", "It can help with killfeeds, channel setup, gamertag linking, economy tools, event tracking, moderation guard settings, and staff feeds."),
+            ("Can different staff members have different access?", "Yes. The dashboard supports owner and admin-style access so server staff only need the tools they are trusted to use."),
+            ("Does the bot help with linked gamertags?", "Yes. Players can link Discord users to survivor names so staff can manage identity checks more clearly."),
+        ],
     },
     "dayz-nitrado-server-tools": {
         "path": "/dayz-nitrado-server-tools",
@@ -541,6 +556,11 @@ PUBLIC_SEO_PAGES = {
             ("Event builder", "Queue crash scenes, loot drops, zombie hordes, animal packs, gas zones, and custom locations from the dashboard."),
             ("XML workshop", "Manage DayZ files with safer validation, backups, generated snippets, and server-scoped upload logic."),
             ("Restart and schedule tools", "Show live restart status, raid weekend damage schedules, vehicle reset schedules, and worker health checks."),
+        ],
+        "faqs": [
+            ("Can Wandering Bot work with Nitrado?", "Yes. It stores server-specific Nitrado details so approved tools can read status, request restarts, and manage guarded XML workflows."),
+            ("Can it help with DayZ CE XML files?", "Yes. The XML tools are built to generate and validate safer event, loadout, shop, vehicle, and server file snippets for console workflows."),
+            ("Does the dashboard replace manual file editing?", "It reduces a lot of manual editing, but owners should still review generated XML and restart the server after CE changes."),
         ],
     },
     "dayz-economy-trader-bot": {
@@ -556,6 +576,11 @@ PUBLIC_SEO_PAGES = {
             ("Trader logs", "Record trade-ins, admin credits, Discord balances, and transaction history in dedicated channels."),
             ("Server economy balance", "Tune loot, prices, role access, purchase limits, and event rewards around your server style."),
         ],
+        "faqs": [
+            ("Can DayZ console servers run a trader-style economy?", "Yes. Wandering Bot can run Discord balances, shop items, bundles, trade-in logs, and staff-visible transaction feeds for console-friendly trader systems."),
+            ("Can admins control prices and limits?", "Yes. Server admins can set prices, availability, role restrictions, daily limits, and bundle contents from the dashboard."),
+            ("Can players buy shop items from Discord?", "Yes. Players can use the configured shop commands while the bot records purchases and queues delivery workflows."),
+        ],
     },
     "dayz-raid-alerts-heatmaps": {
         "path": "/dayz-raid-alerts-heatmaps",
@@ -569,6 +594,68 @@ PUBLIC_SEO_PAGES = {
             ("Raid intelligence", "Send raid-style events, structure hits, tool usage, player names, and map links into the channels you choose."),
             ("Heatmaps and zones", "Track player activity, hotspots, radar zones, faction areas, and suspicious movement patterns."),
             ("Staff audit feeds", "Keep evidence, moderation decisions, restart notices, and server events easier to review later."),
+        ],
+        "faqs": [
+            ("Can Wandering Bot show raid alerts?", "Yes. It can route raid-style activity and structure/tool events into Discord channels chosen by the server owner."),
+            ("Can staff see heatmaps?", "Yes. The dashboard includes map and heatmap views for server activity, zones, and event context."),
+            ("Can radar pings go into separate channels?", "Yes. Server owners can organise raid, radar, and activity feeds around their Discord channel layout."),
+        ],
+    },
+    "dayz-server-dashboard": {
+        "path": "/dayz-server-dashboard",
+        "title": "DayZ Server Dashboard for Console Admins - Wandering Bot",
+        "description": "A DayZ server dashboard for console admins with live events, Nitrado status, restart schedules, XML tools, shop control, economy settings, zones, heatmaps, and staff access.",
+        "eyebrow": "DayZ server dashboard",
+        "headline": "Give staff a dashboard without handing over Nitrado",
+        "lead": "Wandering Bot gives DayZ console owners a private dashboard for server setup, live feeds, airdrops, XML tools, restart schedules, shop items, economy, zones, and staff workflows.",
+        "focus": "Useful for DayZ Xbox and PlayStation owners who need a cleaner admin panel for recurring server work.",
+        "features": [
+            ("Server-scoped access", "Give staff access to the selected dashboard tools without sharing your full Nitrado account."),
+            ("Live operations", "View restart schedules, worker status, events, heatmaps, zones, and server activity from one place."),
+            ("Guided tools", "Use labelled dashboard sections for airdrops, XML, loadouts, economy, shop items, moderation, and help guides."),
+        ],
+        "faqs": [
+            ("What is the DayZ server dashboard for?", "It gives owners and trusted staff a web panel for common DayZ console server tasks such as events, XML tools, economy, shop control, zones, heatmaps, and schedules."),
+            ("Can it support more than one server?", "Yes. Linked dashboard servers can be switched from the dashboard so owners can manage multiple communities more cleanly."),
+            ("Does staff need Nitrado login details?", "No. The owner can connect Nitrado once and then use dashboard access controls for staff workflows."),
+        ],
+    },
+    "dayz-console-airdrop-events": {
+        "path": "/dayz-console-airdrop-events",
+        "title": "DayZ Console Airdrop, Horde and Event Builder - Wandering Bot",
+        "description": "Build DayZ console airdrops, helicopter crash events, zombie hordes, animal packs, gas zones, convoy scenes, loot drops, and CE XML event snippets from a guided dashboard.",
+        "eyebrow": "Airdrops and events",
+        "headline": "Create DayZ console events without living in XML",
+        "lead": "Use the event builder to prepare airdrops, helicopter crash scenes, zombie hordes, animal packs, gas zones, convoy-style scenes, loot drops, and restart-based event uploads.",
+        "focus": "Built for DayZ console server owners who want safer CE event generation and clearer event status in Discord and the dashboard.",
+        "features": [
+            ("Airdrop builder", "Pick scene type, loot preset, guards, restart count, coordinates, and upload status from one guided form."),
+            ("Hordes and animals", "Queue infected hordes or animal packs using controlled DayZ class options instead of random free text."),
+            ("Upload status", "Track queued, failed, uploaded, retried, paused, and deleted event states from the dashboard."),
+        ],
+        "faqs": [
+            ("Can I make a DayZ airdrop on console?", "Yes. Wandering Bot can generate console-safe event data for airdrop-style scenes and tracked live events."),
+            ("Can it make zombie horde events?", "Yes. The event builder supports infected horde-style events with selected classes, counts, and locations."),
+            ("Does it upload directly to live files?", "The guarded upload flow validates and records what it changes, then the DayZ server still needs a restart for CE changes to load."),
+        ],
+    },
+    "dayz-xbox-playstation-killfeed": {
+        "path": "/dayz-xbox-playstation-killfeed",
+        "title": "DayZ Xbox and PlayStation Killfeed Bot - Wandering Bot",
+        "description": "DayZ Xbox and PlayStation killfeed bot for console servers, with Discord kill feeds, deaths, longshots, online players, heatmaps, restart alerts, and staff logs.",
+        "eyebrow": "Xbox and PlayStation killfeeds",
+        "headline": "Killfeeds for DayZ console communities",
+        "lead": "Run readable Discord killfeeds for DayZ Xbox and PlayStation servers, including kills, deaths, longshots, online activity, restart notices, and staff-friendly audit context.",
+        "focus": "Targeted at DayZ console PvP and survival communities that want Discord killfeed visibility without PC-only mods.",
+        "features": [
+            ("Console-friendly feeds", "Built around DayZ console server log workflows rather than PC mod dependencies."),
+            ("PvP records", "Track longshots, kill streaks, deaths, and leaderboard-style records for server competition."),
+            ("Discord routing", "Send different feed types into the channels that make sense for your Discord server."),
+        ],
+        "faqs": [
+            ("Does this work for DayZ Xbox servers?", "Yes. Wandering Bot is built for DayZ console communities, including Xbox servers."),
+            ("Does this work for DayZ PlayStation servers?", "Yes. It also supports PlayStation-focused console server workflows."),
+            ("Do I need PC mods for the killfeed?", "No. The bot is designed around console server data and Discord dashboard workflows."),
         ],
     },
 }
@@ -915,10 +1002,14 @@ PUBLIC_LANDING_TEMPLATE = """
     .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .9rem; }
     .feature { padding: .85rem; background: rgba(0, 0, 0, .2); }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
+    .faq-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .2); }
+    .faq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
+    .faq-item { border: 1px solid rgba(126, 204, 184, .18); border-radius: .45rem; background: rgba(10, 18, 16, .72); padding: .85rem; }
+    .faq-item strong { display: block; color: var(--text); margin-bottom: .3rem; }
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features { grid-template-columns: 1fr; }
+      .hero, .band, .features, .faq-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -986,6 +1077,14 @@ PUBLIC_LANDING_TEMPLATE = """
       <div class="need"><strong>Service ID</strong><span>Your DayZ server service number from Nitrado.</span></div>
       <div class="need"><strong>FTP details</strong><span>FTP username and password so approved XML tools can upload safely.</span></div>
       <div class="need"><strong>Server basics</strong><span>Map, platform, restart timing, staff roles, and the channels you want feeds posted into.</span></div>
+    </section>
+    <section class="faq-section" aria-label="Frequently asked questions">
+      <h2>Questions Server Owners Ask</h2>
+      <div class="faq-grid">
+        {% for question, answer in page.faqs %}
+        <div class="faq-item"><strong>{{ question }}</strong><span>{{ answer }}</span></div>
+        {% endfor %}
+      </div>
     </section>
   </main>
 </body>
@@ -16830,6 +16929,9 @@ def public_seo_nav_pages() -> list[dict[str, str]]:
         "dayz-nitrado-server-tools": "Nitrado Tools",
         "dayz-economy-trader-bot": "Trader Economy",
         "dayz-raid-alerts-heatmaps": "Raid Alerts",
+        "dayz-server-dashboard": "Dashboard",
+        "dayz-console-airdrop-events": "Airdrops",
+        "dayz-xbox-playstation-killfeed": "Console Killfeed",
     }
     pages = []
     for key, data in PUBLIC_SEO_PAGES.items():
@@ -16842,15 +16944,49 @@ def public_landing_page(page_key: str = "home"):
     page = dict(base_page)
     page["canonical_url"] = public_page_url(str(page.get("path") or "/"))
     page["image_url"] = public_page_url("/brand-character")
+    page["faqs"] = list(page.get("faqs") or [])
     structured_data = {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Wandering Bot",
-        "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web, Discord, Xbox, PlayStation",
-        "url": page["canonical_url"],
-        "image": page["image_url"],
-        "description": page["description"],
+        "@graph": [
+            {
+                "@type": "Organization",
+                "@id": public_page_url("/#organization"),
+                "name": "Wandering Bot",
+                "url": public_page_url("/"),
+                "logo": public_page_url("/brand-image"),
+            },
+            {
+                "@type": "WebSite",
+                "@id": public_page_url("/#website"),
+                "name": "Wandering Bot",
+                "url": public_page_url("/"),
+                "publisher": {"@id": public_page_url("/#organization")},
+            },
+            {
+                "@type": "SoftwareApplication",
+                "@id": f"{page['canonical_url']}#software",
+                "name": "Wandering Bot",
+                "applicationCategory": "UtilitiesApplication",
+                "operatingSystem": "Web, Discord, Xbox, PlayStation",
+                "url": page["canonical_url"],
+                "image": page["image_url"],
+                "description": page["description"],
+                "publisher": {"@id": public_page_url("/#organization")},
+                "offers": {"@type": "Offer", "availability": "https://schema.org/InStock"},
+            },
+            {
+                "@type": "FAQPage",
+                "@id": f"{page['canonical_url']}#faq",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": question,
+                        "acceptedAnswer": {"@type": "Answer", "text": answer},
+                    }
+                    for question, answer in page["faqs"]
+                ],
+            },
+        ],
     }
     return render_template_string(
         PUBLIC_LANDING_TEMPLATE,
@@ -17207,6 +17343,33 @@ def validate_dashboard_nitrado_api_token(token: Any) -> tuple[bool, str, str]:
     for index, char in enumerate(clean, start=1):
         if char.isspace():
             return False, clean, f"Nitrado API token contains whitespace at token position {index}."
+    return True, clean, ""
+
+
+def validate_dashboard_ascii_credential(
+    value: Any,
+    label: str,
+    *,
+    allow_spaces: bool = False,
+) -> tuple[bool, str, str]:
+    clean = str(value or "").strip()
+    if not clean:
+        return True, "", ""
+    try:
+        clean.encode("ascii")
+    except UnicodeEncodeError as error:
+        bad = clean[error.start:error.end]
+        codepoints = ", ".join(f"U+{ord(ch):04X}" for ch in bad)
+        return (
+            False,
+            clean,
+            f"{label} contains a hidden/lookalike character at position "
+            f"{error.start + 1} ({codepoints}). Re-copy it directly from Nitrado.",
+        )
+    if not allow_spaces:
+        for index, char in enumerate(clean, start=1):
+            if char.isspace():
+                return False, clean, f"{label} must not contain spaces. Found whitespace at position {index}."
     return True, clean, ""
 
 
@@ -18059,8 +18222,11 @@ def dashboard_nitrado_api_headers(config: dict[str, Any]) -> dict[str, str] | No
     token = config.get("nitrado_token")
     if not token:
         return None
+    ok, clean_token, _error = validate_dashboard_nitrado_api_token(token)
+    if not ok:
+        return None
     return {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {clean_token}",
         "Accept": "application/json",
     }
 
@@ -23053,6 +23219,21 @@ def public_dayz_raid_alerts_heatmaps():
     return public_landing_page("dayz-raid-alerts-heatmaps")
 
 
+@APP.get("/dayz-server-dashboard")
+def public_dayz_server_dashboard():
+    return public_landing_page("dayz-server-dashboard")
+
+
+@APP.get("/dayz-console-airdrop-events")
+def public_dayz_console_airdrop_events():
+    return public_landing_page("dayz-console-airdrop-events")
+
+
+@APP.get("/dayz-xbox-playstation-killfeed")
+def public_dayz_xbox_playstation_killfeed():
+    return public_landing_page("dayz-xbox-playstation-killfeed")
+
+
 @APP.get("/robots.txt")
 def robots_txt():
     body = "\n".join([
@@ -25075,21 +25256,34 @@ def api_nitrado_credentials():
 
     nitrado_user = str(payload.get("nitrado_user") or "").strip()
     if nitrado_user:
-        if len(nitrado_user) > 80 or any(char.isspace() for char in nitrado_user):
-            return jsonify({"ok": False, "error": "Nitrado FTP username must not contain spaces."}), 400
-        config["nitrado_user"] = nitrado_user
+        ok, clean_nitrado_user, credential_error = validate_dashboard_ascii_credential(nitrado_user, "Nitrado FTP username")
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        if len(clean_nitrado_user) > 80:
+            return jsonify({"ok": False, "error": "Nitrado FTP username is too long."}), 400
+        config["nitrado_user"] = clean_nitrado_user
         changed_fields.append("Nitrado FTP username")
 
     ftp_user = str(payload.get("ftp_user") or "").strip()
     if ftp_user:
-        if len(ftp_user) > 120 or any(char.isspace() for char in ftp_user):
-            return jsonify({"ok": False, "error": "FTP login username must not contain spaces."}), 400
-        config["ftp_user"] = ftp_user
+        ok, clean_ftp_user, credential_error = validate_dashboard_ascii_credential(ftp_user, "FTP login username")
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        if len(clean_ftp_user) > 120:
+            return jsonify({"ok": False, "error": "FTP login username is too long."}), 400
+        config["ftp_user"] = clean_ftp_user
         changed_fields.append("FTP login username")
 
     ftp_password = str(payload.get("ftp_password") or "")
     if ftp_password:
-        config["ftp_password"] = ftp_password
+        ok, clean_ftp_password, credential_error = validate_dashboard_ascii_credential(
+            ftp_password,
+            "FTP password",
+            allow_spaces=True,
+        )
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        config["ftp_password"] = clean_ftp_password
         changed_fields.append("FTP password")
 
     ftp_host = str(payload.get("nitrado_ftp_host") or "").strip()

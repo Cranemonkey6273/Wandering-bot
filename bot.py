@@ -12558,13 +12558,17 @@ def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
 
 def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_first_match=False):
 
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error or not service_id:
+        if isinstance(diagnostics, list):
+            diagnostics.append({
+                "path": "<nitrado-auth>",
+                "status": "setup-error",
+                "error": header_error or "Missing service_id.",
+                "count": 0,
+            })
+        return {}
 
     cutoff = None
     if lookback_hours:
@@ -12762,11 +12766,12 @@ def nitrado_rpt_search_paths(config):
 
 
 def list_rpt_logs(config):
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
-    if not token or not service_id:
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error or not service_id:
+        if header_error:
+            print(f"[RPT TRACKER] Nitrado auth error: {header_error}")
         return []
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     matching = {}
     for search_path in nitrado_rpt_search_paths(config):
         try:
@@ -12797,12 +12802,16 @@ def fetch_latest_rpt_content(config):
     if not logs:
         return None, None, None
     latest = logs[0]
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error or not service_id:
+        if header_error:
+            print(f"[RPT TRACKER] Nitrado auth error: {header_error}")
+        return None, None, None
     try:
         dl_resp = requests.get(
             f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/download",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             params={"file": latest.get("path")},
             timeout=20,
         )
@@ -14427,6 +14436,33 @@ async def setup_command(
         )
         return
 
+    token_ok, clean_nitrado_token, token_error = validate_nitrado_api_token(nitrado_token)
+    if not token_ok:
+        await interaction.followup.send(token_error, ephemeral=True)
+        return
+
+    clean_service_id = str(service_id or "").strip()
+    if not re.fullmatch(r"[0-9]{3,20}", clean_service_id):
+        await interaction.followup.send("Nitrado service ID should be numbers only.", ephemeral=True)
+        return
+
+    credential_checks = [
+        ("Nitrado FTP username", nitrado_user, False),
+        ("FTP login username", ftp_user, False),
+        ("FTP password", ftp_password, True),
+    ]
+    clean_credentials = {}
+    for label, value, allow_spaces in credential_checks:
+        ok, clean_value, credential_error = validate_nitrado_ascii_credential(
+            value,
+            label,
+            allow_spaces=allow_spaces,
+        )
+        if not ok:
+            await interaction.followup.send(credential_error, ephemeral=True)
+            return
+        clean_credentials[label] = clean_value
+
     if guild_id not in guild_configs:
 
         guild_configs[guild_id] = {
@@ -14660,11 +14696,11 @@ async def setup_command(
             force=restore_deleted_channels
         )
 
-    guild_configs[guild_id]["nitrado_token"] = nitrado_token
-    guild_configs[guild_id]["service_id"] = service_id
-    guild_configs[guild_id]["nitrado_user"] = nitrado_user.strip()
-    guild_configs[guild_id]["ftp_user"] = ftp_user
-    guild_configs[guild_id]["ftp_password"] = ftp_password
+    guild_configs[guild_id]["nitrado_token"] = clean_nitrado_token
+    guild_configs[guild_id]["service_id"] = clean_service_id
+    guild_configs[guild_id]["nitrado_user"] = clean_credentials["Nitrado FTP username"]
+    guild_configs[guild_id]["ftp_user"] = clean_credentials["FTP login username"]
+    guild_configs[guild_id]["ftp_password"] = clean_credentials["FTP password"]
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
@@ -15134,13 +15170,8 @@ def connect_nitrado_ftp(config, timeout_seconds=30):
 
 
 def nitrado_api_headers(config):
-    token = config.get("nitrado_token")
-    if not token:
-        return None
-    return {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-    }
+    headers, _error = nitrado_api_headers_or_error(config)
+    return headers
 
 
 def nitrado_api_service_url(config, endpoint):
@@ -16680,8 +16711,17 @@ def download_latest_adm(
     diagnostics=None,
 ):
 
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error or not service_id:
+        if isinstance(diagnostics, list):
+            diagnostics.append({
+                "path": latest_log.get("path") if isinstance(latest_log, dict) else "<nitrado-auth>",
+                "status": "setup-error",
+                "error": header_error or "Missing service_id.",
+                "stage": "download-token",
+            })
+        return False
 
     try:
 
@@ -16689,10 +16729,6 @@ def download_latest_adm(
             f"https://api.nitrado.net/services/"
             f"{service_id}/gameservers/file_server/download"
         )
-
-        headers = {
-            "Authorization": f"Bearer {token}"
-        }
 
         params = {
             "file": latest_log.get("path")
@@ -22404,12 +22440,54 @@ def validate_nitrado_api_token(token):
     return True, token, ""
 
 
-def nitrado_restart_headers_or_error(config):
+def validate_nitrado_ascii_credential(value, label, *, allow_blank=False, allow_spaces=False):
+    text = str(value or "")
+    clean = text.strip()
+    if not clean:
+        if allow_blank:
+            return True, "", ""
+        return False, "", f"{label} is blank."
+
+    try:
+        clean.encode("ascii")
+    except UnicodeEncodeError as error:
+        bad = clean[error.start:error.end]
+        codepoints = ", ".join(f"U+{ord(ch):04X}" for ch in bad)
+        return (
+            False,
+            clean,
+            f"{label} contains a non-English/hidden lookalike character at position "
+            f"{error.start + 1} ({codepoints}). Re-copy it directly from Nitrado and paste it again.",
+        )
+
+    if not allow_spaces:
+        for index, char in enumerate(clean, start=1):
+            if char.isspace():
+                return False, clean, f"{label} contains whitespace at position {index}."
+
+    return True, clean, ""
+
+
+def nitrado_api_headers_or_error(config):
     token = config.get("nitrado_token")
+    if not token:
+        return None, "Missing nitrado_token."
     ok, clean_token, error = validate_nitrado_api_token(token)
     if not ok:
         return None, error
-    return {"Authorization": f"Bearer {clean_token}"}, ""
+    return {
+        "Authorization": f"Bearer {clean_token}",
+        "Accept": "application/json",
+    }, ""
+
+
+def nitrado_restart_headers_or_error(config):
+    headers, error = nitrado_api_headers_or_error(config)
+    if error or not headers:
+        return None, error
+    headers = dict(headers)
+    headers.pop("Accept", None)
+    return headers, ""
 
 
 def nitrado_restart_server_now(config):
@@ -22474,14 +22552,16 @@ def _flatten_status_values(value):
 
 
 def nitrado_gameserver_status(config):
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
-    if not token or not service_id:
+    if not service_id:
         return False, "Missing nitrado_token / service_id."
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error:
+        return False, header_error
     try:
         response = requests.get(
             f"https://api.nitrado.net/services/{service_id}/gameservers",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             timeout=20,
         )
         if response.status_code != 200:
@@ -47848,15 +47928,17 @@ async def slash_spectator(interaction: discord.Interaction):
 def nitrado_send_chat(config, message):
     """Best-effort: POST to Nitrado's gameserver chat endpoint. If the
     endpoint or token isn't authorised, returns (False, error_message)."""
-    token = config.get("nitrado_token")
     service_id = config.get("service_id")
-    if not token or not service_id:
+    if not service_id:
         return False, "Missing nitrado_token / service_id in guild config."
+    headers, header_error = nitrado_api_headers_or_error(config)
+    if header_error:
+        return False, header_error
     url = f"https://api.nitrado.net/services/{service_id}/gameservers/games/dayz/chat"
     try:
         resp = requests.post(
             url,
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             data={"message": message},
             timeout=10,
         )

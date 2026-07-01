@@ -31,11 +31,35 @@ class RestartTimezoneTests(unittest.TestCase):
         self.assertFalse(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 14, 0, tzinfo=UTC), 17, 4))
 
     def test_nitrado_token_reports_hidden_lookalike_character(self):
-        ok, _token, message = self.bot.validate_nitrado_api_token("еabc123")
+        ok, _token, message = self.bot.validate_nitrado_api_token("\u0435abc123")
 
         self.assertFalse(ok)
         self.assertIn("U+0435", message)
         self.assertIn("position 1", message)
+
+    def test_nitrado_headers_reject_hidden_token_before_request(self):
+        headers, message = self.bot.nitrado_api_headers_or_error({"nitrado_token": "\u0435abc123"})
+
+        self.assertIsNone(headers)
+        self.assertIn("U+0435", message)
+
+    def test_nitrado_status_reports_hidden_token_without_request(self):
+        original_get = self.bot.requests.get
+
+        def fail_get(*_args, **_kwargs):
+            raise AssertionError("Nitrado status should not make a request with a bad token")
+
+        self.bot.requests.get = fail_get
+        try:
+            ok, message = self.bot.nitrado_gameserver_status({
+                "nitrado_token": "\u0435abc123",
+                "service_id": "1234567",
+            })
+        finally:
+            self.bot.requests.get = original_get
+
+        self.assertFalse(ok)
+        self.assertIn("U+0435", message)
 
     def test_apply_server_timezone_links_restart_and_adm_time(self):
         config = {}
