@@ -6168,7 +6168,7 @@ PAGE_TEMPLATE = """
                       <span>Select all</span>
                     </label>
                     <label>Search {{ status_name }}
-                      <input data-shop-category-search placeholder="filter this box">
+                      <input data-shop-category-search oninput="window.filterShopItems && window.filterShopItems(this)" placeholder="filter this box">
                     </label>
                   </div>
                 </div>
@@ -6211,7 +6211,7 @@ PAGE_TEMPLATE = """
                       <span>Select all</span>
                     </label>
                     <label>Search {{ category }}
-                      <input data-shop-category-search placeholder="filter this box">
+                      <input data-shop-category-search oninput="window.filterShopItems && window.filterShopItems(this)" placeholder="filter this box">
                     </label>
                   </div>
                 </div>
@@ -9490,6 +9490,16 @@ PAGE_TEMPLATE = """
     });
     function filterShopPanel(panel) {
       if (!panel) return;
+      const normalizeShopSearch = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+      const rowMatchesShopQuery = (search, query) => {
+        const cleanQuery = String(query || "").trim().toLowerCase();
+        if (!cleanQuery) return true;
+        const cleanSearch = String(search || "").toLowerCase();
+        if (cleanSearch.includes(cleanQuery)) return true;
+        const compactQuery = normalizeShopSearch(cleanQuery);
+        if (!compactQuery) return true;
+        return normalizeShopSearch(cleanSearch).includes(compactQuery);
+      };
       const input = panel.querySelector("[data-shop-search]");
       const category = panel.querySelector("[data-shop-category]");
       const count = panel.querySelector("[data-shop-count]");
@@ -9509,7 +9519,7 @@ PAGE_TEMPLATE = """
             const search = row.dataset.search || "";
             const rowCategory = row.dataset.category || "";
             const rowMatchesCategory = !categoryValue || (isStatusBox ? rowCategory === categoryValue : boxCategory === categoryValue);
-            const show = boxMatchesCategory && rowMatchesCategory && (!query || search.includes(query)) && (!boxQuery || search.includes(boxQuery));
+            const show = boxMatchesCategory && rowMatchesCategory && rowMatchesShopQuery(search, query) && rowMatchesShopQuery(search, boxQuery);
             row.hidden = !show;
             if (show) {
               if (!isStatusBox) visible += 1;
@@ -9527,7 +9537,7 @@ PAGE_TEMPLATE = """
         panel.querySelectorAll("[data-shop-row]").forEach((row) => {
           const search = row.dataset.search || "";
           const rowCategory = row.dataset.category || "";
-          const show = (!query || search.includes(query)) && (!categoryValue || rowCategory === categoryValue);
+          const show = rowMatchesShopQuery(search, query) && (!categoryValue || rowCategory === categoryValue);
           row.hidden = !show;
           if (show) visible += 1;
         });
@@ -19615,6 +19625,20 @@ def dashboard_restart_timezone(config: dict[str, Any] | None) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
+def dashboard_restart_schedule_hours(start_hour: Any, interval: Any) -> list[int]:
+    try:
+        start = int(start_hour or 0) % 24
+        every = int(interval or 0)
+    except Exception:
+        return []
+    if every <= 0:
+        return []
+    return [
+        hour for hour in range(24)
+        if ((hour - start) % every == 0)
+    ]
+
+
 def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(config, dict):
         config = {}
@@ -19636,10 +19660,7 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     next_restart_local = None
     minutes_until = None
     if enabled:
-        candidate_hours = [
-            hour for hour in range(24)
-            if hour >= start_hour and ((hour - start_hour) % interval == 0)
-        ]
+        candidate_hours = dashboard_restart_schedule_hours(start_hour, interval)
         if not candidate_hours:
             candidate_hours = [start_hour]
         candidates = []

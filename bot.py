@@ -22374,15 +22374,56 @@ async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, sou
     return changed
 
 
+def validate_nitrado_api_token(token):
+    token = str(token or "").strip()
+    if not token:
+        return False, "", "Missing nitrado_token."
+
+    try:
+        token.encode("ascii")
+    except UnicodeEncodeError as error:
+        bad = token[error.start:error.end]
+        codepoints = ", ".join(f"U+{ord(ch):04X}" for ch in bad)
+        return (
+            False,
+            token,
+            "Nitrado API token contains a non-English/hidden lookalike character "
+            f"at token position {error.start + 1} ({codepoints}). Re-copy the API token "
+            "directly from Nitrado and paste it again.",
+        )
+
+    for index, char in enumerate(token, start=1):
+        if char.isspace():
+            return (
+                False,
+                token,
+                f"Nitrado API token contains whitespace at token position {index}. "
+                "Re-copy the API token directly from Nitrado and paste it again.",
+            )
+
+    return True, token, ""
+
+
+def nitrado_restart_headers_or_error(config):
+    token = config.get("nitrado_token")
+    ok, clean_token, error = validate_nitrado_api_token(token)
+    if not ok:
+        return None, error
+    return {"Authorization": f"Bearer {clean_token}"}, ""
+
+
 def nitrado_restart_server_now(config):
     token = config.get("nitrado_token")
     service_id = config.get("service_id")
     if not token or not service_id:
         return False, "Missing nitrado_token / service_id."
+    headers, header_error = nitrado_restart_headers_or_error(config)
+    if header_error:
+        return False, header_error
     try:
         response = requests.post(
             f"https://api.nitrado.net/services/{service_id}/gameservers/restart",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             timeout=30,
         )
         if response.status_code in (200, 201, 202, 204):
@@ -22400,10 +22441,13 @@ def nitrado_gameserver_action(config, action):
     service_id = config.get("service_id")
     if not token or not service_id:
         return False, "Missing nitrado_token / service_id."
+    headers, header_error = nitrado_restart_headers_or_error(config)
+    if header_error:
+        return False, header_error
     try:
         response = requests.post(
             f"https://api.nitrado.net/services/{service_id}/gameservers/{action}",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             timeout=30,
         )
         if response.status_code in (200, 201, 202, 204):
@@ -24200,19 +24244,7 @@ RESTART_DOWN_FUNNIES = [
 
 def _minutes_until_next_restart(now, restart_offset, restart_interval):
     """Return minutes until the next scheduled restart hour."""
-    try:
-        restart_offset = int(restart_offset or 0) % 24
-        restart_interval = int(restart_interval or 0)
-    except Exception:
-        return None
-
-    if restart_interval <= 0:
-        return None
-
-    restart_hours = [
-        h for h in range(24)
-        if h >= restart_offset and ((h - restart_offset) % restart_interval == 0)
-    ]
+    restart_hours = _restart_schedule_hours(restart_offset, restart_interval)
     if not restart_hours:
         return None
 
@@ -24226,6 +24258,30 @@ def _minutes_until_next_restart(now, restart_offset, restart_interval):
         candidates.append(delta)
 
     return min(candidates) if candidates else None
+
+
+def _restart_schedule_hours(restart_offset, restart_interval):
+    """Return all local hours in a 24h cycle for a restart schedule."""
+    try:
+        restart_offset = int(restart_offset or 0) % 24
+        restart_interval = int(restart_interval or 0)
+    except Exception:
+        return []
+
+    if restart_interval <= 0:
+        return []
+
+    return [
+        h for h in range(24)
+        if ((h - restart_offset) % restart_interval == 0)
+    ]
+
+def _restart_schedule_matches(local_now, restart_offset, restart_interval):
+    """True when local_now is exactly on a configured restart hour."""
+    return (
+        local_now.minute == 0
+        and local_now.hour in _restart_schedule_hours(restart_offset, restart_interval)
+    )
 
 
 @tasks.loop(minutes=1)
@@ -24349,11 +24405,7 @@ async def scheduled_restart_loop():
         current_hour = local_now.hour
         current_minute = local_now.minute
 
-        should_restart = (
-            current_hour >= restart_offset
-            and ((current_hour - restart_offset) % restart_interval == 0)
-            and current_minute == 0
-        )
+        should_restart = _restart_schedule_matches(local_now, restart_offset, restart_interval)
 
         if not should_restart:
             continue
@@ -24504,9 +24556,9 @@ async def scheduled_restart_loop():
                             f"{service_id}/gameservers/restart"
                         )
 
-                        headers = {
-                            "Authorization": f"Bearer {token}"
-                        }
+                        headers, header_error = nitrado_restart_headers_or_error(config)
+                        if header_error:
+                            raise ValueError(header_error)
 
                         restart_response = requests.post(
                             url,
@@ -27777,6 +27829,9 @@ async def start_background_tasks():
 
         if not restart_delivery_processor.is_running():
             restart_delivery_processor.start()
+
+        if not server_control_watchdog_loop.is_running():
+            server_control_watchdog_loop.start()
 
         if not dashboard_scenario_upload_loop.is_running():
             dashboard_scenario_upload_loop.start()
@@ -39287,15 +39342,16 @@ async def shop(ctx):
 
 
 @bot.command()
-async def buy(ctx, item_name: str, x: str, y: str):
+async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
 
     user_id = str(ctx.author.id)
     guild_id = str(ctx.guild.id)
     x_value = parse_dayz_map_number(x)
     y_value = parse_dayz_map_number(y)
+    quantity = max(1, min(99, safe_int(quantity, 1)))
 
     if x_value is None or y_value is None:
-        await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400`.")
+        await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400 quantity:3`.")
         return
 
     item_name, item_config, error = resolve_purchase_item(guild_id, item_name)
@@ -39335,58 +39391,58 @@ async def buy(ctx, item_name: str, x: str, y: str):
 
     wallet = guild_wallet(guild_id, user_id, str(ctx.author))
 
-    limit = DEFAULT_DAILY_TRANSACTION_LIMIT
     item_daily_limit = int(item_config.get("daily_limit", 0) or 0)
-    if item_daily_limit > 0:
-        limit = min(limit, item_daily_limit)
-
-    if wallet["daily_transactions"] >= limit:
+    if item_daily_limit > 0 and wallet["daily_transactions"] + quantity > item_daily_limit:
 
         await ctx.send("❌ Daily delivery limit reached.")
         return
 
-    price = item_config.get("price", 0)
+    unit_price = max(0, int(item_config.get("price", 0) or 0))
+    price = unit_price * quantity
 
     if wallet_balance(wallet) < price:
 
-        await ctx.send(f"Not enough {guild_economy_currency(guild_id)}.")
+        await ctx.send(f"Not enough {guild_economy_currency(guild_id)}. Total cost is {format_currency(price, guild_id)}.")
         return
 
     wallet_debit(wallet, price, "cash")
-    wallet["daily_transactions"] += 1
+    wallet["daily_transactions"] += quantity
 
     created_at = str(datetime.now(UTC))
     if is_bundle:
         bundle_id = f"bundle-{guild_id}-{user_id}-{int(datetime.now(UTC).timestamp())}"
-        for row in bundle_items:
-            for _ in range(row["quantity"]):
-                delivery_queue.append({
-                    "guild_id": guild_id,
-                    "delivery_type": "bundle_item",
-                    "bundle_id": bundle_id,
-                    "bundle_name": item_name,
-                    "spawn_ready": False,
-                    "player": str(ctx.author),
-                    "discord_id": user_id,
-                    "item": row["item"],
-                    "x": str(x_value),
-                    "y": str(y_value),
-                    "status": "queued",
-                    "created": created_at
-                })
+        for bundle_index in range(quantity):
+            current_bundle_id = f"{bundle_id}-{bundle_index + 1}"
+            for row in bundle_items:
+                for _ in range(row["quantity"]):
+                    delivery_queue.append({
+                        "guild_id": guild_id,
+                        "delivery_type": "bundle_item",
+                        "bundle_id": current_bundle_id,
+                        "bundle_name": item_name,
+                        "spawn_ready": False,
+                        "player": str(ctx.author),
+                        "discord_id": user_id,
+                        "item": row["item"],
+                        "x": str(x_value),
+                        "y": str(y_value),
+                        "status": "queued",
+                        "created": created_at
+                    })
     else:
-        delivery_queue.append({
-            "guild_id": guild_id,
-            "delivery_type": "item",
-            "spawn_ready": False,
-            "player": str(ctx.author),
-            "discord_id": user_id,
-            "item": item_name,
-            "x": str(x_value),
-            "y": str(y_value),
-            "status": "queued",
-            "created": created_at
-        })
+        for _ in range(quantity):
+            delivery_queue.append({
+                "guild_id": guild_id,
+                "delivery_type": "item",
+                "spawn_ready": False,
+                "player": str(ctx.author),
+                "discord_id": user_id,
+                "item": item_name,
+                "x": str(x_value),
+                "y": str(y_value),
+                "status": "queued",
+                "created": created_at
+            })
 
     save_wallets()
     save_delivery_queue()
@@ -39404,6 +39460,12 @@ async def buy(ctx, item_name: str, x: str, y: str):
     embed.add_field(
         name="📦 Item",
         value=item_name,
+        inline=True
+    )
+
+    embed.add_field(
+        name="Quantity",
+        value=str(quantity),
         inline=True
     )
 
@@ -39443,10 +39505,12 @@ async def buy(ctx, item_name: str, x: str, y: str):
         ctx.guild,
         config,
         "BLACK MARKET PURCHASE",
-        f"{ctx.author.mention} spent **{format_currency(price, guild_id)}**.",
+        f"{ctx.author.mention} spent **{format_currency(price, guild_id)}** on **{quantity}x {item_name}**.",
         [
             {"name": "Survivor", "value": ctx.author.mention, "inline": True},
             {"name": "Item", "value": item_name, "inline": True},
+            {"name": "Quantity", "value": str(quantity), "inline": True},
+            {"name": "Unit Price", "value": format_currency(unit_price, guild_id), "inline": True},
             {"name": "Cost", "value": format_currency(price, guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
             {"name": "Delivery Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
@@ -39475,6 +39539,12 @@ async def buy(ctx, item_name: str, x: str, y: str):
         log_embed.add_field(
             name="📦 Item",
             value=item_name,
+            inline=True
+        )
+
+        log_embed.add_field(
+            name="Quantity",
+            value=str(quantity),
             inline=True
         )
 
@@ -39976,13 +40046,7 @@ async def restart_delivery_processor():
             local_tz = restart_timezone_for_config(config)
             local_now = now.astimezone(local_tz)
 
-            if local_now.minute != 0:
-                continue
-
-            if (
-                local_now.hour >= restart_offset
-                and ((local_now.hour - restart_offset) % restart_interval == 0)
-            ):
+            if _restart_schedule_matches(local_now, restart_offset, restart_interval):
                 normal_scenario_events = bridge_scenario_events(config)
                 delivery_scenario_events = delivery_bridge_scenario_events(config)
                 native_scenario_events = native_ce_scenario_events(config)
@@ -40022,6 +40086,37 @@ async def restart_delivery_processor():
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
             if mark_server_control_scheduler_status(config, now, error):
                 save_guild_configs()
+
+
+def ensure_task_loop_running(loop, label):
+    try:
+        if loop.is_running():
+            return False
+        loop.start()
+        print(f"[TASK WATCHDOG] restarted {label}")
+        return True
+    except RuntimeError as error:
+        print(f"[TASK WATCHDOG] could not restart {label}: {error}")
+    except Exception as error:
+        print(f"[TASK WATCHDOG] {label} restart failed: {error}")
+    return False
+
+
+@tasks.loop(minutes=5)
+async def server_control_watchdog_loop():
+    restarted = False
+    restarted |= ensure_task_loop_running(scheduled_restart_loop, "scheduled_restart_loop")
+    restarted |= ensure_task_loop_running(restart_delivery_processor, "restart_delivery_processor")
+    if restarted:
+        for guild_id, config in active_guild_config_items():
+            try:
+                status = config.setdefault("server_control_scheduler_status", {})
+                if isinstance(status, dict):
+                    status["last_watchdog_restart_at"] = datetime.now(UTC).isoformat()
+                    status["last_error"] = ""
+                    save_guild_configs()
+            except Exception as error:
+                print(f"[TASK WATCHDOG] status update failed {guild_id}: {error}")
 
 
 def pending_dashboard_scenario_xml_events(config):
@@ -49237,9 +49332,9 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
 
 
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
-@app_commands.describe(item_name="Item", x="Map X", y="Map Y")
+@app_commands.describe(item_name="Item", x="Map X", y="Map Y", quantity="How many to buy")
 @app_commands.autocomplete(item_name=purchase_item_autocomplete)
-async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y)
+async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str, quantity: int = 1): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y, quantity=quantity)
 def auto_fetch_types_xml_from_server(config, guild_id):
     """Try every standard Nitrado console & PC types.xml path and return
     (success, message, local_temp_path) on the first hit.

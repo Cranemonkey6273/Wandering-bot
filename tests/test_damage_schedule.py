@@ -25,6 +25,18 @@ class RestartTimezoneTests(unittest.TestCase):
 
         self.assertEqual(10, self.bot._minutes_until_next_restart(local_now, 3, 4))
 
+    def test_restart_hours_wrap_across_midnight(self):
+        self.assertEqual([1, 5, 9, 13, 17, 21], self.bot._restart_schedule_hours(17, 4))
+        self.assertTrue(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 13, 0, tzinfo=UTC), 17, 4))
+        self.assertFalse(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 14, 0, tzinfo=UTC), 17, 4))
+
+    def test_nitrado_token_reports_hidden_lookalike_character(self):
+        ok, _token, message = self.bot.validate_nitrado_api_token("еabc123")
+
+        self.assertFalse(ok)
+        self.assertIn("U+0435", message)
+        self.assertIn("position 1", message)
+
     def test_apply_server_timezone_links_restart_and_adm_time(self):
         config = {}
 
