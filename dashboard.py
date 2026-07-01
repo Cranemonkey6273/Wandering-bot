@@ -3273,9 +3273,15 @@ PAGE_TEMPLATE = """
     .category-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .category-link { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: #070b08; color: var(--muted); }
     .category-link strong { display: block; color: var(--gold); margin-bottom: .2rem; }
+    .quick-guide-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .7rem; margin-top: .8rem; }
+    .quick-guide-link { display: block; min-height: 5.4rem; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius: .5rem; padding: .85rem .9rem; background: linear-gradient(145deg, rgba(9, 27, 32, .96), rgba(4, 12, 14, .96)); color: var(--muted); text-decoration: none; box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+    .quick-guide-link strong { display: block; color: var(--gold); margin-bottom: .25rem; font-size: 1.02rem; }
+    .quick-guide-link span { display: block; line-height: 1.35; }
+    .quick-guide-link:hover,
+    .quick-guide-link:focus-visible { border-color: var(--accent); color: var(--text); transform: translateY(-1px); outline: none; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
@@ -3797,15 +3803,15 @@ PAGE_TEMPLATE = """
           <p class="tool-note">Pick the job you are trying to do. These shortcuts take you straight to the right page for the selected server.</p>
         </div>
       </div>
-      <div class="category-grid" aria-label="Common dashboard jobs">
-        <a class="category-link" href="/admin?section=access{{ server_qs }}"><strong>Connect a server</strong><span>Use Servers & Setup for Nitrado login, map, platform and dashboard access.</span></a>
-        <a class="category-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
-        <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>Edit XML or loadouts</strong><span>Use XML & Loadouts for player spawns, bags, vehicles, map converter and safe XML output.</span></a>
-        <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Balance loot</strong><span>Use Loot Balancer to boost or reduce types.xml categories with previews.</span></a>
-        <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
-        <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
-        <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Server Controls for restarts, base damage and container damage schedules.</span></a>
-        <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
+      <div class="quick-guide-grid" aria-label="Common dashboard jobs">
+        <a class="quick-guide-link" href="/admin?section=access{{ server_qs }}"><strong>Connect a server</strong><span>Use Servers & Setup for Nitrado login, map, platform and dashboard access.</span></a>
+        <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
+        <a class="quick-guide-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>Edit XML or loadouts</strong><span>Use XML & Loadouts for player spawns, bags, vehicles, map converter and safe XML output.</span></a>
+        <a class="quick-guide-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Balance loot</strong><span>Use Loot Balancer to boost or reduce types.xml categories with previews.</span></a>
+        <a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
+        <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
+        <a class="quick-guide-link" href="/admin?section=server-control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Server Controls for restarts, base damage and container damage schedules.</span></a>
+        <a class="quick-guide-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
       </div>
     </section>
 
@@ -4617,9 +4623,10 @@ PAGE_TEMPLATE = """
                 <option value="custom-message" {% if edit_embed.name == 'custom-message' %}selected{% endif %}>Custom message</option>
               </select>
             </label>
-            <label>Message key <input name="template_id" value="{{ edit_embed.template_id }}" placeholder="unique name for this embed"></label>
+            <label>Message key <input name="template_id" value="{{ edit_embed.template_id }}" placeholder="unique name for this embed"><small class="field-help">Internal saved name for this message. Use a short unique name like server-rules or raid-reminder.</small></label>
             <label>Message type
               <select name="content_mode"><option value="embed" {% if edit_embed.content_mode == 'embed' %}selected{% endif %}>Embed</option><option value="text" {% if edit_embed.content_mode == 'text' %}selected{% endif %}>Plain text</option><option value="both" {% if edit_embed.content_mode == 'both' %}selected{% endif %}>Text + embed</option></select>
+              <small class="field-help">Embed is the styled Discord card. Plain text sends normal text. Text + embed sends both.</small>
             </label>
             <label>Post to channel
               <select name="channel_key">
@@ -4628,16 +4635,16 @@ PAGE_TEMPLATE = """
             </label>
             <label>Title <input name="title" value="{{ edit_embed.title }}"></label>
             <label>Colour <input name="colour" type="color" value="{{ edit_embed.colour }}"></label>
-            <label>Author name <input name="author_name" value="{{ edit_embed.author_name }}" placeholder="optional"></label>
-            <label>Author icon URL <input name="author_icon_url" value="{{ edit_embed.author_icon_url }}" placeholder="https://..."></label>
-            <label>Thumbnail URL <input name="thumbnail_url" value="{{ edit_embed.thumbnail_url }}" placeholder="https://..."></label>
-            <label>Large image URL <input name="image_url" value="{{ edit_embed.image_url }}" placeholder="https://..."></label>
+            <label>Author name <input name="author_name" value="{{ edit_embed.author_name }}" placeholder="optional"><small class="field-help">Small name shown at the top of the Discord embed. Leave blank if you do not need it.</small></label>
+            <label>Author icon URL <input name="author_icon_url" value="{{ edit_embed.author_icon_url }}" placeholder="https://..."><small class="field-help">Tiny picture beside the author name. Must be a public image link.</small></label>
+            <label>Thumbnail URL <input name="thumbnail_url" value="{{ edit_embed.thumbnail_url }}" placeholder="https://..."><small class="field-help">Small image on the top-right of the embed, useful for logos or icons.</small></label>
+            <label>Large image URL <input name="image_url" value="{{ edit_embed.image_url }}" placeholder="https://..."><small class="field-help">Wide image shown under the message body, useful for posters, rules images or event banners.</small></label>
             <label>Footer text <input name="footer_text" value="{{ edit_embed.footer_text }}"></label>
-            <label>Footer icon URL <input name="footer_icon_url" value="{{ edit_embed.footer_icon_url }}" placeholder="https://..."></label>
+            <label>Footer icon URL <input name="footer_icon_url" value="{{ edit_embed.footer_icon_url }}" placeholder="https://..."><small class="field-help">Tiny picture beside the footer text at the bottom of the embed.</small></label>
             <label>Mention
               <select name="mention_mode"><option value="none" {% if edit_embed.mention_mode == 'none' %}selected{% endif %}>No mention</option><option value="everyone" {% if edit_embed.mention_mode == 'everyone' %}selected{% endif %}>@everyone</option><option value="here" {% if edit_embed.mention_mode == 'here' %}selected{% endif %}>@here</option><option value="role" {% if edit_embed.mention_mode == 'role' %}selected{% endif %}>Role mention</option></select>
             </label>
-            <label>Role ID to mention <input name="mention_role_id" value="{{ edit_embed.mention_role_id }}" placeholder="optional role id"></label>
+            <label>Role ID to mention <input name="mention_role_id" value="{{ edit_embed.mention_role_id }}" placeholder="optional role id"><small class="field-help">Only used when Mention is Role mention. Paste the Discord role ID, not the role name.</small></label>
             <label>Schedule / trigger
               <select name="schedule_type">
                 <option value="manual" {% if edit_embed.schedule_type == 'manual' %}selected{% endif %}>Manual / save only</option>
@@ -4668,7 +4675,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Time / day <input name="schedule_time" value="{{ edit_embed.schedule_time }}" placeholder="10:00, Monday 18:00, etc."></label>
-            <label>Player/event filter <input name="event_filter" value="{{ edit_embed.event_filter }}" placeholder="keyword, player name, weapon, zone, any"></label>
+            <label>Player/event filter <input name="event_filter" value="{{ edit_embed.event_filter }}" placeholder="keyword, player name, weapon, zone, any"><small class="field-help">Optional filter for triggered messages. Example: a player name, weapon, zone name, keyword, or any.</small></label>
             <label>Minimum value <input name="event_minimum" type="number" value="{{ edit_embed.event_minimum }}" placeholder="distance, kills, amount, etc."></label>
             <label>Interval minutes <input name="interval_minutes" type="number" value="{{ edit_embed.interval_minutes }}"></label>
             <label>Timezone <input name="timezone" value="{{ edit_embed.timezone }}"></label>
