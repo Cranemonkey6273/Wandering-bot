@@ -13398,19 +13398,38 @@ def write_json_file(filename: str, data: Any) -> None:
                 pass
 
 
+def split_guild_config_id(guild_id: Any) -> str:
+    return "".join(
+        char for char in str(guild_id)
+        if char.isalnum() or char in {"-", "_"}
+    )
+
+
 def write_split_guild_configs(data: Any) -> None:
     if not isinstance(data, dict):
         return
     for guild_id, config in data.items():
         if not isinstance(config, dict):
             continue
-        safe_guild_id = "".join(
-            char for char in str(guild_id)
-            if char.isalnum() or char in {"-", "_"}
-        )
+        safe_guild_id = split_guild_config_id(guild_id)
         if not safe_guild_id:
             continue
         write_json_file(os.path.join(GUILD_CONFIG_FOLDER, f"{safe_guild_id}.json"), config)
+
+
+def delete_split_guild_config_files(guild_id: Any) -> None:
+    safe_guild_id = split_guild_config_id(guild_id)
+    if not safe_guild_id:
+        return
+    filename = f"{safe_guild_id}.json"
+    for folder in (LEGACY_GUILD_CONFIG_FOLDER, GUILD_CONFIG_FOLDER):
+        path = data_path(os.path.join(folder, filename))
+        if not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+        except OSError as error:
+            print(f"[owner] Failed to delete split guild config {path}: {error}")
 
 
 def merge_guild_config_records(base: Any, override: Any) -> Any:
@@ -20661,6 +20680,7 @@ def discord_bot_leave_guild(guild_id: str) -> tuple[bool, str]:
 
 
 def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
+    guild_id = normalize_guild_id(guild_id)
     removed = load_store("removed_guilds", [])
     if not isinstance(removed, list):
         removed = []
@@ -20672,8 +20692,29 @@ def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
     })
     save_store("removed_guilds", removed[-100:])
 
+    guild_configs = load_store("guild_configs", {})
+    if isinstance(guild_configs, dict):
+        guild_configs.pop(guild_id, None)
+        for other_config in guild_configs.values():
+            if not isinstance(other_config, dict):
+                continue
+            dashboard = other_config.get("dashboard")
+            if not isinstance(dashboard, dict):
+                continue
+            linked = dashboard.get("linked_guild_ids")
+            if not isinstance(linked, list):
+                continue
+            clean_linked = [
+                str(linked_id) for linked_id in linked
+                if normalize_guild_id(linked_id) != guild_id
+            ]
+            if clean_linked != linked:
+                dashboard["linked_guild_ids"] = clean_linked
+                dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
+        save_store("guild_configs", guild_configs)
+    delete_split_guild_config_files(guild_id)
+
     for store_name in [
-        "guild_configs",
         "player_stats",
         "online_players",
         "factions",
