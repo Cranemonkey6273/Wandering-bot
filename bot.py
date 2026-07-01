@@ -123,6 +123,11 @@ WAGES_FILE = data_path("wages.json")
 SEEN_PLAYERS_FILE = data_path("seen_players.json")
 MAP_IMAGE_FOLDER = data_path("map_images")
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+MAP_IMAGE_FILES = {
+    "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
+    "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
+    "sakhal": os.getenv("WANDERING_SAKHAL_MAP_FILE", os.path.join(APP_ROOT, "sakhal_map.webp")),
+}
 MAP_IMAGE_HTTP_HEADERS = {
     "User-Agent": "WanderingBot/1.0 (+https://dayzwanderingbot.com)",
     "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
@@ -13446,6 +13451,13 @@ def cached_map_image_path(map_key):
     return os.path.join(MAP_IMAGE_FOLDER, f"{map_key}_cached.map")
 
 
+def bundled_map_image_path(map_key):
+    path = MAP_IMAGE_FILES.get(str(map_key or "").strip().lower())
+    if path and os.path.exists(path):
+        return path
+    return None
+
+
 def first_existing_map_image(guild_id, map_key):
     for candidate in candidate_local_map_image_paths(guild_id, map_key):
         if os.path.exists(candidate):
@@ -13457,6 +13469,9 @@ def first_existing_map_image(guild_id, map_key):
 
 
 def configured_heatmap_image_source(guild_id, map_key):
+    bundled_source = bundled_map_image_path(map_key)
+    if bundled_source:
+        return bundled_source
     config = guild_configs.get(str(guild_id), {})
     images = config.get("heatmap_images", {})
     configured = images.get(map_key) or images.get("default")
@@ -18687,19 +18702,148 @@ def dashboard_audit_line_value(value, limit=150):
     return text or "blank"
 
 
-def format_dashboard_audit_details(payload):
+def dashboard_audit_channel_label(guild, config, value):
+    text = str(value or "").strip()
+    if not text:
+        return "No channel"
+    channel = None
+    channels = config.get("channels", {}) if isinstance(config, dict) else {}
+    if text.isdigit() and guild:
+        try:
+            channel = guild.get_channel(int(text))
+        except Exception:
+            channel = None
+    elif isinstance(channels, dict):
+        channel_id = channels.get(text)
+        if channel_id and guild:
+            try:
+                channel = guild.get_channel(int(channel_id))
+            except Exception:
+                channel = None
+    if channel:
+        return f"#{getattr(channel, 'name', 'channel')}"
+    if text in DEFAULT_CHANNEL_NAMES:
+        return text.replace("_", " ").title()
+    return "Unknown channel" if text.isdigit() else text.replace("_", " ").title()
+
+
+def dashboard_audit_detail_label(key):
+    text = str(key or "").strip()
+    replacements = {
+        "restart_channel_key": "Restart Channel",
+        "restart_log_channel_key": "Restart Log Channel",
+        "notification_channel_key": "Notification Channel",
+        "alert_channel_key": "Alert Channel",
+        "channel_key": "Channel",
+        "channel_id": "Channel",
+        "user_id": "User",
+        "member_id": "Member",
+        "discord_user": "Discord User",
+        "role_id": "Role",
+        "allowed_role_ids": "Allowed Roles",
+    }
+    if text in replacements:
+        return replacements[text]
+    for suffix in ("_channel_key", "_channel_id"):
+        if text.endswith(suffix):
+            return text[: -len(suffix)].replace("_", " ").title() + " Channel"
+    if text.endswith("_enabled"):
+        return text[: -len("_enabled")].replace("_", " ").title()
+    return text.replace("_", " ").title()
+
+
+def dashboard_audit_member_label(guild, value):
+    text = str(value or "").strip()
+    user_id = text.strip("<@!>")
+    if user_id.isdigit() and guild:
+        member = None
+        try:
+            member = guild.get_member(int(user_id))
+        except Exception:
+            member = None
+        if member:
+            return trader_discord_name(member)
+        return "Unknown user"
+    return dashboard_audit_line_value(text)
+
+
+def dashboard_audit_role_label(guild, value):
+    text = str(value or "").strip()
+    role_id = text.strip("<@&>")
+    if role_id.isdigit() and guild:
+        role = None
+        try:
+            role = guild.get_role(int(role_id))
+        except Exception:
+            role = None
+        if role:
+            return f"@{role.name}"
+        return "Unknown role"
+    return dashboard_audit_line_value(text)
+
+
+def dashboard_audit_detail_value(key, value, guild, config):
+    key_text = str(key or "")
+    if isinstance(value, bool) or str(value).strip().lower() in {"true", "false", "on", "off", "yes", "no"}:
+        return dashboard_bool_label(value)
+    if key_text in {"allowed_role_ids", "role_ids"}:
+        return dashboard_role_names(guild, value)
+    if key_text.endswith("_channel_key") or key_text.endswith("_channel_id") or key_text in {"channel_key", "channel_id"}:
+        return dashboard_audit_channel_label(guild, config, value)
+    if key_text in {"user_id", "member_id", "discord_user_id", "discord_user", "trader_id"}:
+        return dashboard_audit_member_label(guild, value)
+    if key_text in {"role_id", "discord_role_id"}:
+        return dashboard_audit_role_label(guild, value)
+    if isinstance(value, list):
+        items = [dashboard_audit_detail_value(key, item, guild, config) for item in value[:8]]
+        if len(value) > 8:
+            items.append(f"+ {len(value) - 8} more")
+        return ", ".join(items) or "None"
+    return dashboard_audit_line_value(value)
+
+
+def format_dashboard_audit_details(payload, guild=None, config=None):
     if not isinstance(payload, dict) or not payload:
         return "No extra details were supplied."
-    ignored = {"dashboard_mode", "return_to", "_scope_denied", "csrf", "csrf_token"}
+    ignored = {
+        "dashboard_mode",
+        "return_to",
+        "_scope_denied",
+        "csrf",
+        "csrf_token",
+        "guild_id",
+        "server_id",
+        "discord_guild_id",
+    }
+    config = config if isinstance(config, dict) else {}
     lines = []
     for key, value in payload.items():
         if key in ignored or value in (None, ""):
             continue
-        label = str(key).replace("_", " ").title()
-        lines.append(f"**{label}:** {dashboard_audit_line_value(value)}")
+        label = dashboard_audit_detail_label(key)
+        display_value = dashboard_audit_detail_value(key, value, guild, config)
+        if display_value in (None, ""):
+            continue
+        lines.append(f"**{label}:** {display_value}")
         if len(lines) >= 10:
             break
     return "\n".join(lines) if lines else "No extra details were supplied."
+
+
+def format_dashboard_audit_summary_text(summary):
+    text = str(summary or "").strip()
+    if not text:
+        return ""
+    hidden_prefixes = ("guild_id:", "channel_id:", "user_id:", "member_id:", "role_id:")
+    parts = []
+    for part in text.split(";"):
+        clean = part.strip()
+        if not clean:
+            continue
+        if clean.lower().startswith(hidden_prefixes):
+            continue
+        parts.append(clean.replace("_", " "))
+    return "; ".join(parts[:4])
 
 
 def dashboard_payload_list(value):
@@ -18840,7 +18984,7 @@ def dashboard_money_feed_payload(event, guild):
         event.get("title") or "Dashboard money setting updated.",
         common_fields + [
             {"name": "📍 Route", "value": f"{event.get('method', 'POST')} {event.get('route', '')}", "inline": True},
-            {"name": "🧾 Details", "value": format_dashboard_audit_details(payload), "inline": False},
+            {"name": "🧾 Details", "value": format_dashboard_audit_details(payload, guild, guild_configs.get(str(getattr(guild, 'id', '')), {})), "inline": False},
         ],
         0xD5B45F,
     )
@@ -19150,8 +19294,9 @@ MONEY_DASHBOARD_ROUTES = {
 
 
 def build_dashboard_audit_embed(event, guild):
+    config = guild_configs.get(str(getattr(guild, "id", "")), {})
     title = discord.utils.escape_mentions(str(event.get("title") or "Dashboard change confirmed"))
-    summary = discord.utils.escape_mentions(str(event.get("summary") or "").strip())
+    summary = discord.utils.escape_mentions(format_dashboard_audit_summary_text(event.get("summary")))
     created_ts = dashboard_audit_timestamp(event.get("created_at"))
     embed = discord.Embed(
         title="🛡️ DASHBOARD CHANGE CONFIRMED",
@@ -19166,7 +19311,7 @@ def build_dashboard_audit_embed(event, guild):
         value=f"`{dashboard_audit_line_value(event.get('method'), 12)} {dashboard_audit_line_value(event.get('route'), 120)}`",
         inline=False,
     )
-    embed.add_field(name="What Changed", value=format_dashboard_audit_details(event.get("payload")), inline=False)
+    embed.add_field(name="What Changed", value=format_dashboard_audit_details(event.get("payload"), guild, config), inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text=f"Wandering Bot Alpha - Dashboard Audit - {event.get('id', 'queued')}")
     return trim_embed_field_values(style_embed(embed))
@@ -42570,6 +42715,12 @@ async def setheatmapimage(interaction: discord.Interaction, map_name: str, image
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
+    await interaction.response.send_message(
+        "Custom map image URLs are disabled from Discord commands. Use the dashboard map setup tools so the bot keeps the correct Chernarus, Livonia, and Sakhal map images.",
+        ephemeral=True,
+    )
+    return
+
     wanted = normalize_map_image_key(map_name)
     if not wanted:
         await interaction.response.send_message(
@@ -42608,6 +42759,12 @@ async def uploadmapimage(interaction: discord.Interaction, map_name: str, image:
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
+
+    await interaction.response.send_message(
+        "Map image uploads from Discord are disabled. Use the dashboard map setup tools so chat photos cannot overwrite Chernarus, Livonia, or Sakhal.",
+        ephemeral=True,
+    )
+    return
 
     wanted = normalize_map_image_key(map_name)
     if not wanted:
@@ -42686,6 +42843,8 @@ async def mapimagestatus(interaction: discord.Interaction):
 
 
 async def maybe_save_map_image_from_message(message, lower):
+    return False
+
     if not message.guild or not message.attachments:
         return False
 
@@ -49859,6 +50018,7 @@ HIDDEN_TOP_LEVEL_SLASH_COMMANDS = {
     "setradarchannel",
     "radarping",
     # Map images are selected during setup/dashboard map tools.
+    "setheatmapimage",
     "uploadmapimage",
     "mapimagestatus",
     # Leaderboard pages cover these.

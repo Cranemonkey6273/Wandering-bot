@@ -17200,14 +17200,12 @@ def dashboard_audit_summary(payload: dict[str, Any]) -> str:
         "name",
         "title",
         "server_name",
-        "guild_id",
         "action",
         "event_name",
         "zone_name",
         "faction_name",
         "item_name",
         "vehicle_class",
-        "channel_id",
         "method",
     )
     parts = []
