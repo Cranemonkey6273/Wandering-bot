@@ -112,6 +112,39 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIsNone(status)
         self.assertIn("token or service ID is missing", message)
 
+    def test_missing_scenario_uploader_marks_event_failed_instead_of_waiting(self):
+        old_provider = dashboard.CUSTOM_STATE_PROVIDER
+        event = {
+            "id": 37,
+            "created_by": "dashboard",
+            "enabled": True,
+            "upload_status": "waiting_for_bot_upload",
+            "status": "Native CE XML upload requested",
+        }
+        try:
+            dashboard.CUSTOM_STATE_PROVIDER = None
+            reason = dashboard.dashboard_runtime_scenario_uploader_error()
+
+            changed = dashboard.mark_dashboard_scenario_upload_worker_unavailable([event], reason, 37)
+        finally:
+            dashboard.CUSTOM_STATE_PROVIDER = old_provider
+
+        self.assertTrue(changed)
+        self.assertEqual("failed", event["upload_status"])
+        self.assertEqual("Bot worker unavailable", event["status"])
+        self.assertIn("embedded bot runtime provider", event["upload_error"])
+        self.assertGreaterEqual(event["upload_attempts"], 1)
+
+    def test_schedule_rejects_provider_without_scenario_uploader(self):
+        old_provider = dashboard.CUSTOM_STATE_PROVIDER
+        try:
+            dashboard.CUSTOM_STATE_PROVIDER = lambda: {}
+
+            self.assertFalse(dashboard.schedule_runtime_scenario_xml_upload("guild-1", 37))
+            self.assertIn("did not expose", dashboard.dashboard_runtime_scenario_uploader_error())
+        finally:
+            dashboard.CUSTOM_STATE_PROVIDER = old_provider
+
 
 if __name__ == "__main__":
     unittest.main()

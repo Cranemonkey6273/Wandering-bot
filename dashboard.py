@@ -15446,13 +15446,61 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     return upload_result
 
 
-def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> bool:
+def dashboard_runtime_scenario_uploader_error() -> str:
     if not CUSTOM_STATE_PROVIDER:
+        return "Bot worker unavailable: the dashboard is running without the embedded bot runtime provider."
+    try:
+        state = CUSTOM_STATE_PROVIDER()
+    except Exception as error:
+        return f"Bot worker unavailable: dashboard runtime state failed: {error}"
+    uploader = state.get("scenario_xml_uploader") if isinstance(state, dict) else None
+    if not callable(uploader):
+        return "Bot worker unavailable: the embedded bot runtime did not expose the scenario XML uploader."
+    return ""
+
+
+def mark_dashboard_scenario_upload_worker_unavailable(events: list[Any], reason: str, event_id: int = 0) -> bool:
+    changed = False
+    now_text = datetime.now(UTC).isoformat()
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        if event_id and safe_int(event.get("id"), 0) != safe_int(event_id, 0):
+            continue
+        if scenario_event_has_confirmed_upload(event):
+            remember_scenario_upload_warning(event, reason, now_text)
+            changed = True
+            continue
+        event["upload_status"] = "failed"
+        event["upload_error"] = reason
+        event["status"] = "Bot worker unavailable"
+        event["upload_attempts"] = max(1, safe_int(event.get("upload_attempts"), 0))
+        event["updated_at"] = now_text
+        changed = True
+    return changed
+
+
+def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> bool:
+    if dashboard_runtime_scenario_uploader_error():
         return False
 
     def upload_worker() -> None:
         try:
-            apply_runtime_scenario_xml_upload(guild_id, event_id, removed)
+            upload_result = apply_runtime_scenario_xml_upload(guild_id, event_id, removed)
+            if upload_result is not None:
+                return
+            guild_configs = load_store("guild_configs", {})
+            if not isinstance(guild_configs, dict):
+                return
+            config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+            events = config.get("scenario_events", [])
+            if isinstance(events, list) and mark_dashboard_scenario_upload_worker_unavailable(
+                events,
+                dashboard_runtime_scenario_uploader_error() or "Bot worker unavailable: upload worker returned no result.",
+                event_id,
+            ):
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
         except Exception as error:
             guild_configs = load_store("guild_configs", {})
             if not isinstance(guild_configs, dict):
@@ -26567,18 +26615,26 @@ def api_scenario_event():
 
     upload_started = False
     upload_result = None
+    upload_worker_error = ""
     if event_type != "vehicle_reset_all":
         for event in created_events:
             event["status"] = f"{upload_route_label} upload requested"
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
-        if CUSTOM_STATE_PROVIDER:
+        upload_worker_error = dashboard_runtime_scenario_uploader_error()
+        if not upload_worker_error:
             upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
-            if upload_started:
-                for event in created_events:
-                    event["status"] = f"{upload_route_label} upload starting"
-                save_store("guild_configs", guild_configs)
-                sync_runtime_store("guild_configs", guild_configs)
+            if not upload_started:
+                upload_worker_error = "Bot worker unavailable: the upload worker did not accept the request."
+        if upload_started:
+            for event in created_events:
+                event["status"] = f"{upload_route_label} upload starting"
+            save_store("guild_configs", guild_configs)
+            sync_runtime_store("guild_configs", guild_configs)
+        elif upload_worker_error:
+            mark_dashboard_scenario_upload_worker_unavailable(created_events, upload_worker_error)
+            save_store("guild_configs", guild_configs)
+            sync_runtime_store("guild_configs", guild_configs)
 
     event = created_events[0] if created_events else {}
     g.dashboard_audit_payload = {
@@ -26600,7 +26656,12 @@ def api_scenario_event():
     if not wants_json_response():
         return redirect(return_to)
     count_text = f"{len(created_events)} events" if len(created_events) != 1 else "1 event"
-    upload_note = f"{upload_route_label} upload requested" if upload_started else f"{upload_route_label} queued for the bot worker"
+    if upload_started:
+        upload_note = f"{upload_route_label} upload requested"
+    elif upload_worker_error:
+        upload_note = f"{upload_route_label} not started: {upload_worker_error}"
+    else:
+        upload_note = f"{upload_route_label} queued for the bot worker"
     return jsonify({
         "ok": True,
         "event": event,
@@ -26608,6 +26669,7 @@ def api_scenario_event():
         "created_count": len(created_events),
         "updated": existing_index is not None,
         "upload_started": upload_started,
+        "upload_worker_error": upload_worker_error,
         "note": f"Saved {count_text}; {upload_note}.",
     })
 
@@ -26757,7 +26819,12 @@ def api_scenario_event_action():
                     return redirect(return_to)
                 return jsonify({"ok": True, "event": event, "upload_started": False, "cleanup_queued": False})
             upload_result = None
-            upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else False
+            upload_worker_error = dashboard_runtime_scenario_uploader_error()
+            upload_started = False
+            if not upload_worker_error:
+                upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
+                if not upload_started:
+                    upload_worker_error = "Bot worker unavailable: the upload worker did not accept the request."
             if upload_started:
                 event["status"] = "Native CE XML removal starting" if action == "pause" else f"{route_label} upload starting"
                 save_store("guild_configs", guild_configs)
@@ -26765,6 +26832,20 @@ def api_scenario_event_action():
                 if not wants_json_response():
                     return redirect(return_to)
                 return jsonify({"ok": True, "event": event, "upload_started": True, "upload": upload_result})
+            if action in {"approve", "upload"} and upload_worker_error:
+                mark_dashboard_scenario_upload_worker_unavailable([event], upload_worker_error, event_id)
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
+                if not wants_json_response():
+                    return redirect(return_to)
+                return jsonify({
+                    "ok": True,
+                    "event": event,
+                    "upload_started": False,
+                    "upload": upload_result,
+                    "upload_worker_error": upload_worker_error,
+                    "note": upload_worker_error,
+                })
         if not wants_json_response():
             return redirect(return_to)
         return jsonify({"ok": True, "event": event})
