@@ -8024,9 +8024,25 @@ PAGE_TEMPLATE = """
             <div class="full embed-preview"><strong>Live restart status</strong><span>{% if restart_status.enabled %}Next restart: {{ restart_status.next_restart_uk }}. Warning minutes: {{ restart_status.warnings|join(', ') }}.{% else %}Restart schedule is disabled.{% endif %} External Nitrado/manual restarts show here after the next RPT pull detects the fresh mission.</span></div>
             <div class="full"><button type="submit">Save Restart Schedule</button> <span class="result muted"></span></div>
           </form>
+          <div class="embed-preview">
+            <strong>Manual server controls</strong>
+            <span>These send a direct Nitrado command only. They do not upload XML or change live server files.</span>
+          </div>
+          <div class="inline-actions" style="margin-top:.65rem">
+            <form class="admin-form inline-action" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Restart {{ server.guild_name if server else 'this server' }} now through Nitrado?">
+              <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="server_action" value="restart">
+              <button type="submit">Restart Now</button> <span class="result muted"></span>
+            </form>
+            <form class="admin-form inline-action" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Stop {{ server.guild_name if server else 'this server' }} now through Nitrado? Players will be kicked and the server stays offline until started again.">
+              <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="server_action" value="stop">
+              <button class="danger" type="submit">Stop Server</button> <span class="result muted"></span>
+            </form>
+          </div>
         </article>
         <article class="admin-panel">
-          <h3>Live Restart Log</h3>
+          <h3>Live Server Action Log</h3>
           <div class="stack">
             <div class="embed-preview"><strong>Warning channel</strong><span>{{ channel_label(server.channels if server else [], restart_status.warning_channel_id or restart_status.warning_channel_key, 'Not set') }}</span></div>
             <div class="embed-preview"><strong>Audit channel</strong><span>{{ channel_label(server.channels if server else [], restart_status.log_channel_id or restart_status.log_channel_key, 'Not set') }}</span></div>
@@ -19674,6 +19690,30 @@ def dashboard_nitrado_api_service_url(config: dict[str, Any], endpoint: str) -> 
     return f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/{endpoint}"
 
 
+def dashboard_nitrado_gameserver_action(config: dict[str, Any], action: Any) -> tuple[bool, str, int | None]:
+    action_name = str(action or "").strip().lower()
+    if action_name not in {"restart", "stop", "start"}:
+        return False, f"Unsupported Nitrado server action `{action_name}`.", None
+    service_id = str(config.get("service_id") or "").strip()
+    headers = dashboard_nitrado_api_headers(config)
+    if not service_id or not headers:
+        return False, "Nitrado API token or service ID is missing.", None
+    headers = dict(headers)
+    headers.pop("Accept", None)
+    try:
+        response = requests.post(
+            f"https://api.nitrado.net/services/{service_id}/gameservers/{action_name}",
+            headers=headers,
+            timeout=30,
+        )
+    except Exception as error:
+        return False, f"Nitrado {action_name} failed: {error}", None
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    if status_code in {200, 201, 202, 204}:
+        return True, f"Nitrado {action_name} requested ({status_code}).", status_code
+    return False, f"Nitrado {action_name} failed ({status_code}): {str(getattr(response, 'text', '') or '')[:240]}", status_code
+
+
 def dashboard_nitrado_api_file_path(config: dict[str, Any], target_path: Any) -> str:
     clean = dashboard_canonical_remote_path(target_path)
     if not clean:
@@ -21366,6 +21406,34 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
         "last_restart": history[0] if history and isinstance(history[0], dict) else {},
         "history": [item for item in history[:12] if isinstance(item, dict)],
     }
+
+
+def dashboard_append_restart_history(
+    guild_id: Any,
+    config: dict[str, Any],
+    source: str,
+    status: str,
+    details: str = "",
+    actor: str = "",
+) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    history = config.setdefault("restart_history", [])
+    if not isinstance(history, list):
+        history = []
+        config["restart_history"] = history
+    record = {
+        "id": f"restart-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}",
+        "created_at": datetime.now(UTC).isoformat(),
+        "guild_id": normalize_guild_id(guild_id),
+        "source": str(source or "dashboard")[:80],
+        "status": str(status or "requested")[:80],
+        "details": str(details or "")[:500],
+        "actor": str(actor or "")[:160],
+    }
+    history.insert(0, record)
+    del history[60:]
+    return record
 
 
 def dashboard_parse_schedule_datetime(value: Any) -> datetime | None:
@@ -27463,6 +27531,47 @@ def api_server_control():
     if not isinstance(guild_configs, dict):
         guild_configs = {}
     config = guild_configs.setdefault(guild_id, {"channels": {}})
+    server_action = str(payload.get("server_action") or "").strip().lower()
+    if server_action:
+        if server_action not in {"restart", "stop"}:
+            return jsonify({"ok": False, "error": "Unsupported server action."}), 400
+        ok, action_message, status_code = dashboard_nitrado_gameserver_action(config, server_action)
+        actor = dashboard_audit_actor(current_auth())
+        record = dashboard_append_restart_history(
+            guild_id,
+            config,
+            f"dashboard_{server_action}",
+            "requested" if ok else "failed",
+            action_message,
+            actor,
+        )
+        config["last_server_action"] = {
+            "action": server_action,
+            "status": "requested" if ok else "failed",
+            "message": action_message,
+            "status_code": status_code,
+            "actor": actor,
+            "created_at": record.get("created_at") or datetime.now(UTC).isoformat(),
+        }
+        config["updated_at"] = datetime.now(UTC).isoformat()
+        save_store("guild_configs", guild_configs)
+        g.dashboard_audit_payload = dict(
+            raw_payload,
+            guild_id=guild_id,
+            action=f"server_{server_action}",
+            nitrado_status=status_code,
+            result="requested" if ok else "failed",
+        )
+        body = {
+            "ok": bool(ok),
+            "server_action": server_action,
+            "status_code": status_code,
+            "record": record,
+            "note": action_message,
+        }
+        if not ok:
+            return jsonify(dict(body, error=action_message)), 400 if status_code is None else 502
+        return dashboard_api_response(raw_payload, body, "server-control", "#server-control")
     schedule_delete = str(payload.get("schedule_delete") or "").strip().lower()
     if schedule_delete == "restart":
         config["restart_schedule_enabled"] = False
