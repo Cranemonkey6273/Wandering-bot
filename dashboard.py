@@ -15191,16 +15191,16 @@ def scenario_status_display(event: Any) -> dict[str, str]:
         state = "bad"
     elif upload_status in {"waiting_for_bot_upload", "queued", "uploading", "starting"} or "upload starting" in combined or "upload requested" in combined:
         if queued_minutes >= 15:
-            title = "Worker not responding"
-            brief = f"No upload result after {queued_minutes} min. Restart/redeploy the bot worker."
+            title = "Not uploaded - bot worker stuck"
+            brief = f"The dashboard saved this event, but the bot has not written the XML after {queued_minutes} min."
             state = "bad"
         elif queued_minutes >= 5:
-            title = "Waiting for bot worker"
-            brief = f"No upload result after {queued_minutes} min. Railway may still be redeploying or the bot worker may be stopped."
+            title = "Not uploaded yet"
+            brief = f"Saved in the dashboard, but the bot upload worker has not processed it after {queued_minutes} min."
             state = "warn"
         else:
             title = "Upload queued"
-            brief = "The bot worker is processing it."
+            brief = "Saved in the dashboard; waiting for the bot process to write the XML."
             state = "warn"
     elif upload_status == "removed":
         title = "Removed"
