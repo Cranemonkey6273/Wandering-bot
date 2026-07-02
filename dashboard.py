@@ -26625,8 +26625,10 @@ def api_scenario_event_action():
         if action in {"delete", "cancel"}:
             removed = events.pop(index)
             mark_scenario_event_deleted(config, event_id, action, removed)
-            config["scenario_events_cleanup_pending"] = True
-            config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
+            cleanup_needed = scenario_event_has_confirmed_upload(removed)
+            if cleanup_needed:
+                config["scenario_events_cleanup_pending"] = True
+                config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
             if not wants_json_response():
@@ -26635,9 +26637,13 @@ def api_scenario_event_action():
                 "ok": True,
                 "deleted": removed,
                 "cancelled": action == "cancel",
-                "cleanup_queued": True,
+                "cleanup_queued": cleanup_needed,
                 "upload": None,
-                "note": "event removed; native CE XML cleanup is queued in the bot background worker",
+                "note": (
+                    "event removed; native CE XML cleanup is queued in the bot background worker"
+                    if cleanup_needed
+                    else "queued event removed locally; it had not uploaded, so no live XML cleanup was queued"
+                ),
             })
         event["enabled"] = action in {"approve", "upload"}
         route_label = "Direct bridge XML" if dashboard_event_bridge_enabled(event, config) else "Native CE XML"
@@ -26673,6 +26679,15 @@ def api_scenario_event_action():
         sync_runtime_store("guild_configs", guild_configs)
 
         if action in {"approve", "upload", "pause"}:
+            if action == "pause" and not scenario_event_has_confirmed_upload(event):
+                event["upload_status"] = "paused"
+                event["status"] = "Paused before upload - no live XML cleanup needed"
+                event.pop("upload_error", None)
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
+                if not wants_json_response():
+                    return redirect(return_to)
+                return jsonify({"ok": True, "event": event, "upload_started": False, "cleanup_queued": False})
             upload_result = None
             upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause")) if CUSTOM_STATE_PROVIDER else False
             if upload_started:
@@ -26693,8 +26708,6 @@ def api_scenario_event_action():
             for event in events
             if not isinstance(event, dict) or safe_int(event.get("id"), 0) != event_id
         ]
-        config["scenario_events_cleanup_pending"] = True
-        config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
         if not wants_json_response():
@@ -26704,8 +26717,8 @@ def api_scenario_event_action():
             "missing": True,
             "deleted": None,
             "cancelled": action == "cancel",
-            "note": "scenario event was already gone for this guild",
-            "cleanup_queued": True,
+            "note": "scenario event was already gone for this guild; no live XML cleanup was queued",
+            "cleanup_queued": False,
             "upload": None,
         })
 
