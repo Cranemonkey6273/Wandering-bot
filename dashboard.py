@@ -3190,6 +3190,9 @@ PAGE_TEMPLATE = """
     .types-editor-table .type-name { font-weight: 800; color: var(--text); white-space: nowrap; }
     .types-chip-cell input { min-width: 9rem; }
     .types-row-warning .type-name::after { content: " !"; color: #ffd166; }
+    .types-xml-output-panel { display: grid; gap: .6rem; }
+    .types-xml-output-panel summary { cursor: pointer; font-weight: 900; }
+    .types-xml-output-panel textarea { min-height: 16rem; }
     .capacity-meter { display: grid; gap: .25rem; }
     .capacity-meter-line { height: .55rem; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #070b08; }
     .capacity-meter-line span { display: block; height: 100%; width: var(--used, 0%); background: linear-gradient(90deg, var(--olive), var(--gold)); }
@@ -6517,8 +6520,8 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="target_path" value="{{ ce_defaults.types_path }}">
             <div class="types-editor-appbar full">
               <div class="types-file-meta">
-                <strong data-types-filename>No types.xml loaded</strong>
-                <span><b data-types-item-count>0</b> items</span>
+                <strong data-types-filename>{{ types_factory_preload.filename if types_factory_preload.xml_text else 'No types.xml loaded' }}</strong>
+                <span><b data-types-item-count>{{ types_factory_preload.item_count if types_factory_preload.xml_text else 0 }}</b> items</span>
                 <span data-types-version>DayZ files {{ dayz_ce_file_version }}</span>
               </div>
               <div class="types-editor-actions">
@@ -6563,15 +6566,21 @@ PAGE_TEMPLATE = """
             </div>
             </div>
             <div class="types-engine-stats full" data-types-stats>
-              <div class="types-stat"><span>Total items</span><strong data-types-stat="total">0</strong></div>
-              <div class="types-stat"><span>Shown</span><strong data-types-stat="shown">0</strong></div>
-              <div class="types-stat"><span>Active nominal</span><strong data-types-stat="active">0</strong></div>
-              <div class="types-stat"><span>Zero nominal</span><strong data-types-stat="zero">0</strong></div>
-              <div class="types-stat"><span>Warnings</span><strong data-types-stat="warnings">0</strong></div>
-              <div class="types-stat"><span>Compared to vanilla</span><strong data-types-stat="baseline">Waiting</strong></div>
+              <div class="types-stat"><span>Total items</span><strong data-types-stat="total">{{ types_factory_preload.stats.total if types_factory_preload.xml_text else 0 }}</strong></div>
+              <div class="types-stat"><span>Shown</span><strong data-types-stat="shown">{{ types_factory_preload.stats.shown if types_factory_preload.xml_text else 0 }}</strong></div>
+              <div class="types-stat"><span>Active nominal</span><strong data-types-stat="active">{{ types_factory_preload.stats.active if types_factory_preload.xml_text else 0 }}</strong></div>
+              <div class="types-stat"><span>Zero nominal</span><strong data-types-stat="zero">{{ types_factory_preload.stats.zero if types_factory_preload.xml_text else 0 }}</strong></div>
+              <div class="types-stat"><span>Warnings</span><strong data-types-stat="warnings">{{ types_factory_preload.stats.warnings if types_factory_preload.xml_text else 0 }}</strong></div>
+              <div class="types-stat"><span>Compared to vanilla</span><strong data-types-stat="baseline">{{ 'Ready' if types_factory_preload.xml_text else 'Waiting' }}</strong></div>
             </div>
             <div class="types-compare-grid full" data-types-compare>
+              {% if types_factory_preload.xml_text %}
+              {% for card in types_factory_preload.compare_cards %}
+              <div class="types-compare-card {{ card['class'] }}"><strong>{{ card.bucket }}</strong><b>{{ card.percent }}</b><span>{{ card.summary }}</span></div>
+              {% endfor %}
+              {% else %}
               <div class="types-compare-empty">Vanilla comparison appears after a file is loaded.</div>
+              {% endif %}
             </div>
             <div class="types-table-wrap full">
               <table class="types-editor-table" data-types-table>
@@ -6592,21 +6601,54 @@ PAGE_TEMPLATE = """
                   </tr>
                 </thead>
                 <tbody data-types-body>
-                  <tr><td colspan="12" class="muted">{% if types_factory_preload.xml_text %}Factory vanilla {{ types_factory_preload.map|capitalize }} types.xml is loaded below. The editable table appears when the browser enhancement runs.{% else %}Load a types.xml file to edit rows.{% endif %}</td></tr>
+                  {% if types_factory_preload.xml_text %}
+                  {% for row in types_factory_preload.rows %}
+                  <tr class="{{ 'types-row-warning' if row.warning else '' }}" data-type-name="{{ row.name }}">
+                    <td><input type="checkbox" data-types-row-check aria-label="Select {{ row.name }}"></td>
+                    <td class="type-name" title="{{ row.warning }}">{{ row.name }}</td>
+                    <td><input type="number" data-type-field="nominal" value="{{ row.nominal }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="min" value="{{ row.min }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="lifetime" value="{{ row.lifetime }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="restock" value="{{ row.restock }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="quantmin" value="{{ row.quantmin }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="quantmax" value="{{ row.quantmax }}" placeholder="-"></td>
+                    <td><input type="number" data-type-field="cost" value="{{ row.cost }}" placeholder="-"></td>
+                    <td class="types-chip-cell"><input type="text" data-type-list="category" value="{{ row.category }}" placeholder="category"></td>
+                    <td class="types-chip-cell"><input type="text" data-type-list="usage" value="{{ row.usages }}" placeholder="usage tags"></td>
+                    <td class="types-chip-cell"><input type="text" data-type-list="value" value="{{ row['values'] }}" placeholder="tiers"></td>
+                  </tr>
+                  {% endfor %}
+                  {% if types_factory_preload.item_count > types_factory_preload.rows|length %}
+                  <tr><td colspan="12" class="muted">Showing first {{ types_factory_preload.rows|length }} of {{ types_factory_preload.item_count }}. Use search or category filters to narrow the table.</td></tr>
+                  {% endif %}
+                  {% else %}
+                  <tr><td colspan="12" class="muted">Load a types.xml file to edit rows.</td></tr>
+                  {% endif %}
                 </tbody>
               </table>
             </div>
             <div class="types-preview-list full" data-types-issues>
+              {% if types_factory_preload.xml_text and types_factory_preload.warnings %}
+              {% for issue in types_factory_preload.warnings %}
+              <div class="types-preview-row"><strong>{{ issue.name }}</strong><span>{{ issue.warning }}</span><small>review</small></div>
+              {% endfor %}
+              {% elif types_factory_preload.xml_text %}
+              <span class="muted">No common types.xml warnings found.</span>
+              {% else %}
               <span class="muted">Warnings and validation notes appear here.</span>
+              {% endif %}
             </div>
-            <label class="full">Generated types.xml
-              <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing.">{% if types_factory_preload.xml_text %}{{ types_factory_preload.xml_text }}{% endif %}</textarea>
-            </label>
-            <div class="toolbar full">
-              <button type="button" data-tool-copy="generated_xml">Copy Output</button>
-              <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
-              <span class="result muted" data-tool-result></span>
-            </div>
+            <details class="types-xml-output-panel full" {% if not types_factory_preload.xml_text %}open{% endif %}>
+              <summary>Generated types.xml</summary>
+              <label class="full">
+                <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing.">{% if types_factory_preload.xml_text %}{{ types_factory_preload.xml_text }}{% endif %}</textarea>
+              </label>
+              <div class="toolbar full">
+                <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+                <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
+                <span class="result muted" data-tool-result></span>
+              </div>
+            </details>
           </form>
         </article>
         <article class="admin-panel">
@@ -14180,6 +14222,145 @@ def load_dayz_reference_text(map_key: Any, *parts: str) -> str:
     return ""
 
 
+TYPE_EDITOR_COMPARE_BUCKETS = [
+    "Weapons",
+    "Ammunition",
+    "Military Clothing",
+    "Civilian Clothing",
+    "Food & Drink",
+    "Medical",
+    "Building",
+    "Tools",
+    "Bags & Storage",
+    "Vehicle Parts",
+]
+
+
+def types_child_text(type_node: ET.Element, tag: str) -> str:
+    child = type_node.find(tag)
+    return str(child.text or "").strip() if child is not None else ""
+
+
+def types_child_names(type_node: ET.Element, tag: str) -> list[str]:
+    return [
+        str(child.attrib.get("name") or "").strip()
+        for child in type_node.findall(tag)
+        if str(child.attrib.get("name") or "").strip()
+    ]
+
+
+def types_node_number(type_node: ET.Element, tag: str) -> int:
+    return safe_int(types_child_text(type_node, tag), 0)
+
+
+def types_node_category(type_node: ET.Element) -> str:
+    names = types_child_names(type_node, "category")
+    return names[0] if names else ""
+
+
+def types_node_is_vehicle_or_part(type_node: ET.Element) -> bool:
+    name = str(type_node.attrib.get("name") or "").lower()
+    return bool(re.search(r"(offroadhatchback|hatchback_02|civilian|sedan_02|truck_01|boat_|bus|carbattery|truckbattery|carradiator|sparkplug|wheel|door_|doors|hood|trunk)", name))
+
+
+def types_node_is_seasonal(type_node: ET.Element) -> bool:
+    name = str(type_node.attrib.get("name") or "").lower()
+    return bool(re.search(r"(christmas|xmas|santa|halloween|witch|mummy|spooky|easter|valentine|cupid|anniversary|pumpkin)", name))
+
+
+def types_node_bucket(type_node: ET.Element) -> str:
+    name = str(type_node.attrib.get("name") or "").lower()
+    category = types_node_category(type_node).lower()
+    usages = " ".join(types_child_names(type_node, "usage")).lower()
+    values = " ".join(types_child_names(type_node, "value")).lower()
+    if re.match(r"^(ammo_|mag_)", name):
+        return "Ammunition"
+    if types_node_is_vehicle_or_part(type_node):
+        return "Vehicle Parts"
+    if category == "clothes" and (
+        "military" in usages
+        or "police" in usages
+        or "tier3" in values
+        or "tier4" in values
+        or re.search(r"(gorka|bdu|combat|cuu|m65|plate|ballistic|tactical|press|police|hunter|nbc|ghillie)", name)
+    ):
+        return "Military Clothing"
+    if category == "clothes":
+        return "Civilian Clothing"
+    if category == "weapons":
+        return "Weapons"
+    if category == "food" or re.search(r"(soda|waterbottle|canteen|brisket|spread|tuna|bacon|beans|rice|cereal)", name):
+        return "Food & Drink"
+    if re.search(r"(bandage|morphine|saline|epinephrine|vitamin|tetracycline|blood|iv|disinfectant)", name):
+        return "Medical"
+    if re.search(r"(nail|plank|log|metalwire|barbedwire|sheetmetal|camonet|flag|watchtower|fence|kit)", name):
+        return "Building"
+    if re.search(r"(backpack|bag|barrel|tent|crate|sea.?chest|protectorcase|drybag)", name):
+        return "Bags & Storage"
+    if category == "tools" or "industrial" in usages or re.search(r"(knife|hatchet|axe|hammer|shovel|pliers|wrench|saw|lockpick)", name):
+        return "Tools"
+    return "Other"
+
+
+def types_node_warning(type_node: ET.Element) -> str:
+    nominal = types_node_number(type_node, "nominal")
+    minimum = types_node_number(type_node, "min")
+    if nominal > 0 and minimum > nominal:
+        return "min is higher than nominal"
+    if nominal > 0 and types_node_is_vehicle_or_part(type_node):
+        return "vehicle/vehicle part has nominal above 0"
+    if nominal > 0 and types_node_is_seasonal(type_node):
+        return "seasonal/event item is active"
+    return ""
+
+
+def types_editor_rows(root: ET.Element, limit: int = 350) -> list[dict[str, Any]]:
+    rows = []
+    for type_node in root.findall(".//type")[:limit]:
+        rows.append({
+            "name": str(type_node.attrib.get("name") or "").strip(),
+            "nominal": types_child_text(type_node, "nominal"),
+            "min": types_child_text(type_node, "min"),
+            "lifetime": types_child_text(type_node, "lifetime"),
+            "restock": types_child_text(type_node, "restock"),
+            "quantmin": types_child_text(type_node, "quantmin"),
+            "quantmax": types_child_text(type_node, "quantmax"),
+            "cost": types_child_text(type_node, "cost"),
+            "category": types_node_category(type_node),
+            "usages": ", ".join(types_child_names(type_node, "usage")),
+            "values": ", ".join(types_child_names(type_node, "value")),
+            "warning": types_node_warning(type_node),
+        })
+    return rows
+
+
+def types_editor_stats(root: ET.Element) -> dict[str, Any]:
+    type_nodes = root.findall(".//type")
+    return {
+        "total": len(type_nodes),
+        "shown": min(len(type_nodes), 350),
+        "active": sum(max(0, types_node_number(type_node, "nominal")) for type_node in type_nodes),
+        "zero": sum(1 for type_node in type_nodes if types_node_number(type_node, "nominal") <= 0),
+        "warnings": sum(1 for type_node in type_nodes if types_node_warning(type_node)),
+    }
+
+
+def types_editor_compare_cards(root: ET.Element) -> list[dict[str, Any]]:
+    nominal_by_bucket: dict[str, int] = {}
+    for type_node in root.findall(".//type"):
+        bucket = types_node_bucket(type_node)
+        nominal_by_bucket[bucket] = nominal_by_bucket.get(bucket, 0) + max(0, types_node_number(type_node, "nominal"))
+    return [
+        {
+            "bucket": bucket,
+            "percent": "+0%",
+            "class": "good",
+            "summary": f"{nominal_by_bucket.get(bucket, 0)} nominal now / {nominal_by_bucket.get(bucket, 0)} vanilla. Near vanilla.",
+        }
+        for bucket in TYPE_EDITOR_COMPARE_BUCKETS
+    ]
+
+
 def factory_vanilla_types_payload(requested_map: Any) -> dict[str, Any]:
     map_key = normalize_dayz_reference_map_key(requested_map)
     xml_text = load_dayz_reference_text(map_key, "db", "types.xml")
@@ -14190,6 +14371,11 @@ def factory_vanilla_types_payload(requested_map: Any) -> dict[str, Any]:
     except ET.ParseError as error:
         raise ValueError(f"Bundled {map_key} types.xml failed validation: {error}") from error
     item_count = len(root.findall(".//type")) if root.tag == "types" else 0
+    warnings = [
+        {"name": str(type_node.attrib.get("name") or "").strip(), "warning": types_node_warning(type_node)}
+        for type_node in root.findall(".//type")
+        if types_node_warning(type_node)
+    ]
     return {
         "ok": True,
         "success": True,
@@ -14198,6 +14384,10 @@ def factory_vanilla_types_payload(requested_map: Any) -> dict[str, Any]:
         "filename": f"{DAYZ_REFERENCE_MAP_FOLDERS[map_key]}/db/types.xml",
         "download_name": f"{map_key}_vanilla_types_{DAYZ_CE_FILE_VERSION}.xml",
         "item_count": item_count,
+        "rows": types_editor_rows(root),
+        "stats": types_editor_stats(root),
+        "warnings": warnings[:24],
+        "compare_cards": types_editor_compare_cards(root),
         "xml_text": xml_text,
     }
 
