@@ -664,6 +664,25 @@ PUBLIC_SEO_PAGES = {
             ("Do I need PC mods for the killfeed?", "No. The bot is designed around console server data and Discord dashboard workflows."),
         ],
     },
+    "reviews": {
+        "path": "/reviews",
+        "title": "Wandering Bot Reviews from DayZ Server Owners",
+        "description": "Read live Wandering Bot reviews from DayZ console server owners using the dashboard, killfeed, Nitrado tools, XML workshop, economy, and Discord automation.",
+        "eyebrow": "Server owner reviews",
+        "headline": "Real feedback from DayZ communities",
+        "lead": "See what server owners say after using Wandering Bot for DayZ console killfeeds, dashboard tools, XML editing, event building, economy, shop items, and Discord server management.",
+        "focus": "Dashboard reviews update from logged-in server dashboards so visitors can see fresh feedback from real Wandering Bot users.",
+        "features": [
+            ("Dashboard feedback", "Reviews are submitted from the private dashboard, then shown on the public reviews page and inside every dashboard."),
+            ("Star ratings", "Each review carries a clear 1 to 5 rating plus the server name, title, and written feedback."),
+            ("Auto updating", "The dashboard reviews panel refreshes automatically so new feedback appears without a manual page reload."),
+        ],
+        "faqs": [
+            ("Where do Wandering Bot reviews come from?", "Reviews are submitted from logged-in Wandering Bot dashboards by server owners or trusted dashboard admins."),
+            ("Can visitors read all reviews?", "Yes. Public reviews are shown on the reviews page so new server owners can see feedback before adding the bot."),
+            ("Can dashboard users leave a review later?", "Yes. A dashboard review prompt can gently remind users after they have spent time using the tools."),
+        ],
+    },
 }
 
 APP = Flask(__name__)
@@ -734,6 +753,7 @@ FILES = {
     "ai_agent": "ai_agent.json",
     "agent_accounts": "agent_accounts.json",
     "rpt_event_tracker": "rpt_event_tracker.json",
+    "reviews": "reviews.json",
 }
 
 DASHBOARD_FEATURE_LABELS = {
@@ -1012,13 +1032,22 @@ PUBLIC_LANDING_TEMPLATE = """
     .faq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
     .faq-item { border: 1px solid rgba(126, 204, 184, .18); border-radius: .45rem; background: rgba(10, 18, 16, .72); padding: .85rem; }
     .faq-item strong { display: block; color: var(--text); margin-bottom: .3rem; }
+    .review-band { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .24); }
+    .review-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .8rem; }
+    .review-score { color: var(--amber); font-weight: 950; font-size: 1.8rem; }
+    .review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+    .review-card { min-width: 0; border: 1px solid rgba(126, 204, 184, .18); border-radius: .45rem; background: rgba(10, 18, 16, .72); padding: .85rem; }
+    .review-card strong { display: block; color: var(--text); margin-bottom: .25rem; overflow-wrap: anywhere; }
+    .review-card blockquote { margin: .55rem 0 0; color: #d7e4dc; line-height: 1.5; overflow-wrap: anywhere; }
+    .rating-text { color: var(--amber); font-weight: 950; }
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .faq-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .faq-grid, .review-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .review-head { align-items: start; flex-direction: column; }
     }
     @media (max-width: 560px) {
       main { width: min(100vw - 1rem, 42rem); padding-top: .75rem; }
@@ -1092,6 +1121,32 @@ PUBLIC_LANDING_TEMPLATE = """
         {% endfor %}
       </div>
     </section>
+    {% if review_summary.count or page.path == "/reviews" %}
+    <section class="review-band" aria-label="Wandering Bot reviews">
+      <div class="review-head">
+        <div>
+          <h2>Latest Reviews</h2>
+          <span class="muted">Live feedback from logged-in DayZ server dashboards.</span>
+        </div>
+        <div class="review-score">{{ review_summary.average_text }}/5 <span class="muted">from {{ review_summary.count }} reviews</span></div>
+      </div>
+      <div class="review-grid">
+        {% for review in public_reviews %}
+        <article class="review-card">
+          <strong>{{ review.title }}</strong>
+          <span class="rating-text">{{ review.rating }}/5</span>
+          <span class="muted"> - {{ review.server_name }}{% if review.author_name %} by {{ review.author_name }}{% endif %}</span>
+          <blockquote>{{ review.body }}</blockquote>
+        </article>
+        {% else %}
+        <article class="review-card">
+          <strong>No reviews yet</strong>
+          <span class="muted">The first logged-in dashboard review will appear here automatically.</span>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
   </main>
 </body>
 </html>
@@ -2975,6 +3030,7 @@ PAGE_TEMPLATE = """
     body[data-section="economy"] { --accent: #d5b45f; }
     body[data-section="shop"] { --accent: #79c7dd; }
     body[data-section="xml-workshop"] { --accent: #7cff5b; }
+    body[data-section="reviews"] { --accent: #f2c14e; }
     body[data-section="server-rules"] { --accent: #ff9f43; }
     body[data-section="moderation"] { --accent: #ff719e; }
     body[data-section="server-control"] { --accent: #94b4ff; }
@@ -2986,6 +3042,22 @@ PAGE_TEMPLATE = """
     .leaderboard { display: grid; gap: .45rem; margin-top: .75rem; }
     .leader-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) repeat(3, minmax(4rem, auto)); gap: .55rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; }
     .rank { color: var(--gold); font-weight: 900; font-size: 1.15rem; }
+    .reviews-layout { display: grid; grid-template-columns: minmax(18rem, .75fr) minmax(0, 1.25fr); gap: .85rem; align-items: start; }
+    .review-score-card { display: grid; gap: .25rem; border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: rgba(0,0,0,.24); }
+    .review-score-card strong { color: var(--gold); font-size: 2rem; line-height: 1; }
+    .review-list { display: grid; gap: .65rem; }
+    .dashboard-review-card { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; background: rgba(0,0,0,.22); }
+    .dashboard-review-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; margin: 0 0 .35rem; padding: 0; border: 0; background: transparent; min-height: 0; position: static; }
+    .dashboard-review-card strong { color: var(--text); overflow-wrap: anywhere; }
+    .dashboard-review-card p { margin: .45rem 0 0; overflow-wrap: anywhere; }
+    .dashboard-review-rating { color: var(--gold); font-weight: 950; white-space: nowrap; }
+    .review-prompt { position: fixed; right: 1rem; bottom: 3.6rem; z-index: 60; width: min(27rem, calc(100vw - 2rem)); border: 1px solid color-mix(in srgb, var(--gold) 62%, var(--line)); border-radius: .5rem; background: rgba(5, 13, 12, .96); padding: .85rem; box-shadow: 0 1.2rem 3rem rgba(0,0,0,.45); }
+    .review-prompt strong { display: block; color: var(--gold); margin-bottom: .25rem; }
+    .review-prompt-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .65rem; }
+    @media (max-width: 860px) {
+      .reviews-layout { grid-template-columns: 1fr; }
+      .review-prompt { left: 1rem; right: 1rem; bottom: 1rem; width: auto; }
+    }
     .leader-name { color: var(--text); font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .metric { color: var(--muted); text-align: right; }
     .metric strong { color: var(--text); display: block; }
@@ -3662,6 +3734,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
@@ -3772,6 +3845,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
@@ -3793,6 +3867,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Shop Items</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
+          <option value="/admin?section=reviews{{ server_qs }}" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>{% endif %}
@@ -8080,6 +8155,58 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "reviews" %}
+    <section class="section-panel" id="reviews">
+      <div class="section-head">
+        <div>
+          <h2>Feedback & Reviews</h2>
+          <p class="tool-note">Leave a Wandering Bot review from this dashboard, then read the public reviews shown to new server owners.</p>
+        </div>
+        <a class="button-link" href="/reviews" target="_blank" rel="noopener">Public reviews page</a>
+      </div>
+      <div class="reviews-layout">
+        <article class="admin-panel">
+          <h3>Write a Review</h3>
+          <div class="review-score-card">
+            <span class="muted">Current public score</span>
+            <strong data-review-average>{{ dashboard_review_summary.average_text }}/5</strong>
+            <span class="muted"><span data-review-count>{{ dashboard_review_summary.count }}</span> reviews live</span>
+          </div>
+          <form class="admin-form" id="dashboard-review-form" method="post" action="/api/reviews" data-review-form>
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_name" value="{{ server.guild_name if server else '' }}">
+            <label>Rating
+              <select name="rating">
+                <option value="5">5 - Brilliant</option>
+                <option value="4">4 - Good</option>
+                <option value="3">3 - Okay</option>
+                <option value="2">2 - Needs work</option>
+                <option value="1">1 - Poor</option>
+              </select>
+            </label>
+            <label>Title <input name="title" maxlength="90" placeholder="What sums up your experience?"></label>
+            <label>Your name or server tag <input name="author_name" maxlength="70" placeholder="Optional"></label>
+            <label>Review <textarea name="body" rows="6" maxlength="1000" placeholder="Tell other DayZ server owners what the dashboard or bot helped with." required></textarea></label>
+            <div class="full"><button type="submit">Post Review</button> <span class="result muted" data-review-result></span></div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Live Reviews</h3>
+          <div class="review-list" data-review-list>
+            {% for review in dashboard_reviews %}
+            <article class="dashboard-review-card">
+              <header><div><strong>{{ review.title }}</strong><span class="muted"> {{ review.server_name }}{% if review.author_name %} by {{ review.author_name }}{% endif %}</span></div><span class="dashboard-review-rating">{{ review.rating }}/5</span></header>
+              <p>{{ review.body }}</p>
+            </article>
+            {% else %}
+            <p class="tool-note" data-review-empty>No reviews yet. The first dashboard review will show here and on the public reviews page.</p>
+            {% endfor %}
+          </div>
+        </article>
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "help" %}
     <section class="section-panel" id="help">
       <div class="section-head">
@@ -8507,6 +8634,16 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
   </main>
+  {% if dashboard_review_prompt.eligible %}
+  <aside class="review-prompt" data-review-prompt data-review-guild="{{ dashboard_review_prompt.guild_id }}" hidden>
+    <strong>Enjoying Wandering Bot?</strong>
+    <span class="muted">A quick review helps other DayZ server owners trust the dashboard before they connect their server.</span>
+    <div class="review-prompt-actions">
+      <a class="button-link" href="/admin?section=reviews{{ server_qs }}">Leave Review</a>
+      <button type="button" data-review-dismiss>Maybe later</button>
+    </div>
+  </aside>
+  {% endif %}
   <div class="command-status-bar" aria-label="Command connection status">
     <span>UK Time: <strong>{{ generated_at }}</strong></span>
     <span>Dashboard: <strong>{{ dashboard_version }}</strong></span>
@@ -8535,6 +8672,94 @@ PAGE_TEMPLATE = """
       } catch (error) {
         return path;
       }
+    }
+    function renderDashboardReviews(payload) {
+      if (!payload || !payload.ok) return;
+      const summary = payload.summary || {};
+      document.querySelectorAll("[data-review-average]").forEach((node) => {
+        node.textContent = `${summary.average_text || "0.0"}/5`;
+      });
+      document.querySelectorAll("[data-review-count]").forEach((node) => {
+        node.textContent = String(summary.count || 0);
+      });
+      const list = document.querySelector("[data-review-list]");
+      if (!list) return;
+      const reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
+      list.innerHTML = "";
+      if (!reviews.length) {
+        const empty = document.createElement("p");
+        empty.className = "tool-note";
+        empty.textContent = "No reviews yet. The first dashboard review will show here and on the public reviews page.";
+        list.appendChild(empty);
+        return;
+      }
+      reviews.forEach((review) => {
+        const card = document.createElement("article");
+        card.className = "dashboard-review-card";
+        const byline = review.author_name ? ` by ${review.author_name}` : "";
+        card.innerHTML = `
+          <header><div><strong>${escapeHtml(review.title || "Wandering Bot review")}</strong><span class="muted"> ${escapeHtml(review.server_name || "DayZ server")}${escapeHtml(byline)}</span></div><span class="dashboard-review-rating">${Number(review.rating || 5)}/5</span></header>
+          <p>${escapeHtml(review.body || "")}</p>`;
+        list.appendChild(card);
+      });
+    }
+    async function refreshDashboardReviews() {
+      if (!document.querySelector("[data-review-list]")) return;
+      try {
+        const response = await fetch("/api/reviews", {headers: {"Accept": "application/json"}, credentials: "same-origin"});
+        renderDashboardReviews(await response.json());
+      } catch (error) {}
+    }
+    function installDashboardReviewTools() {
+      const form = document.querySelector("[data-review-form]");
+      if (form && !form.dataset.reviewBound) {
+        form.dataset.reviewBound = "1";
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const result = form.querySelector("[data-review-result]");
+          if (result) result.textContent = "Posting review...";
+          try {
+            const response = await fetch(form.action || "/api/reviews", {
+              method: "POST",
+              headers: {"Accept": "application/json"},
+              credentials: "same-origin",
+              body: new FormData(form)
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) throw new Error(payload.error || "Review could not be saved.");
+            if (result) result.textContent = "Review posted. Thank you.";
+            form.elements.body.value = "";
+            form.elements.title.value = "";
+            renderDashboardReviews(payload);
+            document.querySelector("[data-review-prompt]")?.remove();
+          } catch (error) {
+            if (result) result.textContent = error && error.message ? error.message : String(error);
+          }
+        });
+      }
+      const prompt = document.querySelector("[data-review-prompt]");
+      if (prompt && !prompt.dataset.bound) {
+        prompt.dataset.bound = "1";
+        const key = `wanderingReviewPrompt:${prompt.dataset.reviewGuild || "global"}`;
+        const now = Date.now();
+        const nextAllowed = Number(localStorage.getItem(key) || "0");
+        if (now >= nextAllowed) {
+          window.setTimeout(() => { prompt.hidden = false; }, 18000);
+        }
+        prompt.querySelector("[data-review-dismiss]")?.addEventListener("click", () => {
+          localStorage.setItem(key, String(Date.now() + 1000 * 60 * 60 * 24 * 7));
+          prompt.remove();
+        });
+      }
+      refreshDashboardReviews();
+      if (!window.__wanderingReviewRefresh) {
+        window.__wanderingReviewRefresh = window.setInterval(refreshDashboardReviews, 60000);
+      }
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", installDashboardReviewTools);
+    } else {
+      installDashboardReviewTools();
     }
     function installDashboardCoreClicks() {
       if (window.__wanderingDashboardCoreClicks) return;
@@ -15293,6 +15518,125 @@ def save_store(name: str, data: Any) -> None:
     sync_runtime_store(name, data)
 
 
+def clean_review_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return text[:limit].strip()
+
+
+def dashboard_review_rating(value: Any) -> int:
+    try:
+        rating = int(float(str(value or "").strip()))
+    except (TypeError, ValueError):
+        rating = 5
+    return max(1, min(5, rating))
+
+
+def load_review_rows(public_only: bool = True, limit: int | None = None) -> list[dict[str, Any]]:
+    store = load_store("reviews", {})
+    rows = store.get("reviews") if isinstance(store, dict) else []
+    if not isinstance(rows, list):
+        rows = []
+    cleaned = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if public_only and row.get("approved") is False:
+            continue
+        body = clean_review_text(row.get("body"), 1000)
+        if not body:
+            continue
+        cleaned.append({
+            "id": clean_review_text(row.get("id"), 80),
+            "guild_id": normalize_guild_id(row.get("guild_id")),
+            "server_name": clean_review_text(row.get("server_name") or "DayZ server", 90),
+            "author_name": clean_review_text(row.get("author_name"), 70),
+            "rating": dashboard_review_rating(row.get("rating")),
+            "title": clean_review_text(row.get("title") or "Wandering Bot review", 90),
+            "body": body,
+            "created_at": clean_review_text(row.get("created_at"), 40),
+            "updated_at": clean_review_text(row.get("updated_at"), 40),
+            "approved": row.get("approved") is not False,
+        })
+    cleaned.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    return cleaned[:limit] if limit else cleaned
+
+
+def review_summary(rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    rows = rows if rows is not None else load_review_rows(public_only=True)
+    count = len(rows)
+    average = round(sum(dashboard_review_rating(row.get("rating")) for row in rows) / count, 1) if count else 0.0
+    return {
+        "count": count,
+        "average": average,
+        "average_text": f"{average:.1f}" if count else "0.0",
+    }
+
+
+def reviews_api_payload(limit: int = 24) -> dict[str, Any]:
+    rows = load_review_rows(public_only=True, limit=limit)
+    all_rows = load_review_rows(public_only=True)
+    return {"ok": True, "reviews": rows, "summary": review_summary(all_rows)}
+
+
+def dashboard_has_review_for_guild(guild_id: Any) -> bool:
+    clean_guild_id = normalize_guild_id(guild_id)
+    return any(str(row.get("guild_id")) == clean_guild_id for row in load_review_rows(public_only=False))
+
+
+def save_dashboard_review(payload: dict[str, Any], auth: dict[str, Any]) -> dict[str, Any]:
+    guild_id = normalize_guild_id(payload.get("guild_id") or auth.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+    if not isinstance(config, dict):
+        config = {}
+    server_name = clean_review_text(
+        payload.get("server_name")
+        or config.get("guild_name")
+        or config.get("server_name")
+        or auth.get("label")
+        or "DayZ server",
+        90,
+    )
+    body = clean_review_text(payload.get("body") or payload.get("review"), 1000)
+    if len(body) < 12:
+        raise ValueError("review text must be at least 12 characters")
+    title = clean_review_text(payload.get("title"), 90) or "Wandering Bot dashboard review"
+    author_name = clean_review_text(payload.get("author_name"), 70)
+    now = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    store = load_store("reviews", {})
+    if not isinstance(store, dict):
+        store = {}
+    rows = store.get("reviews")
+    if not isinstance(rows, list):
+        rows = []
+    review_id = clean_review_text(payload.get("review_id"), 80) or f"{guild_id}-{int(time.time())}"
+    review = {
+        "id": review_id,
+        "guild_id": guild_id,
+        "server_name": server_name,
+        "author_name": author_name,
+        "rating": dashboard_review_rating(payload.get("rating")),
+        "title": title,
+        "body": body,
+        "created_at": now,
+        "updated_at": now,
+        "approved": True,
+    }
+    replaced = False
+    for index, row in enumerate(rows):
+        if isinstance(row, dict) and str(row.get("guild_id")) == guild_id:
+            review["id"] = clean_review_text(row.get("id"), 80) or review_id
+            review["created_at"] = clean_review_text(row.get("created_at"), 40) or now
+            rows[index] = review
+            replaced = True
+            break
+    if not replaced:
+        rows.append(review)
+    store["reviews"] = rows[-250:]
+    save_store("reviews", store)
+    return review
+
+
 def default_billing_plan_map() -> dict[str, dict[str, Any]]:
     return {str(plan["id"]): json.loads(json.dumps(plan)) for plan in DEFAULT_BILLING_PLANS}
 
@@ -18000,6 +18344,7 @@ def public_seo_nav_pages() -> list[dict[str, str]]:
         "dayz-server-dashboard": "Dashboard",
         "dayz-console-airdrop-events": "Airdrops",
         "dayz-xbox-playstation-killfeed": "Console Killfeed",
+        "reviews": "Reviews",
     }
     pages = []
     for key, data in PUBLIC_SEO_PAGES.items():
@@ -18013,6 +18358,39 @@ def public_landing_page(page_key: str = "home"):
     page["canonical_url"] = public_page_url(str(page.get("path") or "/"))
     page["image_url"] = public_page_url("/brand-character")
     page["faqs"] = list(page.get("faqs") or [])
+    public_reviews = load_review_rows(public_only=True, limit=6)
+    summary = review_summary(load_review_rows(public_only=True))
+    software_node = {
+        "@type": "SoftwareApplication",
+        "@id": f"{page['canonical_url']}#software",
+        "name": "Wandering Bot",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Web, Discord, Xbox, PlayStation",
+        "url": page["canonical_url"],
+        "image": page["image_url"],
+        "description": page["description"],
+        "publisher": {"@id": public_page_url("/#organization")},
+        "offers": {"@type": "Offer", "availability": "https://schema.org/InStock"},
+    }
+    if summary["count"]:
+        software_node["aggregateRating"] = {
+            "@type": "AggregateRating",
+            "ratingValue": summary["average"],
+            "reviewCount": summary["count"],
+            "bestRating": 5,
+            "worstRating": 1,
+        }
+        software_node["review"] = [
+            {
+                "@type": "Review",
+                "author": {"@type": "Person", "name": review.get("author_name") or review.get("server_name") or "DayZ server owner"},
+                "reviewRating": {"@type": "Rating", "ratingValue": review.get("rating"), "bestRating": 5, "worstRating": 1},
+                "name": review.get("title"),
+                "reviewBody": review.get("body"),
+                "datePublished": review.get("created_at"),
+            }
+            for review in public_reviews[:5]
+        ]
     structured_data = {
         "@context": "https://schema.org",
         "@graph": [
@@ -18030,18 +18408,7 @@ def public_landing_page(page_key: str = "home"):
                 "url": public_page_url("/"),
                 "publisher": {"@id": public_page_url("/#organization")},
             },
-            {
-                "@type": "SoftwareApplication",
-                "@id": f"{page['canonical_url']}#software",
-                "name": "Wandering Bot",
-                "applicationCategory": "UtilitiesApplication",
-                "operatingSystem": "Web, Discord, Xbox, PlayStation",
-                "url": page["canonical_url"],
-                "image": page["image_url"],
-                "description": page["description"],
-                "publisher": {"@id": public_page_url("/#organization")},
-                "offers": {"@type": "Offer", "availability": "https://schema.org/InStock"},
-            },
+            software_node,
             {
                 "@type": "FAQPage",
                 "@id": f"{page['canonical_url']}#faq",
@@ -18061,6 +18428,8 @@ def public_landing_page(page_key: str = "home"):
         page=page,
         nav_pages=public_seo_nav_pages(),
         structured_data=structured_data,
+        public_reviews=public_reviews,
+        review_summary=summary,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
     )
@@ -22178,6 +22547,7 @@ COMMAND_SECTION_META = {
     "economy": {"kicker": "Banking", "title": "Money & Economy", "body": "Control private money, faction treasury tools and transfer records."},
     "shop": {"kicker": "Trading", "title": "Shop Items", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
     "xml-workshop": {"kicker": "Files", "title": "XML & Loadouts", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
+    "reviews": {"kicker": "Feedback", "title": "Reviews", "body": "Read public Wandering Bot feedback and leave a dashboard review from this server."},
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
     "loot-engine": {"kicker": "Loot", "title": "Loot Balancer", "body": "Build curated loot pools, container cargo and pristine item templates."},
     "visual-loadout": {"kicker": "Spawn Gear", "title": "Visual Loadout", "body": "Assemble player loadouts with body slots, cargo, child attachments and exportable server files."},
@@ -23627,7 +23997,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
@@ -23853,6 +24223,13 @@ def page(mode: str, auth: dict[str, Any]):
                 break
     restart_status = dashboard_restart_status(selected_config if isinstance(selected_config, dict) else {})
     schedule_status = dashboard_live_schedule_status(selected_config if isinstance(selected_config, dict) else {})
+    dashboard_reviews = load_review_rows(public_only=True, limit=24)
+    dashboard_review_summary = review_summary(load_review_rows(public_only=True))
+    selected_review_guild_id = selected_server.get("guild_id") if isinstance(selected_server, dict) else auth.get("guild_id")
+    dashboard_review_prompt = {
+        "eligible": bool(auth.get("kind") != "agent_account" and selected_review_guild_id and not dashboard_has_review_for_guild(selected_review_guild_id)),
+        "guild_id": normalize_guild_id(selected_review_guild_id),
+    }
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -23913,6 +24290,9 @@ def page(mode: str, auth: dict[str, Any]):
         onboarding_reaction_options=ONBOARDING_REACTION_OPTIONS,
         restart_status=restart_status,
         schedule_status=schedule_status,
+        dashboard_reviews=dashboard_reviews,
+        dashboard_review_summary=dashboard_review_summary,
+        dashboard_review_prompt=dashboard_review_prompt,
         ai_agent_state=ai_agent_state,
         ai_agent_access=ai_agent_access,
         ai_agent_tasks=ai_agent_state.get("tasks", []),
@@ -24367,6 +24747,11 @@ def public_dayz_xbox_playstation_killfeed():
     return public_landing_page("dayz-xbox-playstation-killfeed")
 
 
+@APP.get("/reviews")
+def public_reviews():
+    return public_landing_page("reviews")
+
+
 @APP.get("/robots.txt")
 def robots_txt():
     body = "\n".join([
@@ -24586,6 +24971,27 @@ def api_summary():
     if not auth:
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
     return jsonify(filter_state_for_auth(load_dashboard_state(), auth))
+
+
+@APP.get("/api/reviews")
+def api_reviews_index():
+    return jsonify(reviews_api_payload())
+
+
+@APP.post("/api/reviews")
+def api_reviews_save():
+    payload, error = require_admin()
+    if error:
+        return error
+    auth = current_auth() or {}
+    try:
+        review = save_dashboard_review(payload or {}, auth)
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    body = reviews_api_payload()
+    body["review"] = review
+    body["note"] = "Saved review."
+    return jsonify(body)
 
 
 @APP.get("/api/admin")

@@ -78,6 +78,20 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertNotIn('href="/admin?section=moderation{{ server_qs }}">Moderation</a>', source)
         self.assertNotIn('href="/admin?section=server-control{{ server_qs }}">Server Control</a>', source)
 
+    def test_reviews_page_and_dashboard_section_are_wired(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('"reviews": "reviews.json"', source)
+        self.assertIn('"path": "/reviews"', source)
+        self.assertIn('@APP.get("/reviews")', source)
+        self.assertIn('@APP.get("/api/reviews")', source)
+        self.assertIn('@APP.post("/api/reviews")', source)
+        self.assertIn('active_section == "reviews"', source)
+        self.assertIn('data-review-form', source)
+        self.assertIn('data-review-list', source)
+        self.assertIn('data-review-prompt', source)
+        self.assertIn('"aggregateRating"', source)
+
 
 if __name__ == "__main__":
     unittest.main()
