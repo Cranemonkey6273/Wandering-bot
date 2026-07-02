@@ -3122,15 +3122,47 @@ PAGE_TEMPLATE = """
     .types-preview-row { display: grid; grid-template-columns: minmax(9rem, 1fr) auto auto; gap: .45rem; align-items: center; border: 1px solid var(--line); border-radius: .45rem; padding: .45rem; background: #070b08; color: var(--muted); }
     .types-preview-row strong { color: var(--text); overflow-wrap: anywhere; }
     .types-preview-row b { color: var(--gold); font-weight: 900; }
-    .types-editor-panel { overflow: hidden; }
+    .types-editor-panel { overflow: hidden; background: #050607; border-color: rgba(255,255,255,.08); }
+    .types-editor-panel h3 { letter-spacing: .01em; }
+    .types-editor-file-input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+    .types-start-grid { display: grid; grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr); gap: 1rem; align-items: stretch; }
+    .types-start-card { border: 1px solid rgba(255,255,255,.08); border-radius: .65rem; background: #121317; padding: 1.15rem; min-width: 0; }
+    .types-dropzone { min-height: 11rem; border: 2px dashed rgba(255,255,255,.18); border-radius: .65rem; display: grid; place-items: center; text-align: center; padding: 1rem; color: var(--muted); background: #101116; cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+    .types-dropzone strong { display: block; color: var(--text); font-size: 1.05rem; }
+    .types-dropzone b { display: block; color: var(--gold); font-size: 2.2rem; line-height: 1; margin-bottom: .45rem; }
+    .types-dropzone.dragging, .types-dropzone:hover, .types-dropzone:focus-visible { border-color: #ef3d3d; background: rgba(239,61,61,.08); outline: none; transform: translateY(-1px); }
+    .types-upload-primary { width: 100%; margin-top: 1rem; background: #d82631; border-color: #ff424d; }
+    .types-guide-list { margin: 0; padding-left: 1.35rem; color: var(--muted); display: grid; gap: .55rem; }
+    .types-guide-list li::marker { color: #ef3d3d; font-weight: 900; }
+    .types-guide-note { margin-top: .85rem; border-radius: .45rem; padding: .55rem .7rem; background: rgba(255,255,255,.06); color: var(--muted); }
+    .types-official { margin-top: 1.25rem; }
+    .types-map-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; margin-top: .75rem; }
+    .types-map-card { border: 1px solid rgba(255,255,255,.12); border-radius: .65rem; background: #131419; padding: 1rem; display: grid; gap: .7rem; min-width: 0; }
+    .types-map-card strong { display: block; font-size: 1.15rem; }
+    .types-map-card p { margin: 0; color: var(--muted); min-height: 3.25rem; }
+    .types-map-card[data-map-key="chernarus"] strong { color: #ff4d57; }
+    .types-map-card[data-map-key="livonia"] strong { color: #28d86c; }
+    .types-map-card[data-map-key="sakhal"] strong { color: #67a2ff; }
+    .types-map-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
+    .types-map-download { min-width: 2.75rem; padding-inline: .65rem; }
     .types-editor-header { display: flex; justify-content: space-between; align-items: start; gap: .85rem; margin-bottom: .75rem; }
     .types-editor-source, .types-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
-    .types-editor-source .file-button { position: relative; overflow: hidden; cursor: pointer; }
-    .types-editor-source input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .types-workspace { gap: .75rem; }
+    .types-editor-panel:not(.types-loaded) .types-workspace { display: none; }
+    .types-editor-panel.types-loaded .types-workspace { display: grid; }
+    .types-editor-panel.types-loaded .types-editor-start { display: none; }
     .types-paste-panel { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; margin-bottom: .75rem; background: rgba(0,0,0,.18); }
     .types-paste-panel summary { cursor: pointer; font-weight: 800; color: var(--gold); }
     .types-paste-panel textarea { min-height: 9rem; margin-top: .55rem; }
     .types-editor-output-form { display: grid; gap: .75rem; }
+    .types-editor-appbar { display: grid; grid-template-columns: minmax(14rem, 1fr) auto minmax(14rem, .65fr); gap: .55rem; align-items: center; border-bottom: 1px solid rgba(255,255,255,.1); padding: .55rem 0 .75rem; }
+    .types-editor-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; justify-content: flex-start; }
+    .types-editor-actions button { min-height: 2.15rem; padding: .4rem .65rem; }
+    .types-editor-actions .download { background: #d82631; border-color: #ff424d; }
+    .types-search-wrap { display: flex; gap: .45rem; align-items: center; justify-content: flex-end; }
+    .types-search-wrap input { min-width: 14rem; }
+    .types-filter-drawer[hidden] { display: none; }
+    .types-filter-drawer { border: 1px solid rgba(255,255,255,.08); border-radius: .55rem; background: #101116; padding: .65rem; }
     .types-editor-toolbar { display: flex; justify-content: space-between; gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(0,0,0,.24); }
     .types-file-meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; color: var(--muted); }
     .types-file-meta strong { color: var(--text); }
@@ -3138,7 +3170,7 @@ PAGE_TEMPLATE = """
     .types-alert { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(213,180,95,.12); color: var(--text); }
     .types-alert.error { border-color: #9d3040; background: rgba(157,48,64,.18); color: #ffd2dc; }
     .types-alert.success { border-color: #3f8f57; background: rgba(63,143,87,.16); color: #d8ffd8; }
-    .types-editor-filters { display: grid; grid-template-columns: minmax(14rem, 1.2fr) minmax(10rem, .7fr) minmax(10rem, .7fr) minmax(8rem, .5fr) minmax(8rem, .5fr) auto; gap: .55rem; align-items: end; }
+    .types-editor-filters { display: grid; grid-template-columns: minmax(10rem, .75fr) minmax(10rem, .75fr) minmax(8rem, .5fr) minmax(8rem, .5fr) auto; gap: .55rem; align-items: end; }
     .types-compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .55rem; }
     .types-compare-card { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(0,0,0,.24); }
     .types-compare-card strong { display: block; color: var(--text); }
@@ -3421,7 +3453,10 @@ PAGE_TEMPLATE = """
     .quick-guide-link:focus-visible { border-color: var(--accent); color: var(--text); transform: translateY(-1px); outline: none; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-start-grid, .types-map-card-grid, .types-editor-appbar, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .types-search-wrap, .types-map-actions { grid-template-columns: 1fr; }
+      .types-search-wrap { justify-content: stretch; }
+      .types-search-wrap input { min-width: 0; width: 100%; }
       .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
@@ -6416,46 +6451,88 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         {% if xml_tool == "loot" %}
         <article class="admin-panel full types-editor-panel" data-types-editor data-map-key="{{ (server.map if server else 'chernarus')|lower }}" data-guild-id="{{ server.guild_id if server else '' }}">
-          <div class="types-editor-header">
-            <div>
-              <h3>types.xml Loot Editor</h3>
-              <p class="tool-note">Load your server file or the factory vanilla {{ dayz_ce_file_version }} file, edit rows in a table, then generate a full safe <code>types.xml</code>. Live upload still uses the guarded uploader.</p>
+          <input class="types-editor-file-input" type="file" accept=".xml,text/xml" data-types-file>
+          <div class="types-alert full" data-types-alert>Load a file to begin. Choose an official map file or upload your own types.xml.</div>
+          <div class="types-editor-start" data-types-start>
+            <div class="types-start-grid">
+              <section class="types-start-card">
+                <div class="types-dropzone" data-types-dropzone tabindex="0" role="button">
+                  <div><b>Upload</b><strong>Drag & drop your types.xml here</strong><span>or click to browse</span></div>
+                </div>
+                <button type="button" class="types-upload-primary" data-types-browse>Upload types.xml</button>
+              </section>
+              <section class="types-start-card">
+                <h3>types.xml Loot Editor</h3>
+                <ol class="types-guide-list">
+                  <li>Browse every item in one editable table.</li>
+                  <li>Boost, reduce, turn off, or sync values in bulk.</li>
+                  <li>Use filters, warnings, undo and redo before downloading.</li>
+                  <li>Compare totals against vanilla {{ dayz_ce_file_version }} references.</li>
+                </ol>
+                <div class="types-guide-note">Editing stays in your browser until you copy, download, or use the guarded upload button.</div>
+              </section>
             </div>
-            <div class="types-editor-source">
-              <label class="button file-button">Upload types.xml <input type="file" accept=".xml,text/xml" data-types-file></label>
-              <button type="button" data-types-load-factory>Use Factory Vanilla</button>
-              <button type="button" data-types-download>Download XML</button>
-            </div>
+            <section class="types-official">
+              <h3>Start from Official Map Files</h3>
+              <div class="types-map-card-grid">
+                <div class="types-map-card" data-map-key="chernarus">
+                  <strong>Chernarus</strong>
+                  <p>The classic mainland map with the Chernarus vanilla {{ dayz_ce_file_version }} types.</p>
+                  <div class="types-map-actions">
+                    <button type="button" data-types-load-factory data-map-key="chernarus">Start Editing</button>
+                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="chernarus" title="Download Chernarus factory types">DL</button>
+                  </div>
+                </div>
+                <div class="types-map-card" data-map-key="livonia">
+                  <strong>Livonia</strong>
+                  <p>Enoch/Livonia factory loot file for trader, survival, and PvP balancing.</p>
+                  <div class="types-map-actions">
+                    <button type="button" data-types-load-factory data-map-key="livonia">Start Editing</button>
+                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="livonia" title="Download Livonia factory types">DL</button>
+                  </div>
+                </div>
+                <div class="types-map-card" data-map-key="sakhal">
+                  <strong>Sakhal</strong>
+                  <p>Frostline/Sakhal factory loot file for snow map server setup.</p>
+                  <div class="types-map-actions">
+                    <button type="button" data-types-load-factory data-map-key="sakhal">Start Editing</button>
+                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="sakhal" title="Download Sakhal factory types">DL</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <details class="types-paste-panel">
+              <summary>Paste XML instead</summary>
+              <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?><types><type name=&quot;M4A1&quot;>...</type></types>"></textarea>
+              <div class="toolbar"><button type="button" data-types-load-paste>Load Pasted XML</button><span class="result muted" data-types-result></span></div>
+            </details>
           </div>
-          <details class="types-paste-panel">
-            <summary>Paste XML instead</summary>
-            <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?><types><type name=&quot;M4A1&quot;>...</type></types>"></textarea>
-            <div class="toolbar"><button type="button" data-types-load-paste>Load Pasted XML</button><span class="result muted" data-types-result></span></div>
-          </details>
-          <form class="xml-tool-form types-editor-output-form" data-types-output-form data-local-generator-form data-route="/api/admin/loot-bulk-tweak">
+          <form class="xml-tool-form types-editor-output-form types-workspace" data-types-output-form data-local-generator-form data-route="/api/admin/loot-bulk-tweak">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="xml_text" data-types-generated-input>
             <input class="hidden-field" name="target_path" value="{{ ce_defaults.types_path }}">
-            <div class="types-editor-toolbar full">
+            <div class="types-editor-appbar full">
               <div class="types-file-meta">
                 <strong data-types-filename>No types.xml loaded</strong>
                 <span><b data-types-item-count>0</b> items</span>
                 <span data-types-version>DayZ files {{ dayz_ce_file_version }}</span>
               </div>
-              <div class="types-toolbar-actions">
+              <div class="types-editor-actions">
+                <button type="button" class="download" data-types-download>Download XML</button>
                 <button type="button" data-types-undo disabled>Undo</button>
                 <button type="button" data-types-redo disabled>Redo</button>
                 <button type="button" data-types-min-nominal>Min -> Nominal</button>
                 <button type="button" data-types-nominal-min>Nominal -> Min</button>
                 <button type="button" data-types-bulk-off>Bulk Off</button>
-                <button type="button" data-tool-copy="generated_xml">Copy Output</button>
-                <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
-                <span class="result muted" data-tool-result></span>
+                <button type="button" data-types-new>New File</button>
+              </div>
+              <div class="types-search-wrap">
+                <button type="button" data-types-toggle-filters>Filters</button>
+                <input type="search" data-types-search placeholder="Filter by name...">
               </div>
             </div>
-            <div class="types-alert full" data-types-alert>Load a file to begin. Use Factory Vanilla when you want a clean baseline.</div>
-            <div class="types-editor-filters full">
-              <label>Search <input type="search" data-types-search placeholder="filter by classname, category, usage or tier"></label>
+            <div class="types-filter-drawer full" data-types-filter-drawer hidden>
+            <div class="types-editor-filters">
               <label>Category
                 <select data-types-category-filter>
                   <option value="">All categories</option>
@@ -6479,6 +6556,7 @@ PAGE_TEMPLATE = """
                 </select>
               </label>
               <button type="button" data-types-apply-bulk>Apply Bulk Change</button>
+            </div>
             </div>
             <div class="types-engine-stats full" data-types-stats>
               <div class="types-stat"><span>Total items</span><strong data-types-stat="total">0</strong></div>
@@ -6520,6 +6598,11 @@ PAGE_TEMPLATE = """
             <label class="full">Generated types.xml
               <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing."></textarea>
             </label>
+            <div class="toolbar full">
+              <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+              <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
+              <span class="result muted" data-tool-result></span>
+            </div>
           </form>
         </article>
         <article class="admin-panel">
@@ -10284,6 +10367,7 @@ PAGE_TEMPLATE = """
         doc: null,
         baselineDoc: null,
         filename: "",
+        mapKey: editor.dataset.mapKey || "chernarus",
         selected: new Set(),
         history: [],
         redo: [],
@@ -10296,6 +10380,9 @@ PAGE_TEMPLATE = """
       const alertBox = editor.querySelector("[data-types-alert]");
       const searchInput = editor.querySelector("[data-types-search]");
       const categoryFilter = editor.querySelector("[data-types-category-filter]");
+      const fileInput = editor.querySelector("[data-types-file]");
+      const dropzone = editor.querySelector("[data-types-dropzone]");
+      const filterDrawer = editor.querySelector("[data-types-filter-drawer]");
       const maxRenderedRows = 350;
 
       function setTypesAlert(message, mode) {
@@ -10418,8 +10505,9 @@ PAGE_TEMPLATE = """
         if (undo) undo.disabled = state.history.length === 0;
         if (redo) redo.disabled = state.redo.length === 0;
       }
-      function loadTypesXml(xmlText, filename, baselineOnly) {
+      function loadTypesXml(xmlText, filename, baselineOnly, mapKey) {
         const doc = parseTypesXml(xmlText);
+        if (mapKey) state.mapKey = mapKey;
         if (baselineOnly) {
           state.baselineDoc = doc;
           renderTypesComparison();
@@ -10427,6 +10515,7 @@ PAGE_TEMPLATE = """
         }
         state.doc = doc;
         state.filename = filename || "types.xml";
+        editor.classList.add("types-loaded");
         state.selected.clear();
         state.history = [];
         state.redo = [];
@@ -10585,9 +10674,9 @@ PAGE_TEMPLATE = """
           issues.appendChild(item);
         });
       }
-      async function fetchFactoryTypes() {
+      async function fetchFactoryTypes(mapKey) {
         const params = new URLSearchParams();
-        params.set("map", editor.dataset.mapKey || "chernarus");
+        params.set("map", mapKey || state.mapKey || editor.dataset.mapKey || "chernarus");
         if (editor.dataset.guildId) params.set("guild_id", editor.dataset.guildId);
         const token = new URLSearchParams(window.location.search).get("token");
         if (token) params.set("token", token);
@@ -10602,8 +10691,8 @@ PAGE_TEMPLATE = """
       async function ensureVanillaBaseline() {
         if (state.baselineDoc || !state.doc) return;
         try {
-          const bodyJson = await fetchFactoryTypes();
-          loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", true);
+          const bodyJson = await fetchFactoryTypes(state.mapKey);
+          loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", true, bodyJson.map || state.mapKey);
         } catch (error) {
           const baselineFlag = editor.querySelector('[data-types-stat="baseline"]');
           if (baselineFlag) baselineFlag.textContent = "Missing";
@@ -10675,11 +10764,76 @@ PAGE_TEMPLATE = """
         link.remove();
         URL.revokeObjectURL(url);
       }
+      function downloadTextFile(text, filename) {
+        const blob = new Blob([text || ""], {type: "text/xml"});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename || "types.xml";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+      function resetTypesEditor() {
+        state.doc = null;
+        state.baselineDoc = null;
+        state.filename = "";
+        state.selected.clear();
+        state.history = [];
+        state.redo = [];
+        state.lastFiltered = [];
+        editor.classList.remove("types-loaded");
+        if (body) body.innerHTML = '<tr><td colspan="12" class="muted">Load a types.xml file to edit rows.</td></tr>';
+        if (output) output.value = "";
+        if (hiddenInput) hiddenInput.value = "";
+        if (searchInput) searchInput.value = "";
+        if (categoryFilter) categoryFilter.innerHTML = '<option value="">All categories</option>';
+        ["total", "shown", "active", "zero", "warnings"].forEach((key) => {
+          const node = editor.querySelector(`[data-types-stat="${key}"]`);
+          if (node) node.textContent = "0";
+        });
+        const baselineFlag = editor.querySelector('[data-types-stat="baseline"]');
+        if (baselineFlag) baselineFlag.textContent = "Waiting";
+        const compare = editor.querySelector("[data-types-compare]");
+        if (compare) compare.innerHTML = '<div class="types-compare-empty">Vanilla comparison appears after a file is loaded.</div>';
+        const issues = editor.querySelector("[data-types-issues]");
+        if (issues) issues.innerHTML = '<span class="muted">Warnings and validation notes appear here.</span>';
+        updateUndoButtons();
+        setTypesAlert("Load a file to begin. Choose an official map file or upload your own types.xml.", "");
+      }
+      if (dropzone && fileInput) {
+        dropzone.addEventListener("click", () => fileInput.click());
+        dropzone.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            fileInput.click();
+          }
+        });
+        ["dragenter", "dragover"].forEach((eventName) => {
+          dropzone.addEventListener(eventName, (event) => {
+            event.preventDefault();
+            dropzone.classList.add("dragging");
+          });
+        });
+        ["dragleave", "drop"].forEach((eventName) => {
+          dropzone.addEventListener(eventName, () => dropzone.classList.remove("dragging"));
+        });
+        dropzone.addEventListener("drop", (event) => {
+          event.preventDefault();
+          const selectedFile = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
+          if (!selectedFile) return;
+          selectedFile.text()
+            .then((text) => loadTypesXml(text, selectedFile.name, false, state.mapKey))
+            .catch((error) => setTypesAlert(error.message || String(error), "error"));
+        });
+      }
       editor.addEventListener("change", (event) => {
         const file = event.target.closest("[data-types-file]");
         if (file && file.files && file.files[0]) {
           const selectedFile = file.files[0];
-          selectedFile.text().then((text) => loadTypesXml(text, selectedFile.name, false)).catch((error) => setTypesAlert(error.message || String(error), "error"));
+          selectedFile.text().then((text) => loadTypesXml(text, selectedFile.name, false, state.mapKey)).catch((error) => setTypesAlert(error.message || String(error), "error"));
+          file.value = "";
           return;
         }
         const rowInput = event.target.closest("[data-type-field], [data-type-list]");
@@ -10691,23 +10845,42 @@ PAGE_TEMPLATE = """
       editor.addEventListener("click", async (event) => {
         const button = event.target.closest("button, input[type='checkbox']");
         if (!button || !editor.contains(button)) return;
-        if (button.matches("[data-types-load-factory]")) {
+        if (button.matches("[data-types-browse]")) {
           event.preventDefault();
-          setTypesAlert("Loading factory vanilla types.xml...", "success");
+          if (fileInput) fileInput.click();
+        } else if (button.matches("[data-types-load-factory]")) {
+          event.preventDefault();
+          const mapKey = button.dataset.mapKey || state.mapKey || "chernarus";
+          setTypesAlert(`Loading ${mapKey} factory vanilla types.xml...`, "success");
           try {
-            const bodyJson = await fetchFactoryTypes();
+            const bodyJson = await fetchFactoryTypes(mapKey);
             state.baselineDoc = parseTypesXml(bodyJson.xml_text);
-            loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", false);
+            loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", false, bodyJson.map || mapKey);
+          } catch (error) {
+            setTypesAlert(error.message || String(error), "error");
+          }
+        } else if (button.matches("[data-types-download-factory]")) {
+          event.preventDefault();
+          const mapKey = button.dataset.mapKey || state.mapKey || "chernarus";
+          try {
+            const bodyJson = await fetchFactoryTypes(mapKey);
+            downloadTextFile(bodyJson.xml_text || "", `${mapKey}_vanilla_types_${bodyJson.dayz_version || "1.29"}.xml`);
           } catch (error) {
             setTypesAlert(error.message || String(error), "error");
           }
         } else if (button.matches("[data-types-load-paste]")) {
           event.preventDefault();
-          try { loadTypesXml(editor.querySelector("[data-types-input]")?.value || "", "pasted-types.xml", false); }
+          try { loadTypesXml(editor.querySelector("[data-types-input]")?.value || "", "pasted-types.xml", false, state.mapKey); }
           catch (error) { setTypesAlert(error.message || String(error), "error"); }
         } else if (button.matches("[data-types-download]")) {
           event.preventDefault();
           downloadTypesXml();
+        } else if (button.matches("[data-types-new]")) {
+          event.preventDefault();
+          resetTypesEditor();
+        } else if (button.matches("[data-types-toggle-filters]")) {
+          event.preventDefault();
+          if (filterDrawer) filterDrawer.hidden = !filterDrawer.hidden;
         } else if (button.matches("[data-types-apply-bulk]")) {
           event.preventDefault();
           applyBulkChange();
