@@ -32095,6 +32095,20 @@ def console_ce_needs_spawnabletypes(config):
     return False
 
 
+def console_ce_allow_unowned_repairs(config):
+    """Default to snippet-only CE writes.
+
+    Dashboard event uploads may piggyback onto live files, but should not repair,
+    delete, or rewrite records Wandering Bot did not create unless an owner has
+    explicitly opted into that wider repair mode.
+    """
+    config = config if isinstance(config, dict) else {}
+    env_value = str(os.getenv("WANDERING_ALLOW_UNOWNED_CE_REPAIRS", "")).strip().lower()
+    if env_value:
+        return env_value in {"1", "true", "yes", "on"}
+    return str(config.get("allow_unowned_ce_repairs") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def console_ce_has_native_loot_intent(config):
     for event in native_ce_scenario_events(config):
         if event.get("event_type") in {"airdrop", "loot_crate"} and (
@@ -35570,24 +35584,32 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     removed_events = remove_wandering_ce_nodes(events_root)
     removed_spawns = remove_wandering_ce_nodes(spawns_root)
     removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
-    removed_revamp_events, removed_revamp_spawns, removed_revamp_names = cleanup_legacy_revamp_wooden_crate_events(
-        events_root,
-        spawns_root,
-    )
-    repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = repair_cherno_revamp_backup_static_event_names(events_root)
-    repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = repair_cherno_revamp_backup_static_event_names(spawns_root)
+    allow_unowned_repairs = console_ce_allow_unowned_repairs(config)
+    if allow_unowned_repairs:
+        removed_revamp_events, removed_revamp_spawns, removed_revamp_names = cleanup_legacy_revamp_wooden_crate_events(
+            events_root,
+            spawns_root,
+        )
+        repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = repair_cherno_revamp_backup_static_event_names(events_root)
+        repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = repair_cherno_revamp_backup_static_event_names(spawns_root)
+    else:
+        removed_revamp_events, removed_revamp_spawns, removed_revamp_names = 0, 0, []
+        repaired_revamp_events, merged_revamp_event_children, repaired_revamp_event_names = 0, 0, []
+        repaired_revamp_spawns, merged_revamp_spawn_children, repaired_revamp_spawn_names = 0, 0, []
     revamp_event_names_with_spawn_groups = set()
-    for spawn_node in spawns_root.findall("event"):
-        spawn_name = cherno_revamp_static_event_name(spawn_node.get("name"))
-        if not spawn_name:
-            continue
-        if any(str(pos_node.get("group") or "").strip() for pos_node in spawn_node.findall("pos")):
-            revamp_event_names_with_spawn_groups.add(spawn_name)
-    needs_revamp_eventgroup_repair = any(
-        cherno_revamp_static_event_name(event_node.get("name")) in revamp_event_names_with_spawn_groups
-        and not cherno_revamp_event_has_child_classname(event_node)
-        for event_node in events_root.findall("event")
-    )
+    needs_revamp_eventgroup_repair = False
+    if allow_unowned_repairs:
+        for spawn_node in spawns_root.findall("event"):
+            spawn_name = cherno_revamp_static_event_name(spawn_node.get("name"))
+            if not spawn_name:
+                continue
+            if any(str(pos_node.get("group") or "").strip() for pos_node in spawn_node.findall("pos")):
+                revamp_event_names_with_spawn_groups.add(spawn_name)
+        needs_revamp_eventgroup_repair = any(
+            cherno_revamp_static_event_name(event_node.get("name")) in revamp_event_names_with_spawn_groups
+            and not cherno_revamp_event_has_child_classname(event_node)
+            for event_node in events_root.findall("event")
+        )
     repaired_revamp_eventgroup_children = 0
     repaired_revamp_eventgroup_child_names = []
     if needs_revamp_eventgroup_repair:
@@ -35615,9 +35637,14 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         if console_ce_source_is_fallback(revamp_eventgroups_source):
             source_fallbacks.append(f"cfgeventgroups.xml: {revamp_eventgroups_source}")
-    removed_revamp_spawn_groups, removed_revamp_spawn_group_names = cleanup_cherno_revamp_backup_spawn_groups(spawns_root, events_root)
-    revamp_mapgroupproto_classes = collect_cherno_revamp_backup_mapgroupproto_classes(events_root)
-    removed_stale_spawn_only, removed_stale_spawn_names = cleanup_stale_spawn_only_events(events_root, spawns_root)
+    if allow_unowned_repairs:
+        removed_revamp_spawn_groups, removed_revamp_spawn_group_names = cleanup_cherno_revamp_backup_spawn_groups(spawns_root, events_root)
+        revamp_mapgroupproto_classes = collect_cherno_revamp_backup_mapgroupproto_classes(events_root)
+        removed_stale_spawn_only, removed_stale_spawn_names = cleanup_stale_spawn_only_events(events_root, spawns_root)
+    else:
+        removed_revamp_spawn_groups, removed_revamp_spawn_group_names = 0, []
+        revamp_mapgroupproto_classes = []
+        removed_stale_spawn_only, removed_stale_spawn_names = 0, []
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
     records = []
@@ -35638,7 +35665,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     ])
     patched_existing_definitions = 0
     for record in records_reusing_existing_definitions:
-        if record.get("patch_existing_definition") and patch_existing_console_ce_event_definition(events_root, record):
+        if allow_unowned_repairs and record.get("patch_existing_definition") and patch_existing_console_ce_event_definition(events_root, record):
             patched_existing_definitions += 1
     for record in definition_records:
         add_console_ce_event_definition(
@@ -35797,7 +35824,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         or removed_revamp_spawns
     )
 
-    if console_ce_needs_vehicle_types_repair(config):
+    if allow_unowned_repairs and console_ce_needs_vehicle_types_repair(config):
         types_text, resolved_types_path, types_source = download_console_ce_source(
             config,
             guild_id,
@@ -35925,7 +35952,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 f"Updated `env/{ZOMBIE_TERRITORY_FILE_NAME}` with `{len(zombie_records)}` Wandering Bot zombie zone(s), removed `{removed_zones}` old zone(s)."
             )
 
-    cfgareaeffects_mode = console_ce_cfgareaeffects_mode(config)
+    cfgareaeffects_mode = console_ce_cfgareaeffects_mode(config) if allow_unowned_repairs else ""
     if cfgareaeffects_mode:
         mission_base = remote_mission_base_from_ce_paths(output)
         cfgeffectarea_path = (
@@ -35973,8 +36000,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
     ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
-    repair_static_helicrash_proto = bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
-    repair_static_airplanecrate_proto = any(
+    repair_static_helicrash_proto = allow_unowned_repairs and bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
+    repair_static_airplanecrate_proto = allow_unowned_repairs and any(
         event_definition_uses_loot_child(events_root, VANILLA_STATIC_AIRPLANECRATE_EVENT_NAME, class_name)
         for class_name in VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES
     )
@@ -36014,11 +36041,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if mapgroupproto_parse_warning:
             output.setdefault("source_fallbacks", []).append(f"mapgroupproto.xml: {mapgroupproto_parse_warning}")
         removed_groups = remove_wandering_ce_nodes(eventgroups_root)
-        removed_invalid_usages = cleanup_invalid_mapgroupproto_usages(mapgroupproto_root)
-        proto_changed, removed_proto_groups, removed_proto_values = cleanup_stale_mapgroupproto_airdrop_nodes(
-            mapgroupproto_root,
-            server_map_key(guild_id),
-        )
+        if allow_unowned_repairs:
+            removed_invalid_usages = cleanup_invalid_mapgroupproto_usages(mapgroupproto_root)
+            proto_changed, removed_proto_groups, removed_proto_values = cleanup_stale_mapgroupproto_airdrop_nodes(
+                mapgroupproto_root,
+                server_map_key(guild_id),
+            )
+        else:
+            removed_invalid_usages = 0
+            proto_changed, removed_proto_groups, removed_proto_values = False, 0, 0
         repaired_static_proto_classes = (
             repair_vanilla_static_helicrash_mapgroupproto(mapgroupproto_root, ce_map_key)
             if repair_static_helicrash_proto

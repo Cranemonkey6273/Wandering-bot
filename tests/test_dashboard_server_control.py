@@ -135,6 +135,31 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("embedded bot runtime provider", event["upload_error"])
         self.assertGreaterEqual(event["upload_attempts"], 1)
 
+    def test_retry_upload_reset_clears_stale_uploaded_metadata(self):
+        event = {
+            "id": 37,
+            "upload_status": "uploaded",
+            "native_ce_uploaded_at": "2026-07-01T18:29:00+00:00",
+            "native_ce_events_path": "/dayzxb_missions/dayzOffline.chernarusplus/db/events.xml",
+            "native_ce_spawns_path": "/dayzxb_missions/dayzOffline.chernarusplus/cfgeventspawns.xml",
+            "native_ce_mission_folder": "dayzOffline.chernarusplus",
+            "native_ce_managed_event_names": ["StaticWanderingBot_37_vehicle_spawn"],
+            "native_ce_restart_required": True,
+            "upload_error": "old error",
+        }
+
+        dashboard.reset_dashboard_scenario_upload_state(event)
+
+        self.assertEqual("waiting_for_bot_upload", event["upload_status"])
+        self.assertEqual(0, event["upload_attempts"])
+        self.assertNotIn("native_ce_uploaded_at", event)
+        self.assertNotIn("native_ce_events_path", event)
+        self.assertNotIn("native_ce_spawns_path", event)
+        self.assertNotIn("native_ce_mission_folder", event)
+        self.assertNotIn("native_ce_managed_event_names", event)
+        self.assertNotIn("native_ce_restart_required", event)
+        self.assertNotIn("upload_error", event)
+
     def test_schedule_rejects_provider_without_scenario_uploader(self):
         old_provider = dashboard.CUSTOM_STATE_PROVIDER
         try:

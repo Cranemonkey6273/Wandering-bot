@@ -473,6 +473,64 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             bot.verify_uploaded_console_ce_xml_bundle = original_final
             bot.restore_console_ce_bundle_from_memory = original_rollback
 
+    def test_native_ce_build_does_not_run_unowned_repairs_by_default(self):
+        original_download = bot.download_console_ce_source
+        original_cleanup_revamp = bot.cleanup_legacy_revamp_wooden_crate_events
+        original_repair_names = bot.repair_cherno_revamp_backup_static_event_names
+        original_cleanup_groups = bot.cleanup_cherno_revamp_backup_spawn_groups
+        original_cleanup_stale_spawns = bot.cleanup_stale_spawn_only_events
+        original_patch_existing = bot.patch_existing_console_ce_event_definition
+        original_repair_types = bot.repair_vehicle_types_xml_values
+        original_patch_gas = bot.patch_cfgeffectarea_gas_particle
+        original_cleanup_invalid_proto = bot.cleanup_invalid_mapgroupproto_usages
+        original_cleanup_stale_proto = bot.cleanup_stale_mapgroupproto_airdrop_nodes
+        original_repair_heli_proto = bot.repair_vanilla_static_helicrash_mapgroupproto
+        original_repair_plane_proto = bot.repair_vanilla_static_airplanecrate_mapgroupproto
+        try:
+            def source(_config, _guild_id, key, default_path=""):
+                if key == "events_path":
+                    return "<events><event name=\"VanillaEvent\" /></events>", "/mission/db/events.xml", "events live"
+                if key == "spawns_path":
+                    return "<eventposdef><event name=\"VanillaEvent\" /></eventposdef>", "/mission/cfgeventspawns.xml", "spawns live"
+                return "", default_path or f"/mission/{key}.xml", "unused"
+
+            def forbidden(*_args, **_kwargs):
+                raise AssertionError("non-WanderingBot CE repair helper should not run by default")
+
+            bot.download_console_ce_source = source
+            bot.cleanup_legacy_revamp_wooden_crate_events = forbidden
+            bot.repair_cherno_revamp_backup_static_event_names = forbidden
+            bot.cleanup_cherno_revamp_backup_spawn_groups = forbidden
+            bot.cleanup_stale_spawn_only_events = forbidden
+            bot.patch_existing_console_ce_event_definition = forbidden
+            bot.repair_vehicle_types_xml_values = forbidden
+            bot.patch_cfgeffectarea_gas_particle = forbidden
+            bot.cleanup_invalid_mapgroupproto_usages = forbidden
+            bot.cleanup_stale_mapgroupproto_airdrop_nodes = forbidden
+            bot.repair_vanilla_static_helicrash_mapgroupproto = forbidden
+            bot.repair_vanilla_static_airplanecrate_mapgroupproto = forbidden
+
+            built = bot.build_console_ce_event_files("guild-1", {
+                "scenario_events": [],
+                "console_ce_event_files": {"enabled": True},
+            })
+        finally:
+            bot.download_console_ce_source = original_download
+            bot.cleanup_legacy_revamp_wooden_crate_events = original_cleanup_revamp
+            bot.repair_cherno_revamp_backup_static_event_names = original_repair_names
+            bot.cleanup_cherno_revamp_backup_spawn_groups = original_cleanup_groups
+            bot.cleanup_stale_spawn_only_events = original_cleanup_stale_spawns
+            bot.patch_existing_console_ce_event_definition = original_patch_existing
+            bot.repair_vehicle_types_xml_values = original_repair_types
+            bot.patch_cfgeffectarea_gas_particle = original_patch_gas
+            bot.cleanup_invalid_mapgroupproto_usages = original_cleanup_invalid_proto
+            bot.cleanup_stale_mapgroupproto_airdrop_nodes = original_cleanup_stale_proto
+            bot.repair_vanilla_static_helicrash_mapgroupproto = original_repair_heli_proto
+            bot.repair_vanilla_static_airplanecrate_mapgroupproto = original_repair_plane_proto
+
+        self.assertEqual(0, built["record_count"])
+        self.assertIn('<event name="VanillaEvent"', built["events_text"])
+
     def test_verified_ftp_write_rechecks_same_file_via_ftp_not_api(self):
         def ftp_upload(_config, path, _text):
             self.calls.append(("upload_ftp", path))

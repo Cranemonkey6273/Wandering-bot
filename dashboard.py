@@ -26795,15 +26795,7 @@ def api_scenario_event_action():
                 safe_int(event.get("ce_revision"), 0),
                 safe_int(event.get("upload_revision"), 0),
             ) + 1
-            event["upload_status"] = "waiting_for_bot_upload"
-            event["upload_attempts"] = 0
-            event.pop("xml_uploaded_at", None)
-            event.pop("bridge_uploaded_at", None)
-            event.pop("bridge_surface_fixed_at", None)
-            event.pop("bridge_delivery_path", None)
-            event.pop("bridge_upload_messages", None)
-            event.pop("native_ce_uploaded_at", None)
-            event.pop("upload_error", None)
+            reset_dashboard_scenario_upload_state(event)
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
