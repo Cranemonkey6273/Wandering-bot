@@ -12495,8 +12495,11 @@ def adm_debug_log(message):
 
 def compact_adm_scan_message(message, limit=220):
     text = re.sub(r"\s+", " ", str(message or "")).strip()
+    lowered = text.lower()
     if "Just a moment" in text or "<!DOCTYPE html" in text:
         text = "Nitrado/Cloudflare returned an HTML rate-limit page."
+    elif "errorcode 12004" in lowered or "oops, something is going wrong" in lowered:
+        text = "Nitrado returned temporary service/rate-limit ErrorCode 12004."
     return text[:limit]
 
 
@@ -12529,6 +12532,9 @@ def adm_scan_diagnostic_is_rate_limited(item):
     return (
         status == "429"
         or "429" in text
+        or "errorcode 12004" in text
+        or "oops, something is going wrong" in text
+        or "already been informed and is working on a solution" in text
         or "cloudflare" in text
         or "rate-limit" in text
         or "just a moment" in text
@@ -12556,7 +12562,7 @@ def set_adm_rate_limit_backoff(guild_id):
 def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
     seconds = int(backoff_seconds if backoff_seconds is not None else adm_rate_limit_backoff_seconds())
     return (
-        f"Nitrado/Cloudflare rate-limited ADM {stage} (429). This is not a missing ADM file/path; "
+        f"Nitrado/Cloudflare temporarily blocked ADM {stage}. This is not a missing ADM file/path; "
         f"backing off for about {seconds}s. Last checks: {adm_scan_failure_summary(diagnostics)}"
     )
 
@@ -18392,14 +18398,14 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         return False, f"Missing setup values: {', '.join(missing)}"
 
     backoff_until = float(adm_rate_limit_backoff_until.get(str(guild_id), 0) or 0)
-    if backoff_until > time.time() and not force:
+    if backoff_until > time.time():
         remaining = max(1, int(backoff_until - time.time()))
+        force_note = " Force reset was accepted, but the Nitrado cooldown is still being respected." if force else ""
         return False, (
             f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
-            "Waiting before the next ADM search so Nitrado can clear the 429."
+            "Waiting before the next ADM search so Nitrado can clear the temporary block."
+            f"{force_note}"
         )
-    if force:
-        adm_rate_limit_backoff_until.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
 

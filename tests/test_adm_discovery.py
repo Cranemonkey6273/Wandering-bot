@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -10,7 +11,7 @@ from _bot_loader import import_bot_module  # noqa: E402
 bot = import_bot_module()
 
 
-class AdmDiscoveryTests(unittest.TestCase):
+class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     def test_playstation_adm_paths_prefer_dayzps_roots(self):
         paths = bot.nitrado_adm_search_paths({
             "nitrado_user": "ni123",
@@ -85,8 +86,23 @@ class AdmDiscoveryTests(unittest.TestCase):
 
         self.assertTrue(bot.adm_scan_diagnostics_rate_limited(diagnostics))
         message = bot.adm_rate_limited_message("search", diagnostics, 180)
-        self.assertIn("rate-limited ADM search", message)
+        self.assertIn("temporarily blocked ADM search", message)
         self.assertIn("not a missing ADM file/path", message)
+
+    def test_adm_rate_limit_detection_treats_nitrado_12004_as_temporary_block(self):
+        diagnostics = [
+            {
+                "path": "/games/ni123/noftp/dayzxb/config/",
+                "status": 500,
+                "error": '{"status":"error","message":"Oops, something is going wrong with your server right now. Our team has already been informed and is working on a solution. We ask for your patience. #ErrorCode 12004"}',
+            }
+        ]
+
+        self.assertTrue(bot.adm_scan_diagnostics_rate_limited(diagnostics))
+        message = bot.adm_rate_limited_message("search", diagnostics, 180)
+        self.assertIn("temporarily blocked ADM search", message)
+        self.assertIn("not a missing ADM file/path", message)
+        self.assertIn("ErrorCode 12004", message)
 
     def test_list_adm_logs_stops_after_cloudflare_rate_limit(self):
         original_get = bot.requests.get
@@ -118,6 +134,61 @@ class AdmDiscoveryTests(unittest.TestCase):
         self.assertEqual([], logs)
         self.assertEqual(1, len(calls))
         self.assertTrue(bot.adm_scan_diagnostics_rate_limited(diagnostics))
+
+    def test_list_adm_logs_stops_after_nitrado_12004(self):
+        original_get = bot.requests.get
+        calls = []
+
+        class FakeResponse:
+            status_code = 500
+            text = '{"status":"error","message":"Oops, something is going wrong with your server right now. #ErrorCode 12004"}'
+
+        def fake_get(_url, headers=None, params=None, timeout=None):
+            calls.append(params.get("dir"))
+            return FakeResponse()
+
+        try:
+            bot.requests.get = fake_get
+            diagnostics = []
+            logs = bot.list_adm_logs(
+                {
+                    "nitrado_token": "token",
+                    "service_id": "service",
+                    "nitrado_user": "ni123",
+                    "server_platform": "Xbox",
+                },
+                diagnostics=diagnostics,
+            )
+        finally:
+            bot.requests.get = original_get
+
+        self.assertEqual([], logs)
+        self.assertEqual(1, len(calls))
+        self.assertTrue(bot.adm_scan_diagnostics_rate_limited(diagnostics))
+
+    async def test_force_refresh_respects_active_adm_rate_limit_backoff(self):
+        guild_id = "adm-backoff-test"
+        old_backoff = dict(bot.adm_rate_limit_backoff_until)
+        try:
+            bot.adm_rate_limit_backoff_until[guild_id] = time.time() + 120
+            ok, message = await bot._refresh_adm_for_guild_locked(
+                guild_id,
+                {
+                    "nitrado_token": "token",
+                    "service_id": "service",
+                    "nitrado_user": "ni123",
+                    "ftp_user": "ftp",
+                    "ftp_password": "secret",
+                },
+                force=True,
+            )
+        finally:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.adm_rate_limit_backoff_until.update(old_backoff)
+
+        self.assertFalse(ok)
+        self.assertIn("backoff active", message)
+        self.assertIn("Force reset was accepted", message)
 
     def test_ping_latest_adm_log_stops_after_first_matching_directory(self):
         original_get = bot.requests.get
