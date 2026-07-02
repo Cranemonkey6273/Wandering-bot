@@ -3655,17 +3655,14 @@ PAGE_TEMPLATE = """
       <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
-      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Setup</a>
+      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
-      {% if section_allowed('server-rules') %}<a class="{{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
-      {% if section_allowed('moderation') %}<a class="{{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
-      {% if section_allowed('server-control') %}<a class="{{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Controls</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% endif %}
@@ -3676,7 +3673,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Create Event</a>{% endif %}
       {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">XML Tools</a>{% endif %}
-      {% if section_allowed('server-control') %}<a href="/admin?section=server-control{{ server_qs }}">Restart Server</a>{% endif %}
+      {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}">Restart Server</a>{% endif %}
     </div>
     {% endif %}
   </aside>
@@ -3687,7 +3684,7 @@ PAGE_TEMPLATE = """
         <p class="command-title-mark">Wandering Bot</p>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ 'AI Development Agent' if auth.kind == 'agent_account' else view_title }}</h1>
-        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Servers & Setup when you manage more than one.{% endif %}</p>
+        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Admin Center when you manage more than one.{% endif %}</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -3753,7 +3750,7 @@ PAGE_TEMPLATE = """
       {% else %}
       <div class="server-tabs">
         {% for item in servers %}
-        <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section={{ active_section }}{% if active_section == 'pve' %}&pve_tool={{ pve_tool }}{% endif %}&guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
+        <a class="server-tab {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section={{ active_section }}{% if active_section == 'pve' %}&pve_tool={{ pve_tool }}{% endif %}{% if active_section == 'access' %}&setup_tool={{ setup_tool }}{% endif %}&guild_id={{ item.guild_id }}">{{ item.guild_name }} · {{ item.map|upper }}</a>
         {% endfor %}
       </div>
       {% endif %}
@@ -3764,9 +3761,8 @@ PAGE_TEMPLATE = """
     <section class="section-nav" aria-label="Dashboard sections">
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
-      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}">Servers & Setup</a>
+      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      {% if section_allowed('automations') %}<a class="tab-link {{ 'active' if active_section == 'automations' else '' }}" href="/admin?section=automations{{ server_qs }}">Discord Setup</a>{% endif %}
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
       {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
@@ -3775,14 +3771,10 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
-      {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
-      {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
-      {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
-      {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access{{ server_qs }}">Access</a>{% endif %}
     </section>
     <section class="mobile-section-picker" aria-label="Dashboard section picker">
       <label>
@@ -3790,9 +3782,8 @@ PAGE_TEMPLATE = """
         <select onchange="if (this.value) window.location.href = this.value;">
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
-          <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Servers & Setup</option>
+          <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
-          {% if section_allowed('automations') %}<option value="/admin?section=automations{{ server_qs }}" {{ 'selected' if active_section == 'automations' else '' }}>Discord Setup</option>{% endif %}
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
@@ -3801,14 +3792,10 @@ PAGE_TEMPLATE = """
           {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Money & Economy</option>{% endif %}
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Shop Items</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
-          {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
-          {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
-          {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>{% endif %}
-          {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=access{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Access</option>{% endif %}
           <option value="{{ logout_path }}">Logout</option>
         </select>
       </label>
@@ -3832,6 +3819,24 @@ PAGE_TEMPLATE = """
         <span>{{ server.platform_label if server else 'Xbox' }}</span>
         <span>{{ (server.map|capitalize) if server else 'Chernarus' }}</span>
         {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if active_section == "access" %}
+    <section class="section-panel compact-panel" id="admin-center">
+      <div class="section-head">
+        <div>
+          <h2>Admin Center</h2>
+          <p class="tool-note">One place for server setup, Discord messages, rules, moderation guard and live server controls.</p>
+          <nav class="command-subnav" aria-label="Admin center tools">
+            <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#access">Servers</a>
+            {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Discord</a>{% endif %}
+            {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
+            {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
+            {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}#server-control">Control</a>{% endif %}
+          </nav>
+        </div>
       </div>
     </section>
     {% endif %}
@@ -3979,19 +3984,19 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <div class="quick-guide-grid" aria-label="Common dashboard jobs">
-        <a class="quick-guide-link" href="/admin?section=access{{ server_qs }}"><strong>Connect a server</strong><span>Use Servers & Setup for Nitrado login, map, platform and dashboard access.</span></a>
+        <a class="quick-guide-link" href="/admin?section=access&setup_tool=servers{{ server_qs }}"><strong>Connect a server</strong><span>Use Admin Center for Nitrado login, map, platform and dashboard access.</span></a>
         <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
         <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
         <a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
         <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
-        <a class="quick-guide-link" href="/admin?section=server-control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Server Controls for restarts, base damage and container damage schedules.</span></a>
+        <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Admin Center controls for restarts, base damage and container damage schedules.</span></a>
         <a class="quick-guide-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
       </div>
     </section>
 
     <section class="category-grid" aria-label="Main categories">
       <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboards</strong><span>Live kills, deaths, builds and rankings.</span></a>
-      <a class="category-link" href="/admin?section=automations{{ server_qs }}"><strong>Discord Setup</strong><span>Auto messages, welcomes and reaction roles.</span></a>
+      <a class="category-link" href="/admin?section=access&setup_tool=discord{{ server_qs }}"><strong>Admin Center</strong><span>Servers, Discord setup, rules, moderation and server controls.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
       <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
@@ -3999,13 +4004,9 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Shop Items</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
-      <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
-      <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
-      <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Controls</strong><span>Restart schedules and base/container damage toggles.</span></a>
       <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help & Guides</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
-      <a class="category-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access{{ server_qs }}"><strong>Servers & Setup</strong><span>Switch server, link another server, or change dashboard login.</span></a>
     </section>
     {% endif %}
 
@@ -4676,7 +4677,7 @@ PAGE_TEMPLATE = """
       </section>
     </section>
     {% endif %}
-    {% if mode in ["admin", "owner"] and active_section == "automations" %}
+    {% if mode in ["admin", "owner"] and (active_section == "automations" or (active_section == "access" and setup_tool == "discord")) %}
     <section class="section-panel" id="automations">
       <div class="section-head">
         <div>
@@ -5871,8 +5872,8 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel" data-pve-panel="builder">
           <h3>Server Control Moved</h3>
-          <p class="tool-note">Restarts, raid damage and vehicle resets moved to Server Control.</p>
-          <a class="button-link" href="/admin?section=server-control{{ server_qs }}">Open Server Control</a>
+          <p class="tool-note">Restarts, raid damage and vehicle resets now live in Admin Center.</p>
+          <a class="button-link" href="/admin?section=access&setup_tool=control{{ server_qs }}">Open Admin Center</a>
         </article>
         <article class="admin-panel full" data-pve-panel="events">
           {% set scenario_summary = server.scenario_summary if server and server.scenario_summary else {} %}
@@ -7551,7 +7552,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] and active_section == "moderation" %}
+    {% if mode in ["admin", "owner"] and (active_section == "moderation" or (active_section == "access" and setup_tool == "moderation")) %}
     {% set guard = (server.config.moderation_guard if server and server.config and server.config.moderation_guard else {}) %}
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
     {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
@@ -7701,7 +7702,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] and active_section == "server-rules" %}
+    {% if mode in ["admin", "owner"] and (active_section == "server-rules" or (active_section == "access" and setup_tool == "rules")) %}
     <section class="section-panel" id="server-rules">
       <div class="section-head">
         <div>
@@ -7784,7 +7785,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] and active_section == "server-control" %}
+    {% if mode in ["admin", "owner"] and (active_section == "server-control" or (active_section == "access" and setup_tool == "control")) %}
     <section class="section-panel" id="server-control">
       <div class="section-head">
         <div>
@@ -8173,7 +8174,7 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
-    {% if mode in ["admin", "owner"] and active_section == "access" %}
+    {% if mode in ["admin", "owner"] and active_section == "access" and setup_tool == "servers" %}
     <section class="section-panel" id="access">
       <div class="section-head">
         <div>
@@ -11501,7 +11502,7 @@ PAGE_TEMPLATE = """
       const dashboardPath = window.location.pathname.startsWith("/owner") ? "/owner" : "/admin";
       const edit = document.createElement("a");
       edit.className = "button";
-      edit.href = `${dashboardPath}?section=automations&guild_id=${encodeURIComponent(guildId)}&edit_embed=${encodeURIComponent(id || template.name || "")}#embed-template-form`;
+      edit.href = `${dashboardPath}?section=access&setup_tool=discord&guild_id=${encodeURIComponent(guildId)}&edit_embed=${encodeURIComponent(id || template.name || "")}#embed-template-form`;
       edit.dataset.embedTemplateEdit = "";
       edit.textContent = "Edit";
       const removeForm = document.createElement("form");
@@ -11512,7 +11513,7 @@ PAGE_TEMPLATE = """
       removeForm.dataset.confirm = `Delete embed template ${id || "message"}?`;
       [
         ["guild_id", guildId],
-        ["return_to", `${dashboardPath}?section=automations&guild_id=${encodeURIComponent(guildId)}#embed-template-form`],
+        ["return_to", `${dashboardPath}?section=access&setup_tool=discord&guild_id=${encodeURIComponent(guildId)}#embed-template-form`],
         ["dashboard_mode", "{{ mode }}"],
         ["template_id", id],
         ["action", "delete"],
@@ -14146,6 +14147,20 @@ SECTION_FEATURES = {
     "server-rules": "server_rules",
     "moderation": "moderation",
     "server-control": "server_control",
+}
+
+ADMIN_CENTER_SECTION_TO_TOOL = {
+    "automations": "discord",
+    "server-rules": "rules",
+    "moderation": "moderation",
+    "server-control": "control",
+}
+
+ADMIN_CENTER_TOOL_FEATURES = {
+    "discord": "embeds",
+    "rules": "server_rules",
+    "moderation": "moderation",
+    "control": "server_control",
 }
 
 ADMIN_ROUTE_FEATURES = {
@@ -22171,7 +22186,7 @@ COMMAND_SECTION_META = {
     "moderation": {"kicker": "Safety", "title": "Moderation", "body": "Handle admin actions, audit entries and moderation tooling."},
     "server-control": {"kicker": "Console", "title": "Server Controls", "body": "Use server-side controls and operational actions for the selected Nitrado service."},
     "help": {"kicker": "Guide", "title": "Help & Guides", "body": "Quick references for dashboard tools, uploads, live events and setup notes."},
-    "access": {"kicker": "Servers", "title": "Servers & Setup", "body": "Link servers together, switch between dashboards and manage owner access controls when available."},
+    "access": {"kicker": "Admin", "title": "Admin Center", "body": "Server setup, Discord messages, rules, moderation guard and live server controls in one place."},
     "billing": {"kicker": "Owner", "title": "Plans & Billing", "body": "Define dashboard tiers, enabled features, checkout links and owner-only subscription controls."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
     "ai-agent": {"kicker": "Private AI", "title": "AI Development Agent", "body": "Owner-controlled software engineering workspace with planning, approval gates, sandbox intent, audit logs and God Mode locked off by default."},
@@ -23638,6 +23653,11 @@ def page(mode: str, auth: dict[str, Any]):
         if token:
             params["token"] = token
         return redirect(f"/{mode}?{urllib.parse.urlencode(params)}#xml-workshop")
+    if active_section in ADMIN_CENTER_SECTION_TO_TOOL:
+        params = request.args.to_dict(flat=True)
+        params["section"] = "access"
+        params["setup_tool"] = ADMIN_CENTER_SECTION_TO_TOOL[active_section]
+        return redirect(f"/{mode}?{urllib.parse.urlencode(params)}")
     if auth.get("kind") != "owner" and active_section == "billing":
         active_section = "overview"
     if auth.get("kind") != "owner" and active_section == "owner":
@@ -23646,6 +23666,9 @@ def page(mode: str, auth: dict[str, Any]):
         active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
+    setup_tool = str(request.args.get("setup_tool") or "servers").strip().lower()
+    if setup_tool not in {"servers", "discord", "rules", "moderation", "control"}:
+        setup_tool = "servers"
     focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
     selected_state_guild_id = focused_guild_id
     if not selected_state_guild_id and auth.get("kind") != "owner":
@@ -23692,6 +23715,11 @@ def page(mode: str, auth: dict[str, Any]):
             return True
         feature = SECTION_FEATURES.get(section)
         return dashboard_feature_allowed(selected_config, feature) if feature else True
+
+    if active_section == "access":
+        setup_feature = ADMIN_CENTER_TOOL_FEATURES.get(setup_tool)
+        if setup_feature and not dashboard_feature_allowed(selected_config, setup_feature) and auth.get("kind") != "owner":
+            setup_tool = "servers"
 
     if not section_allowed(active_section):
         active_section = "overview"
@@ -23832,6 +23860,7 @@ def page(mode: str, auth: dict[str, Any]):
         command_section=command_section,
         pve_tool=pve_tool,
         xml_tool=xml_tool,
+        setup_tool=setup_tool,
         dashboard_theme=dashboard_theme,
         dashboard_version=DASHBOARD_VERSION,
         dayz_ce_file_version=DAYZ_CE_FILE_VERSION,

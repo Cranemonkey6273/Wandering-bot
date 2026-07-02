@@ -62,6 +62,22 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertNotIn('href="/admin?section=bulk-economy{{ server_qs }}">Bulk XML Edit</a>', source)
         self.assertNotIn('href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>', source)
 
+    def test_admin_setup_sections_are_consolidated_into_admin_center(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('"automations": "discord"', source)
+        self.assertIn('"server-rules": "rules"', source)
+        self.assertIn('"server-control": "control"', source)
+        self.assertIn("Admin Center", source)
+        self.assertIn("setup_tool == 'discord'", source)
+        self.assertIn("setup_tool == 'rules'", source)
+        self.assertIn("setup_tool == 'moderation'", source)
+        self.assertIn("setup_tool == 'control'", source)
+        self.assertNotIn('href="/admin?section=automations{{ server_qs }}">Discord Setup</a>', source)
+        self.assertNotIn('href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>', source)
+        self.assertNotIn('href="/admin?section=moderation{{ server_qs }}">Moderation</a>', source)
+        self.assertNotIn('href="/admin?section=server-control{{ server_qs }}">Server Control</a>', source)
+
 
 if __name__ == "__main__":
     unittest.main()
