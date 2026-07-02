@@ -170,6 +170,24 @@ class DashboardServerControlTests(unittest.TestCase):
         finally:
             dashboard.CUSTOM_STATE_PROVIDER = old_provider
 
+    def test_runtime_scenario_upload_passes_event_id_to_bot_uploader(self):
+        old_provider = dashboard.CUSTOM_STATE_PROVIDER
+        calls = []
+
+        def fake_uploader(guild_id, event_id):
+            calls.append((guild_id, event_id))
+            return {"ok": False, "built": {}, "messages": ["blocked for test"]}
+
+        try:
+            dashboard.CUSTOM_STATE_PROVIDER = lambda: {"scenario_xml_uploader": fake_uploader}
+
+            result = dashboard.run_runtime_scenario_xml_upload("guild-1", 37)
+        finally:
+            dashboard.CUSTOM_STATE_PROVIDER = old_provider
+
+        self.assertEqual({"ok": False, "built": {}, "messages": ["blocked for test"]}, result)
+        self.assertEqual([("guild-1", 37)], calls)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37792,13 +37792,15 @@ def mark_native_ce_source_required(config, event, messages, now_text):
     settings["source_blocked_map"] = str(config.get("server_map") or config.get("map") or "")
 
 
-def dashboard_upload_console_ce_event_files(guild_id):
+def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     guild_id = str(guild_id)
     try:
         load_guild_configs()
         config = guild_configs.get(guild_id)
         if not isinstance(config, dict):
             return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
+        target_event_id = safe_int(event_id, 0)
+        cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
         active_dashboard_events = [
             event
             for event in scenario_events_for_config(config)
@@ -37810,6 +37812,34 @@ def dashboard_upload_console_ce_event_files(guild_id):
                 and scenario_event_upload_needs_resolution(event)
             )
         ]
+        if target_event_id and not cleanup_pending:
+            target_events = [
+                event
+                for event in active_dashboard_events
+                if safe_int(event.get("id"), 0) == target_event_id
+            ]
+            if not target_events:
+                target_event = next(
+                    (
+                        event
+                        for event in scenario_events_for_config(config)
+                        if isinstance(event, dict) and safe_int(event.get("id"), 0) == target_event_id
+                    ),
+                    None,
+                )
+                if isinstance(target_event, dict):
+                    status = str(target_event.get("status") or "no status").strip()
+                    upload_status = str(target_event.get("upload_status") or "no upload status").strip()
+                    return {
+                        "ok": False,
+                        "built": {},
+                        "messages": [
+                            f"Dashboard event {target_event_id} is not pending upload "
+                            f"(status: {status}; upload_status: {upload_status})."
+                        ],
+                    }
+                return {"ok": False, "built": {}, "messages": [f"Dashboard event {target_event_id} was not found for upload."]}
+            active_dashboard_events = target_events
         bridge_events = [
             event
             for event in active_dashboard_events

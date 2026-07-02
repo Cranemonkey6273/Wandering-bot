@@ -13,6 +13,7 @@ import os
 import re
 import random
 import html
+import inspect
 import secrets
 import hashlib
 import subprocess
@@ -15258,7 +15259,7 @@ def sync_runtime_store(store_name: str, data: Any) -> None:
         target[:] = data
 
 
-def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
+def run_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0) -> dict[str, Any] | None:
     if not CUSTOM_STATE_PROVIDER:
         return None
     try:
@@ -15269,7 +15270,14 @@ def run_runtime_scenario_xml_upload(guild_id: str) -> dict[str, Any] | None:
     if not callable(uploader):
         return None
     try:
-        result = uploader(str(guild_id))
+        try:
+            parameter_count = len(inspect.signature(uploader).parameters)
+        except (TypeError, ValueError):
+            parameter_count = 1
+        if parameter_count >= 2:
+            result = uploader(str(guild_id), safe_int(event_id, 0))
+        else:
+            result = uploader(str(guild_id))
     except json.JSONDecodeError as error:
         trace = compact_exception_leaf_trace(error)
         return {
@@ -15354,7 +15362,7 @@ def apply_dashboard_bridge_upload_metadata(event: dict[str, Any], built: dict[st
 
 
 def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed: bool = False) -> dict[str, Any] | None:
-    upload_result = run_runtime_scenario_xml_upload(guild_id)
+    upload_result = run_runtime_scenario_xml_upload(guild_id, event_id)
     if upload_result is None:
         return None
 
@@ -26623,15 +26631,14 @@ def api_scenario_event():
         sync_runtime_store("guild_configs", guild_configs)
         upload_worker_error = dashboard_runtime_scenario_uploader_error()
         if not upload_worker_error:
-            upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
-            if not upload_started:
-                upload_worker_error = "Bot worker unavailable: the upload worker did not accept the request."
-        if upload_started:
             for event in created_events:
                 event["status"] = f"{upload_route_label} upload starting"
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
-        elif upload_worker_error:
+            upload_started = schedule_runtime_scenario_xml_upload(guild_id, safe_int(created_events[0].get("id"), 0))
+            if not upload_started:
+                upload_worker_error = "Bot worker unavailable: the upload worker did not accept the request."
+        if upload_worker_error:
             mark_dashboard_scenario_upload_worker_unavailable(created_events, upload_worker_error)
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
@@ -26814,13 +26821,13 @@ def api_scenario_event_action():
             upload_worker_error = dashboard_runtime_scenario_uploader_error()
             upload_started = False
             if not upload_worker_error:
+                event["status"] = "Native CE XML removal starting" if action == "pause" else f"{route_label} upload starting"
+                save_store("guild_configs", guild_configs)
+                sync_runtime_store("guild_configs", guild_configs)
                 upload_started = schedule_runtime_scenario_xml_upload(guild_id, event_id, removed=(action == "pause"))
                 if not upload_started:
                     upload_worker_error = "Bot worker unavailable: the upload worker did not accept the request."
             if upload_started:
-                event["status"] = "Native CE XML removal starting" if action == "pause" else f"{route_label} upload starting"
-                save_store("guild_configs", guild_configs)
-                sync_runtime_store("guild_configs", guild_configs)
                 if not wants_json_response():
                     return redirect(return_to)
                 return jsonify({"ok": True, "event": event, "upload_started": True, "upload": upload_result})
