@@ -25,6 +25,7 @@ from discord import app_commands
 # =========================================================
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -36,7 +37,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # CONSTANTS
 # =========================================================
 
-BOT_IMAGE = "https://media.discordapp.net/attachments/1499787777636831324/1501685742433206342/7A382429-B666-4A9F-B890-17C0F7981709.png"
+BOT_IMAGE = os.getenv(
+    "WANDERING_BOT_IMAGE_URL",
+    f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/brand-character",
+)
 
 GUILD_CONFIG_FILE = "guild_configs.json"
 GUILD_DATA_FOLDER = "guild_data"
@@ -299,8 +303,9 @@ async def setup_command(
     embed.set_thumbnail(url=BOT_IMAGE)
 
     await interaction.followup.send(
-        embed=style_embed(embed)),
-        ephemeral=True
+        embed=style_embed(embed),
+        ephemeral=True,
+    )
 
 # =========================================================
 # API ADM SEARCH

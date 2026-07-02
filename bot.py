@@ -30,6 +30,8 @@ from dayz_file_intelligence import (
     dayz_is_backup_path,
     dayz_object_spawner_ref_is_blocked,
     dayz_xml_root_for_path,
+    validate_named_xml_upload_preserves_existing,
+    validate_upload_not_dangerously_shrunken,
     validate_dayz_upload_text,
 )
 from datetime import datetime, UTC, timedelta
@@ -61,11 +63,9 @@ bot = commands.Bot(
 # GLOBAL CONFIG
 # =========================================================
 
-BOT_IMAGE = (
-    "https://media.discordapp.net/"
-    "attachments/1499787777636831324/"
-    "1501685742433206342/"
-    "7A382429-B666-4A9F-B890-17C0F7981709.png"
+BOT_IMAGE = os.getenv(
+    "WANDERING_BOT_IMAGE_URL",
+    f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/brand-character",
 )
 
 DEFAULT_MAP_IMAGE_SOURCES = {
@@ -32013,15 +32013,54 @@ def validate_console_ce_upload_scope(built):
     ]
     messages = []
     scope_map_key = str(built.get("map_key") or "").strip()
+    path_keys = {
+        "events.xml": "events_path",
+        "cfgeventspawns.xml": "spawns_path",
+        "types.xml": "types_path",
+        "cfgspawnabletypes.xml": "spawnabletypes_path",
+        "cfgeventgroups.xml": "eventgroups_path",
+        "mapgroupproto.xml": "mapgroupproto_path",
+        "cfgenvironment.xml": "cfgenvironment_path",
+        "cfgareaeffects.xml": "cfgareaeffects_path",
+    }
     for label, source_key, text_key in targets:
         merged_text = built.get(text_key)
         if not merged_text:
             continue
         if source_key not in built:
             continue
+        source_text = built.get(source_key, "")
+        allowed_removed = set()
+        try:
+            source_root = parse_xml_root_preserving_comments(source_text)
+            allowed_removed = {
+                str(node.get("name") or node.get("path") or node.get("usable") or "").strip()
+                for node in list(source_root)
+                if str(node.get("name") or node.get("path") or node.get("usable") or "").strip()
+                if is_wandering_scope_node(node)
+            }
+        except Exception:
+            allowed_removed = set()
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
+            built.get(path_keys.get(label, "")),
+            source_text,
+            merged_text,
+            allowed_removed_names=allowed_removed,
+        )
+        messages.append(preserve_message or f"`{label}` named-record preservation guard passed.")
+        if not preserve_ok:
+            return False, messages
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(
+            built.get(path_keys.get(label, "")),
+            source_text,
+            merged_text,
+        )
+        messages.append(shrink_message or f"`{label}` shrink guard passed.")
+        if not shrink_ok:
+            return False, messages
         ok, message = validate_managed_ce_xml_scope(
             label,
-            built.get(source_key, ""),
+            source_text,
             merged_text,
             map_key=scope_map_key,
         )
@@ -36820,6 +36859,12 @@ def restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=
 
 
 def upload_protected_ce_file_to_nitrado(config, label, path, text_content, restore_text=None, prefer_ftp=False):
+    shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(path, restore_text, text_content)
+    if not shrink_ok:
+        return False, shrink_message
+    preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(path, restore_text, text_content)
+    if not preserve_ok:
+        return False, preserve_message
     if prefer_ftp:
         ftp_ok, ftp_message = upload_protected_dayz_xml_to_nitrado_ftp_verified(config, path, text_content)
         if ftp_ok:

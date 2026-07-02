@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_filename_for_path, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text  # noqa: E402
+from dayz_file_intelligence import dayz_filename_for_path, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -112,6 +112,57 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual("", message)
+
+    def test_named_record_guard_blocks_events_xml_record_loss(self):
+        existing = '<events><event name="AmbientHen" /><event name="VehicleTruck01" /></events>'
+        upload = '<events><event name="VehicleTruck01" /></events>'
+
+        ok, message = validate_named_xml_upload_preserves_existing(
+            "/mission/db/events.xml",
+            existing,
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("AmbientHen", message)
+
+    def test_named_record_guard_blocks_types_xml_record_loss(self):
+        existing = '<types><type name="AKM" /><type name="M4A1" /></types>'
+        upload = '<types><type name="M4A1" /></types>'
+
+        ok, message = validate_named_xml_upload_preserves_existing(
+            "/mission/db/types.xml",
+            existing,
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("AKM", message)
+
+    def test_shrink_guard_blocks_zero_byte_live_file_replacement(self):
+        existing = "<events>" + "".join(f'<event name="Event{i}" />' for i in range(300)) + "</events>"
+
+        ok, message = validate_upload_not_dangerously_shrunken(
+            "/mission/db/events.xml",
+            existing,
+            "",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("0 bytes", message)
+
+    def test_shrink_guard_blocks_tiny_types_xml_replacement(self):
+        existing = "<types>" + "".join(f'<type name="Item{i}" />' for i in range(500)) + "</types>"
+        upload = '<types><type name="Item1" /></types>'
+
+        ok, message = validate_upload_not_dangerously_shrunken(
+            "/mission/db/types.xml",
+            existing,
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("destructive", message)
 
     def test_custom_territory_file_requires_territory_type_root(self):
         ok, message = validate_dayz_upload_text(

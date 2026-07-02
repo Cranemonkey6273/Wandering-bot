@@ -115,6 +115,106 @@ def _parse_dayz_xml(text: str) -> ET.Element:
     return ET.fromstring(_xml_text_without_comments(text).encode("utf-8"))
 
 
+def validate_named_xml_upload_preserves_existing(
+    target_path: Any,
+    existing_text: Any,
+    upload_text: Any,
+    *,
+    allowed_removed_names: set[str] | None = None,
+    max_removed_names: int = 0,
+) -> tuple[bool, str]:
+    """Block protected XML uploads that would remove existing named records.
+
+    This is intentionally stricter than XML shape validation. A valid
+    ``events.xml`` with only one event is still dangerous if the live server
+    file had hundreds of event definitions before the upload.
+    """
+
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec or spec.kind != "xml" or not spec.required_children or dayz_is_backup_path(target_path):
+        return True, ""
+
+    existing = str(existing_text or "").strip()
+    upload = str(upload_text or "").strip()
+    if not existing or not upload:
+        return True, ""
+
+    try:
+        existing_root = _parse_dayz_xml(existing)
+        upload_root = _parse_dayz_xml(upload)
+    except Exception as error:
+        return False, f"Refusing to upload `{target_path}`: could not compare existing XML records before upload: {error}"
+
+    if existing_root.tag != upload_root.tag or existing_root.tag != spec.xml_root:
+        return True, ""
+
+    child_tag = spec.required_children[0]
+
+    def named_children(root: ET.Element) -> set[str]:
+        return {
+            str(node.get("name") or "").strip()
+            for node in root.findall(child_tag)
+            if str(node.get("name") or "").strip()
+        }
+
+    existing_names = named_children(existing_root)
+    upload_names = named_children(upload_root)
+    if not existing_names or not upload_names:
+        return True, ""
+
+    allowed = {str(name or "").strip().lower() for name in (allowed_removed_names or set()) if str(name or "").strip()}
+    removed = sorted(
+        name
+        for name in existing_names - upload_names
+        if name.lower() not in allowed
+    )
+    if len(removed) <= max(0, int(max_removed_names or 0)):
+        return True, ""
+
+    sample = ", ".join(f"`{name}`" for name in removed[:8])
+    if len(removed) > 8:
+        sample += f", +{len(removed) - 8} more"
+    return False, (
+        f"Refusing to upload `{target_path}`: upload would remove `{len(removed)}` existing "
+        f"<{child_tag} name=...> record(s): {sample}. This guard prevents Wandering Bot from "
+        "emptying or replacing live CE files; merge only WanderingBot-managed records instead."
+    )
+
+
+def validate_upload_not_dangerously_shrunken(
+    target_path: Any,
+    existing_text: Any,
+    upload_text: Any,
+    *,
+    min_existing_bytes: int = 2048,
+    max_shrink_ratio: float = 0.35,
+) -> tuple[bool, str]:
+    """Block replacing a real live DayZ file with a tiny/gutted upload."""
+
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec or dayz_is_backup_path(target_path):
+        return True, ""
+
+    existing = str(existing_text or "")
+    upload = str(upload_text or "")
+    existing_bytes = len(existing.encode("utf-8", errors="ignore"))
+    upload_bytes = len(upload.encode("utf-8", errors="ignore"))
+    if existing_bytes < max(1, int(min_existing_bytes or 0)):
+        return True, ""
+    if upload_bytes == 0:
+        return False, (
+            f"Refusing to upload `{target_path}`: upload content is 0 bytes while the live file "
+            f"backup is {existing_bytes} bytes."
+        )
+    if upload_bytes >= int(existing_bytes * float(max_shrink_ratio or 0)):
+        return True, ""
+    return False, (
+        f"Refusing to upload `{target_path}`: upload is only {upload_bytes} bytes, but the live "
+        f"file backup is {existing_bytes} bytes. This looks like a destructive empty/truncated "
+        "upload, so Wandering Bot stopped it."
+    )
+
+
 def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 

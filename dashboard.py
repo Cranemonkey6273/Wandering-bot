@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -19908,6 +19908,12 @@ def guarded_dashboard_file_injection(
     missing_file = any(term in str(download_message).lower() for term in ("404", "not found", "does not exist", "no such file"))
     backup_path = ""
     if exists and existing_text is not None:
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(remote_path, existing_text, safe_text)
+        if not shrink_ok:
+            raise ValueError(shrink_message)
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(remote_path, existing_text, safe_text)
+        if not preserve_ok:
+            raise ValueError(preserve_message)
         stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         backup_path = f"{remote_path}.wanderingbot-backup-{stamp}"
         backup_ok, backup_message = dashboard_upload_text_file_to_nitrado(config, backup_path, existing_text)
@@ -20000,6 +20006,12 @@ def guarded_dashboard_xml_merge(
     merged_text, action = merge_named_xml_child(existing_text if exists else None, snippet_text, root_tag=root_tag, child_tag=child_tag, label=label)
     backup_path = ""
     if exists and existing_text is not None:
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(remote_path, existing_text, merged_text)
+        if not shrink_ok:
+            raise ValueError(shrink_message)
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(remote_path, existing_text, merged_text)
+        if not preserve_ok:
+            raise ValueError(preserve_message)
         stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         backup_path = f"{remote_path}.wanderingbot-backup-{stamp}"
         backup_ok, backup_message = dashboard_upload_text_file_to_nitrado(config, backup_path, existing_text)
