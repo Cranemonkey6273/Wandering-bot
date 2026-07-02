@@ -43,6 +43,14 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("types_factory_preload = factory_vanilla_types_payload", source)
         self.assertIn('data-types-preload>{{ types_factory_preload|tojson }}</script>', source)
 
+    def test_types_editor_exposes_full_xml_copy_and_view_controls(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('data-tool-copy="generated_xml">Copy XML</button>', source)
+        self.assertIn('data-types-show-xml>View XML</a>', source)
+        self.assertIn('id="types-xml-output" data-types-xml-panel', source)
+        self.assertIn("panel.open = true", source)
+
 
 if __name__ == "__main__":
     unittest.main()

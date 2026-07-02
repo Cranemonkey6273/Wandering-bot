@@ -6526,6 +6526,8 @@ PAGE_TEMPLATE = """
               </div>
               <div class="types-editor-actions">
                 <button type="button" class="download" data-types-download>Download XML</button>
+                <button type="button" data-tool-copy="generated_xml">Copy XML</button>
+                <a class="button" href="#types-xml-output" data-types-show-xml>View XML</a>
                 <button type="button" data-types-undo disabled>Undo</button>
                 <button type="button" data-types-redo disabled>Redo</button>
                 <button type="button" data-types-min-nominal>Min -> Nominal</button>
@@ -6638,13 +6640,13 @@ PAGE_TEMPLATE = """
               <span class="muted">Warnings and validation notes appear here.</span>
               {% endif %}
             </div>
-            <details class="types-xml-output-panel full" {% if not types_factory_preload.xml_text %}open{% endif %}>
-              <summary>Generated types.xml</summary>
+            <details class="types-xml-output-panel full" id="types-xml-output" data-types-xml-panel {% if not types_factory_preload.xml_text %}open{% endif %}>
+              <summary>View / copy full generated types.xml</summary>
               <label class="full">
                 <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing.">{% if types_factory_preload.xml_text %}{{ types_factory_preload.xml_text }}{% endif %}</textarea>
               </label>
               <div class="toolbar full">
-                <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+                <button type="button" data-tool-copy="generated_xml">Copy XML</button>
                 <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
                 <span class="result muted" data-tool-result></span>
               </div>
@@ -10927,6 +10929,15 @@ PAGE_TEMPLATE = """
         } else if (button.matches("[data-types-download]")) {
           event.preventDefault();
           downloadTypesXml();
+        } else if (button.matches("[data-types-show-xml]")) {
+          event.preventDefault();
+          const panel = editor.querySelector("[data-types-xml-panel]");
+          if (panel) {
+            panel.open = true;
+            panel.scrollIntoView({behavior: "smooth", block: "start"});
+            const xmlOutput = panel.querySelector("[data-types-output]");
+            if (xmlOutput) xmlOutput.focus({preventScroll: true});
+          }
         } else if (button.matches("[data-types-new]")) {
           event.preventDefault();
           resetTypesEditor();
