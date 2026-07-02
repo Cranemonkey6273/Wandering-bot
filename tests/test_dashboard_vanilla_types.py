@@ -51,6 +51,17 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn('id="types-xml-output" data-types-xml-panel', source)
         self.assertIn("panel.open = true", source)
 
+    def test_duplicate_xml_sections_are_consolidated_into_workshop(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('("loot", "Types Editor")', source)
+        self.assertIn('"loot-engine": "loot"', source)
+        self.assertIn('"bulk-economy": "loot"', source)
+        self.assertIn('"dayz-converter": "loot"', source)
+        self.assertNotIn('href="/admin?section=loot-engine{{ server_qs }}">Loot Balancer</a>', source)
+        self.assertNotIn('href="/admin?section=bulk-economy{{ server_qs }}">Bulk XML Edit</a>', source)
+        self.assertNotIn('href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>', source)
+
 
 if __name__ == "__main__":
     unittest.main()

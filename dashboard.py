@@ -3775,9 +3775,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
       {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
-      {% if section_allowed('dayz-converter') %}<a class="tab-link {{ 'active' if active_section == 'dayz-converter' else '' }}" href="/admin?section=dayz-converter{{ server_qs }}">Map Converter</a>{% endif %}
-      {% if section_allowed('loot-engine') %}<a class="tab-link {{ 'active' if active_section == 'loot-engine' else '' }}" href="/admin?section=loot-engine{{ server_qs }}">Loot Balancer</a>{% endif %}
-      {% if section_allowed('bulk-economy') %}<a class="tab-link {{ 'active' if active_section == 'bulk-economy' else '' }}" href="/admin?section=bulk-economy{{ server_qs }}">Bulk XML Edit</a>{% endif %}
       {% if section_allowed('server-rules') %}<a class="tab-link {{ 'active' if active_section == 'server-rules' else '' }}" href="/admin?section=server-rules{{ server_qs }}">Server Rules</a>{% endif %}
       {% if section_allowed('moderation') %}<a class="tab-link {{ 'active' if active_section == 'moderation' else '' }}" href="/admin?section=moderation{{ server_qs }}">Moderation</a>{% endif %}
       {% if section_allowed('server-control') %}<a class="tab-link {{ 'active' if active_section == 'server-control' else '' }}" href="/admin?section=server-control{{ server_qs }}">Server Control</a>{% endif %}
@@ -3804,9 +3801,6 @@ PAGE_TEMPLATE = """
           {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Money & Economy</option>{% endif %}
           {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Shop Items</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
-          {% if section_allowed('dayz-converter') %}<option value="/admin?section=dayz-converter{{ server_qs }}" {{ 'selected' if active_section == 'dayz-converter' else '' }}>Map Converter</option>{% endif %}
-          {% if section_allowed('loot-engine') %}<option value="/admin?section=loot-engine{{ server_qs }}" {{ 'selected' if active_section == 'loot-engine' else '' }}>Loot Balancer</option>{% endif %}
-          {% if section_allowed('bulk-economy') %}<option value="/admin?section=bulk-economy{{ server_qs }}" {{ 'selected' if active_section == 'bulk-economy' else '' }}>Bulk XML Edit</option>{% endif %}
           {% if section_allowed('server-rules') %}<option value="/admin?section=server-rules{{ server_qs }}" {{ 'selected' if active_section == 'server-rules' else '' }}>Server Rules</option>{% endif %}
           {% if section_allowed('moderation') %}<option value="/admin?section=moderation{{ server_qs }}" {{ 'selected' if active_section == 'moderation' else '' }}>Moderation</option>{% endif %}
           {% if section_allowed('server-control') %}<option value="/admin?section=server-control{{ server_qs }}" {{ 'selected' if active_section == 'server-control' else '' }}>Server Control</option>{% endif %}
@@ -3987,8 +3981,7 @@ PAGE_TEMPLATE = """
       <div class="quick-guide-grid" aria-label="Common dashboard jobs">
         <a class="quick-guide-link" href="/admin?section=access{{ server_qs }}"><strong>Connect a server</strong><span>Use Servers & Setup for Nitrado login, map, platform and dashboard access.</span></a>
         <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
-        <a class="quick-guide-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>Edit XML or loadouts</strong><span>Use XML & Loadouts for player spawns, bags, vehicles, map converter and safe XML output.</span></a>
-        <a class="quick-guide-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Balance loot</strong><span>Use Loot Balancer to boost or reduce types.xml categories with previews.</span></a>
+        <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
         <a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
         <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
         <a class="quick-guide-link" href="/admin?section=server-control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Server Controls for restarts, base damage and container damage schedules.</span></a>
@@ -4004,11 +3997,8 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Money & Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
       <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Shop Items</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
-      <a class="category-link" href="/admin?section=xml-workshop{{ server_qs }}"><strong>XML & Loadouts</strong><span>Loot quality, filled bags, loadouts and vehicle cargo recipes.</span></a>
-      <a class="category-link" href="/admin?section=dayz-converter{{ server_qs }}"><strong>Map Converter</strong><span>Turn DayZ Editor JSON into events, spawns and event group XML snippets.</span></a>
-      <a class="category-link" href="/admin?section=loot-engine{{ server_qs }}"><strong>Loot Balancer</strong><span>Boost or reduce types.xml categories with preview, stats and output.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
-      <a class="category-link" href="/admin?section=bulk-economy{{ server_qs }}"><strong>Bulk XML Edit</strong><span>Batch-edit types.xml counts and lifetimes with validation.</span></a>
       <a class="category-link" href="/admin?section=server-rules{{ server_qs }}"><strong>Server Rules</strong><span>Discord link enforcement, Nitrado bans and on-screen server messages.</span></a>
       <a class="category-link" href="/admin?section=moderation{{ server_qs }}"><strong>Moderation Guard</strong><span>Spam, invite adverts, scam phrases, mass mentions and auto actions.</span></a>
       <a class="category-link" href="/admin?section=server-control{{ server_qs }}"><strong>Server Controls</strong><span>Restart schedules and base/container damage toggles.</span></a>
@@ -6450,7 +6440,7 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <nav class="tool-switcher" aria-label="XML workshop tools">
-        {% for key, label in [("loot", "Loot Rules"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
+        {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
         <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -23631,6 +23621,23 @@ def page(mode: str, auth: dict[str, Any]):
         if focused:
             guild_qs = f"&guild_id={urllib.parse.quote(focused)}"
         return redirect(f"/{mode}?section=xml-workshop&xml_tool=player-loadout{guild_qs}#player-loadout-builder")
+    consolidated_xml_sections = {
+        "loot-engine": "loot",
+        "bulk-economy": "loot",
+        "dayz-converter": "loot",
+    }
+    if active_section in consolidated_xml_sections:
+        params = {
+            "section": "xml-workshop",
+            "xml_tool": consolidated_xml_sections[active_section],
+        }
+        focused = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
+        token = str(request.args.get("token") or "").strip()
+        if focused:
+            params["guild_id"] = focused
+        if token:
+            params["token"] = token
+        return redirect(f"/{mode}?{urllib.parse.urlencode(params)}#xml-workshop")
     if auth.get("kind") != "owner" and active_section == "billing":
         active_section = "overview"
     if auth.get("kind") != "owner" and active_section == "owner":
@@ -23694,7 +23701,7 @@ def page(mode: str, auth: dict[str, Any]):
         pve_tool = "events"
     if active_section == "pve" and request.args.get("edit_event"):
         pve_tool = "builder"
-    xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
+    xml_tool = str(request.args.get("xml_tool") or "loot").strip().lower()
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
     if active_section == "xml-workshop" and request.args.get("factory_map"):
