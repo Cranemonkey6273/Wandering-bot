@@ -44,6 +44,12 @@ APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
+DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
+DAYZ_REFERENCE_MAP_FOLDERS = {
+    "chernarus": "dayzOffline.chernarusplus",
+    "livonia": "dayzOffline.enoch",
+    "sakhal": "dayzOffline.sakhal",
+}
 MAP_IMAGE_FILES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_FILE", os.path.join(APP_ROOT, "chernarus_map.jpg")),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
@@ -3116,6 +3122,41 @@ PAGE_TEMPLATE = """
     .types-preview-row { display: grid; grid-template-columns: minmax(9rem, 1fr) auto auto; gap: .45rem; align-items: center; border: 1px solid var(--line); border-radius: .45rem; padding: .45rem; background: #070b08; color: var(--muted); }
     .types-preview-row strong { color: var(--text); overflow-wrap: anywhere; }
     .types-preview-row b { color: var(--gold); font-weight: 900; }
+    .types-editor-panel { overflow: hidden; }
+    .types-editor-header { display: flex; justify-content: space-between; align-items: start; gap: .85rem; margin-bottom: .75rem; }
+    .types-editor-source, .types-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
+    .types-editor-source .file-button { position: relative; overflow: hidden; cursor: pointer; }
+    .types-editor-source input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .types-paste-panel { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; margin-bottom: .75rem; background: rgba(0,0,0,.18); }
+    .types-paste-panel summary { cursor: pointer; font-weight: 800; color: var(--gold); }
+    .types-paste-panel textarea { min-height: 9rem; margin-top: .55rem; }
+    .types-editor-output-form { display: grid; gap: .75rem; }
+    .types-editor-toolbar { display: flex; justify-content: space-between; gap: .75rem; align-items: center; border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(0,0,0,.24); }
+    .types-file-meta { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; color: var(--muted); }
+    .types-file-meta strong { color: var(--text); }
+    .types-file-meta span { border: 1px solid var(--line); border-radius: 999px; padding: .18rem .45rem; font-size: .8rem; }
+    .types-alert { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(213,180,95,.12); color: var(--text); }
+    .types-alert.error { border-color: #9d3040; background: rgba(157,48,64,.18); color: #ffd2dc; }
+    .types-alert.success { border-color: #3f8f57; background: rgba(63,143,87,.16); color: #d8ffd8; }
+    .types-editor-filters { display: grid; grid-template-columns: minmax(14rem, 1.2fr) minmax(10rem, .7fr) minmax(10rem, .7fr) minmax(8rem, .5fr) minmax(8rem, .5fr) auto; gap: .55rem; align-items: end; }
+    .types-compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .55rem; }
+    .types-compare-card { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: rgba(0,0,0,.24); }
+    .types-compare-card strong { display: block; color: var(--text); }
+    .types-compare-card b { display: block; margin: .25rem 0; color: var(--gold); font-size: 1.25rem; }
+    .types-compare-card span { display: block; color: var(--muted); font-size: .78rem; }
+    .types-compare-card.good b { color: #8ff0a4; }
+    .types-compare-card.warn b { color: #ffd166; }
+    .types-compare-card.hot b { color: #ff8fa5; }
+    .types-compare-empty { color: var(--muted); border: 1px dashed var(--line); border-radius: .5rem; padding: .75rem; }
+    .types-table-wrap { overflow: auto; max-height: 36rem; border: 1px solid var(--line); border-radius: .5rem; background: #050807; }
+    .types-editor-table { width: 100%; min-width: 72rem; border-collapse: collapse; font-size: .84rem; }
+    .types-editor-table th { position: sticky; top: 0; z-index: 2; background: #090d0c; color: var(--muted); text-align: left; padding: .55rem; border-bottom: 1px solid var(--line); }
+    .types-editor-table td { padding: .38rem .45rem; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: middle; }
+    .types-editor-table tr:hover td { background: rgba(103,245,231,.05); }
+    .types-editor-table input[type="number"], .types-editor-table input[type="text"] { width: 100%; min-width: 4.7rem; padding: .35rem .4rem; font-size: .82rem; }
+    .types-editor-table .type-name { font-weight: 800; color: var(--text); white-space: nowrap; }
+    .types-chip-cell input { min-width: 9rem; }
+    .types-row-warning .type-name::after { content: " !"; color: #ffd166; }
     .capacity-meter { display: grid; gap: .25rem; }
     .capacity-meter-line { height: .55rem; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: #070b08; }
     .capacity-meter-line span { display: block; height: 100%; width: var(--used, 0%); background: linear-gradient(90deg, var(--olive), var(--gold)); }
@@ -3380,7 +3421,7 @@ PAGE_TEMPLATE = """
     .quick-guide-link:focus-visible { border-color: var(--accent); color: var(--text); transform: translateY(-1px); outline: none; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .schedule-status-row { grid-template-columns: 1fr; }
       .ai-codex-chat { min-height: 34rem; }
       .ai-codex-composer { position: static; }
@@ -6374,33 +6415,112 @@ PAGE_TEMPLATE = """
       </nav>
       <div class="panel-grid">
         {% if xml_tool == "loot" %}
-        <article class="admin-panel full" data-types-tool>
-          <h3>Types XML Tools</h3>
-          <p class="tool-note">Paste a types.xml file, choose a tool, then generate a safe edited copy. This belongs in XML Workshop and does not overwrite the server file until the guarded uploader is used.</p>
-          <div class="panel-grid">
-            <label class="full">Paste types.xml
-              <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot;?><types><type name=&quot;AKM&quot;>...</type></types>"></textarea>
-            </label>
-            <label>Tool
-              <select data-types-action>
-                <option value="reduce">Types Reducer</option>
-                <option value="boost">Types Booster</option>
-                <option value="lifetime_reduce">Lifetime Reducer</option>
-                <option value="tier_boost">Tier Booster</option>
-                <option value="organize">Types Organizer</option>
-              </select>
-            </label>
-            <label>Factor <input data-types-factor type="number" step="0.05" value="0.5"></label>
-            <label>Filter <input data-types-filter placeholder="classname/category/tier"></label>
-            <label class="check"><input data-types-field value="nominal" type="checkbox" checked> Nominal</label>
-            <label class="check"><input data-types-field value="min" type="checkbox"> Min</label>
-            <label class="check"><input data-types-field value="lifetime" type="checkbox"> Lifetime</label>
-            <label class="check"><input data-types-field value="restock" type="checkbox"> Restock</label>
-            <div class="full"><button type="button" data-types-process>Generate XML</button> <button type="button" data-types-copy>Copy Output</button> <span class="result muted" data-types-result></span></div>
-            <label class="full">Generated XML
-              <textarea data-types-output readonly placeholder="Processed XML appears here"></textarea>
-            </label>
+        <article class="admin-panel full types-editor-panel" data-types-editor data-map-key="{{ (server.map if server else 'chernarus')|lower }}" data-guild-id="{{ server.guild_id if server else '' }}">
+          <div class="types-editor-header">
+            <div>
+              <h3>types.xml Loot Editor</h3>
+              <p class="tool-note">Load your server file or the factory vanilla {{ dayz_ce_file_version }} file, edit rows in a table, then generate a full safe <code>types.xml</code>. Live upload still uses the guarded uploader.</p>
+            </div>
+            <div class="types-editor-source">
+              <label class="button file-button">Upload types.xml <input type="file" accept=".xml,text/xml" data-types-file></label>
+              <button type="button" data-types-load-factory>Use Factory Vanilla</button>
+              <button type="button" data-types-download>Download XML</button>
+            </div>
           </div>
+          <details class="types-paste-panel">
+            <summary>Paste XML instead</summary>
+            <textarea data-types-input placeholder="<?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot; standalone=&quot;yes&quot;?><types><type name=&quot;M4A1&quot;>...</type></types>"></textarea>
+            <div class="toolbar"><button type="button" data-types-load-paste>Load Pasted XML</button><span class="result muted" data-types-result></span></div>
+          </details>
+          <form class="xml-tool-form types-editor-output-form" data-types-output-form data-local-generator-form data-route="/api/admin/loot-bulk-tweak">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="xml_text" data-types-generated-input>
+            <input class="hidden-field" name="target_path" value="{{ ce_defaults.types_path }}">
+            <div class="types-editor-toolbar full">
+              <div class="types-file-meta">
+                <strong data-types-filename>No types.xml loaded</strong>
+                <span><b data-types-item-count>0</b> items</span>
+                <span data-types-version>DayZ files {{ dayz_ce_file_version }}</span>
+              </div>
+              <div class="types-toolbar-actions">
+                <button type="button" data-types-undo disabled>Undo</button>
+                <button type="button" data-types-redo disabled>Redo</button>
+                <button type="button" data-types-min-nominal>Min -> Nominal</button>
+                <button type="button" data-types-nominal-min>Nominal -> Min</button>
+                <button type="button" data-types-bulk-off>Bulk Off</button>
+                <button type="button" data-tool-copy="generated_xml">Copy Output</button>
+                <button type="button" data-xml-inject data-output-key="generated_xml" data-file-kind="xml" data-label="types.xml">Upload Generated types.xml</button>
+                <span class="result muted" data-tool-result></span>
+              </div>
+            </div>
+            <div class="types-alert full" data-types-alert>Load a file to begin. Use Factory Vanilla when you want a clean baseline.</div>
+            <div class="types-editor-filters full">
+              <label>Search <input type="search" data-types-search placeholder="filter by classname, category, usage or tier"></label>
+              <label>Category
+                <select data-types-category-filter>
+                  <option value="">All categories</option>
+                </select>
+              </label>
+              <label>Bulk action
+                <select data-types-bulk-action>
+                  <option value="reduce">Reduce nominal</option>
+                  <option value="boost">Boost nominal</option>
+                  <option value="set_lifetime">Set lifetime</option>
+                  <option value="set_restock">Set restock</option>
+                  <option value="set_min">Set min</option>
+                  <option value="off">Turn off</option>
+                </select>
+              </label>
+              <label>Amount / percent <input type="number" data-types-bulk-value value="20" min="0" max="500" step="1"></label>
+              <label>Apply to
+                <select data-types-bulk-scope>
+                  <option value="filtered">Filtered rows</option>
+                  <option value="checked">Checked rows</option>
+                </select>
+              </label>
+              <button type="button" data-types-apply-bulk>Apply Bulk Change</button>
+            </div>
+            <div class="types-engine-stats full" data-types-stats>
+              <div class="types-stat"><span>Total items</span><strong data-types-stat="total">0</strong></div>
+              <div class="types-stat"><span>Shown</span><strong data-types-stat="shown">0</strong></div>
+              <div class="types-stat"><span>Active nominal</span><strong data-types-stat="active">0</strong></div>
+              <div class="types-stat"><span>Zero nominal</span><strong data-types-stat="zero">0</strong></div>
+              <div class="types-stat"><span>Warnings</span><strong data-types-stat="warnings">0</strong></div>
+              <div class="types-stat"><span>Compared to vanilla</span><strong data-types-stat="baseline">Waiting</strong></div>
+            </div>
+            <div class="types-compare-grid full" data-types-compare>
+              <div class="types-compare-empty">Vanilla comparison appears after a file is loaded.</div>
+            </div>
+            <div class="types-table-wrap full">
+              <table class="types-editor-table" data-types-table>
+                <thead>
+                  <tr>
+                    <th><input type="checkbox" data-types-check-all aria-label="Select visible rows"></th>
+                    <th>Name</th>
+                    <th>Nominal</th>
+                    <th>Min</th>
+                    <th>Lifetime</th>
+                    <th>Restock</th>
+                    <th>QuantMin</th>
+                    <th>QuantMax</th>
+                    <th>Cost</th>
+                    <th>Category</th>
+                    <th>Usages</th>
+                    <th>Values</th>
+                  </tr>
+                </thead>
+                <tbody data-types-body>
+                  <tr><td colspan="12" class="muted">Load a types.xml file to edit rows.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="types-preview-list full" data-types-issues>
+              <span class="muted">Warnings and validation notes appear here.</span>
+            </div>
+            <label class="full">Generated types.xml
+              <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing."></textarea>
+            </label>
+          </form>
         </article>
         <article class="admin-panel">
           <h3>Loot Quality Rules</h3>
@@ -10157,6 +10277,487 @@ PAGE_TEMPLATE = """
       const raw = new XMLSerializer().serializeToString(xmlDoc);
       return raw.replace(/></g, ">\n<");
     }
+    function installTypesEditor() {
+      const editor = document.querySelector("[data-types-editor]");
+      if (!editor) return;
+      const state = {
+        doc: null,
+        baselineDoc: null,
+        filename: "",
+        selected: new Set(),
+        history: [],
+        redo: [],
+        lastFiltered: [],
+      };
+      const form = editor.querySelector("[data-types-output-form]");
+      const body = editor.querySelector("[data-types-body]");
+      const output = editor.querySelector("[data-types-output]");
+      const hiddenInput = editor.querySelector("[data-types-generated-input]");
+      const alertBox = editor.querySelector("[data-types-alert]");
+      const searchInput = editor.querySelector("[data-types-search]");
+      const categoryFilter = editor.querySelector("[data-types-category-filter]");
+      const maxRenderedRows = 350;
+
+      function setTypesAlert(message, mode) {
+        if (!alertBox) return;
+        alertBox.textContent = message || "";
+        alertBox.classList.toggle("error", mode === "error");
+        alertBox.classList.toggle("success", mode === "success");
+      }
+      function simpleText(type, tag) {
+        const node = type ? Array.from(type.children).find((child) => child.tagName === tag) : null;
+        return node ? String(node.textContent || "").trim() : "";
+      }
+      function simpleNumber(type, tag) {
+        const text = simpleText(type, tag);
+        return text === "" ? 0 : Number(text) || 0;
+      }
+      function childNames(type, tag) {
+        return Array.from(type ? type.children : [])
+          .filter((child) => child.tagName === tag)
+          .map((child) => String(child.getAttribute("name") || "").trim())
+          .filter(Boolean);
+      }
+      function setSimpleText(type, tag, value) {
+        let node = Array.from(type.children).find((child) => child.tagName === tag);
+        const clean = String(value ?? "").trim();
+        if (!clean) {
+          if (node) type.removeChild(node);
+          return;
+        }
+        if (!node) {
+          node = state.doc.createElement(tag);
+          const flags = Array.from(type.children).find((child) => child.tagName === "flags");
+          type.insertBefore(node, flags || null);
+        }
+        node.textContent = clean;
+      }
+      function setNamedChildren(type, tag, value) {
+        Array.from(type.children).filter((child) => child.tagName === tag).forEach((child) => type.removeChild(child));
+        String(value || "").split(/[,;]+/).map((item) => item.trim()).filter(Boolean).forEach((name) => {
+          const child = state.doc.createElement(tag);
+          child.setAttribute("name", name);
+          type.appendChild(child);
+        });
+      }
+      function typeNodes(doc) {
+        return doc ? Array.from(doc.querySelectorAll("type")) : [];
+      }
+      function typeName(type) {
+        return String(type.getAttribute("name") || "").trim();
+      }
+      function typeCategory(type) {
+        return childNames(type, "category")[0] || "";
+      }
+      function isMilitaryClothing(type) {
+        const name = typeName(type).toLowerCase();
+        const tags = childNames(type, "usage").concat(childNames(type, "value")).join(" ").toLowerCase();
+        return typeCategory(type).toLowerCase() === "clothes" && (
+          tags.includes("military") || tags.includes("police") || tags.includes("tier3") || tags.includes("tier4")
+          || /(gorka|bdu|combat|cuu|m65|plate|ballistic|tactical|press|police|hunter|nbc|ghillie)/.test(name)
+        );
+      }
+      function isVehicleOrPart(type) {
+        const name = typeName(type).toLowerCase();
+        return /(offroadhatchback|hatchback_02|civilian|sedan_02|truck_01|boat_|bus|carbattery|truckbattery|carradiator|sparkplug|wheel|door_|doors|hood|trunk)/.test(name);
+      }
+      function isSeasonal(type) {
+        return /(christmas|xmas|santa|halloween|witch|mummy|spooky|easter|valentine|cupid|anniversary|pumpkin)/.test(typeName(type).toLowerCase());
+      }
+      function bucketForType(type) {
+        const name = typeName(type).toLowerCase();
+        const category = typeCategory(type).toLowerCase();
+        const usages = childNames(type, "usage").join(" ").toLowerCase();
+        if (/^(ammo_|mag_)/.test(name)) return "Ammunition";
+        if (isVehicleOrPart(type)) return "Vehicle Parts";
+        if (isMilitaryClothing(type)) return "Military Clothing";
+        if (category === "clothes") return "Civilian Clothing";
+        if (category === "weapons") return "Weapons";
+        if (category === "food" || /(soda|waterbottle|canteen|brisket|spread|tuna|bacon|beans|rice|cereal)/.test(name)) return "Food & Drink";
+        if (/(bandage|morphine|saline|epinephrine|vitamin|tetracycline|blood|iv|disinfectant)/.test(name)) return "Medical";
+        if (/(nail|plank|log|metalwire|barbedwire|sheetmetal|camonet|flag|watchtower|fence|kit)/.test(name)) return "Building";
+        if (/(backpack|bag|barrel|tent|crate|sea.?chest|protectorcase|drybag)/.test(name)) return "Bags & Storage";
+        if (category === "tools" || usages.includes("industrial") || /(knife|hatchet|axe|hammer|shovel|pliers|wrench|saw|lockpick)/.test(name)) return "Tools";
+        return "Other";
+      }
+      function parseTypesXml(xmlText) {
+        const doc = new DOMParser().parseFromString(String(xmlText || "").trim(), "application/xml");
+        if (doc.querySelector("parsererror")) throw new Error("XML parse failed. Check the file is a real types.xml.");
+        if (!doc.querySelector("types")) throw new Error("This must be a full types.xml file with a <types> root.");
+        return doc;
+      }
+      function serializeTypesXml(doc) {
+        if (!doc) return "";
+        const bodyText = new XMLSerializer().serializeToString(doc.documentElement).replace(/>\\s+</g, "><");
+        let formatted = "";
+        let indent = 0;
+        bodyText.split(/(?=<)/g).filter(Boolean).forEach((part) => {
+          const isClose = part.startsWith("</");
+          const isSelfClose = part.endsWith("/>");
+          if (isClose) indent = Math.max(0, indent - 1);
+          formatted += `${"    ".repeat(indent)}${part}\n`;
+          if (!isClose && !isSelfClose && !part.includes("</")) indent += 1;
+        });
+        return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${formatted}`;
+      }
+      function syncTypesOutput() {
+        const xml = serializeTypesXml(state.doc);
+        if (output) output.value = xml;
+        if (hiddenInput) hiddenInput.value = xml;
+      }
+      function pushHistory() {
+        if (!state.doc) return;
+        state.history.push(serializeTypesXml(state.doc));
+        if (state.history.length > 30) state.history.shift();
+        state.redo = [];
+        updateUndoButtons();
+      }
+      function updateUndoButtons() {
+        const undo = editor.querySelector("[data-types-undo]");
+        const redo = editor.querySelector("[data-types-redo]");
+        if (undo) undo.disabled = state.history.length === 0;
+        if (redo) redo.disabled = state.redo.length === 0;
+      }
+      function loadTypesXml(xmlText, filename, baselineOnly) {
+        const doc = parseTypesXml(xmlText);
+        if (baselineOnly) {
+          state.baselineDoc = doc;
+          renderTypesComparison();
+          return;
+        }
+        state.doc = doc;
+        state.filename = filename || "types.xml";
+        state.selected.clear();
+        state.history = [];
+        state.redo = [];
+        syncTypesOutput();
+        populateTypeCategories();
+        renderTypesEditor();
+        setTypesAlert(`Loaded ${state.filename}. Edit rows or apply a bulk change, then copy/download/upload the generated file.`, "success");
+        ensureVanillaBaseline();
+      }
+      function visibleTypes() {
+        const search = String(searchInput ? searchInput.value : "").trim().toLowerCase();
+        const category = String(categoryFilter ? categoryFilter.value : "").trim();
+        return typeNodes(state.doc).filter((type) => {
+          if (category && bucketForType(type) !== category && typeCategory(type) !== category) return false;
+          if (!search) return true;
+          const haystack = [
+            typeName(type),
+            typeCategory(type),
+            bucketForType(type),
+            childNames(type, "usage").join(" "),
+            childNames(type, "value").join(" "),
+          ].join(" ").toLowerCase();
+          return haystack.includes(search);
+        });
+      }
+      function populateTypeCategories() {
+        if (!categoryFilter || !state.doc) return;
+        const previous = categoryFilter.value;
+        const categories = new Set();
+        typeNodes(state.doc).forEach((type) => {
+          if (typeCategory(type)) categories.add(typeCategory(type));
+          categories.add(bucketForType(type));
+        });
+        categoryFilter.innerHTML = '<option value="">All categories</option>';
+        Array.from(categories).sort().forEach((category) => {
+          const option = document.createElement("option");
+          option.value = category;
+          option.textContent = category;
+          categoryFilter.appendChild(option);
+        });
+        categoryFilter.value = previous;
+      }
+      function typeWarning(type) {
+        const nominal = simpleNumber(type, "nominal");
+        const min = simpleNumber(type, "min");
+        if (nominal > 0 && min > nominal) return "min is higher than nominal";
+        if (nominal > 0 && isVehicleOrPart(type)) return "vehicle/vehicle part has nominal above 0";
+        if (nominal > 0 && isSeasonal(type)) return "seasonal/event item is active";
+        return "";
+      }
+      function renderTypesEditor() {
+        if (!body) return;
+        if (!state.doc) {
+          body.innerHTML = '<tr><td colspan="12" class="muted">Load a types.xml file to edit rows.</td></tr>';
+          return;
+        }
+        const rows = visibleTypes();
+        state.lastFiltered = rows;
+        body.innerHTML = "";
+        rows.slice(0, maxRenderedRows).forEach((type) => {
+          const name = typeName(type);
+          const warning = typeWarning(type);
+          const tr = document.createElement("tr");
+          if (warning) tr.classList.add("types-row-warning");
+          tr.dataset.typeName = name;
+          tr.innerHTML = `
+            <td><input type="checkbox" data-types-row-check ${state.selected.has(name) ? "checked" : ""} aria-label="Select ${escapeHtml(name)}"></td>
+            <td class="type-name" title="${escapeHtml(warning)}">${escapeHtml(name)}</td>
+            ${["nominal", "min", "lifetime", "restock", "quantmin", "quantmax", "cost"].map((field) => `<td><input type="number" data-type-field="${field}" value="${escapeHtml(simpleText(type, field))}" placeholder="-"></td>`).join("")}
+            <td class="types-chip-cell"><input type="text" data-type-list="category" value="${escapeHtml(typeCategory(type))}" placeholder="category"></td>
+            <td class="types-chip-cell"><input type="text" data-type-list="usage" value="${escapeHtml(childNames(type, "usage").join(", "))}" placeholder="usage tags"></td>
+            <td class="types-chip-cell"><input type="text" data-type-list="value" value="${escapeHtml(childNames(type, "value").join(", "))}" placeholder="tiers"></td>`;
+          body.appendChild(tr);
+        });
+        if (rows.length > maxRenderedRows) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td colspan="12" class="muted">Showing first ${maxRenderedRows} of ${rows.length}. Use search or category filters to narrow the table.</td>`;
+          body.appendChild(tr);
+        }
+        renderTypesStats(rows);
+        renderTypesIssues();
+        renderTypesComparison();
+      }
+      function renderTypesStats(visibleRows) {
+        const all = typeNodes(state.doc);
+        const warnings = all.filter(typeWarning).length;
+        const totalNominal = all.reduce((sum, type) => sum + Math.max(0, simpleNumber(type, "nominal")), 0);
+        const zeroCount = all.filter((type) => simpleNumber(type, "nominal") <= 0).length;
+        const values = {total: all.length, shown: visibleRows.length, active: totalNominal, zero: zeroCount, warnings};
+        Object.entries(values).forEach(([key, value]) => {
+          const node = editor.querySelector(`[data-types-stat="${key}"]`);
+          if (node) node.textContent = String(value);
+        });
+        const nameNode = editor.querySelector("[data-types-filename]");
+        const countNode = editor.querySelector("[data-types-item-count]");
+        if (nameNode) nameNode.textContent = state.filename || "types.xml";
+        if (countNode) countNode.textContent = String(all.length);
+      }
+      function analyzeTypesDoc(doc) {
+        const stats = {};
+        typeNodes(doc).forEach((type) => {
+          const bucket = bucketForType(type);
+          const nominal = Math.max(0, simpleNumber(type, "nominal"));
+          if (!stats[bucket]) stats[bucket] = {nominal: 0, active: 0};
+          stats[bucket].nominal += nominal;
+          if (nominal > 0) stats[bucket].active += 1;
+        });
+        return stats;
+      }
+      function comparisonAdvice(percent) {
+        if (!Number.isFinite(percent)) return "No vanilla baseline";
+        if (Math.abs(percent) <= 5) return "Near vanilla";
+        if (percent > 50) return "Very boosted";
+        if (percent > 15) return "Boosted";
+        if (percent < -50) return "Heavily reduced";
+        return "Reduced";
+      }
+      function renderTypesComparison() {
+        const node = editor.querySelector("[data-types-compare]");
+        const baselineFlag = editor.querySelector('[data-types-stat="baseline"]');
+        if (!node) return;
+        if (!state.doc || !state.baselineDoc) {
+          node.innerHTML = '<div class="types-compare-empty">Vanilla comparison appears after a file is loaded.</div>';
+          if (baselineFlag) baselineFlag.textContent = state.doc ? "Loading" : "Waiting";
+          return;
+        }
+        const current = analyzeTypesDoc(state.doc);
+        const vanilla = analyzeTypesDoc(state.baselineDoc);
+        const buckets = ["Weapons", "Ammunition", "Military Clothing", "Civilian Clothing", "Food & Drink", "Medical", "Building", "Tools", "Bags & Storage", "Vehicle Parts"];
+        node.innerHTML = "";
+        buckets.forEach((bucket) => {
+          const currentNominal = current[bucket]?.nominal || 0;
+          const vanillaNominal = vanilla[bucket]?.nominal || 0;
+          const percent = vanillaNominal ? ((currentNominal / vanillaNominal) - 1) * 100 : (currentNominal ? Infinity : 0);
+          const card = document.createElement("div");
+          card.className = `types-compare-card ${Math.abs(percent) <= 15 ? "good" : (Math.abs(percent) <= 50 ? "warn" : "hot")}`;
+          const label = Number.isFinite(percent) ? `${percent >= 0 ? "+" : ""}${Math.round(percent)}%` : "New";
+          card.innerHTML = `<strong>${escapeHtml(bucket)}</strong><b>${label}</b><span>${currentNominal} nominal now / ${vanillaNominal} vanilla. ${comparisonAdvice(percent)}.</span>`;
+          node.appendChild(card);
+        });
+        if (baselineFlag) baselineFlag.textContent = "Ready";
+      }
+      function renderTypesIssues() {
+        const issues = editor.querySelector("[data-types-issues]");
+        if (!issues || !state.doc) return;
+        const rows = typeNodes(state.doc).map((type) => ({name: typeName(type), warning: typeWarning(type)})).filter((row) => row.warning);
+        issues.innerHTML = "";
+        if (!rows.length) {
+          issues.innerHTML = '<span class="muted">No common types.xml warnings found.</span>';
+          return;
+        }
+        rows.slice(0, 24).forEach((row) => {
+          const item = document.createElement("div");
+          item.className = "types-preview-row";
+          item.innerHTML = `<strong>${escapeHtml(row.name)}</strong><span>${escapeHtml(row.warning)}</span><small>review</small>`;
+          issues.appendChild(item);
+        });
+      }
+      async function fetchFactoryTypes() {
+        const params = new URLSearchParams();
+        params.set("map", editor.dataset.mapKey || "chernarus");
+        if (editor.dataset.guildId) params.set("guild_id", editor.dataset.guildId);
+        const token = new URLSearchParams(window.location.search).get("token");
+        if (token) params.set("token", token);
+        const response = await fetch(secureDashboardUrl(`/api/admin/vanilla-types?${params.toString()}`), {
+          headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
+          credentials: "same-origin",
+        });
+        const bodyJson = await response.json().catch(() => ({}));
+        if (!response.ok || bodyJson.ok === false) throw new Error(bodyJson.error || "Factory vanilla file could not be loaded.");
+        return bodyJson;
+      }
+      async function ensureVanillaBaseline() {
+        if (state.baselineDoc || !state.doc) return;
+        try {
+          const bodyJson = await fetchFactoryTypes();
+          loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", true);
+        } catch (error) {
+          const baselineFlag = editor.querySelector('[data-types-stat="baseline"]');
+          if (baselineFlag) baselineFlag.textContent = "Missing";
+        }
+      }
+      function applyBulkChange() {
+        if (!state.doc) return;
+        const action = editor.querySelector("[data-types-bulk-action]")?.value || "reduce";
+        const value = Number(editor.querySelector("[data-types-bulk-value]")?.value || 0);
+        const scope = editor.querySelector("[data-types-bulk-scope]")?.value || "filtered";
+        const targets = scope === "checked"
+          ? typeNodes(state.doc).filter((type) => state.selected.has(typeName(type)))
+          : state.lastFiltered;
+        if (!targets.length) {
+          setTypesAlert("No rows selected or visible for that bulk action.", "error");
+          return;
+        }
+        pushHistory();
+        targets.forEach((type) => {
+          const nominal = simpleNumber(type, "nominal");
+          if (action === "boost") setSimpleText(type, "nominal", String(Math.max(1, Math.round(nominal * (1 + value / 100)))));
+          else if (action === "reduce") setSimpleText(type, "nominal", String(Math.max(0, Math.round(nominal * (1 - Math.min(100, value) / 100)))));
+          else if (action === "off") {
+            setSimpleText(type, "nominal", "0");
+            setSimpleText(type, "min", "0");
+          } else if (action === "set_lifetime") setSimpleText(type, "lifetime", String(Math.max(0, Math.round(value))));
+          else if (action === "set_restock") setSimpleText(type, "restock", String(Math.max(0, Math.round(value))));
+          else if (action === "set_min") setSimpleText(type, "min", String(Math.max(0, Math.round(value))));
+        });
+        syncTypesOutput();
+        renderTypesEditor();
+        setTypesAlert(`Bulk action applied to ${targets.length} row${targets.length === 1 ? "" : "s"}.`, "success");
+      }
+      function applyRowEdit(input) {
+        const row = input.closest("tr");
+        const type = row ? typeNodes(state.doc).find((item) => typeName(item) === row.dataset.typeName) : null;
+        if (!type) return;
+        pushHistory();
+        if (input.dataset.typeField) setSimpleText(type, input.dataset.typeField, input.value);
+        if (input.dataset.typeList) setNamedChildren(type, input.dataset.typeList, input.value);
+        syncTypesOutput();
+        populateTypeCategories();
+        renderTypesEditor();
+      }
+      function applyMinNominal(direction) {
+        if (!state.doc) return;
+        const targets = state.lastFiltered.length ? state.lastFiltered : typeNodes(state.doc);
+        pushHistory();
+        targets.forEach((type) => {
+          if (direction === "min_to_nominal") setSimpleText(type, "nominal", String(simpleNumber(type, "min")));
+          else setSimpleText(type, "min", String(simpleNumber(type, "nominal")));
+        });
+        syncTypesOutput();
+        renderTypesEditor();
+        setTypesAlert(`Updated ${targets.length} visible row${targets.length === 1 ? "" : "s"}.`, "success");
+      }
+      function downloadTypesXml() {
+        if (!state.doc) {
+          setTypesAlert("Load a file first.", "error");
+          return;
+        }
+        const blob = new Blob([serializeTypesXml(state.doc)], {type: "text/xml"});
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = state.filename || "types.xml";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
+      editor.addEventListener("change", (event) => {
+        const file = event.target.closest("[data-types-file]");
+        if (file && file.files && file.files[0]) {
+          const selectedFile = file.files[0];
+          selectedFile.text().then((text) => loadTypesXml(text, selectedFile.name, false)).catch((error) => setTypesAlert(error.message || String(error), "error"));
+          return;
+        }
+        const rowInput = event.target.closest("[data-type-field], [data-type-list]");
+        if (rowInput) applyRowEdit(rowInput);
+      });
+      editor.addEventListener("input", (event) => {
+        if (event.target.closest("[data-types-search]")) renderTypesEditor();
+      });
+      editor.addEventListener("click", async (event) => {
+        const button = event.target.closest("button, input[type='checkbox']");
+        if (!button || !editor.contains(button)) return;
+        if (button.matches("[data-types-load-factory]")) {
+          event.preventDefault();
+          setTypesAlert("Loading factory vanilla types.xml...", "success");
+          try {
+            const bodyJson = await fetchFactoryTypes();
+            state.baselineDoc = parseTypesXml(bodyJson.xml_text);
+            loadTypesXml(bodyJson.xml_text, bodyJson.filename || "factory types.xml", false);
+          } catch (error) {
+            setTypesAlert(error.message || String(error), "error");
+          }
+        } else if (button.matches("[data-types-load-paste]")) {
+          event.preventDefault();
+          try { loadTypesXml(editor.querySelector("[data-types-input]")?.value || "", "pasted-types.xml", false); }
+          catch (error) { setTypesAlert(error.message || String(error), "error"); }
+        } else if (button.matches("[data-types-download]")) {
+          event.preventDefault();
+          downloadTypesXml();
+        } else if (button.matches("[data-types-apply-bulk]")) {
+          event.preventDefault();
+          applyBulkChange();
+        } else if (button.matches("[data-types-bulk-off]")) {
+          event.preventDefault();
+          const action = editor.querySelector("[data-types-bulk-action]");
+          if (action) action.value = "off";
+          applyBulkChange();
+        } else if (button.matches("[data-types-min-nominal]")) {
+          event.preventDefault();
+          applyMinNominal("min_to_nominal");
+        } else if (button.matches("[data-types-nominal-min]")) {
+          event.preventDefault();
+          applyMinNominal("nominal_to_min");
+        } else if (button.matches("[data-types-undo]")) {
+          event.preventDefault();
+          if (state.history.length) {
+            state.redo.push(serializeTypesXml(state.doc));
+            state.doc = parseTypesXml(state.history.pop());
+            syncTypesOutput();
+            renderTypesEditor();
+            updateUndoButtons();
+          }
+        } else if (button.matches("[data-types-redo]")) {
+          event.preventDefault();
+          if (state.redo.length) {
+            state.history.push(serializeTypesXml(state.doc));
+            state.doc = parseTypesXml(state.redo.pop());
+            syncTypesOutput();
+            renderTypesEditor();
+            updateUndoButtons();
+          }
+        } else if (button.matches("[data-types-check-all]")) {
+          state.lastFiltered.forEach((type) => {
+            const name = typeName(type);
+            if (button.checked) state.selected.add(name);
+            else state.selected.delete(name);
+          });
+          renderTypesEditor();
+        } else if (button.matches("[data-types-row-check]")) {
+          const row = button.closest("tr");
+          const name = row ? row.dataset.typeName : "";
+          if (button.checked) state.selected.add(name);
+          else state.selected.delete(name);
+        }
+      });
+      if (categoryFilter) categoryFilter.addEventListener("change", renderTypesEditor);
+      syncTypesOutput();
+    }
+    installTypesEditor();
     function processTypesTool(panel) {
       const input = panel.querySelector("[data-types-input]");
       const output = panel.querySelector("[data-types-output]");
@@ -13340,6 +13941,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/wage": "wages",
     "/api/admin/wallet-adjustment": "economy",
     "/api/admin/convert-dayz-xml": "xml_workshop",
+    "/api/admin/vanilla-types": "xml_workshop",
     "/api/admin/loot-tweak": "xml_workshop",
     "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
@@ -13357,6 +13959,31 @@ ADMIN_ROUTE_FEATURES = {
 
 def data_path(filename: str) -> str:
     return os.path.join(DATA_ROOT, filename)
+
+
+def normalize_dayz_reference_map_key(map_key: Any) -> str:
+    text = str(map_key or "").strip().lower()
+    if text in DAYZ_REFERENCE_MAP_FOLDERS:
+        return text
+    if "sakhal" in text:
+        return "sakhal"
+    if text in {"enoch", "livonia"} or "enoch" in text:
+        return "livonia"
+    return "chernarus"
+
+
+def dayz_reference_path(map_key: Any, *parts: str) -> str:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    folder = DAYZ_REFERENCE_MAP_FOLDERS.get(clean_map, DAYZ_REFERENCE_MAP_FOLDERS["chernarus"])
+    return os.path.join(DAYZ_REFERENCE_FOLDER, folder, *parts)
+
+
+def load_dayz_reference_text(map_key: Any, *parts: str) -> str:
+    path = dayz_reference_path(map_key, *parts)
+    if path and os.path.exists(path):
+        with open(path, "r", encoding="utf-8", errors="ignore") as source:
+            return source.read()
+    return ""
 
 
 def read_json_file(filename: str, default: Any) -> Any:
@@ -24014,6 +24641,47 @@ def api_loot_tweak():
     except ValueError as error:
         return jsonify({"ok": False, "success": False, "error": str(error)}), 400
     return jsonify({"ok": True, "success": True, **result, "note": "Generated tweaked types.xml output."})
+
+
+@APP.get("/api/admin/vanilla-types")
+def api_admin_vanilla_types():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    requested_map = request.args.get("map") or payload.get("map")
+    if not requested_map:
+        guild_id = normalize_guild_id(request.args.get("guild_id") or payload.get("guild_id"))
+        guild_configs = load_store("guild_configs", {})
+        config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+        if isinstance(config, dict):
+            requested_map = config.get("server_map") or config.get("map") or config.get("map_name")
+    map_key = normalize_dayz_reference_map_key(requested_map)
+    xml_text = load_dayz_reference_text(map_key, "db", "types.xml")
+    if not xml_text:
+        return jsonify({
+            "ok": False,
+            "success": False,
+            "error": f"No bundled vanilla types.xml reference found for {map_key}.",
+        }), 404
+    try:
+        root = ET.fromstring(xml_text)
+        item_count = len(root.findall(".//type")) if root.tag == "types" else 0
+    except ET.ParseError as error:
+        return jsonify({
+            "ok": False,
+            "success": False,
+            "error": f"Bundled {map_key} types.xml failed validation: {error}",
+        }), 500
+    return jsonify({
+        "ok": True,
+        "success": True,
+        "map": map_key,
+        "dayz_version": DAYZ_CE_FILE_VERSION,
+        "filename": f"{DAYZ_REFERENCE_MAP_FOLDERS[map_key]}/db/types.xml",
+        "item_count": item_count,
+        "xml_text": xml_text,
+    })
 
 
 @APP.post("/api/admin/loot-bulk-tweak")
