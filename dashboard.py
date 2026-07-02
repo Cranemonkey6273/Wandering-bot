@@ -3144,6 +3144,7 @@ PAGE_TEMPLATE = """
     .types-map-card[data-map-key="livonia"] strong { color: #28d86c; }
     .types-map-card[data-map-key="sakhal"] strong { color: #67a2ff; }
     .types-map-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
+    .types-map-actions .button { display: inline-flex; align-items: center; justify-content: center; text-align: center; }
     .types-map-download { min-width: 2.75rem; padding-inline: .65rem; }
     .types-editor-header { display: flex; justify-content: space-between; align-items: start; gap: .85rem; margin-bottom: .75rem; }
     .types-editor-source, .types-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
@@ -3542,6 +3543,8 @@ PAGE_TEMPLATE = """
 <body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
+  {% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
+  {% set dashboard_qs = server_qs ~ auth_qs %}
   {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
   {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
   {% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
@@ -6450,9 +6453,10 @@ PAGE_TEMPLATE = """
       </nav>
       <div class="panel-grid">
         {% if xml_tool == "loot" %}
-        <article class="admin-panel full types-editor-panel" data-types-editor data-map-key="{{ (server.map if server else 'chernarus')|lower }}" data-guild-id="{{ server.guild_id if server else '' }}">
+        <article class="admin-panel full types-editor-panel{% if types_factory_preload.xml_text %} types-loaded{% endif %}" data-types-editor data-map-key="{{ types_factory_preload.map or (server.map if server else 'chernarus')|lower }}" data-guild-id="{{ server.guild_id if server else '' }}">
           <input class="types-editor-file-input" type="file" accept=".xml,text/xml" data-types-file>
-          <div class="types-alert full" data-types-alert>Load a file to begin. Choose an official map file or upload your own types.xml.</div>
+          <script type="application/json" data-types-preload>{{ types_factory_preload|tojson }}</script>
+          <div class="types-alert full{% if types_factory_preload.xml_text %} success{% elif types_factory_preload.error %} error{% endif %}" data-types-alert>{% if types_factory_preload.xml_text %}Loaded {{ types_factory_preload.filename }}. Edit rows or download the generated file.{% elif types_factory_preload.error %}{{ types_factory_preload.error }}{% else %}Load a file to begin. Choose an official map file or upload your own types.xml.{% endif %}</div>
           <div class="types-editor-start" data-types-start>
             <div class="types-start-grid">
               <section class="types-start-card">
@@ -6479,24 +6483,24 @@ PAGE_TEMPLATE = """
                   <strong>Chernarus</strong>
                   <p>The classic mainland map with the Chernarus vanilla {{ dayz_ce_file_version }} types.</p>
                   <div class="types-map-actions">
-                    <button type="button" data-types-load-factory data-map-key="chernarus">Start Editing</button>
-                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="chernarus" title="Download Chernarus factory types">DL</button>
+                    <a class="button" href="/admin?section=xml-workshop&xml_tool=loot{{ dashboard_qs }}&factory_map=chernarus#xml-workshop" data-types-load-factory data-map-key="chernarus">Start Editing</a>
+                    <a class="button types-map-download" href="/api/admin/vanilla-types/download?map=chernarus{{ dashboard_qs }}" data-types-download-factory data-map-key="chernarus" title="Download Chernarus factory types">DL</a>
                   </div>
                 </div>
                 <div class="types-map-card" data-map-key="livonia">
                   <strong>Livonia</strong>
                   <p>Enoch/Livonia factory loot file for trader, survival, and PvP balancing.</p>
                   <div class="types-map-actions">
-                    <button type="button" data-types-load-factory data-map-key="livonia">Start Editing</button>
-                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="livonia" title="Download Livonia factory types">DL</button>
+                    <a class="button" href="/admin?section=xml-workshop&xml_tool=loot{{ dashboard_qs }}&factory_map=livonia#xml-workshop" data-types-load-factory data-map-key="livonia">Start Editing</a>
+                    <a class="button types-map-download" href="/api/admin/vanilla-types/download?map=livonia{{ dashboard_qs }}" data-types-download-factory data-map-key="livonia" title="Download Livonia factory types">DL</a>
                   </div>
                 </div>
                 <div class="types-map-card" data-map-key="sakhal">
                   <strong>Sakhal</strong>
                   <p>Frostline/Sakhal factory loot file for snow map server setup.</p>
                   <div class="types-map-actions">
-                    <button type="button" data-types-load-factory data-map-key="sakhal">Start Editing</button>
-                    <button type="button" class="types-map-download" data-types-download-factory data-map-key="sakhal" title="Download Sakhal factory types">DL</button>
+                    <a class="button" href="/admin?section=xml-workshop&xml_tool=loot{{ dashboard_qs }}&factory_map=sakhal#xml-workshop" data-types-load-factory data-map-key="sakhal">Start Editing</a>
+                    <a class="button types-map-download" href="/api/admin/vanilla-types/download?map=sakhal{{ dashboard_qs }}" data-types-download-factory data-map-key="sakhal" title="Download Sakhal factory types">DL</a>
                   </div>
                 </div>
               </div>
@@ -6588,7 +6592,7 @@ PAGE_TEMPLATE = """
                   </tr>
                 </thead>
                 <tbody data-types-body>
-                  <tr><td colspan="12" class="muted">Load a types.xml file to edit rows.</td></tr>
+                  <tr><td colspan="12" class="muted">{% if types_factory_preload.xml_text %}Factory vanilla {{ types_factory_preload.map|capitalize }} types.xml is loaded below. The editable table appears when the browser enhancement runs.{% else %}Load a types.xml file to edit rows.{% endif %}</td></tr>
                 </tbody>
               </table>
             </div>
@@ -6596,7 +6600,7 @@ PAGE_TEMPLATE = """
               <span class="muted">Warnings and validation notes appear here.</span>
             </div>
             <label class="full">Generated types.xml
-              <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing."></textarea>
+              <textarea readonly data-tool-output="generated_xml" data-types-output placeholder="Generated XML appears here after loading or editing.">{% if types_factory_preload.xml_text %}{{ types_factory_preload.xml_text }}{% endif %}</textarea>
             </label>
             <div class="toolbar full">
               <button type="button" data-tool-copy="generated_xml">Copy Output</button>
@@ -10383,6 +10387,12 @@ PAGE_TEMPLATE = """
       const fileInput = editor.querySelector("[data-types-file]");
       const dropzone = editor.querySelector("[data-types-dropzone]");
       const filterDrawer = editor.querySelector("[data-types-filter-drawer]");
+      const preloadNode = editor.querySelector("[data-types-preload]");
+      let preloadData = {};
+      if (preloadNode) {
+        try { preloadData = JSON.parse(preloadNode.textContent || "{}") || {}; }
+        catch (_) { preloadData = {}; }
+      }
       const maxRenderedRows = 350;
 
       function setTypesAlert(message, mode) {
@@ -10843,7 +10853,7 @@ PAGE_TEMPLATE = """
         if (event.target.closest("[data-types-search]")) renderTypesEditor();
       });
       editor.addEventListener("click", async (event) => {
-        const button = event.target.closest("button, input[type='checkbox']");
+        const button = event.target.closest("button, a, input[type='checkbox']");
         if (!button || !editor.contains(button)) return;
         if (button.matches("[data-types-browse]")) {
           event.preventDefault();
@@ -10929,6 +10939,14 @@ PAGE_TEMPLATE = """
       });
       if (categoryFilter) categoryFilter.addEventListener("change", renderTypesEditor);
       syncTypesOutput();
+      if (preloadData && preloadData.xml_text) {
+        try {
+          state.baselineDoc = parseTypesXml(preloadData.xml_text);
+          loadTypesXml(preloadData.xml_text, preloadData.filename || "factory types.xml", false, preloadData.map || state.mapKey);
+        } catch (error) {
+          setTypesAlert(error.message || String(error), "error");
+        }
+      }
     }
     installTypesEditor();
     function processTypesTool(panel) {
@@ -14034,6 +14052,8 @@ ADMIN_ROUTES = [
     "/api/admin/theme",
     "/api/admin/convert-dayz-xml",
     "/api/admin/loot-tweak",
+    "/api/admin/vanilla-types",
+    "/api/admin/vanilla-types/download",
     "/api/admin/loot-bulk-tweak",
     "/api/admin/loadout-generate",
     "/api/admin/loadout-package",
@@ -14115,6 +14135,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/wallet-adjustment": "economy",
     "/api/admin/convert-dayz-xml": "xml_workshop",
     "/api/admin/vanilla-types": "xml_workshop",
+    "/api/admin/vanilla-types/download": "xml_workshop",
     "/api/admin/loot-tweak": "xml_workshop",
     "/api/admin/loot-bulk-tweak": "xml_workshop",
     "/api/admin/loadout-generate": "xml_workshop",
@@ -14157,6 +14178,28 @@ def load_dayz_reference_text(map_key: Any, *parts: str) -> str:
         with open(path, "r", encoding="utf-8", errors="ignore") as source:
             return source.read()
     return ""
+
+
+def factory_vanilla_types_payload(requested_map: Any) -> dict[str, Any]:
+    map_key = normalize_dayz_reference_map_key(requested_map)
+    xml_text = load_dayz_reference_text(map_key, "db", "types.xml")
+    if not xml_text:
+        raise ValueError(f"No bundled vanilla types.xml reference found for {map_key}.")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"Bundled {map_key} types.xml failed validation: {error}") from error
+    item_count = len(root.findall(".//type")) if root.tag == "types" else 0
+    return {
+        "ok": True,
+        "success": True,
+        "map": map_key,
+        "dayz_version": DAYZ_CE_FILE_VERSION,
+        "filename": f"{DAYZ_REFERENCE_MAP_FOLDERS[map_key]}/db/types.xml",
+        "download_name": f"{map_key}_vanilla_types_{DAYZ_CE_FILE_VERSION}.xml",
+        "item_count": item_count,
+        "xml_text": xml_text,
+    }
 
 
 def read_json_file(filename: str, default: Any) -> Any:
@@ -23453,6 +23496,19 @@ def page(mode: str, auth: dict[str, Any]):
     xml_tool = str(request.args.get("xml_tool") or "player-loadout").strip().lower()
     if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
         xml_tool = "player-loadout"
+    if active_section == "xml-workshop" and request.args.get("factory_map"):
+        xml_tool = "loot"
+    types_factory_preload: dict[str, Any] = {}
+    if active_section == "xml-workshop" and xml_tool == "loot" and request.args.get("factory_map"):
+        try:
+            types_factory_preload = factory_vanilla_types_payload(request.args.get("factory_map"))
+        except ValueError as error:
+            types_factory_preload = {
+                "ok": False,
+                "success": False,
+                "map": normalize_dayz_reference_map_key(request.args.get("factory_map")),
+                "error": str(error),
+            }
     ce_defaults = dashboard_default_ce_paths(selected_config if isinstance(selected_config, dict) else {})
     server_map = str(selected_config.get("server_map") or selected_config.get("map") or "chernarus") if isinstance(selected_config, dict) else "chernarus"
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
@@ -23585,6 +23641,7 @@ def page(mode: str, auth: dict[str, Any]):
         economy_currency_options=ECONOMY_CURRENCY_OPTIONS,
         format_currency=dashboard_format_currency,
         xml_picker_groups=picker_groups,
+        types_factory_preload=types_factory_preload,
         player_loadout_slots=player_loadout_slots,
         player_loadout_active_slot=player_loadout_active_slot,
         player_loadout_slot_items=player_loadout_slot_items,
@@ -24830,31 +24887,36 @@ def api_admin_vanilla_types():
         if isinstance(config, dict):
             requested_map = config.get("server_map") or config.get("map") or config.get("map_name")
     map_key = normalize_dayz_reference_map_key(requested_map)
-    xml_text = load_dayz_reference_text(map_key, "db", "types.xml")
-    if not xml_text:
-        return jsonify({
-            "ok": False,
-            "success": False,
-            "error": f"No bundled vanilla types.xml reference found for {map_key}.",
-        }), 404
     try:
-        root = ET.fromstring(xml_text)
-        item_count = len(root.findall(".//type")) if root.tag == "types" else 0
-    except ET.ParseError as error:
+        result = factory_vanilla_types_payload(map_key)
+    except ValueError as error:
+        status = 500 if "failed validation" in str(error) else 404
         return jsonify({
             "ok": False,
             "success": False,
-            "error": f"Bundled {map_key} types.xml failed validation: {error}",
-        }), 500
-    return jsonify({
-        "ok": True,
-        "success": True,
-        "map": map_key,
-        "dayz_version": DAYZ_CE_FILE_VERSION,
-        "filename": f"{DAYZ_REFERENCE_MAP_FOLDERS[map_key]}/db/types.xml",
-        "item_count": item_count,
-        "xml_text": xml_text,
-    })
+            "error": str(error),
+        }), status
+    return jsonify(result)
+
+
+@APP.get("/api/admin/vanilla-types/download")
+def api_admin_vanilla_types_download():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    requested_map = request.args.get("map") or payload.get("map")
+    try:
+        result = factory_vanilla_types_payload(requested_map)
+    except ValueError as error:
+        status = 500 if "failed validation" in str(error) else 404
+        return jsonify({"ok": False, "success": False, "error": str(error)}), status
+    response = Response(result["xml_text"], mimetype="application/xml")
+    filename = urllib.parse.quote(str(result.get("download_name") or "types.xml"))
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["X-DayZ-Map"] = str(result.get("map") or "")
+    response.headers["X-DayZ-CE-Version"] = str(result.get("dayz_version") or "")
+    return response
 
 
 @APP.post("/api/admin/loot-bulk-tweak")
