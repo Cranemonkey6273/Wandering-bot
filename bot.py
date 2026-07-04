@@ -6014,6 +6014,16 @@ def server_allows_pvp(config):
     return get_server_mode(config) in {"pvp", "hybrid"}
 
 
+def resolve_setup_server_settings(config, server_platform="", server_map="", server_mode=""):
+    existing = config if isinstance(config, dict) else {}
+    selected_server_mode = normalize_server_mode(server_mode or existing.get("server_mode") or "hybrid")
+    selected_server_platform = normalize_server_platform(server_platform or existing.get("server_platform") or "xbox")
+    selected_server_map = normalize_map_image_key(server_map or existing.get("server_map") or "chernarus") or "chernarus"
+    if selected_server_map == "default":
+        selected_server_map = "chernarus"
+    return selected_server_platform, selected_server_map, selected_server_mode
+
+
 def channel_key_allowed_for_server_mode(key, config):
     if key in PVE_ONLY_CHANNEL_KEYS:
         return server_allows_pve(config)
@@ -14404,14 +14414,14 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     description="Connect your Nitrado server"
 )
 @app_commands.describe(
-    nitrado_token="Your Nitrado API token",
-    service_id="Your Nitrado service ID",
-    nitrado_user="Example: ni12248929_2",
-    ftp_user="Your Nitrado FTP username",
-    ftp_password="Your Nitrado FTP password",
-    server_platform="Console/host platform: Xbox, PlayStation, or PC",
-    server_map="Server map: Chernarus, Livonia, or Sakhal",
-    server_mode="Server style: PVP only, PVE only, or Hybrid",
+    nitrado_token="Your Nitrado API token. Optional after the first setup.",
+    service_id="Your Nitrado service ID. Optional after the first setup.",
+    nitrado_user="Example: ni12248929_2. Optional after the first setup.",
+    ftp_user="Your Nitrado FTP username. Optional after the first setup.",
+    ftp_password="Your Nitrado FTP password. Optional after the first setup.",
+    server_platform="Console/host platform: Xbox, PlayStation, or PC. Leave blank to keep current.",
+    server_map="Server map: Chernarus, Livonia, or Sakhal. Leave blank to keep current.",
+    server_mode="Server style: PVP only, PVE only, or Hybrid. Leave blank to keep current.",
     restore_deleted_channels="Recreate bot channels that server owners deleted",
     ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
 )
@@ -14434,14 +14444,14 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
 )
 async def setup_command(
     interaction: discord.Interaction,
-    nitrado_token: str,
-    service_id: str,
-    nitrado_user: str,
-    ftp_user: str,
-    ftp_password: str,
-    server_platform: str = "xbox",
-    server_map: str = "chernarus",
-    server_mode: str = "hybrid",
+    nitrado_token: str = "",
+    service_id: str = "",
+    nitrado_user: str = "",
+    ftp_user: str = "",
+    ftp_password: str = "",
+    server_platform: str = "",
+    server_map: str = "",
+    server_mode: str = "",
     restore_deleted_channels: bool = False,
     ftp_host: str = ""
 ):
@@ -14449,6 +14459,7 @@ async def setup_command(
     await interaction.response.defer(ephemeral=True)
 
     guild_id = str(interaction.guild.id)
+    existing_config = guild_configs.get(guild_id, {}) if isinstance(guild_configs.get(guild_id), dict) else {}
     supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host and not looks_like_ftp_host(supplied_ftp_host):
         await interaction.followup.send(
@@ -14457,20 +14468,44 @@ async def setup_command(
         )
         return
 
-    token_ok, clean_nitrado_token, token_error = validate_nitrado_api_token(nitrado_token)
+    raw_nitrado_token = str(nitrado_token or "").strip() or str(existing_config.get("nitrado_token") or "").strip()
+    clean_service_id = str(service_id or "").strip() or str(existing_config.get("service_id") or "").strip()
+    raw_nitrado_user = str(nitrado_user or "").strip() or str(existing_config.get("nitrado_user") or "").strip()
+    raw_ftp_user = str(ftp_user or "").strip() or str(existing_config.get("ftp_user") or "").strip()
+    raw_ftp_password = str(ftp_password or "") or str(existing_config.get("ftp_password") or "")
+    missing_setup = []
+    if not raw_nitrado_token:
+        missing_setup.append("nitrado_token")
+    if not clean_service_id:
+        missing_setup.append("service_id")
+    if not raw_nitrado_user:
+        missing_setup.append("nitrado_user")
+    if not raw_ftp_user:
+        missing_setup.append("ftp_user")
+    if not raw_ftp_password:
+        missing_setup.append("ftp_password")
+    if missing_setup:
+        await interaction.followup.send(
+            "This server has no saved setup for: "
+            + ", ".join(f"`{item}`" for item in missing_setup)
+            + ". Run `/setup` once with the Nitrado/API/FTP details. After that you can rerun `/setup` with only `server_mode`, `server_map`, or `server_platform`.",
+            ephemeral=True,
+        )
+        return
+
+    token_ok, clean_nitrado_token, token_error = validate_nitrado_api_token(raw_nitrado_token)
     if not token_ok:
         await interaction.followup.send(token_error, ephemeral=True)
         return
 
-    clean_service_id = str(service_id or "").strip()
     if not re.fullmatch(r"[0-9]{3,20}", clean_service_id):
         await interaction.followup.send("Nitrado service ID should be numbers only.", ephemeral=True)
         return
 
     credential_checks = [
-        ("Nitrado FTP username", nitrado_user, False),
-        ("FTP login username", ftp_user, False),
-        ("FTP password", ftp_password, True),
+        ("Nitrado FTP username", raw_nitrado_user, False),
+        ("FTP login username", raw_ftp_user, False),
+        ("FTP password", raw_ftp_password, True),
     ]
     clean_credentials = {}
     for label, value, allow_spaces in credential_checks:
@@ -14493,11 +14528,12 @@ async def setup_command(
             "channels": {}
         }
 
-    selected_server_mode = normalize_server_mode(server_mode)
-    selected_server_platform = normalize_server_platform(server_platform)
-    selected_server_map = normalize_map_image_key(server_map) or "chernarus"
-    if selected_server_map == "default":
-        selected_server_map = "chernarus"
+    selected_server_platform, selected_server_map, selected_server_mode = resolve_setup_server_settings(
+        existing_config,
+        server_platform=server_platform,
+        server_map=server_map,
+        server_mode=server_mode,
+    )
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map

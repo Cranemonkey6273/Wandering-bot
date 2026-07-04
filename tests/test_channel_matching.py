@@ -102,6 +102,32 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.channel_matches_bot_default_name(channel, "swear_jar_feed"))
         self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
 
+    def test_setup_server_settings_preserve_existing_values_when_blank(self):
+        config = {
+            "server_platform": "playstation",
+            "server_map": "livonia",
+            "server_mode": "pve",
+        }
+
+        platform, server_map, server_mode = bot.resolve_setup_server_settings(config)
+
+        self.assertEqual("playstation", platform)
+        self.assertEqual("livonia", server_map)
+        self.assertEqual("pve", server_mode)
+
+    def test_setup_server_settings_can_change_only_server_mode(self):
+        config = {
+            "server_platform": "xbox",
+            "server_map": "chernarus",
+            "server_mode": "pve",
+        }
+
+        platform, server_map, server_mode = bot.resolve_setup_server_settings(config, server_mode="PVP only")
+
+        self.assertEqual("xbox", platform)
+        self.assertEqual("chernarus", server_map)
+        self.assertEqual("pvp", server_mode)
+
 
 if __name__ == "__main__":
     unittest.main()
