@@ -776,6 +776,117 @@ DASHBOARD_FEATURE_LABELS = {
     "ai_agent": "AI development agent",
 }
 DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
+FEED_ROUTE_GROUPS = {
+    "live": {
+        "label": "Live Feeds",
+        "keys": [
+            "killfeed",
+            "raids",
+            "building",
+            "connections",
+            "disconnects",
+            "zombie_feed",
+            "unconscious_feed",
+            "cuts_feed",
+            "suicide_feed",
+            "flag_feed",
+            "placed_feed",
+            "pvp_intel",
+            "radar",
+        ],
+    },
+    "info": {
+        "label": "Info & Status",
+        "keys": ["online", "leaderboards", "heatmap", "longshots", "restart_alerts", "bot_updates", "welcome"],
+    },
+    "staff": {
+        "label": "Staff & Audit",
+        "keys": ["admin_logs", "command_logs", "dashboard_audit", "nitrado_ban_logs", "restart_logs", "link_audit", "moderation_logs", "cheat_checks"],
+    },
+    "economy": {
+        "label": "Economy",
+        "keys": ["economy", "money_feed", "swear_jar_feed", "purchase_logs", "vehicle_rentals", "rental_logs"],
+    },
+    "community": {
+        "label": "Community",
+        "keys": ["public_shame", "linked_players", "member_leaves", "general_chat", "ai_chat", "clips_channel", "help_channel"],
+    },
+    "factions": {
+        "label": "Factions",
+        "keys": ["factions_chat", "faction_list", "faction_tickets", "faction_staff"],
+    },
+    "pve": {
+        "label": "PVE",
+        "keys": ["pve_quests", "pve_hunting", "pve_collection", "pve_fishing", "pve_crafting", "pve_expeditions", "pve_info", "pve_help", "pve_heatmap", "pve_rewards_public", "pve_rewards_private", "quest_workshop"],
+    },
+}
+FEED_ROUTE_LABELS = {
+    "killfeed": "Killfeed",
+    "raids": "Raid feed",
+    "building": "Build feed",
+    "connections": "Connected players",
+    "disconnects": "Disconnected players",
+    "zombie_feed": "Zombie feed",
+    "unconscious_feed": "Unconscious feed",
+    "cuts_feed": "Cuts and damage",
+    "suicide_feed": "Suicide feed",
+    "flag_feed": "Flag feed",
+    "placed_feed": "Placed/packed items",
+    "pvp_intel": "PVP intel tips",
+    "radar": "Radar pings",
+    "online": "Online survivors",
+    "leaderboards": "Leaderboards",
+    "heatmap": "PVP heatmap",
+    "longshots": "Longshots",
+    "restart_alerts": "Restart alerts",
+    "restart_logs": "Restart logs",
+    "bot_updates": "Bot updates",
+    "welcome": "Welcome",
+    "public_shame": "Wandering in shame",
+    "linked_players": "Linked players",
+    "link_audit": "Link audit",
+    "member_leaves": "Member leaves",
+    "moderation_logs": "Moderation logs",
+    "general_chat": "General chat",
+    "ai_chat": "AI chat",
+    "clips_channel": "Clips",
+    "factions_chat": "Faction chat",
+    "faction_list": "Faction list",
+    "faction_tickets": "Faction tickets",
+    "faction_staff": "Faction staff",
+    "help_channel": "Help desk",
+    "economy": "Shop / economy",
+    "money_feed": "Money feed",
+    "swear_jar_feed": "Swear jar",
+    "admin_logs": "Admin logs",
+    "nitrado_ban_logs": "Nitrado ban logs",
+    "dashboard_audit": "Dashboard audit",
+    "cheat_checks": "PC cheat checks",
+    "command_logs": "Command logs",
+    "purchase_logs": "Purchase logs",
+    "vehicle_rentals": "Vehicle rentals",
+    "rental_logs": "Rental logs",
+    "pve_quests": "PVE quests",
+    "pve_hunting": "PVE hunting",
+    "pve_collection": "PVE collection",
+    "pve_fishing": "PVE fishing",
+    "pve_crafting": "PVE crafting",
+    "pve_expeditions": "PVE expeditions",
+    "pve_info": "PVE info",
+    "pve_help": "PVE help",
+    "pve_heatmap": "PVE heatmap",
+    "pve_rewards_public": "PVE rewards",
+    "pve_rewards_private": "PVE private rewards",
+    "quest_workshop": "Quest workshop",
+}
+FEED_ROUTE_PRIVATE_KEYS = {
+    "admin_logs", "cheat_checks", "command_logs", "dashboard_audit", "nitrado_ban_logs", "restart_logs",
+    "money_feed", "link_audit", "moderation_logs", "cuts_feed", "faction_staff", "flag_feed",
+    "placed_feed", "suicide_feed", "pve_rewards_private", "quest_workshop",
+}
+FEED_ROUTE_DEFAULT_NAMES = {key: label.lower().replace(" / ", "-").replace(" ", "-") for key, label in FEED_ROUTE_LABELS.items()}
+FEED_ROUTE_KEYS = tuple(dict.fromkeys(key for group in FEED_ROUTE_GROUPS.values() for key in group["keys"]))
+CUSTOM_FEED_TYPES = ("text", "restart", "basedamage", "serverstatus", "heatmap")
 DEFAULT_BILLING_PLANS = [
     {
         "id": "free_bot",
@@ -3907,6 +4018,7 @@ PAGE_TEMPLATE = """
           <p class="tool-note">One place for server setup, Discord messages, rules, moderation guard and live server controls.</p>
           <nav class="command-subnav" aria-label="Admin center tools">
             <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#access">Servers</a>
+            <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}#feed-routes">Feeds</a>
             {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Discord</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
@@ -8536,6 +8648,148 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </article>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "access" and setup_tool == "feeds" %}
+    <section class="section-panel" id="feed-routes">
+      <div class="section-head">
+        <div>
+          <h2>Feed Routes</h2>
+          <p class="tool-note">Choose where each bot feed posts. Custom Discord channel names are left alone; the bot only changes routes when you save them here or run an explicit restore command.</p>
+        </div>
+        <span class="pill">routes</span>
+      </div>
+      <div class="panel-grid">
+        {% if server %}
+        {% for group in server.feed_route_groups %}
+        <article class="admin-panel full">
+          <h3>{{ group.label }}</h3>
+          <table class="table">
+            <thead><tr><th>Feed</th><th>Status</th><th>Posts To</th><th>Route</th><th>Set Channel</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for feed in group.rows %}
+              <tr>
+                <td><strong>{{ feed.label }}</strong><br><small class="muted"><code>{{ feed.key }}</code>{% if feed.private %} · private{% endif %}</small></td>
+                <td><span class="pill {{ 'ok' if feed.enabled else 'bad' }}">{{ 'On' if feed.enabled else 'Off' }}</span>{% if feed.channel_id and not feed.exists %}<br><small class="muted">saved channel missing</small>{% endif %}</td>
+                <td>{{ feed.channel_label }}</td>
+                <td><span class="pill">{{ feed.route }}</span></td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/feed-route" data-route="/api/admin/feed-route">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <select name="channel_id">
+                      <option value="">Keep current</option>
+                      {% for channel in server.channels %}<option value="{{ channel.id }}" {% if feed.channel_id and channel.id == feed.channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                    </select>
+                    <select name="enabled">
+                      <option value="true" {% if feed.enabled %}selected{% endif %}>On</option>
+                      <option value="false" {% if not feed.enabled %}selected{% endif %}>Off</option>
+                    </select>
+                    <button type="submit">Save</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/feed-route" data-route="/api/admin/feed-route" data-confirm="Reset {{ feed.label }} back to its default route?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
+                    <input class="hidden-field" name="action" value="reset">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <button type="submit">Reset</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% endfor %}
+        <article class="admin-panel full" id="custom-feeds">
+          <h3>Scheduled Custom Feeds</h3>
+          <form class="admin-form grid-form" method="post" action="/api/admin/custom-feed" data-route="/api/admin/custom-feed">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#custom-feeds">
+            <label>Type
+              <select name="feed_type">
+                {% for feed_type in custom_feed_types %}<option value="{{ feed_type }}">{{ feed_type }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Channel
+              <select name="channel_id" required>
+                <option value="">Select channel</option>
+                {% for channel in server.channels %}<option value="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Every minutes <input name="interval_minutes" type="number" min="5" max="10080" value="60"></label>
+            <label>Enabled
+              <select name="enabled">
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
+            </label>
+            <label class="full">Message <textarea name="message" rows="3" maxlength="1800" placeholder="Optional text shown in the scheduled feed"></textarea></label>
+            <button type="submit">Create Feed</button>
+            <span class="result muted"></span>
+          </form>
+          <table class="table">
+            <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Channel</th><th>Every</th><th>Message</th><th>Save</th><th>Delete</th></tr></thead>
+            <tbody>
+              {% for feed in server.custom_feed_rows %}
+              <tr>
+                <td><code>{{ feed.id }}</code></td>
+                <td>
+                  <select name="feed_type" form="custom-feed-{{ feed.id }}">
+                    {% for feed_type in custom_feed_types %}<option value="{{ feed_type }}" {% if feed.feed_type == feed_type %}selected{% endif %}>{{ feed_type }}</option>{% endfor %}
+                  </select>
+                </td>
+                <td>
+                  <select name="enabled" form="custom-feed-{{ feed.id }}">
+                    <option value="true" {% if feed.enabled %}selected{% endif %}>On</option>
+                    <option value="false" {% if not feed.enabled %}selected{% endif %}>Off</option>
+                  </select>
+                </td>
+                <td>
+                  <select name="channel_id" form="custom-feed-{{ feed.id }}" required>
+                    <option value="">Select channel</option>
+                    {% for channel in server.channels %}<option value="{{ channel.id }}" {% if feed.channel_id and channel.id == feed.channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                  </select>
+                  <small class="muted">{{ feed.channel_label }}</small>
+                </td>
+                <td><input name="interval_minutes" form="custom-feed-{{ feed.id }}" type="number" min="5" max="10080" value="{{ feed.interval_minutes }}"></td>
+                <td><textarea name="message" form="custom-feed-{{ feed.id }}" rows="2" maxlength="1800">{{ feed.message }}</textarea>{% if feed.last_result %}<small class="muted">{{ feed.last_result }}</small>{% endif %}</td>
+                <td>
+                  <form id="custom-feed-{{ feed.id }}" class="admin-form inline-action" method="post" action="/api/admin/custom-feed" data-route="/api/admin/custom-feed">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="feed_id" value="{{ feed.id }}">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#custom-feeds">
+                    <button type="submit">Save</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/custom-feed" data-route="/api/admin/custom-feed" data-confirm="Delete custom feed {{ feed.id }}?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="feed_id" value="{{ feed.id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#custom-feeds">
+                    <button type="submit">Delete</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="8">No custom scheduled feeds yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% else %}
+        <article class="admin-panel"><h3>No server selected</h3><p class="tool-note">Select a server before editing feed routes.</p></article>
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -22088,6 +22342,86 @@ def channel_label_from_channels(channels: Any, value: Any, default: str = "no ch
     return selection if selection.startswith("#") else f"#{selection}"
 
 
+def dashboard_disabled_channel_keys(config: Any) -> set[str]:
+    if not isinstance(config, dict):
+        return set()
+    raw = config.get("disabled_channels")
+    if not isinstance(raw, list):
+        return set()
+    return {str(item).strip() for item in raw if str(item).strip()}
+
+
+def dashboard_custom_route_keys(config: Any) -> set[str]:
+    if not isinstance(config, dict):
+        return set()
+    raw = config.get("custom_channel_routes")
+    if not isinstance(raw, list):
+        return set()
+    return {str(item).strip() for item in raw if str(item).strip()}
+
+
+def dashboard_feed_route_groups(config: Any, channels: list[dict[str, str]]) -> list[dict[str, Any]]:
+    if not isinstance(config, dict):
+        config = {}
+    saved_channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    disabled = dashboard_disabled_channel_keys(config)
+    custom = dashboard_custom_route_keys(config)
+    live_by_id = {str(channel.get("id") or ""): channel for channel in channels if isinstance(channel, dict)}
+    groups = []
+    for group_key, group in FEED_ROUTE_GROUPS.items():
+        rows = []
+        for key in group["keys"]:
+            channel_id = str(saved_channels.get(key) or "").strip()
+            live = live_by_id.get(channel_id, {})
+            default_name = FEED_ROUTE_DEFAULT_NAMES.get(key, key.replace("_", "-"))
+            rows.append({
+                "key": key,
+                "label": FEED_ROUTE_LABELS.get(key, key.replace("_", " ").title()),
+                "default_name": default_name,
+                "channel_id": channel_id,
+                "channel_label": channel_label_from_channels(channels, channel_id, f"#{default_name}") if channel_id else f"#{default_name}",
+                "status": "off" if key in disabled else "on",
+                "enabled": key not in disabled,
+                "route": "custom" if key in custom else "default",
+                "exists": bool(live) if channel_id else False,
+                "private": key in FEED_ROUTE_PRIVATE_KEYS,
+            })
+        groups.append({"key": group_key, "label": group["label"], "rows": rows})
+    return groups
+
+
+def dashboard_custom_feed_rows(config: Any, channels: list[dict[str, str]]) -> list[dict[str, Any]]:
+    if not isinstance(config, dict):
+        return []
+    feeds = config.get("custom_feeds")
+    if not isinstance(feeds, list):
+        return []
+    rows = []
+    for feed in feeds:
+        if not isinstance(feed, dict):
+            continue
+        channel_id = str(feed.get("channel_id") or "").strip()
+        rows.append({
+            "id": str(feed.get("id") or ""),
+            "feed_type": str(feed.get("feed_type") or "text").strip().lower() or "text",
+            "interval_minutes": safe_int(feed.get("interval_minutes"), 60),
+            "message": str(feed.get("message") or ""),
+            "enabled": dashboard_bool(feed.get("enabled"), True),
+            "channel_id": channel_id,
+            "channel_label": channel_label_from_channels(channels, channel_id, "missing channel"),
+            "last_result": str(feed.get("last_result") or ""),
+            "last_success": dashboard_bool(feed.get("last_success"), False),
+        })
+    return rows
+
+
+def dashboard_next_custom_feed_id(feeds: Any) -> int:
+    if not isinstance(feeds, list):
+        return 1
+    ids = [safe_int(feed.get("id"), 0) for feed in feeds if isinstance(feed, dict)]
+    return max(ids, default=0) + 1
+
+
 def dashboard_survival_milestone_settings(config: Any, channels: list[dict[str, str]]) -> dict[str, Any]:
     if not isinstance(config, dict):
         config = {}
@@ -24024,6 +24358,8 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "discord_member_count": discord_member_count,
                 "discord_roles": redact(discord_roles),
                 "channels": channels,
+                "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
+                "custom_feed_rows": redact(dashboard_custom_feed_rows(config, channels)),
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "zones": redact(zones),
@@ -24173,7 +24509,7 @@ def page(mode: str, auth: dict[str, Any]):
     if active_section not in valid_sections:
         active_section = "overview"
     setup_tool = str(request.args.get("setup_tool") or "servers").strip().lower()
-    if setup_tool not in {"servers", "discord", "rules", "moderation", "control"}:
+    if setup_tool not in {"servers", "feeds", "discord", "rules", "moderation", "control"}:
         setup_tool = "servers"
     focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
     selected_state_guild_id = focused_guild_id
@@ -24445,6 +24781,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         billing_plans=dashboard_billing_plans(),
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
+        custom_feed_types=CUSTOM_FEED_TYPES,
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
@@ -25201,6 +25538,157 @@ def api_dashboard_record_action():
         {"ok": True, "deleted": record_id, "section": section, "note": "Deleted dashboard record."},
         "automations",
         "#automations",
+    )
+
+
+@APP.post("/api/admin/feed-route")
+def api_feed_route():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    feed_key = str(raw_payload.get("feed_key") or raw_payload.get("key") or "").strip()
+    action = str(raw_payload.get("action") or "save").strip().lower()
+    if feed_key not in FEED_ROUTE_KEYS:
+        return jsonify({"ok": False, "error": "feed_key is not a known feed route"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+    channels = config.setdefault("channels", {})
+    if not isinstance(channels, dict):
+        channels = {}
+        config["channels"] = channels
+    disabled = config.setdefault("disabled_channels", [])
+    if not isinstance(disabled, list):
+        disabled = []
+        config["disabled_channels"] = disabled
+    custom = config.setdefault("custom_channel_routes", [])
+    if not isinstance(custom, list):
+        custom = []
+        config["custom_channel_routes"] = custom
+
+    if action == "reset":
+        channels.pop(feed_key, None)
+        if feed_key in custom:
+            custom.remove(feed_key)
+        if feed_key in disabled:
+            disabled.remove(feed_key)
+        note = "Feed route reset to default."
+    else:
+        enabled = dashboard_bool(raw_payload.get("enabled"), True)
+        if enabled and feed_key in disabled:
+            disabled.remove(feed_key)
+        elif not enabled and feed_key not in disabled:
+            disabled.append(feed_key)
+
+        channel_id = str(raw_payload.get("channel_id") or raw_payload.get("channel") or "").strip()
+        if channel_id:
+            live_channel_ids = {str(item.get("id") or "") for item in discord_guild_channels(guild_id)}
+            if live_channel_ids and channel_id not in live_channel_ids:
+                return jsonify({"ok": False, "error": "selected channel was not found in this Discord server"}), 400
+            channels[feed_key] = channel_id
+            if feed_key not in custom:
+                custom.append(feed_key)
+        note = "Feed route saved."
+
+    config["feed_routes_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "feed_key": feed_key, "note": note},
+        "access",
+        "#feed-routes",
+    )
+
+
+@APP.post("/api/admin/custom-feed")
+def api_custom_feed():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    action = str(raw_payload.get("action") or "save").strip().lower()
+    feed_id = str(raw_payload.get("feed_id") or raw_payload.get("id") or "").strip()
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+    feeds = config.setdefault("custom_feeds", [])
+    if not isinstance(feeds, list):
+        feeds = []
+        config["custom_feeds"] = feeds
+
+    if action == "delete":
+        if not feed_id:
+            return jsonify({"ok": False, "error": "feed_id is required"}), 400
+        kept = [feed for feed in feeds if str(feed.get("id") or "") != feed_id]
+        if len(kept) == len(feeds):
+            return jsonify({"ok": False, "error": "custom feed was not found"}), 404
+        config["custom_feeds"] = kept
+        note = "Custom feed deleted."
+    else:
+        feed_type = str(raw_payload.get("feed_type") or "text").strip().lower()
+        if feed_type not in CUSTOM_FEED_TYPES:
+            return jsonify({"ok": False, "error": "feed_type is not supported"}), 400
+        channel_id = str(raw_payload.get("channel_id") or raw_payload.get("channel") or "").strip()
+        if not channel_id:
+            return jsonify({"ok": False, "error": "channel_id is required"}), 400
+        live_channel_ids = {str(item.get("id") or "") for item in discord_guild_channels(guild_id)}
+        if live_channel_ids and channel_id not in live_channel_ids:
+            return jsonify({"ok": False, "error": "selected channel was not found in this Discord server"}), 400
+
+        interval_minutes = max(5, min(10080, safe_int(raw_payload.get("interval_minutes"), 60)))
+        message = str(raw_payload.get("message") or "")[:1800]
+        enabled = dashboard_bool(raw_payload.get("enabled"), True)
+        now_text = datetime.now(UTC).isoformat()
+        record = None
+        if feed_id:
+            for item in feeds:
+                if isinstance(item, dict) and str(item.get("id") or "") == feed_id:
+                    record = item
+                    break
+            if record is None:
+                return jsonify({"ok": False, "error": "custom feed was not found"}), 404
+        else:
+            record = {
+                "id": dashboard_next_custom_feed_id(feeds),
+                "created_by": "dashboard",
+                "created_at": now_text,
+                "last_post_ts": 0,
+            }
+            feeds.append(record)
+
+        record.update({
+            "channel_id": safe_int(channel_id, 0),
+            "feed_type": feed_type,
+            "interval_minutes": interval_minutes,
+            "message": message,
+            "enabled": enabled,
+            "updated_by": "dashboard",
+            "updated_at": now_text,
+        })
+        note = "Custom feed saved."
+
+    config["custom_feeds_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "feed_id": feed_id, "note": note},
+        "access",
+        "#custom-feeds",
     )
 
 

@@ -970,18 +970,18 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
         set_channel_key_disabled(config, key, False)
 
     existing_id = channels.get(key)
-    category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
-    preferred_existing = preferred_existing_feed_channel(guild, key)
+    category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds")) if force else None
+    preferred_existing = preferred_existing_feed_channel(guild, key) if force else None
 
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
             if is_channel_key_custom_routed(config, key):
                 return existing
-            if preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
+            if force and preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
                 existing = preferred_existing
                 channels[key] = existing.id
-            if existing.name != name or (category and existing.category_id != category.id):
+            if force and (existing.name != name or (category and existing.category_id != category.id)):
                 try:
                     await existing.edit(name=name, category=category)
                 except Exception:
@@ -990,13 +990,16 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
 
     if preferred_existing:
         channels[key] = preferred_existing.id
-        if preferred_existing.name != name or (category and preferred_existing.category_id != category.id):
+        if force and (preferred_existing.name != name or (category and preferred_existing.category_id != category.id)):
             try:
                 await preferred_existing.edit(name=name, category=category)
             except Exception:
                 pass
         save_guild_configs()
         return preferred_existing
+
+    if not force:
+        return None
 
     overwrites = {}
     if private:
@@ -1415,6 +1418,9 @@ async def ensure_cheat_check_channel(guild, config, force=False):
     if channel:
         return channel
 
+    if not force:
+        return None
+
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False),
         guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
@@ -1785,6 +1791,9 @@ async def ensure_public_shame_channel(guild, config, force=False):
     channel = bot.get_channel(channels.get("public_shame"))
     if channel:
         return channel
+
+    if not force:
+        return None
 
     category_name = "🚫📣┃WANDERING JUSTICE┃📣🚫"
     category = discord.utils.get(guild.categories, name=category_name)
@@ -6392,7 +6401,7 @@ def _safe_channel_id(value):
         return None
 
 
-def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_repair=True):
+def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_repair=False):
     channels = config.setdefault("channels", {})
     if not isinstance(channels, dict):
         channels = {}
@@ -6413,36 +6422,10 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
     if saved_id:
         channel = bot.get_channel(saved_id)
         if channel:
-            if is_channel_key_custom_routed(config, key):
-                return channel
-            preferred_existing = preferred_existing_feed_channel(guild, key) if guild else None
-            if (
-                preferred_existing
-                and preferred_existing.id != channel.id
-                and not channel_matches_preferred_default_name(channel, key)
-            ):
-                channels[key] = preferred_existing.id
-                save_guild_configs()
-                if _feed_route_should_log(guild_id, key, "preferred"):
-                    print(f"[FEED ROUTE] {guild_id} preferred #{DEFAULT_CHANNEL_NAMES.get(key, key)} channel id {preferred_existing.id} over saved duplicate {channel.id}.")
-                return preferred_existing
             return channel
         if guild:
             channel = guild.get_channel(saved_id)
             if channel:
-                if is_channel_key_custom_routed(config, key):
-                    return channel
-                preferred_existing = preferred_existing_feed_channel(guild, key)
-                if (
-                    preferred_existing
-                    and preferred_existing.id != channel.id
-                    and not channel_matches_preferred_default_name(channel, key)
-                ):
-                    channels[key] = preferred_existing.id
-                    save_guild_configs()
-                    if _feed_route_should_log(guild_id, key, "preferred"):
-                        print(f"[FEED ROUTE] {guild_id} preferred #{DEFAULT_CHANNEL_NAMES.get(key, key)} channel id {preferred_existing.id} over saved duplicate {channel.id}.")
-                    return preferred_existing
                 return channel
 
     if allow_name_repair and guild:
@@ -6488,6 +6471,9 @@ def mark_deleted_bot_channel(guild_id, channel_id):
 
 
 def discover_existing_guild_channels(guild, config):
+    if not bool(config.get("allow_channel_auto_discovery")):
+        return False
+
     channels = config.setdefault("channels", {})
     changed = False
 
@@ -6681,21 +6667,24 @@ async def ensure_bot_updates_channel(guild, config, force=False):
     if force:
         set_channel_key_disabled(config, "bot_updates", False)
 
-    category = await ensure_bot_category(guild, "bot_updates")
+    category = await ensure_bot_category(guild, "bot_updates") if force else None
 
     channel = bot.get_channel(channels.get("bot_updates"))
     if channel:
-        if category and channel.category_id != category.id:
+        if force and category and channel.category_id != category.id:
             try:
                 await channel.edit(category=category)
             except Exception:
                 pass
         return channel
 
+    if not force:
+        return None
+
     for existing in guild.text_channels:
         if channel_matches_saved_key(existing, "bot_updates"):
             channels["bot_updates"] = existing.id
-            if category and existing.category_id != category.id:
+            if force and category and existing.category_id != category.id:
                 try:
                     await existing.edit(category=category)
                 except Exception:
@@ -6864,7 +6853,7 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
     return restored, None
 
 
-async def ensure_pve_channels(guild, config, force=False):
+async def ensure_pve_channels(guild, config, force=False, create_missing=False):
     if not server_allows_pve(config):
         return {}
 
@@ -6887,7 +6876,8 @@ async def ensure_pve_channels(guild, config, force=False):
     if not force and all(is_channel_key_disabled(config, key) for key in pve_channel_keys):
         return {}
 
-    pve_category = await ensure_bot_category(guild, "pve")
+    can_create = force or create_missing
+    pve_category = await ensure_bot_category(guild, "pve") if can_create else None
 
     async def ensure_channel(key):
         name = DEFAULT_CHANNEL_NAMES[key]
@@ -6915,7 +6905,7 @@ async def ensure_pve_channels(guild, config, force=False):
             if existing:
                 needs_name = existing.name != name
                 needs_category = pve_category and existing.category_id != pve_category.id
-                if needs_name or needs_category:
+                if force and (needs_name or needs_category):
                     try:
                         await existing.edit(name=name, category=pve_category)
                     except Exception:
@@ -6923,7 +6913,7 @@ async def ensure_pve_channels(guild, config, force=False):
                 # Only re-apply admin-only overwrites if they're actually
                 # missing — Discord rate-limits PUT permissions hard, so
                 # blasting all of them on every restart triggers 429s.
-                if is_private:
+                if is_private and can_create:
                     try:
                         existing_overwrites = existing.overwrites
                         for target, overwrite in overwrites.items():
@@ -6939,12 +6929,12 @@ async def ensure_pve_channels(guild, config, force=False):
                 channels[key] = channel.id
                 needs_name = channel.name != name
                 needs_category = pve_category and channel.category_id != pve_category.id
-                if needs_name or needs_category:
+                if force and (needs_name or needs_category):
                     try:
                         await channel.edit(name=name, category=pve_category)
                     except Exception:
                         pass
-                if is_private:
+                if is_private and can_create:
                     try:
                         existing_overwrites = channel.overwrites
                         for target, overwrite in overwrites.items():
@@ -6954,6 +6944,9 @@ async def ensure_pve_channels(guild, config, force=False):
                     except Exception:
                         pass
                 return channel
+
+        if not can_create:
+            return None
 
         if is_private:
             channel = await guild.create_text_channel(name, category=pve_category, overwrites=overwrites)
@@ -14750,7 +14743,8 @@ async def setup_command(
         pve_channels = await ensure_pve_channels(
             interaction.guild,
             guild_configs[guild_id],
-            force=restore_deleted_channels
+            force=restore_deleted_channels,
+            create_missing=True
         )
 
     guild_configs[guild_id]["nitrado_token"] = clean_nitrado_token

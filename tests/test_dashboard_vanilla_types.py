@@ -78,6 +78,18 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertNotIn('href="/admin?section=moderation{{ server_qs }}">Moderation</a>', source)
         self.assertNotIn('href="/admin?section=server-control{{ server_qs }}">Server Control</a>', source)
 
+    def test_admin_feed_routes_are_managed_from_admin_center(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('"feeds"', source)
+        self.assertIn("setup_tool == 'feeds'", source)
+        self.assertIn('id="feed-routes"', source)
+        self.assertIn('id="custom-feeds"', source)
+        self.assertIn('@APP.post("/api/admin/feed-route")', source)
+        self.assertIn('@APP.post("/api/admin/custom-feed")', source)
+        self.assertIn("dashboard_feed_route_groups", source)
+        self.assertIn("dashboard_custom_feed_rows", source)
+
     def test_reviews_page_and_dashboard_section_are_wired(self):
         source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
 

@@ -45,11 +45,20 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertIs(bot.preferred_existing_feed_channel(guild, "nitrado_ban_logs"), original)
 
-    def test_discover_updates_saved_nitrado_duplicate_to_preferred_original(self):
-        original = FakeChannel("🔴🔴・nitrado-ban・🔴🔴", 100)
+    def test_discover_does_not_update_saved_route_without_explicit_auto_discovery(self):
+        original = FakeChannel("nitrado-ban", 100)
         duplicate = FakeChannel("nitrado-ban-feed", 200)
         guild = FakeGuild([duplicate, original])
         config = {"channels": {"nitrado_ban_logs": duplicate.id}}
+
+        self.assertFalse(bot.discover_existing_guild_channels(guild, config))
+        self.assertEqual(config["channels"]["nitrado_ban_logs"], duplicate.id)
+
+    def test_discover_updates_saved_route_when_auto_discovery_is_explicit(self):
+        original = FakeChannel("nitrado-ban", 100)
+        duplicate = FakeChannel("nitrado-ban-feed", 200)
+        guild = FakeGuild([duplicate, original])
+        config = {"allow_channel_auto_discovery": True, "channels": {"nitrado_ban_logs": duplicate.id}}
 
         self.assertTrue(bot.discover_existing_guild_channels(guild, config))
         self.assertEqual(config["channels"]["nitrado_ban_logs"], original.id)
