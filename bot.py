@@ -19677,10 +19677,12 @@ def moderation_guard_defaults():
         "watch_scam_words": True,
         "watch_blocked_phrases": True,
         "watch_spam": True,
+        "watch_cross_channel_spam": True,
         "watch_repeated_messages": True,
         "watch_mass_mentions": True,
         "spam_message_count": 5,
         "spam_window_seconds": 12,
+        "cross_channel_count": 3,
         "repeat_message_count": 3,
         "repeat_window_seconds": 30,
         "mass_mention_limit": 5,
@@ -19703,6 +19705,7 @@ def moderation_guard_settings(config):
     for key in (
         "spam_message_count",
         "spam_window_seconds",
+        "cross_channel_count",
         "repeat_message_count",
         "repeat_window_seconds",
         "mass_mention_limit",
@@ -19891,13 +19894,18 @@ async def maybe_apply_moderation_guard(message, lower, now_ts):
     tracker_key = (guild_id, str(message.author.id))
     tracker = moderation_guard_recent_messages[tracker_key]
     text_key = normalise_moderation_text(message.content)
-    tracker.append({"time": now_ts, "text": text_key})
+    tracker.append({"time": now_ts, "text": text_key, "channel_id": str(getattr(message.channel, "id", "") or "")})
 
+    spam_window = settings.get("spam_window_seconds", 12)
+    recent = [item for item in tracker if now_ts - item.get("time", 0) <= spam_window]
     if settings.get("watch_spam", True):
-        spam_window = settings.get("spam_window_seconds", 12)
-        recent = [item for item in tracker if now_ts - item.get("time", 0) <= spam_window]
         if len(recent) >= settings.get("spam_message_count", 5):
             violations.append(f"message spam: {len(recent)} in {spam_window}s")
+
+    if settings.get("watch_cross_channel_spam", True):
+        recent_channels = {item.get("channel_id") for item in recent if item.get("channel_id")}
+        if len(recent_channels) >= settings.get("cross_channel_count", 3):
+            violations.append(f"cross-channel spam: {len(recent_channels)} channels in {spam_window}s")
 
     if settings.get("watch_repeated_messages", True) and text_key:
         repeat_window = settings.get("repeat_window_seconds", 30)
@@ -21890,7 +21898,8 @@ def player_is_whitelisted(zone, player_name):
     if not player_name:
         return False
     needle = str(player_name).strip().lower()
-    return any(needle == str(w).strip().lower() for w in (zone.get("whitelist") or []))
+    allowlist = parse_gamertag_list(zone.get("whitelist") or []) + radar_zone_ignored_gamertags(zone)
+    return any(needle == str(w).strip().lower() for w in allowlist)
 
 
 # ---------- Nitrado banlist FTP push/pull ----------------------------------

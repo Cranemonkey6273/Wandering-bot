@@ -115,6 +115,32 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("owner_guild_action_confirmation_error", source)
         self.assertIn('"config_full": removed_guild_config_snapshot(config)', source)
 
+    def test_moderation_guard_has_cross_channel_spam_controls(self):
+        dashboard_source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+        bot_source = (REPO_ROOT / "bot.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn("Cross-channel spam", dashboard_source)
+        self.assertIn('name="watch_cross_channel_spam"', dashboard_source)
+        self.assertIn('name="cross_channel_count"', dashboard_source)
+        self.assertIn('"watch_cross_channel_spam"', dashboard_source)
+        self.assertIn('"cross_channel_count"', dashboard_source)
+        self.assertIn('"watch_cross_channel_spam": True', bot_source)
+        self.assertIn('"cross_channel_count": 3', bot_source)
+        self.assertIn('"channel_id": str(getattr(message.channel, "id", "") or "")', bot_source)
+        self.assertIn("cross-channel spam", bot_source)
+
+    def test_zone_ignored_gamertags_round_trip_to_safe_zone_whitelist(self):
+        dashboard_source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+        bot_source = (REPO_ROOT / "bot.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn('name="ignored_gamertags"', dashboard_source)
+        self.assertIn('setControl(form, "ignored_gamertags"', dashboard_source)
+        self.assertIn('"ignored_gamertags": ignored_gamertags', dashboard_source)
+        self.assertIn('"whitelist": ignored_gamertags', dashboard_source)
+        self.assertIn('or zone.get("whitelist")', dashboard_source)
+        self.assertIn('"ignored_gamertags": ignored_gamertags', dashboard_source)
+        self.assertIn('allowlist = parse_gamertag_list(zone.get("whitelist") or []) + radar_zone_ignored_gamertags(zone)', bot_source)
+
     def test_reviews_page_and_dashboard_section_are_wired(self):
         source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
 

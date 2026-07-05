@@ -7824,6 +7824,10 @@ PAGE_TEMPLATE = """
             </label>
             <label>Spam burst count <input type="number" min="1" max="50" name="spam_message_count" value="{{ guard.spam_message_count or 5 }}"></label>
             <label>Spam window seconds <input type="number" min="2" max="600" name="spam_window_seconds" value="{{ guard.spam_window_seconds or 12 }}"></label>
+            <label>Cross-channel spam
+              <select name="watch_cross_channel_spam"><option value="true" {{ 'selected' if guard.watch_cross_channel_spam is not defined or guard.watch_cross_channel_spam else '' }}>Watch</option><option value="false" {{ 'selected' if guard.watch_cross_channel_spam is defined and not guard.watch_cross_channel_spam else '' }}>Ignore</option></select>
+            </label>
+            <label>Channel burst count <input type="number" min="2" max="50" name="cross_channel_count" value="{{ guard.cross_channel_count or 3 }}"></label>
             <label>Repeated text count <input type="number" min="2" max="20" name="repeat_message_count" value="{{ guard.repeat_message_count or 3 }}"></label>
             <label>Mass mention limit <input type="number" min="1" max="100" name="mass_mention_limit" value="{{ guard.mass_mention_limit or 5 }}"></label>
             <label>First strike
@@ -24287,6 +24291,13 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
             display_colour = colour
         zone_id = str(zone.get("id") or zone.get("name") or f"zone-{len(normalized) + 1}")
         channel_value = str(zone.get("channel_key") or zone.get("alert_channel_id") or zone.get("report_channel_id") or "")
+        ignored_gamertags = csv_list(
+            zone.get("ignored_gamertags")
+            or zone.get("ignore_gamertags")
+            or zone.get("ignored_players")
+            or zone.get("whitelist")
+            or []
+        )
         dedupe_key = (zone_type, zone_id, x, y, radius)
         if dedupe_key in seen:
             continue
@@ -24312,6 +24323,12 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "report_channel_id": str(zone.get("report_channel_id") or ""),
                 "role_id": str(zone.get("role_id") or ""),
                 "mention_role_id": str(zone.get("mention_role_id") or ""),
+                "triggers": csv_list(zone.get("triggers") or []),
+                "ignored_gamertags": ignored_gamertags,
+                "whitelist": ignored_gamertags,
+                "trigger_territory": str(zone.get("trigger_territory") or "inside"),
+                "ban_type": str(zone.get("ban_type") or "temp"),
+                "ban_duration_minutes": safe_int(zone.get("ban_duration_minutes"), 1440),
                 "action": str(zone.get("action") or "none"),
                 "enabled": bool(zone.get("enabled", True)),
                 "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
@@ -27996,6 +28013,7 @@ def api_zone():
     role_id = str(payload.get("role_id") or "").strip()
     faction_name = str(payload.get("faction_name") or payload.get("faction") or "").strip()
     colour = safe_colour(payload.get("colour") or payload.get("color"))
+    ignored_gamertags = csv_list(payload.get("ignored_gamertags", []))
     record = {
         "id": zone_id,
         "name": name,
@@ -28014,7 +28032,8 @@ def api_zone():
         "role_id": role_id,
         "mention_role_id": role_id,
         "triggers": csv_list(payload.get("triggers", ["detection", "login"])) if zone_type == "radar" else csv_list(payload.get("triggers", ["kill", "build", "trespass"])),
-        "ignored_gamertags": csv_list(payload.get("ignored_gamertags", [])),
+        "ignored_gamertags": ignored_gamertags,
+        "whitelist": ignored_gamertags,
         "trigger_territory": str(payload.get("trigger_territory") or "inside"),
         "action": str(payload.get("action") or ("none" if zone_type == "radar" else "ban")),
         "ban_type": str(payload.get("ban_type") or "temp"),
@@ -28180,10 +28199,12 @@ def api_moderation_guard():
         "watch_scam_words": safe_bool(payload.get("watch_scam_words"), safe_bool(guard_previous.get("watch_scam_words"), True)),
         "watch_blocked_phrases": safe_bool(payload.get("watch_blocked_phrases"), safe_bool(guard_previous.get("watch_blocked_phrases"), True)),
         "watch_spam": safe_bool(payload.get("watch_spam"), safe_bool(guard_previous.get("watch_spam"), True)),
+        "watch_cross_channel_spam": safe_bool(payload.get("watch_cross_channel_spam"), safe_bool(guard_previous.get("watch_cross_channel_spam"), True)),
         "watch_repeated_messages": safe_bool(payload.get("watch_repeated_messages"), safe_bool(guard_previous.get("watch_repeated_messages"), True)),
         "watch_mass_mentions": safe_bool(payload.get("watch_mass_mentions"), safe_bool(guard_previous.get("watch_mass_mentions"), True)),
         "spam_message_count": max(1, min(50, safe_int(payload.get("spam_message_count"), safe_int(guard_previous.get("spam_message_count"), 5)))),
         "spam_window_seconds": max(2, min(600, safe_int(payload.get("spam_window_seconds"), safe_int(guard_previous.get("spam_window_seconds"), 12)))),
+        "cross_channel_count": max(2, min(50, safe_int(payload.get("cross_channel_count"), safe_int(guard_previous.get("cross_channel_count"), 3)))),
         "repeat_message_count": max(2, min(20, safe_int(payload.get("repeat_message_count"), safe_int(guard_previous.get("repeat_message_count"), 3)))),
         "repeat_window_seconds": max(5, min(3600, safe_int(payload.get("repeat_window_seconds"), safe_int(guard_previous.get("repeat_window_seconds"), 30)))),
         "mass_mention_limit": max(1, min(100, safe_int(payload.get("mass_mention_limit"), safe_int(guard_previous.get("mass_mention_limit"), 5)))),
