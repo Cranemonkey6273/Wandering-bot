@@ -732,6 +732,8 @@ SECRET_KEYS = {
     "nitrado_user",
     "service_id",
 }
+REMOVED_GUILD_RESTORE_SECRET_KEYS = ("nitrado_token", "service_id", "ftp_host", "ftp_user", "ftp_password")
+OWNER_DESTRUCTIVE_GUILD_ACTIONS = {"leave_and_remove", "remove_data"}
 
 FILES = {
     "guild_configs": "guild_configs.json",
@@ -3927,6 +3929,7 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="guild_id" value="{{ item.guild_id }}">
               <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
               <input class="hidden-field" name="action" value="leave_and_remove">
+              <input name="confirm_name" placeholder="type server name" aria-label="Type server name or guild ID to confirm delete" autocomplete="off" required>
               <button type="submit" class="danger">Delete</button> <span class="result muted"></span>
             </form>
           </div>
@@ -4309,16 +4312,49 @@ PAGE_TEMPLATE = """
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
                   <input class="hidden-field" name="return_to" value="/owner?guild_id={{ owned.guild_id }}#owner-servers">
                   <input class="hidden-field" name="action" value="leave_and_remove">
+                  <input name="confirm_name" placeholder="type server name" aria-label="Type server name or guild ID to confirm delete" autocomplete="off" required>
                   <button type="submit">Leave + Remove Data</button> <span class="result muted"></span>
                 </form>
                 <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete dashboard data for {{ owned.guild_name }}? This does not make the bot leave Discord and does not touch live DayZ files.">
                   <input class="hidden-field" name="guild_id" value="{{ owned.guild_id }}">
                   <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
                   <input class="hidden-field" name="action" value="remove_data">
+                  <input name="confirm_name" placeholder="type server name" aria-label="Type server name or guild ID to confirm delete" autocomplete="off" required>
                   <button type="submit" class="danger">Delete Dashboard Data</button> <span class="result muted"></span>
                 </form>
               </div>
             </div>
+            {% endfor %}
+          </div>
+        </article>
+        <article class="admin-panel full" id="removed-servers">
+          <h3>Restore Removed Dashboards</h3>
+          <p class="tool-note">Owner-only recovery for dashboards removed by mistake. Restore brings the saved dashboard config back; older archives may need Nitrado connection fields re-saved if they were redacted when removed.</p>
+          <div class="owner-server-list">
+            {% for removed in removed_guilds %}
+            <div class="owner-server-card">
+              <div>
+                <h4>{{ removed.guild_name }}</h4>
+                <div class="owner-server-meta">
+                  <span class="pill">Guild {{ removed.guild_id }}</span>
+                  <span class="pill">Removed {{ removed.removed_at[:19]|replace('T', ' ') if removed.removed_at else 'unknown' }}</span>
+                  {% if removed.restored_at %}<span class="pill ok">Restored {{ removed.restored_at[:19]|replace('T', ' ') }}</span>{% endif %}
+                  {% if removed.secret_warning %}<span class="pill warn">Reconnect {{ removed.secret_warning_text }}</span>{% endif %}
+                </div>
+              </div>
+              <div class="owner-server-actions">
+                <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Restore dashboard data for {{ removed.guild_name }}? This does not touch live DayZ files.">
+                  <input class="hidden-field" name="guild_id" value="{{ removed.guild_id }}">
+                  <input class="hidden-field" name="archive_id" value="{{ removed.archive_id }}">
+                  <input class="hidden-field" name="archive_index" value="{{ removed.archive_index }}">
+                  <input class="hidden-field" name="return_to" value="/owner?section=owner#removed-servers">
+                  <input class="hidden-field" name="action" value="restore_data">
+                  <button type="submit">Restore Dashboard Data</button> <span class="result muted"></span>
+                </form>
+              </div>
+            </div>
+            {% else %}
+            <p class="muted">No removed dashboard archives yet.</p>
             {% endfor %}
           </div>
         </article>
@@ -22631,15 +22667,148 @@ def discord_bot_leave_guild(guild_id: str) -> tuple[bool, str]:
         return False, f"Discord leave failed: {error}"
 
 
+def removed_guild_config_snapshot(config: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return json.loads(json.dumps(config, default=str))
+    except (TypeError, ValueError):
+        return dict(config)
+
+
+def removed_guild_config_from_record(record: dict[str, Any]) -> dict[str, Any]:
+    config = record.get("config_full")
+    if isinstance(config, dict):
+        return removed_guild_config_snapshot(config)
+    config = record.get("config")
+    if isinstance(config, dict):
+        return removed_guild_config_snapshot(config)
+    return {}
+
+
+def dashboard_secret_is_missing_or_redacted(value: Any) -> bool:
+    text = str(value or "").strip()
+    lower = text.lower()
+    return not text or text == "***" or "redacted" in lower or lower in {"hidden", "removed"}
+
+
+def removed_guild_secret_warnings(config: dict[str, Any]) -> list[str]:
+    missing = []
+    for key in REMOVED_GUILD_RESTORE_SECRET_KEYS:
+        if dashboard_secret_is_missing_or_redacted(config.get(key)):
+            missing.append(key)
+    return missing
+
+
+def removed_guild_rows(limit: int = 25) -> list[dict[str, Any]]:
+    removed = load_store("removed_guilds", [])
+    if not isinstance(removed, list):
+        return []
+    rows = []
+    start_index = max(0, len(removed) - max(1, limit))
+    for archive_index, record in reversed(list(enumerate(removed[start_index:], start=start_index))):
+        if not isinstance(record, dict):
+            continue
+        guild_id = normalize_guild_id(record.get("guild_id"))
+        config = removed_guild_config_from_record(record)
+        secret_warnings = removed_guild_secret_warnings(config)
+        rows.append(
+            {
+                "archive_id": str(record.get("archive_id") or ""),
+                "archive_index": archive_index,
+                "guild_id": guild_id,
+                "guild_name": str(record.get("guild_name") or config.get("guild_name") or f"Guild {guild_id}"),
+                "removed_at": str(record.get("removed_at") or ""),
+                "restored_at": str(record.get("restored_at") or ""),
+                "secret_warning": bool(secret_warnings),
+                "secret_warning_text": ", ".join(secret_warnings),
+            }
+        )
+    return rows
+
+
+def restore_removed_guild_dashboard_data(guild_id: str, archive_id: str = "", archive_index: Any = "") -> tuple[bool, str, dict[str, Any]]:
+    guild_id = normalize_guild_id(guild_id)
+    archive_id = str(archive_id or "").strip()
+    removed = load_store("removed_guilds", [])
+    if not isinstance(removed, list):
+        return False, "No removed dashboard archive exists.", {}
+
+    target_index: int | None = None
+    if str(archive_index or "").strip().isdigit():
+        requested_index = int(str(archive_index).strip())
+        if 0 <= requested_index < len(removed):
+            record = removed[requested_index]
+            if isinstance(record, dict) and normalize_guild_id(record.get("guild_id")) == guild_id:
+                target_index = requested_index
+
+    if target_index is None:
+        for index in range(len(removed) - 1, -1, -1):
+            record = removed[index]
+            if not isinstance(record, dict):
+                continue
+            if normalize_guild_id(record.get("guild_id")) != guild_id:
+                continue
+            if archive_id and str(record.get("archive_id") or "") != archive_id:
+                continue
+            target_index = index
+            break
+
+    if target_index is None:
+        return False, "No removed dashboard archive matched that server.", {}
+
+    record = removed[target_index]
+    if not isinstance(record, dict):
+        return False, "Removed dashboard archive is invalid.", {}
+    config = removed_guild_config_from_record(record)
+    if not config:
+        return False, "Removed dashboard archive has no saved config to restore.", {}
+
+    config["guild_name"] = str(config.get("guild_name") or record.get("guild_name") or f"Guild {guild_id}")
+    config["restored_at"] = datetime.now(UTC).isoformat()
+    config["restored_from_removed_at"] = str(record.get("removed_at") or "")
+    config.pop("dashboard_removed_at", None)
+    config.pop("dashboard_removed_reason", None)
+    config.pop("bot_removed", None)
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    guild_configs[guild_id] = config
+    save_store("guild_configs", guild_configs)
+
+    record["restored_at"] = config["restored_at"]
+    removed[target_index] = record
+    save_store("removed_guilds", removed[-100:])
+    missing = removed_guild_secret_warnings(config)
+    if missing:
+        return True, f"Dashboard restored. Re-save these owner-side connection fields before live file actions: {', '.join(missing)}.", config
+    return True, "Dashboard restored from the removed-server archive.", config
+
+
+def owner_guild_action_confirmation_error(action: str, payload: dict[str, Any], guild_id: str, config: dict[str, Any]) -> str:
+    if action not in OWNER_DESTRUCTIVE_GUILD_ACTIONS:
+        return ""
+    expected_name = str(config.get("guild_name") or "").strip()
+    confirm_name = str(payload.get("confirm_name") or "").strip()
+    accepted = {guild_id.lower()}
+    if expected_name:
+        accepted.add(expected_name.lower())
+    if confirm_name.lower() not in accepted:
+        readable = expected_name or guild_id
+        return f"Type {readable} or {guild_id} to confirm this delete."
+    return ""
+
+
 def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
     guild_id = normalize_guild_id(guild_id)
     removed = load_store("removed_guilds", [])
     if not isinstance(removed, list):
         removed = []
     removed.append({
+        "archive_id": f"{guild_id}-{int(datetime.now(UTC).timestamp())}-{secrets.token_hex(3)}",
         "guild_id": guild_id,
         "guild_name": str(config.get("guild_name") or ""),
         "removed_at": datetime.now(UTC).isoformat(),
+        "config_full": removed_guild_config_snapshot(config),
         "config": redact(config),
     })
     save_store("removed_guilds", removed[-100:])
@@ -24496,6 +24665,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         "delivery_queue": redact(delivery_queue),
         "dashboard_admin": redact(dashboard_admin),
         "owner_notifications": owner_notifications(servers, delivery_queue, dashboard_admin),
+        "removed_guilds": removed_guild_rows() if active_section in {"overview", "owner"} else [],
         "generated_at": local_dashboard_time(),
         "generated_clock": local_dashboard_clock(),
     }
@@ -24852,6 +25022,7 @@ def page(mode: str, auth: dict[str, Any]):
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
+        removed_guilds=state.get("removed_guilds", []),
         generated_at=state["generated_at"],
         generated_clock=state.get("generated_clock") or "",
         admin_routes=ADMIN_ROUTES,
@@ -29269,7 +29440,7 @@ def api_owner_guild_action():
     action = str(payload.get("action") or "leave").strip().lower()
     if not guild_id:
         return jsonify({"ok": False, "error": "guild_id is required"}), 400
-    if action not in {"leave", "leave_and_remove", "remove_data", "show_in_owner_admin", "hide_from_owner_admin"}:
+    if action not in {"leave", "leave_and_remove", "remove_data", "restore_data", "show_in_owner_admin", "hide_from_owner_admin"}:
         return jsonify({"ok": False, "error": "unsupported owner guild action"}), 400
 
     guild_configs = load_store("guild_configs", {})
@@ -29278,6 +29449,25 @@ def api_owner_guild_action():
     config = guild_configs.get(guild_id)
     if not isinstance(config, dict):
         config = {"guild_name": f"Guild {guild_id}", "channels": {}}
+
+    confirmation_error = owner_guild_action_confirmation_error(action, payload, guild_id, config)
+    if confirmation_error:
+        return jsonify({"ok": False, "error": confirmation_error}), 400
+
+    if action == "restore_data":
+        ok, message, restored_config = restore_removed_guild_dashboard_data(
+            guild_id,
+            payload.get("archive_id"),
+            payload.get("archive_index"),
+        )
+        if not ok:
+            return jsonify({"ok": False, "error": message}), 404
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "message": message, "guild_id": guild_id, "guild_name": restored_config.get("guild_name"), "restored": True},
+            "owner",
+            "#removed-servers",
+        )
 
     if action in {"show_in_owner_admin", "hide_from_owner_admin"}:
         dashboard = config.setdefault("dashboard", {})

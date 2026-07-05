@@ -101,6 +101,20 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("normalize_dashboard_server_mode", source)
         self.assertIn("shop_economy_section", source)
 
+    def test_owner_removed_dashboard_restore_and_confirmation_are_wired(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn("REMOVED_GUILD_RESTORE_SECRET_KEYS", source)
+        self.assertIn("OWNER_DESTRUCTIVE_GUILD_ACTIONS", source)
+        self.assertIn("def restore_removed_guild_dashboard_data", source)
+        self.assertIn("def removed_guild_rows", source)
+        self.assertIn('action" value="restore_data"', source)
+        self.assertIn("Restore Removed Dashboards", source)
+        self.assertIn("Restore Dashboard Data", source)
+        self.assertIn('name="confirm_name"', source)
+        self.assertIn("owner_guild_action_confirmation_error", source)
+        self.assertIn('"config_full": removed_guild_config_snapshot(config)', source)
+
     def test_reviews_page_and_dashboard_section_are_wired(self):
         source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
 
