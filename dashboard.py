@@ -3733,6 +3733,7 @@ PAGE_TEMPLATE = """
   {% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
   {% set dashboard_qs = server_qs ~ auth_qs %}
   {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
+  {% set shop_economy_section = 'economy' if section_allowed('economy') else 'shop' %}
   {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
   {% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
   <header>
@@ -3843,8 +3844,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
-      {% if section_allowed('economy') %}<a class="{{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
-      {% if section_allowed('shop') %}<a class="{{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
+      {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
@@ -3855,9 +3855,10 @@ PAGE_TEMPLATE = """
     {% if auth.kind != "agent_account" %}
     <div class="command-quick">
       <span>Quick actions</span>
+      <a href="/admin?section=overview{{ server_qs }}#where-to-go">Common Tasks</a>
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Create Event</a>{% endif %}
       {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a href="/admin?section=xml-workshop{{ server_qs }}">XML Tools</a>{% endif %}
+      {% if section_allowed('shop') or section_allowed('economy') %}<a href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}">Shop / Money</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}">Restart Server</a>{% endif %}
     </div>
     {% endif %}
@@ -3953,8 +3954,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
       {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Map & Heatmaps</a>{% endif %}
       {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}">Airdrops & Events</a>{% endif %}
-      {% if section_allowed('economy') %}<a class="tab-link {{ 'active' if active_section == 'economy' else '' }}" href="/admin?section=economy{{ server_qs }}">Money & Economy</a>{% endif %}
-      {% if section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section == 'shop' else '' }}" href="/admin?section=shop{{ server_qs }}">Shop Items</a>{% endif %}
+      {% if section_allowed('economy') or section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
@@ -3975,8 +3975,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
           {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Map & Heatmaps</option>{% endif %}
           {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Airdrops & Events</option>{% endif %}
-          {% if section_allowed('economy') %}<option value="/admin?section=economy{{ server_qs }}" {{ 'selected' if active_section == 'economy' else '' }}>Money & Economy</option>{% endif %}
-          {% if section_allowed('shop') %}<option value="/admin?section=shop{{ server_qs }}" {{ 'selected' if active_section == 'shop' else '' }}>Shop Items</option>{% endif %}
+          {% if section_allowed('economy') or section_allowed('shop') %}<option value="/admin?section={{ shop_economy_section }}{{ server_qs }}" {{ 'selected' if active_section in ['economy', 'shop'] else '' }}>Shop & Economy</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=reviews{{ server_qs }}" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
@@ -4017,12 +4016,12 @@ PAGE_TEMPLATE = """
           <h2>Admin Center</h2>
           <p class="tool-note">One place for server setup, Discord messages, rules, moderation guard and live server controls.</p>
           <nav class="command-subnav" aria-label="Admin center tools">
-            <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#access">Servers</a>
+            <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks">Setup</a>
             <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}#feed-routes">Feeds</a>
-            {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Discord</a>{% endif %}
+            {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Messages</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
-            {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}#server-control">Control</a>{% endif %}
+            {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}#server-control">Restart & Damage</a>{% endif %}
           </nav>
         </div>
       </div>
@@ -4172,10 +4171,10 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <div class="quick-guide-grid" aria-label="Common dashboard jobs">
-        <a class="quick-guide-link" href="/admin?section=access&setup_tool=servers{{ server_qs }}"><strong>Connect a server</strong><span>Use Admin Center for Nitrado login, map, platform and dashboard access.</span></a>
+        <a class="quick-guide-link" href="/admin?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks"><strong>Set up or change server</strong><span>Change map, platform, PVE/PVP mode, Nitrado details, dashboard logins and linked servers.</span></a>
         <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
         <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
-        <a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}"><strong>Set shop prices</strong><span>Use Shop Items for item prices, bundles, limits, availability and role restrictions.</span></a>
+        <a class="quick-guide-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Set up shop or money</strong><span>Add buyable items, build bundles, adjust wallets, set wages and choose the currency wording.</span></a>
         <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
         <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Admin Center controls for restarts, base damage and container damage schedules.</span></a>
         <a class="quick-guide-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
@@ -4188,8 +4187,7 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
       <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
-      <a class="category-link" href="/admin?section=economy{{ server_qs }}"><strong>Money & Economy</strong><span>Wallets, wages, rewards and punishments.</span></a>
-      <a class="category-link" href="/admin?section=shop{{ server_qs }}"><strong>Shop Items</strong><span>Items, prices, limits, availability and role restrictions.</span></a>
+      <a class="category-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Shop & Economy</strong><span>Items, bundles, prices, wallets, wages and rewards.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
       <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
@@ -6155,13 +6153,24 @@ PAGE_TEMPLATE = """
     <section class="section-panel" id="economy">
       <div class="section-head">
         <div>
-          <h2>Economy</h2>
-          <p class="tool-note">Control wallets, recurring wages, and reward or punishment rules without touching raw JSON.</p>
+          <h2>Shop & Economy</h2>
+          <p class="tool-note">Start with the job you want: shop prices, bundles, player money, wages, rewards or currency wording.</p>
         </div>
       </div>
       <div class="panel-grid">
+        <article class="admin-panel full" id="economy-common-tasks">
+          <h3>Common Shop & Economy Tasks</h3>
+          <div class="quick-guide-grid">
+            {% if section_allowed('shop') %}<a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}#shop-edit-form"><strong>Add or price one item</strong><span>Create a buyable item, set price, category, limits and role access.</span></a>{% endif %}
+            {% if section_allowed('shop') %}<a class="quick-guide-link" href="/admin?section=shop{{ server_qs }}#shop-bundle-form"><strong>Build a bundle / kit</strong><span>Make one purchase deliver multiple items such as a base kit, medical kit or raid kit.</span></a>{% endif %}
+            <a class="quick-guide-link" href="#wallet-adjustment"><strong>Give or remove money</strong><span>Adjust a player or faction wallet for prizes, refunds or punishments.</span></a>
+            {% if server and server.dashboard_access.features.wages %}<a class="quick-guide-link" href="#wage-form"><strong>Set automatic wages</strong><span>Pay one player, a Discord role or a faction on a daily, weekly or monthly schedule.</span></a>{% endif %}
+            <a class="quick-guide-link" href="#economy-rules"><strong>Reward kills or activity</strong><span>Create simple reward or punishment rules for kills, deaths, longshots and chat keywords.</span></a>
+            <a class="quick-guide-link" href="#economy-currency"><strong>Rename the money</strong><span>Choose whether the dashboard and bot say pennies, coins, credits or another currency label.</span></a>
+          </div>
+        </article>
         <article class="admin-panel">
-          <h3>Currency</h3>
+          <h3 id="economy-currency">Currency</h3>
           <form class="admin-form" method="post" action="/api/admin/economy-settings" data-route="/api/admin/economy-settings">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
@@ -6206,7 +6215,7 @@ PAGE_TEMPLATE = """
             <div class="full"><button type="submit">Save Wage</button> <span class="result muted"></span></div>
           </form>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel" id="wallet-adjustment">
           <h3>Wallet Adjustment</h3>
           <form class="admin-form" method="post" action="/api/admin/wallet-adjustment" data-route="/api/admin/wallet-adjustment">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -6268,7 +6277,7 @@ PAGE_TEMPLATE = """
             </tbody>
           </table>
         </article>
-        <article class="admin-panel">
+        <article class="admin-panel" id="economy-rules">
           <h3>Reward / Punishment Rule</h3>
           <form class="admin-form" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -8439,6 +8448,52 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <div class="panel-grid">
+        <article class="admin-panel full" id="setup-common-tasks">
+          <h3>Common Setup Tasks</h3>
+          <div class="quick-guide-grid">
+            <a class="quick-guide-link" href="#server-profile"><strong>Change PVE / PVP / map</strong><span>Update the basic server profile without entering Nitrado tokens again.</span></a>
+            <a class="quick-guide-link" href="#nitrado-connection"><strong>Fix Nitrado connection</strong><span>Replace API token, service ID, FTP login or password only when they have changed.</span></a>
+            <a class="quick-guide-link" href="/admin?section=access&setup_tool=feeds{{ server_qs }}#feed-routes"><strong>Move Discord feeds</strong><span>See every feed and choose which existing channel it posts into.</span></a>
+            <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}#server-control"><strong>Restart or schedule raid weekend</strong><span>Restart, stop, base damage, container damage and vehicle reset schedules.</span></a>
+            <a class="quick-guide-link" href="#temporary-logins"><strong>Give staff dashboard access</strong><span>Create short-lived logins for helpers without sharing your owner details.</span></a>
+            <a class="quick-guide-link" href="#linked-servers"><strong>Switch or link servers</strong><span>Join multiple dashboards into one login and choose the active server.</span></a>
+          </div>
+        </article>
+        <article class="admin-panel full" id="server-profile">
+          <h3>Server Profile</h3>
+          <form class="admin-form" method="post" action="/api/admin/server-profile" data-route="/api/admin/server-profile">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers&guild_id={{ server.guild_id if server else '' }}#server-profile">
+            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <label>Server style
+              {% set profile_mode = (server.config.server_mode if server and server.config.server_mode else 'hybrid') %}
+              <select name="server_mode">
+                <option value="hybrid" {% if profile_mode == 'hybrid' %}selected{% endif %}>Hybrid PVP + PVE</option>
+                <option value="pvp" {% if profile_mode == 'pvp' %}selected{% endif %}>PVP only</option>
+                <option value="pve" {% if profile_mode == 'pve' %}selected{% endif %}>PVE only</option>
+              </select>
+            </label>
+            <label>Platform
+              {% set profile_platform = (server.platform if server else 'xbox') %}
+              <select name="server_platform">
+                <option value="xbox" {% if profile_platform == 'xbox' %}selected{% endif %}>Xbox</option>
+                <option value="playstation" {% if profile_platform == 'playstation' %}selected{% endif %}>PlayStation</option>
+                <option value="pc" {% if profile_platform == 'pc' %}selected{% endif %}>PC</option>
+              </select>
+            </label>
+            <label>Map
+              {% set profile_map = (server.map_key if server else 'chernarus') %}
+              <select name="server_map">
+                <option value="chernarus" {% if profile_map == 'chernarus' %}selected{% endif %}>Chernarus</option>
+                <option value="livonia" {% if profile_map == 'livonia' %}selected{% endif %}>Livonia</option>
+                <option value="sakhal" {% if profile_map == 'sakhal' %}selected{% endif %}>Sakhal</option>
+              </select>
+            </label>
+            <label>Display name <input name="guild_name" value="{{ server.guild_name if server else '' }}" placeholder="optional dashboard name"></label>
+            <div class="full"><button type="submit">Save Server Profile</button> <span class="result muted"></span></div>
+          </form>
+        </article>
         {% if auth.kind == "owner" %}
         <article class="admin-panel">
           <h3>Feature Access</h3>
@@ -12223,10 +12278,11 @@ PAGE_TEMPLATE = """
       "/api/admin/link-enforcement",
       "/api/admin/on-screen-message",
       "/api/admin/server-control",
-    "/api/admin/guild-access",
-    "/api/admin/nitrado-credentials",
-    "/api/admin/link-server",
-    "/api/owner/guild-action",
+      "/api/admin/guild-access",
+      "/api/admin/server-profile",
+      "/api/admin/nitrado-credentials",
+      "/api/admin/link-server",
+      "/api/owner/guild-action",
     ]);
     function shouldRefreshAfterSave(form) {
       if (!form || form.classList.contains("inline-action") || form.dataset.scenarioActionForm) return false;
@@ -14607,6 +14663,7 @@ ADMIN_ROUTES = [
     "/api/admin/scenario-event-status",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
+    "/api/admin/server-profile",
     "/api/admin/nitrado-credentials",
     "/api/admin/temp-login",
     "/api/admin/temp-login-action",
@@ -19905,6 +19962,15 @@ def normalize_dashboard_server_platform(value: Any) -> str:
     return "xbox"
 
 
+def normalize_dashboard_server_mode(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+    if text in {"pve", "pveonly", "playerve", "playervsenvironment"}:
+        return "pve"
+    if text in {"pvp", "pvponly", "playervsplayer"}:
+        return "pvp"
+    return "hybrid"
+
+
 def dashboard_server_platform_label(value: Any) -> str:
     key = normalize_dashboard_server_platform(value)
     if key == "playstation":
@@ -23014,8 +23080,8 @@ COMMAND_SECTION_META = {
     "members": {"kicker": "Roster", "title": "Members", "body": "Inspect linked members, wallet state, faction status and dashboard-facing player data."},
     "heatmaps": {"kicker": "Intel", "title": "Map & Heatmaps", "body": "Read activity hotspots and movement signals from your server logs."},
     "pve": {"kicker": "Live Ops", "title": "Airdrops & Events", "body": "Queue, upload and track airdrops, hordes, animal packs, vehicles and CE XML event scenes."},
-    "economy": {"kicker": "Banking", "title": "Money & Economy", "body": "Control private money, faction treasury tools and transfer records."},
-    "shop": {"kicker": "Trading", "title": "Shop Items", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
+    "economy": {"kicker": "Trading", "title": "Shop & Economy", "body": "Choose plain shop, bundle, wallet, wage and reward tasks for the selected server."},
+    "shop": {"kicker": "Trading", "title": "Shop Item Editor", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
     "xml-workshop": {"kicker": "Files", "title": "XML & Loadouts", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
     "reviews": {"kicker": "Feedback", "title": "Reviews", "body": "Read public Wandering Bot feedback and leave a dashboard review from this server."},
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
@@ -27461,6 +27527,42 @@ def api_link_server():
         {"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)},
         "access",
         "#linked-servers",
+    )
+
+
+@APP.post("/api/admin/server-profile")
+def api_server_profile():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+
+    server_mode = normalize_dashboard_server_mode(raw_payload.get("server_mode") or config.get("server_mode"))
+    server_platform = normalize_dashboard_server_platform(raw_payload.get("server_platform") or config.get("server_platform") or config.get("platform"))
+    server_map = map_key_for(raw_payload.get("server_map") or config.get("server_map") or config.get("map") or "chernarus")
+    display_name = str(raw_payload.get("guild_name") or "").strip()
+
+    config["server_mode"] = server_mode
+    config["server_platform"] = server_platform
+    config["server_map"] = server_map
+    if display_name:
+        config["guild_name"] = display_name[:120]
+    config["server_profile_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "server_mode": server_mode, "server_platform": server_platform, "server_map": server_map, "note": "Saved server profile."},
+        "access",
+        "#server-profile",
     )
 
 

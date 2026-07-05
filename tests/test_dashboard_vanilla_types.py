@@ -90,6 +90,17 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("dashboard_feed_route_groups", source)
         self.assertIn("dashboard_custom_feed_rows", source)
 
+    def test_dashboard_has_plain_task_entry_points_for_setup_and_economy(self):
+        source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
+
+        self.assertIn("Shop & Economy", source)
+        self.assertIn('id="setup-common-tasks"', source)
+        self.assertIn('id="economy-common-tasks"', source)
+        self.assertIn('action="/api/admin/server-profile"', source)
+        self.assertIn('@APP.post("/api/admin/server-profile")', source)
+        self.assertIn("normalize_dashboard_server_mode", source)
+        self.assertIn("shop_economy_section", source)
+
     def test_reviews_page_and_dashboard_section_are_wired(self):
         source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")
 
