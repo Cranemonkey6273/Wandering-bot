@@ -746,6 +746,7 @@ FILES = {
     "delivery_queue": "delivery_queue.json",
     "dashboard_audit_queue": "dashboard_audit_queue.json",
     "dashboard_admin": "dashboard_admin.json",
+    "dashboard_live_feeds": "dashboard_live_feeds.json",
     "heatmap": "heatmap.json",
     "pve_challenges": "pve_challenges.json",
     "pve_ai_campaigns": "pve_ai_campaigns.json",
@@ -889,6 +890,16 @@ FEED_ROUTE_PRIVATE_KEYS = {
 FEED_ROUTE_DEFAULT_NAMES = {key: label.lower().replace(" / ", "-").replace(" ", "-") for key, label in FEED_ROUTE_LABELS.items()}
 FEED_ROUTE_KEYS = tuple(dict.fromkeys(key for group in FEED_ROUTE_GROUPS.values() for key in group["keys"]))
 CUSTOM_FEED_TYPES = ("text", "restart", "basedamage", "serverstatus", "heatmap")
+DASHBOARD_LIVE_FEED_DEFAULT_KEYS = (
+    "raids",
+    "building",
+    "placed_feed",
+    "flag_feed",
+    "cuts_feed",
+    "suicide_feed",
+    "unconscious_feed",
+)
+DASHBOARD_LIVE_FEED_ROW_LIMIT = 150
 DEFAULT_BILLING_PLANS = [
     {
         "id": "free_bot",
@@ -3131,6 +3142,7 @@ PAGE_TEMPLATE = """
     .mobile-section-picker label { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
     .section-panel { min-width: 0; padding: 1rem; scroll-margin-top: 8rem; }
     body[data-section="leaderboards"] { --accent: #f1c40f; }
+    body[data-section="live-feeds"] { --accent: #67f5e7; }
     body[data-section="automations"] { --accent: #6fd3ff; }
     body[data-section="dayz-converter"] { --accent: #79c7dd; }
     body[data-section="loot-engine"] { --accent: #c8d46a; }
@@ -3848,6 +3860,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}">Live Feeds</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
@@ -3952,6 +3965,7 @@ PAGE_TEMPLATE = """
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
+      <a class="tab-link {{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}">Live Feeds</a>
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
       {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
@@ -3973,6 +3987,7 @@ PAGE_TEMPLATE = """
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
+          <option value="/admin?section=live-feeds{{ server_qs }}" {{ 'selected' if active_section == 'live-feeds' else '' }}>Live Feeds</option>
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
@@ -4186,6 +4201,7 @@ PAGE_TEMPLATE = """
 
     <section class="category-grid" aria-label="Main categories">
       <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboards</strong><span>Live kills, deaths, builds and rankings.</span></a>
+      <a class="category-link" href="/admin?section=live-feeds{{ server_qs }}"><strong>Live Feeds</strong><span>Dashboard-only build, placed, raid and damage feed inbox.</span></a>
       <a class="category-link" href="/admin?section=access&setup_tool=discord{{ server_qs }}"><strong>Admin Center</strong><span>Servers, Discord setup, rules, moderation and server controls.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
       <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
@@ -4223,6 +4239,62 @@ PAGE_TEMPLATE = """
           </article>
           {% endfor %}
         </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "live-feeds" %}
+    <section class="section-panel" id="live-feeds">
+      <div class="section-head">
+        <div>
+          <h2>Live Feeds</h2>
+          <p class="tool-note">Choose which ADM feeds are visible here. Discord channel routes stay separate, so noisy feeds can live on the dashboard without posting into your merged Discord.</p>
+        </div>
+        {% if server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
+      </div>
+      <div class="panel-grid">
+        {% if server %}
+        <article class="admin-panel full" id="live-feed-settings">
+          <h3>Dashboard Feed Selection</h3>
+          <form class="admin-form" method="post" action="/api/admin/live-feed-settings" data-route="/api/admin/live-feed-settings">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=live-feeds&guild_id={{ server.guild_id }}#live-feeds">
+            {% for group in server.dashboard_live_feed_filter_groups %}
+            <div class="full">
+              <h4>{{ group.label }}</h4>
+              <div class="check-grid">
+                {% for feed in group.rows %}
+                <label class="check"><input type="checkbox" name="feed_keys" value="{{ feed.key }}" {% if feed.checked %}checked{% endif %}> {{ feed.label }}{% if feed.private %} <small class="muted">private</small>{% endif %}</label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+            <div class="full modal-actions"><button type="submit">Save Dashboard Feeds</button><span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel full" id="live-feed-inbox">
+          <h3>Recent Feed Events</h3>
+          <table class="table">
+            <thead><tr><th>Time</th><th>Feed</th><th>Player</th><th>Summary</th><th>Coords</th><th>Raw</th></tr></thead>
+            <tbody>
+              {% for row in server.dashboard_live_feed_rows %}
+              <tr>
+                <td>{{ row.time_label or 'unknown' }}</td>
+                <td><strong>{{ row.feed_label }}</strong><br><small class="muted"><code>{{ row.event_type }}</code></small></td>
+                <td>{{ row.player }}</td>
+                <td>{{ row.summary }}</td>
+                <td>{% if row.coords %}<code>{{ row.coords }}</code>{% if row.map_url %}<br><a href="{{ row.map_url }}" target="_blank" rel="noopener">Open map</a>{% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+                <td><details><summary>Line</summary><code>{{ row.raw_line }}</code></details></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No selected feed events stored yet. New ADM events will appear here after the bot processes them.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% else %}
+        <article class="admin-panel"><h3>No server selected</h3><p class="tool-note">Select a server before viewing dashboard feed events.</p></article>
+        {% endif %}
       </div>
     </section>
     {% endif %}
@@ -22561,6 +22633,98 @@ def dashboard_custom_feed_rows(config: Any, channels: list[dict[str, str]]) -> l
     return rows
 
 
+def dashboard_live_feed_selected_keys(value: Any, default: tuple[str, ...] | list[str] | None = None) -> list[str]:
+    if value is None:
+        return list(default if default is not None else DASHBOARD_LIVE_FEED_DEFAULT_KEYS)
+    if isinstance(value, (list, tuple, set)):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[\s,]+", str(value or ""))
+    keys = []
+    for item in raw_items:
+        key = str(item or "").strip()
+        if key in FEED_ROUTE_KEYS and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def dashboard_live_feed_visible_keys(config: Any) -> set[str]:
+    if not isinstance(config, dict) or "dashboard_live_feed_keys" not in config:
+        return set(DASHBOARD_LIVE_FEED_DEFAULT_KEYS)
+    return set(dashboard_live_feed_selected_keys(config.get("dashboard_live_feed_keys"), []))
+
+
+def dashboard_live_feed_filter_groups(config: Any) -> list[dict[str, Any]]:
+    visible = dashboard_live_feed_visible_keys(config)
+    groups = []
+    for group_key, group in FEED_ROUTE_GROUPS.items():
+        rows = []
+        for key in group.get("keys", []):
+            rows.append(
+                {
+                    "key": key,
+                    "label": FEED_ROUTE_LABELS.get(key, key.replace("_", " ").title()),
+                    "checked": key in visible,
+                    "private": key in FEED_ROUTE_PRIVATE_KEYS,
+                }
+            )
+        groups.append({"key": group_key, "label": group.get("label", group_key.title()), "rows": rows})
+    return groups
+
+
+def dashboard_live_feed_display_time(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(DASHBOARD_TIMEZONE).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return text[:19].replace("T", " ")
+
+
+def dashboard_live_feed_events_for_guild(store: Any, guild_id: str) -> list[dict[str, Any]]:
+    if not isinstance(store, dict):
+        return []
+    events = store.get(str(guild_id))
+    if isinstance(events, list):
+        return [item for item in events if isinstance(item, dict)]
+    guilds = store.get("guilds")
+    if isinstance(guilds, dict) and isinstance(guilds.get(str(guild_id)), list):
+        return [item for item in guilds[str(guild_id)] if isinstance(item, dict)]
+    return []
+
+
+def dashboard_live_feed_rows(config: Any, live_feed_store: Any, guild_id: str, limit: int = DASHBOARD_LIVE_FEED_ROW_LIMIT) -> list[dict[str, Any]]:
+    visible = dashboard_live_feed_visible_keys(config)
+    rows = []
+    for record in reversed(dashboard_live_feed_events_for_guild(live_feed_store, guild_id)):
+        feed_key = str(record.get("feed_key") or "").strip()
+        if feed_key not in visible:
+            continue
+        occurred_at = record.get("occurred_at") or record.get("recorded_at")
+        rows.append(
+            {
+                "id": str(record.get("id") or ""),
+                "feed_key": feed_key,
+                "feed_label": str(record.get("feed_label") or FEED_ROUTE_LABELS.get(feed_key) or feed_key.replace("_", " ").title()),
+                "event_type": str(record.get("event_type") or ""),
+                "player": compact_scenario_text(record.get("player") or "Unknown", 80),
+                "summary": compact_scenario_text(record.get("summary") or record.get("raw_line") or "", 220),
+                "coords": compact_scenario_text(record.get("coords") or "", 80),
+                "map_url": str(record.get("map_url") or "").strip(),
+                "raw_line": compact_scenario_text(record.get("raw_line") or "", 900),
+                "occurred_at": str(occurred_at or ""),
+                "time_label": dashboard_live_feed_display_time(occurred_at),
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def dashboard_next_custom_feed_id(feeds: Any) -> int:
     if not isinstance(feeds, list):
         return 1
@@ -23287,6 +23451,7 @@ VALID_DASHBOARD_THEMES = {
 COMMAND_SECTION_META = {
     "overview": {"kicker": "Start", "title": "Start Here", "body": "Live server state plus plain shortcuts for the jobs admins need most."},
     "leaderboards": {"kicker": "Progression", "title": "Leaderboards", "body": "Review player rankings, activity totals and competitive server stats."},
+    "live-feeds": {"kicker": "Intel", "title": "Live Feeds", "body": "Read selected ADM feeds in the dashboard without needing every feed to post into Discord."},
     "automations": {"kicker": "Discord", "title": "Discord Setup", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
     "factions": {"kicker": "Groups", "title": "Factions", "body": "Manage faction records, balances, wages and server-linked group data."},
     "zones": {"kicker": "Territory", "title": "Zones & Radar", "body": "Draft radar, safe and PVP zones with map-first editing and coordinate readouts."},
@@ -24525,6 +24690,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     needs_heatmap = needs_full or active_section == "heatmaps"
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
+    needs_live_feeds = active_section == "live-feeds"
     needs_discord_roles = needs_full or active_section in {"automations", "factions", "zones", "economy", "xml-workshop", "loot-engine", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
@@ -24553,6 +24719,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     rpt_event_tracker_store = (runtime_state.get("rpt_event_tracker") or load_store("rpt_event_tracker", {})) if needs_pve else {}
     swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
+    dashboard_live_feeds = (runtime_state.get("dashboard_live_feeds") or load_store("dashboard_live_feeds", {})) if needs_live_feeds else {}
     shop_items: list[dict[str, Any]] = []
     shop_categories = shop_category_map_from_items(shop_items) if needs_shop else {}
     shop_status_groups = shop_status_map_from_items(shop_items) if needs_shop else {}
@@ -24652,6 +24819,9 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "channels": channels,
                 "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
                 "custom_feed_rows": redact(dashboard_custom_feed_rows(config, channels)),
+                "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
+                "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, dashboard_live_feeds, guild_id) if needs_live_feeds else []),
+                "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(dashboard_live_feeds, guild_id)) if needs_live_feeds else 0,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "zones": redact(zones),
@@ -24762,7 +24932,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "live-feeds", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
@@ -25990,6 +26160,38 @@ def api_custom_feed():
         {"ok": True, "feed_id": feed_id, "note": note},
         "access",
         "#custom-feeds",
+    )
+
+
+@APP.post("/api/admin/live-feed-settings")
+def api_live_feed_settings():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+
+    selected_keys = dashboard_live_feed_selected_keys(raw_payload.get("feed_keys"), [])
+    config["dashboard_live_feed_keys"] = selected_keys
+    config["dashboard_live_feed_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    g.dashboard_audit_payload = {
+        "guild_id": guild_id,
+        "dashboard_live_feed_keys": selected_keys,
+    }
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "feed_keys": selected_keys, "note": "Saved dashboard live feed selection."},
+        "live-feeds",
+        "#live-feeds",
     )
 
 

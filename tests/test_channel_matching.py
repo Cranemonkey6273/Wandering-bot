@@ -111,6 +111,26 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.channel_matches_bot_default_name(channel, "swear_jar_feed"))
         self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
 
+    def test_dashboard_live_feed_mapping_records_dashboard_only_events(self):
+        previous = bot.dashboard_live_feeds
+        try:
+            bot.dashboard_live_feeds = {}
+
+            self.assertEqual("placed_feed", bot.dashboard_live_feed_key_for_event("placed"))
+            self.assertEqual("building", bot.dashboard_live_feed_key_for_event("build"))
+            changed = bot.record_dashboard_live_feed(
+                "guild-1",
+                "placed",
+                '10:00:00 | Player "Crane" (pos=<1000,2000,10>) placed FenceKit',
+            )
+        finally:
+            recorded = bot.dashboard_live_feeds
+            bot.dashboard_live_feeds = previous
+
+        self.assertTrue(changed)
+        self.assertEqual("placed_feed", recorded["guild-1"][0]["feed_key"])
+        self.assertIn("Crane", recorded["guild-1"][0]["summary"])
+
     def test_setup_server_settings_preserve_existing_values_when_blank(self):
         config = {
             "server_platform": "playstation",

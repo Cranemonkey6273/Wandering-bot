@@ -94,6 +94,29 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertFalse(manual)
         self.assertIn("channel ID", error)
 
+    def test_live_feed_selection_accepts_repeated_form_values(self):
+        selected = dashboard.dashboard_live_feed_selected_keys(["building", "placed_feed", "bad-key"], [])
+
+        self.assertEqual(["building", "placed_feed"], selected)
+
+    def test_live_feed_rows_filter_by_server_selected_keys(self):
+        store = {
+            "guild-1": [
+                {"id": "one", "feed_key": "building", "event_type": "build", "player": "Builder", "summary": "built wall", "occurred_at": "2026-07-06T10:00:00+00:00"},
+                {"id": "two", "feed_key": "killfeed", "event_type": "kill", "player": "Killer", "summary": "kill event", "occurred_at": "2026-07-06T10:01:00+00:00"},
+                {"id": "three", "feed_key": "placed_feed", "event_type": "placed", "player": "Builder", "summary": "placed tent", "occurred_at": "2026-07-06T10:02:00+00:00"},
+            ],
+            "guild-2": [
+                {"id": "other", "feed_key": "building", "event_type": "build", "player": "Other", "summary": "other server", "occurred_at": "2026-07-06T10:03:00+00:00"},
+            ],
+        }
+        config = {"dashboard_live_feed_keys": ["building", "placed_feed"]}
+
+        rows = dashboard.dashboard_live_feed_rows(config, store, "guild-1", limit=10)
+
+        self.assertEqual(["placed_feed", "building"], [row["feed_key"] for row in rows])
+        self.assertEqual(["placed tent", "built wall"], [row["summary"] for row in rows])
+
     def test_gameserver_action_posts_to_restart_and_stop_endpoints(self):
         calls = []
 

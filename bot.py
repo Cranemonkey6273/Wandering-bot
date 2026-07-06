@@ -91,6 +91,7 @@ GUILD_CONFIG_FILE = data_path("guild_configs.json")
 GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 DASHBOARD_AUDIT_QUEUE_FILE = data_path("dashboard_audit_queue.json")
+DASHBOARD_LIVE_FEEDS_FILE = data_path("dashboard_live_feeds.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
@@ -196,6 +197,7 @@ recent_kills_by_killer = {}        # {guild_id: {killer: [(timestamp, victim, we
 first_blood_today = {}             # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
 final_kill_today = {}              # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
 daily_recap_data = {}              # {guild_id: {"YYYY-MM-DD": {kills, headshots, vehicle_kills, killers, weapons, zones, longshots, ...}}}
+dashboard_live_feeds = {}          # {guild_id: [recent ADM-derived dashboard feed rows]}
 bounties = {}                      # {guild_id: {target_player_lower: {target, amount, posted_by, posted_at, currency}}}
 survival_streaks = {}              # {guild_id: {player: {streak_start_date, last_alive_date, longest_days, current_days}}}
 recap_posted = {}                  # {guild_id: "YYYY-MM-DD"} to prevent double-posting
@@ -221,6 +223,10 @@ SURVIVAL_STREAK_MILESTONES = (7, 14, 30, 60, 100)
 BOUNTY_CURRENCY = os.getenv("WANDERING_BOUNTY_CURRENCY", "Rubles")
 THREAD_ON_LONGSHOT_METERS = 500
 THREAD_ON_RAMPAGE_KILLS = 5
+try:
+    DASHBOARD_LIVE_FEED_LIMIT = max(50, min(5000, int(os.getenv("WANDERING_DASHBOARD_LIVE_FEED_LIMIT", "500"))))
+except ValueError:
+    DASHBOARD_LIVE_FEED_LIMIT = 500
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
@@ -1214,6 +1220,155 @@ def extract_vehicle_kill_details(line):
         except Exception:
             pass
     return details
+
+
+DASHBOARD_LIVE_FEED_EVENT_KEYS = {
+    "kill": "killfeed",
+    "vehicle_kill": "killfeed",
+    "raid": "raids",
+    "build": "building",
+    "connect": "connections",
+    "disconnect": "disconnects",
+    "zombie_hit": "zombie_feed",
+    "zombie_kill": "zombie_feed",
+    "unconscious": "unconscious_feed",
+    "cut": "cuts_feed",
+    "bleedout": "cuts_feed",
+    "respawn": "cuts_feed",
+    "suicide": "suicide_feed",
+    "flag_raise": "flag_feed",
+    "flag_lower": "flag_feed",
+    "packed": "placed_feed",
+    "placed": "placed_feed",
+    "animal_kill": "pve_hunting",
+}
+
+DASHBOARD_LIVE_FEED_LABELS = {
+    "killfeed": "Killfeed",
+    "raids": "Raid feed",
+    "building": "Build feed",
+    "connections": "Connected players",
+    "disconnects": "Disconnected players",
+    "zombie_feed": "Zombie feed",
+    "unconscious_feed": "Unconscious feed",
+    "cuts_feed": "Cuts and damage",
+    "suicide_feed": "Suicide feed",
+    "flag_feed": "Flag feed",
+    "placed_feed": "Placed/packed items",
+    "pve_hunting": "PVE hunting",
+}
+
+
+def dashboard_live_feed_key_for_event(event_type):
+    return DASHBOARD_LIVE_FEED_EVENT_KEYS.get(str(event_type or "").strip())
+
+
+def compact_dashboard_live_feed_text(value, limit=260):
+    text = re.sub(r"\s+", " ", str(value or "").replace("`", "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip(" ,;|") + "..."
+
+
+def dashboard_live_feed_summary(event_type, line):
+    event_type = str(event_type or "").strip()
+    player = extract_player_name(line)
+
+    if event_type == "kill":
+        details = extract_pvp_kill_details(line) or {}
+        killer = details.get("killer") or "Unknown"
+        victim = details.get("victim") or "Unknown"
+        weapon = details.get("weapon") or ""
+        distance = details.get("distance")
+        suffix = f" with {weapon}" if weapon else ""
+        if distance:
+            suffix += f" from {float(distance):.0f}m"
+        return compact_dashboard_live_feed_text(f"{killer} killed {victim}{suffix}"), killer
+
+    if event_type == "vehicle_kill":
+        details = extract_vehicle_kill_details(line) or {}
+        victim = details.get("victim") or player
+        vehicle = details.get("vehicle") or "vehicle"
+        return compact_dashboard_live_feed_text(f"{victim} died to {vehicle}"), victim
+
+    if event_type == "connect":
+        return compact_dashboard_live_feed_text(f"{player} connected"), player
+    if event_type == "disconnect":
+        return compact_dashboard_live_feed_text(f"{player} disconnected"), player
+    if event_type == "raid":
+        return compact_dashboard_live_feed_text(f"{player} raid/base damage activity"), player
+    if event_type == "build":
+        return compact_dashboard_live_feed_text(f"{player} build activity"), player
+    if event_type == "placed":
+        return compact_dashboard_live_feed_text(f"{player} placed {extract_placed_object(line)}"), player
+    if event_type == "packed":
+        return compact_dashboard_live_feed_text(f"{player} packed {extract_packed_object(line)}"), player
+    if event_type == "flag_raise":
+        return compact_dashboard_live_feed_text(f"{player} raised a territory flag"), player
+    if event_type == "flag_lower":
+        return compact_dashboard_live_feed_text(f"{player} lowered a territory flag"), player
+    if event_type == "suicide":
+        return compact_dashboard_live_feed_text(f"{player} suicide event"), player
+    if event_type == "bleedout":
+        return compact_dashboard_live_feed_text(f"{player} bled out"), player
+    if event_type == "respawn":
+        return compact_dashboard_live_feed_text(f"{player} chose to respawn"), player
+    if event_type == "cut":
+        return compact_dashboard_live_feed_text(f"{player} damage event"), player
+    if event_type == "unconscious":
+        return compact_dashboard_live_feed_text(f"{player} unconscious event"), player
+    if event_type in {"zombie_hit", "zombie_kill"}:
+        return compact_dashboard_live_feed_text(f"{player} infected event"), player
+    if event_type == "animal_kill":
+        return compact_dashboard_live_feed_text(f"{player} hunting/animal event"), player
+
+    return compact_dashboard_live_feed_text(line, 180), player
+
+
+def record_dashboard_live_feed(guild_id, event_type, line, event_time=None):
+    feed_key = dashboard_live_feed_key_for_event(event_type)
+    if not feed_key:
+        return False
+
+    guild_id = str(guild_id)
+    records = dashboard_live_feeds.setdefault(guild_id, [])
+    if not isinstance(records, list):
+        records = []
+        dashboard_live_feeds[guild_id] = records
+
+    occurred = event_time if event_time else datetime.now(UTC)
+    if hasattr(occurred, "isoformat"):
+        occurred_at = occurred.isoformat()
+    else:
+        occurred_at = str(occurred or "")
+
+    summary, player = dashboard_live_feed_summary(event_type, line)
+    coords = extract_adm_coords(line) or ""
+    record_id = hashlib.sha1(
+        f"{guild_id}|{feed_key}|{event_type}|{occurred_at}|{line}".encode("utf-8", errors="ignore")
+    ).hexdigest()[:16]
+    if any(str(item.get("id") or "") == record_id for item in records[-25:] if isinstance(item, dict)):
+        return False
+
+    records.append(
+        {
+            "id": record_id,
+            "guild_id": guild_id,
+            "feed_key": feed_key,
+            "feed_label": DASHBOARD_LIVE_FEED_LABELS.get(feed_key, feed_key.replace("_", " ").title()),
+            "event_type": str(event_type or ""),
+            "player": compact_dashboard_live_feed_text(player or "Unknown", 80),
+            "summary": summary,
+            "coords": compact_dashboard_live_feed_text(coords, 80),
+            "map_url": build_adm_map_link(line, guild_id) or "",
+            "raw_line": compact_dashboard_live_feed_text(line, 900),
+            "occurred_at": occurred_at,
+            "recorded_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    if len(records) > DASHBOARD_LIVE_FEED_LIMIT:
+        del records[:-DASHBOARD_LIVE_FEED_LIMIT]
+    return True
 
 
 def pvp_kill_signature(guild_id, details):
@@ -8404,6 +8559,16 @@ def load_daily_recap():
 
 def save_daily_recap():
     save_json(DAILY_RECAP_FILE, daily_recap_data)
+
+
+def load_dashboard_live_feeds():
+    global dashboard_live_feeds
+    data = load_json(DASHBOARD_LIVE_FEEDS_FILE) or {}
+    dashboard_live_feeds = data if isinstance(data, dict) else {}
+
+
+def save_dashboard_live_feeds():
+    save_json(DASHBOARD_LIVE_FEEDS_FILE, dashboard_live_feeds)
 
 
 def load_recap_posted():
@@ -16952,6 +17117,7 @@ async def parse_adm(guild_id, config):
     online_state_changed = False
     online_state_reason = ""
     stale_adm_skipped = 0
+    dashboard_live_feed_changed = False
 
     for raw_line in lines[-250:]:
 
@@ -17042,6 +17208,8 @@ async def parse_adm(guild_id, config):
         remember_player_location_from_adm(guild_id, line)
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
+        if record_dashboard_live_feed(guild_id, event_type, line, event_time=event_time):
+            dashboard_live_feed_changed = True
 
         zone = get_zone_from_line(line)
         coords = extract_adm_coords(line)
@@ -18379,6 +18547,9 @@ async def parse_adm(guild_id, config):
                                 )
                             except Exception as thread_error:
                                 print(f"[THREAD] longshot thread failed: {thread_error}")
+
+    if dashboard_live_feed_changed:
+        save_dashboard_live_feeds()
 
     if stale_adm_skipped:
         context = adm_parse_context.get(str(guild_id), {})
@@ -50345,6 +50516,7 @@ async def on_ready():
     load_longshot_records()
     load_first_blood()
     load_daily_recap()
+    load_dashboard_live_feeds()
     load_bounties()
     load_survival_streaks()
     load_recap_posted()
@@ -50412,6 +50584,7 @@ try:
             "factions": factions,
             "wages": wages,
             "delivery_queue": delivery_queue,
+            "dashboard_live_feeds": dashboard_live_feeds,
             "discord_guild_counts": {
                 str(guild.id): {
                     "guild_name": guild.name,
