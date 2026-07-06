@@ -75,6 +75,25 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_manual_channel_id_accepts_channel_mentions_and_wins_over_dropdown(self):
+        channel_id, manual, error = dashboard.dashboard_channel_id_from_payload({
+            "channel_id": "111111111111111111",
+            "manual_channel_id": "<#222222222222222222>",
+        })
+
+        self.assertEqual("222222222222222222", channel_id)
+        self.assertTrue(manual)
+        self.assertEqual("", error)
+
+    def test_manual_channel_id_rejects_non_discord_ids(self):
+        channel_id, manual, error = dashboard.dashboard_channel_id_from_payload({
+            "manual_channel_id": "livonia-killfeed",
+        })
+
+        self.assertEqual("", channel_id)
+        self.assertFalse(manual)
+        self.assertIn("channel ID", error)
+
     def test_gameserver_action_posts_to_restart_and_stop_endpoints(self):
         calls = []
 

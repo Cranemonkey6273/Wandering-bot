@@ -8777,8 +8777,10 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
                     <select name="channel_id">
                       <option value="">Keep current</option>
+                      {% if feed.channel_id and not feed.exists %}<option value="{{ feed.channel_id }}" selected>Stored ID {{ feed.channel_id }}</option>{% endif %}
                       {% for channel in server.channels %}<option value="{{ channel.id }}" {% if feed.channel_id and channel.id == feed.channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
                     </select>
+                    <input name="manual_channel_id" inputmode="numeric" placeholder="or paste channel ID">
                     <select name="enabled">
                       <option value="true" {% if feed.enabled %}selected{% endif %}>On</option>
                       <option value="false" {% if not feed.enabled %}selected{% endif %}>Off</option>
@@ -8814,11 +8816,12 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Channel
-              <select name="channel_id" required>
+              <select name="channel_id">
                 <option value="">Select channel</option>
                 {% for channel in server.channels %}<option value="{{ channel.id }}">{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
+            <label>Manual channel ID <input name="manual_channel_id" inputmode="numeric" placeholder="optional Discord channel ID"></label>
             <label>Every minutes <input name="interval_minutes" type="number" min="5" max="10080" value="60"></label>
             <label>Enabled
               <select name="enabled">
@@ -8848,10 +8851,12 @@ PAGE_TEMPLATE = """
                   </select>
                 </td>
                 <td>
-                  <select name="channel_id" form="custom-feed-{{ feed.id }}" required>
+                  <select name="channel_id" form="custom-feed-{{ feed.id }}">
                     <option value="">Select channel</option>
+                    {% if feed.channel_id and not feed.exists %}<option value="{{ feed.channel_id }}" selected>Stored ID {{ feed.channel_id }}</option>{% endif %}
                     {% for channel in server.channels %}<option value="{{ channel.id }}" {% if feed.channel_id and channel.id == feed.channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
                   </select>
+                  <input name="manual_channel_id" form="custom-feed-{{ feed.id }}" inputmode="numeric" placeholder="or paste channel ID">
                   <small class="muted">{{ feed.channel_label }}</small>
                 </td>
                 <td><input name="interval_minutes" form="custom-feed-{{ feed.id }}" type="number" min="5" max="10080" value="{{ feed.interval_minutes }}"></td>
@@ -12008,7 +12013,7 @@ PAGE_TEMPLATE = """
         const match = Array.from(select.options).find((option) => option.value === text || option.dataset.channelId === text || option.textContent.trim() === text);
         if (match) return match.textContent.trim() || fallback;
       }
-      if (/^\\d+$/.test(text)) return "Unknown channel";
+      if (/^\\d+$/.test(text)) return `Unknown channel (${text})`;
       return text.startsWith("#") ? text : `#${text}`;
     }
     function embedTemplateFromCard(card) {
@@ -22444,8 +22449,41 @@ def channel_label_from_channels(channels: Any, value: Any, default: str = "no ch
             name = str(channel.get("name") or channel.get("key") or "").strip()
             return f"#{name}" if name else default
     if selection.isdigit():
-        return "Unknown channel"
+        return f"Unknown channel ({selection})"
     return selection if selection.startswith("#") else f"#{selection}"
+
+
+def normalize_dashboard_channel_id_input(value: Any) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return "", ""
+    match = re.search(r"\d{15,25}", text)
+    if not match:
+        return "", "channel ID must be a Discord channel ID or channel mention"
+    return match.group(0), ""
+
+
+def dashboard_channel_id_from_payload(payload: dict[str, Any]) -> tuple[str, bool, str]:
+    if not isinstance(payload, dict):
+        payload = {}
+    manual_id, manual_error = normalize_dashboard_channel_id_input(
+        payload.get("manual_channel_id")
+        or payload.get("channel_id_manual")
+        or payload.get("manual_channel")
+        or ""
+    )
+    if manual_error:
+        return "", False, manual_error
+    if manual_id:
+        return manual_id, True, ""
+
+    selected_id = str(payload.get("channel_id") or payload.get("channel") or "").strip()
+    if not selected_id:
+        return "", False, ""
+    normalized_id, selected_error = normalize_dashboard_channel_id_input(selected_id)
+    if selected_error:
+        return "", False, "selected channel ID is invalid"
+    return normalized_id, False, ""
 
 
 def dashboard_disabled_channel_keys(config: Any) -> set[str]:
@@ -22502,6 +22540,7 @@ def dashboard_custom_feed_rows(config: Any, channels: list[dict[str, str]]) -> l
     feeds = config.get("custom_feeds")
     if not isinstance(feeds, list):
         return []
+    live_by_id = {str(channel.get("id") or ""): channel for channel in channels if isinstance(channel, dict)}
     rows = []
     for feed in feeds:
         if not isinstance(feed, dict):
@@ -22515,6 +22554,7 @@ def dashboard_custom_feed_rows(config: Any, channels: list[dict[str, str]]) -> l
             "enabled": dashboard_bool(feed.get("enabled"), True),
             "channel_id": channel_id,
             "channel_label": channel_label_from_channels(channels, channel_id, "missing channel"),
+            "exists": bool(live_by_id.get(channel_id)) if channel_id else False,
             "last_result": str(feed.get("last_result") or ""),
             "last_success": dashboard_bool(feed.get("last_success"), False),
         })
@@ -25841,10 +25881,13 @@ def api_feed_route():
         elif not enabled and feed_key not in disabled:
             disabled.append(feed_key)
 
-        channel_id = str(raw_payload.get("channel_id") or raw_payload.get("channel") or "").strip()
+        existing_channel_id = str(channels.get(feed_key) or "").strip()
+        channel_id, manual_channel_id, channel_error = dashboard_channel_id_from_payload(raw_payload)
+        if channel_error:
+            return jsonify({"ok": False, "error": channel_error}), 400
         if channel_id:
             live_channel_ids = {str(item.get("id") or "") for item in discord_guild_channels(guild_id)}
-            if live_channel_ids and channel_id not in live_channel_ids:
+            if live_channel_ids and channel_id not in live_channel_ids and not manual_channel_id and channel_id != existing_channel_id:
                 return jsonify({"ok": False, "error": "selected channel was not found in this Discord server"}), 400
             channels[feed_key] = channel_id
             if feed_key not in custom:
@@ -25896,12 +25939,6 @@ def api_custom_feed():
         feed_type = str(raw_payload.get("feed_type") or "text").strip().lower()
         if feed_type not in CUSTOM_FEED_TYPES:
             return jsonify({"ok": False, "error": "feed_type is not supported"}), 400
-        channel_id = str(raw_payload.get("channel_id") or raw_payload.get("channel") or "").strip()
-        if not channel_id:
-            return jsonify({"ok": False, "error": "channel_id is required"}), 400
-        live_channel_ids = {str(item.get("id") or "") for item in discord_guild_channels(guild_id)}
-        if live_channel_ids and channel_id not in live_channel_ids:
-            return jsonify({"ok": False, "error": "selected channel was not found in this Discord server"}), 400
 
         interval_minutes = max(5, min(10080, safe_int(raw_payload.get("interval_minutes"), 60)))
         message = str(raw_payload.get("message") or "")[:1800]
@@ -25923,6 +25960,16 @@ def api_custom_feed():
                 "last_post_ts": 0,
             }
             feeds.append(record)
+
+        existing_channel_id = str(record.get("channel_id") or "").strip()
+        channel_id, manual_channel_id, channel_error = dashboard_channel_id_from_payload(raw_payload)
+        if channel_error:
+            return jsonify({"ok": False, "error": channel_error}), 400
+        if not channel_id:
+            return jsonify({"ok": False, "error": "channel_id is required"}), 400
+        live_channel_ids = {str(item.get("id") or "") for item in discord_guild_channels(guild_id)}
+        if live_channel_ids and channel_id not in live_channel_ids and not manual_channel_id and channel_id != existing_channel_id:
+            return jsonify({"ok": False, "error": "selected channel was not found in this Discord server"}), 400
 
         record.update({
             "channel_id": safe_int(channel_id, 0),
