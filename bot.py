@@ -998,20 +998,74 @@ def has_server_profiles(config):
 
 def server_profile_name(profile_id, profile_config=None):
     profile_config = profile_config or {}
-    return str(profile_config.get("profile_name") or profile_config.get("name") or profile_id or "Server").strip()
+    return str(
+        profile_config.get("profile_name")
+        or profile_config.get("server_name")
+        or profile_config.get("display_name")
+        or profile_config.get("name")
+        or profile_id
+        or "Server"
+    ).strip()
+
+
+def inferred_base_server_profile_name(config, map_key):
+    config = config if isinstance(config, dict) else {}
+    profiles = server_profile_store(config) if isinstance(config.get("server_profiles"), dict) else {}
+    replacements = {
+        "chernarus": (r"\b(livonia|livo|enoch|sakhal|sakhalplus)\b", "Cherno"),
+        "livonia": (r"\b(chernarus|chernarusplus|cherno|sakhal|sakhalplus)\b", "Livo"),
+        "sakhal": (r"\b(chernarus|chernarusplus|cherno|livonia|livo|enoch)\b", "Sakhal"),
+    }
+    pattern, replacement = replacements.get(map_key, ("", ""))
+    if not pattern:
+        return ""
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        name = server_profile_name("", profile)
+        if not name or name == "Server":
+            continue
+        inferred = re.sub(pattern, replacement, name, flags=re.IGNORECASE).strip()
+        if inferred and inferred != name:
+            return inferred
+    return ""
 
 
 def base_server_profile_name(config):
     config = config if isinstance(config, dict) else {}
-    explicit = str(config.get("server_profile_name") or config.get("server_name") or "").strip()
+    explicit = str(
+        config.get("server_profile_name")
+        or config.get("server_name")
+        or config.get("profile_name")
+        or config.get("display_name")
+        or ""
+    ).strip()
     if explicit:
         return explicit
     map_key = normalize_discord_name(config.get("server_map") or config.get("map") or "")
     if "livonia" in map_key or map_key == "enoch":
+        inferred = inferred_base_server_profile_name(config, "livonia")
+        if inferred:
+            return inferred
         return "Livonia"
     if "sakhal" in map_key:
+        inferred = inferred_base_server_profile_name(config, "sakhal")
+        if inferred:
+            return inferred
         return "Sakhal"
+    inferred = inferred_base_server_profile_name(config, "chernarus")
+    if inferred:
+        return inferred
     return "Chernarus"
+
+
+def dayz_server_display_name(guild_id, config=None):
+    guild_id = str(guild_id)
+    _base_id, profile_id = split_server_runtime_id(guild_id)
+    runtime_config = config if isinstance(config, dict) else config_for_server_runtime(guild_id)
+    if profile_id:
+        return server_profile_name(profile_id, runtime_config)
+    return base_server_profile_name(runtime_config)
 
 
 def base_server_profile_context_config(config):
@@ -29435,10 +29489,7 @@ def heatmap_dashboard_attachment_name(guild_id, mode, pve=False):
 
 
 def heatmap_dashboard_server_name(guild_id, config):
-    _base_id, profile_id = split_server_runtime_id(guild_id)
-    if profile_id:
-        return server_profile_name(profile_id, config)
-    return base_server_profile_name(config)
+    return dayz_server_display_name(guild_id, config)
 
 
 def build_heatmap_dashboard_embed(guild_id, config, *, pve=False):
@@ -43954,8 +44005,11 @@ async def removeradarzone(interaction: discord.Interaction, zone_id: int):
 
 @bot.tree.command(name="setheatmapmode", description="Admin: choose what the heatmap tracks")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, pve, or all")
-async def setheatmapmode(interaction: discord.Interaction, mode: str):
+@app_commands.describe(
+    mode="pvp, zombie, cuts, building, raids, flags, suicide, placed, pve, or all",
+    server="Optional merged-server id, for example cherno or livo",
+)
+async def setheatmapmode(interaction: discord.Interaction, mode: str, server: str = ""):
 
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -43970,26 +44024,38 @@ async def setheatmapmode(interaction: discord.Interaction, mode: str):
         )
         return
 
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
     config["heatmap_mode"] = mode
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     await interaction.response.send_message(
-        f"Heatmap mode set to `{mode}`.",
+        f"{guild_display_name(guild_id)} heatmap mode set to `{mode}`.",
         ephemeral=True
     )
 
 
 @bot.tree.command(name="setservermap", description="Admin: set heatmap scaling to Chernarus, Livonia, or Sakhal")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(map_name="chernarus, livonia, or sakhal")
+@app_commands.describe(
+    map_name="chernarus, livonia, or sakhal",
+    server="Optional merged-server id, for example cherno or livo",
+)
 @app_commands.choices(map_name=[
     app_commands.Choice(name="Chernarus", value="chernarus"),
     app_commands.Choice(name="Livonia", value="livonia"),
     app_commands.Choice(name="Sakhal", value="sakhal"),
 ])
-async def setservermap(interaction: discord.Interaction, map_name: str):
+async def setservermap(interaction: discord.Interaction, map_name: str, server: str = ""):
 
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -44003,18 +44069,27 @@ async def setservermap(interaction: discord.Interaction, map_name: str):
         )
         return
 
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
     if wanted in ["livonia", "enoch"]:
         config["server_map"] = "livonia"
     elif wanted in ["sakhal", "sakhalplus"]:
         config["server_map"] = "sakhal"
     else:
         config["server_map"] = "chernarus"
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     await interaction.response.send_message(
-        f"Server map set to `{config['server_map']}`. New heatmap points will use that map scale.",
+        f"{guild_display_name(guild_id)} map set to `{config['server_map']}`. New heatmap points will use that map scale.",
         ephemeral=True
     )
 
@@ -48841,7 +48916,7 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     except Exception:
         pass
 
-    guild_name = guild_display_name(guild_id)
+    guild_name = dayz_server_display_name(guild_id, config)
 
     summary_embed = build_mega_leaderboard_summary_embed()
     server_embed = build_scope_leaderboard_embed(

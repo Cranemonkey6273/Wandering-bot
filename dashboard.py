@@ -4056,6 +4056,7 @@ PAGE_TEMPLATE = """
             <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks">Setup</a>
             <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}{{ profile_qs }}#feed-routes">Feeds</a>
             {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Messages</a>{% endif %}
+            {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'onboarding' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form">Onboarding</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
             {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control">Restart & Damage</a>{% endif %}
@@ -5057,7 +5058,7 @@ PAGE_TEMPLATE = """
       </section>
     </section>
     {% endif %}
-    {% if mode in ["admin", "owner"] and (active_section == "automations" or (active_section == "access" and setup_tool == "discord")) %}
+    {% if mode in ["admin", "owner"] and (active_section == "automations" or (active_section == "access" and setup_tool in ["discord", "onboarding"])) %}
     <section class="section-panel" id="automations">
       <div class="section-head">
         <div>
@@ -5334,7 +5335,7 @@ PAGE_TEMPLATE = """
           {% set onboarding = server.member_onboarding if server else {} %}
           <form id="member-onboarding-form" class="admin-form" method="post" action="/api/admin/member-onboarding" data-route="/api/admin/member-onboarding">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=automations&guild_id={{ server.guild_id if server else '' }}#member-onboarding-form">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=onboarding&guild_id={{ server.guild_id if server else '' }}#member-onboarding-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Gate enabled
               <select name="enabled">
@@ -8675,6 +8676,7 @@ PAGE_TEMPLATE = """
             <a class="quick-guide-link" href="#server-profile"><strong>Change PVE / PVP / map</strong><span>Update the basic server profile without entering Nitrado tokens again.</span></a>
             <a class="quick-guide-link" href="#nitrado-connection"><strong>Fix Nitrado connection</strong><span>Replace API token, service ID, FTP login or password only when they have changed.</span></a>
             <a class="quick-guide-link" href="/admin?section=access&setup_tool=feeds{{ server_qs }}#feed-routes"><strong>Move Discord feeds</strong><span>See every feed and choose which existing channel it posts into.</span></a>
+            <a class="quick-guide-link" href="/admin?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form"><strong>Set member onboarding</strong><span>Choose the rules channel, accepted role, linked role and next channel for new members.</span></a>
             <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control"><strong>Restart or schedule raid weekend</strong><span>Restart, stop, base damage, container damage and vehicle reset schedules.</span></a>
             <a class="quick-guide-link" href="#temporary-logins"><strong>Give staff dashboard access</strong><span>Create short-lived logins for helpers without sharing your owner details.</span></a>
             <a class="quick-guide-link" href="#linked-servers"><strong>Switch or link servers</strong><span>Join multiple dashboards into one login and choose the active server.</span></a>
@@ -8711,7 +8713,7 @@ PAGE_TEMPLATE = """
                 <option value="sakhal" {% if profile_map == 'sakhal' %}selected{% endif %}>Sakhal</option>
               </select>
             </label>
-            <label>Display name <input name="guild_name" value="{{ server.guild_name if server else '' }}" placeholder="optional dashboard name"></label>
+            <label>Display name <input name="guild_name" value="{{ server.dayz_name if server else '' }}" placeholder="Wandering Around Cherno"></label>
             <div class="full"><button type="submit">Save Server Profile</button> <span class="result muted"></span></div>
           </form>
         </article>
@@ -15082,6 +15084,7 @@ ADMIN_CENTER_SECTION_TO_TOOL = {
 
 ADMIN_CENTER_TOOL_FEATURES = {
     "discord": "embeds",
+    "onboarding": "embeds",
     "rules": "server_rules",
     "moderation": "moderation",
     "control": "server_control",
@@ -23003,16 +23006,55 @@ def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[st
 
 def dashboard_server_profile_name(profile_id: str, profile: Any) -> str:
     profile = profile if isinstance(profile, dict) else {}
-    name = str(profile.get("profile_name") or profile.get("server_name") or profile.get("name") or profile_id or "Server").strip()
+    name = str(
+        profile.get("profile_name")
+        or profile.get("server_name")
+        or profile.get("display_name")
+        or profile.get("name")
+        or profile_id
+        or "Server"
+    ).strip()
     return name[:80] or "Server"
+
+
+def dashboard_inferred_base_server_profile_name(config: Any, map_key: str) -> str:
+    config = config if isinstance(config, dict) else {}
+    profiles = dashboard_server_profile_store(config)
+    replacements = {
+        "chernarus": (r"\b(livonia|livo|enoch|sakhal|sakhalplus)\b", "Cherno"),
+        "livonia": (r"\b(chernarus|chernarusplus|cherno|sakhal|sakhalplus)\b", "Livo"),
+        "sakhal": (r"\b(chernarus|chernarusplus|cherno|livonia|livo|enoch)\b", "Sakhal"),
+    }
+    pattern, replacement = replacements.get(map_key, ("", ""))
+    if not pattern:
+        return ""
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        name = dashboard_server_profile_name("", profile)
+        if not name or name == "Server":
+            continue
+        inferred = re.sub(pattern, replacement, name, flags=re.IGNORECASE).strip()
+        if inferred and inferred != name:
+            return inferred[:80]
+    return ""
 
 
 def dashboard_base_server_profile_name(config: Any) -> str:
     config = config if isinstance(config, dict) else {}
-    explicit = str(config.get("server_profile_name") or config.get("server_name") or "").strip()
+    explicit = str(
+        config.get("server_profile_name")
+        or config.get("server_name")
+        or config.get("profile_name")
+        or config.get("display_name")
+        or ""
+    ).strip()
     if explicit:
         return explicit[:80]
     map_key = map_key_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    inferred = dashboard_inferred_base_server_profile_name(config, map_key)
+    if inferred:
+        return inferred
     if map_key == "livonia":
         return "Livonia"
     if map_key == "sakhal":
@@ -25245,6 +25287,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
             {
                 "guild_id": guild_id,
                 "guild_name": display_guild_name,
+                "dayz_name": dashboard_base_server_profile_name(config),
                 "active": not bool(config.get("bot_removed")),
                 "map": server_map,
                 "map_key": map_key_for(server_map),
@@ -25417,7 +25460,7 @@ def page(mode: str, auth: dict[str, Any]):
     if active_section not in valid_sections:
         active_section = "overview"
     setup_tool = str(request.args.get("setup_tool") or "servers").strip().lower()
-    if setup_tool not in {"servers", "feeds", "discord", "rules", "moderation", "control"}:
+    if setup_tool not in {"servers", "feeds", "discord", "onboarding", "rules", "moderation", "control"}:
         setup_tool = "servers"
     focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
     selected_state_guild_id = focused_guild_id
@@ -28483,7 +28526,7 @@ def api_server_profile():
     config["server_platform"] = server_platform
     config["server_map"] = server_map
     if display_name:
-        config["guild_name"] = display_name[:120]
+        config["server_profile_name"] = display_name[:120]
     config["server_profile_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
