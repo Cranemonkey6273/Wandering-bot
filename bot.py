@@ -7427,6 +7427,43 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
     return None
 
 
+async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False, context=""):
+    if not channel:
+        return None
+    try:
+        payload = style_embed(embed) if style else embed
+        return await channel.send(embed=payload)
+    except discord.Forbidden as err:
+        if _feed_route_should_log(guild_id, channel_key, "missing_access", seconds=60):
+            channel_id = getattr(channel, "id", "unknown")
+            channel_name = getattr(channel, "name", channel_id)
+            detail = f" during {context}" if context else ""
+            print(
+                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                f"missing Discord access{detail}; skipped feed post: {err}"
+            )
+        return None
+    except discord.NotFound as err:
+        if _feed_route_should_log(guild_id, channel_key, "not_found", seconds=60):
+            channel_id = getattr(channel, "id", "unknown")
+            channel_name = getattr(channel, "name", channel_id)
+            print(
+                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                f"could not be found; skipped feed post: {err}"
+            )
+        return None
+    except discord.HTTPException as err:
+        if _feed_route_should_log(guild_id, channel_key, "http_error", seconds=60):
+            channel_id = getattr(channel, "id", "unknown")
+            channel_name = getattr(channel, "name", channel_id)
+            detail = f" during {context}" if context else ""
+            print(
+                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                f"Discord send failed{detail}; skipped feed post: {err}"
+            )
+        return None
+
+
 def set_channel_key_disabled(config, key, disabled=True):
     disabled_keys = disabled_channel_keys(config)
     if disabled and key not in disabled_keys:
@@ -15050,12 +15087,18 @@ async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
     if not kill_details:
         return False, False
 
-    channels = config.get("channels", {})
-    killfeed_channel = bot.get_channel(channels.get("killfeed"))
-    longshot_channel = bot.get_channel(channels.get("longshots"))
+    killfeed_channel = resolve_feed_channel(guild_id, config, "killfeed", required=True)
+    longshot_channel = resolve_feed_channel(guild_id, config, "longshots", required=False)
 
     if killfeed_channel:
-        await killfeed_channel.send(embed=style_embed(build_pvp_kill_embed(kill_details, line, history, guild_id)))
+        await send_feed_embed(
+            guild_id,
+            "killfeed",
+            killfeed_channel,
+            build_pvp_kill_embed(kill_details, line, history, guild_id),
+            style=True,
+            context="pvp kill feed",
+        )
 
     distance = float(kill_details.get("distance", 0) or 0)
     guild_longshot = longshot_records.get(str(guild_id), {
@@ -15076,7 +15119,14 @@ async def send_pvp_kill_feed_message(guild_id, config, line, history=False):
         }
 
     if longshot_channel and (is_longshot or is_new_record):
-        await longshot_channel.send(embed=style_embed(build_longshot_embed(kill_details, is_new_record, history, guild_id)))
+        await send_feed_embed(
+            guild_id,
+            "longshots",
+            longshot_channel,
+            build_longshot_embed(kill_details, is_new_record, history, guild_id),
+            style=True,
+            context="longshot feed",
+        )
 
     return True, bool(is_longshot or is_new_record)
 # =========================================================
@@ -18189,7 +18239,7 @@ async def parse_adm(guild_id, config):
                     welcome_embed.set_thumbnail(url=BOT_IMAGE)
                     welcome_embed.set_footer(text="Wandering Bot Alpha • 👋 New Survivor")
                     welcome_embed.timestamp = event_time or datetime.now(UTC)
-                    await connect_channel.send(embed=style_embed(welcome_embed))
+                    await send_feed_embed(guild_id, "connections", connect_channel, welcome_embed, style=True, context="new survivor welcome")
                 except Exception as welcome_error:
                     print(f"[NEW PLAYER] welcome failed for {player_name}: {welcome_error}")
             # ── 🪖 Squad-inbound alert: 5+ connects within 60s ────
@@ -18224,7 +18274,7 @@ async def parse_adm(guild_id, config):
                     sq_embed.set_footer(text="Wandering Bot Alpha — Squad Inbound")
                     sq_embed.timestamp = event_time or datetime.now(UTC)
                     try:
-                        await killfeed_channel.send(embed=style_embed(sq_embed))
+                        await send_feed_embed(guild_id, "killfeed", killfeed_channel, sq_embed, style=True, context="squad inbound")
                     except Exception as squad_err:
                         print(f"[SQUAD INBOUND] post failed: {squad_err}")
 
@@ -18245,7 +18295,7 @@ async def parse_adm(guild_id, config):
                             m_embed.set_thumbnail(url=BOT_IMAGE)
                             m_embed.set_footer(text="Wandering Bot Alpha — Survival Streak")
                             m_embed.timestamp = event_time or datetime.now(UTC)
-                            await milestone_channel.send(embed=style_embed(m_embed))
+                            await send_feed_embed(guild_id, "killfeed", milestone_channel, m_embed, style=True, context="survival milestone")
                         except Exception as milestone_err:
                             print(f"[STREAK] milestone post failed: {milestone_err}")
 
@@ -18281,7 +18331,7 @@ async def parse_adm(guild_id, config):
             embed.timestamp = event_time
 
             if connect_channel:
-                await connect_channel.send(embed=embed)
+                await send_feed_embed(guild_id, "connections", connect_channel, embed, context="connect")
 
             await upsert_online_dashboard_message(guild_id, config, f"{player_name} joined")
 
@@ -18382,7 +18432,7 @@ async def parse_adm(guild_id, config):
             embed.timestamp = event_time
 
             if disconnect_channel:
-                await disconnect_channel.send(embed=embed)
+                await send_feed_embed(guild_id, "disconnects", disconnect_channel, embed, context="disconnect")
 
             await upsert_online_dashboard_message(guild_id, config, f"{player_name} left")
 
@@ -18498,7 +18548,7 @@ async def parse_adm(guild_id, config):
 
             embed.timestamp = event_time
 
-            await build_channel.send(embed=embed)
+            await send_feed_embed(guild_id, "building", build_channel, embed, context="build")
 
         # ================= RAID =================
 
@@ -18596,21 +18646,13 @@ async def parse_adm(guild_id, config):
 
             embed.timestamp = event_time
 
-            await raid_channel.send(embed=embed)
+            await send_feed_embed(guild_id, "raids", raid_channel, embed, context="raid")
 
         # ================= PVE HUNTING =================
 
         elif event_type == "animal_kill":
 
-            hunting_channel = bot.get_channel(
-                channels.get("pve_hunting")
-            )
-
-            if not hunting_channel:
-                guild = discord_guild_for_runtime_id(guild_id)
-                if guild and not is_channel_key_disabled(config, "pve_hunting"):
-                    created = await ensure_pve_channels(guild, config)
-                    hunting_channel = created.get("pve_hunting")
+            hunting_channel = resolve_feed_channel(guild_id, config, "pve_hunting", required=True)
 
             if hunting_channel:
 
@@ -18647,15 +18689,13 @@ async def parse_adm(guild_id, config):
 
                 embed.set_thumbnail(url=BOT_IMAGE)
                 embed.set_footer(text="Wandering Bot Alpha - PVE Hunting Feed")
-                await hunting_channel.send(embed=style_embed(embed))
+                await send_feed_embed(guild_id, "pve_hunting", hunting_channel, embed, style=True, context="pve hunting")
 
                 # ================= ZOMBIES =================
 
         elif event_type == "zombie_hit":
 
-            zombie_channel = bot.get_channel(
-                channels.get("zombie_feed")
-            )
+            zombie_channel = resolve_feed_channel(guild_id, config, "zombie_feed", required=True)
 
             if zombie_channel:
 
@@ -18683,15 +18723,11 @@ async def parse_adm(guild_id, config):
 
                 embed.timestamp = event_time
 
-                await zombie_channel.send(
-                    embed=style_embed(embed)
-                )
+                await send_feed_embed(guild_id, "zombie_feed", zombie_channel, embed, style=True, context="zombie hit")
 
         elif event_type == "zombie_kill":
 
-            zombie_channel = bot.get_channel(
-                channels.get("zombie_feed")
-            )
+            zombie_channel = resolve_feed_channel(guild_id, config, "zombie_feed", required=True)
 
             if zombie_channel:
 
@@ -18719,15 +18755,11 @@ async def parse_adm(guild_id, config):
 
                 embed.timestamp = event_time
 
-                await zombie_channel.send(
-                    embed=style_embed(embed)
-                )
+                await send_feed_embed(guild_id, "zombie_feed", zombie_channel, embed, style=True, context="zombie kill")
 
         elif event_type == "unconscious":
 
-            unconscious_channel = bot.get_channel(
-                channels.get("unconscious_feed")
-            )
+            unconscious_channel = resolve_feed_channel(guild_id, config, "unconscious_feed", required=True)
 
             if unconscious_channel:
 
@@ -18774,9 +18806,7 @@ async def parse_adm(guild_id, config):
 
                 embed.timestamp = event_time
 
-                await unconscious_channel.send(
-                    embed=style_embed(embed)
-                )
+                await send_feed_embed(guild_id, "unconscious_feed", unconscious_channel, embed, style=True, context="unconscious")
         # ================= VEHICLE KILL =================
 
         elif event_type == "vehicle_kill" and killfeed_channel:
@@ -18822,7 +18852,7 @@ async def parse_adm(guild_id, config):
                 v_embed.set_footer(text="Wandering Bot Alpha — Vehicle Carnage Tracker")
                 v_embed.timestamp = event_time or datetime.now(UTC)
                 try:
-                    await killfeed_channel.send(embed=style_embed(v_embed))
+                    await send_feed_embed(guild_id, "killfeed", killfeed_channel, v_embed, style=True, context="vehicle kill")
                 except Exception:
                     pass
 
@@ -19091,7 +19121,7 @@ async def parse_adm(guild_id, config):
                             first_blood_embed.set_footer(text="Wandering Bot Alpha • 🩸 First Blood Tracker")
                             first_blood_embed.timestamp = event_time or datetime.now(UTC)
                             try:
-                                await killfeed_channel.send(embed=style_embed(first_blood_embed))
+                                await send_feed_embed(guild_id, "killfeed", killfeed_channel, first_blood_embed, style=True, context="first blood")
                             except Exception:
                                 pass
                 except Exception as fb_error:
@@ -19105,9 +19135,7 @@ async def parse_adm(guild_id, config):
 
                 embed.timestamp = event_time
 
-                killfeed_message = await killfeed_channel.send(
-                    embed=embed
-                )
+                killfeed_message = await send_feed_embed(guild_id, "killfeed", killfeed_channel, embed, context="killfeed")
                 # 💀 AI Last Words — fire-and-forget so we don't block the
                 # killfeed if the LLM is slow. Edits the embed once words
                 # come back. Skips silently if no LLM key configured.
@@ -19147,7 +19175,7 @@ async def parse_adm(guild_id, config):
                     spree_embed.set_footer(text="Wandering Bot Alpha — Spree Watch")
                     spree_embed.timestamp = event_time or datetime.now(UTC)
                     try:
-                        await killfeed_channel.send(embed=style_embed(spree_embed))
+                        await send_feed_embed(guild_id, "killfeed", killfeed_channel, spree_embed, style=True, context="spree ended")
                     except Exception:
                         pass
 
@@ -19197,7 +19225,7 @@ async def parse_adm(guild_id, config):
                     cc_embed.set_footer(text="Wandering Bot Alpha — Daily Challenges")
                     cc_embed.timestamp = event_time or datetime.now(UTC)
                     try:
-                        await killfeed_channel.send(embed=style_embed(cc_embed))
+                        await send_feed_embed(guild_id, "killfeed", killfeed_channel, cc_embed, style=True, context="daily challenge")
                     except Exception:
                         pass
 
@@ -19276,7 +19304,7 @@ async def parse_adm(guild_id, config):
                         fb_embed.set_footer(text="Wandering Bot Alpha — First Blood Tracker")
                         fb_embed.timestamp = event_time or datetime.now(UTC)
                         try:
-                            await killfeed_channel.send(embed=style_embed(fb_embed))
+                            await send_feed_embed(guild_id, "killfeed", killfeed_channel, fb_embed, style=True, context="first blood of day")
                         except Exception:
                             pass
 
@@ -19348,7 +19376,7 @@ async def parse_adm(guild_id, config):
                                 cc_embed.set_thumbnail(url=BOT_IMAGE)
                                 cc_embed.set_footer(text="Wandering Bot Alpha — Daily Challenges")
                                 cc_embed.timestamp = event_time or datetime.now(UTC)
-                                await killfeed_channel.send(embed=style_embed(cc_embed))
+                                await send_feed_embed(guild_id, "killfeed", killfeed_channel, cc_embed, style=True, context="daily challenge")
                         except Exception:
                             pass
                     desc_lines = [
@@ -19367,7 +19395,7 @@ async def parse_adm(guild_id, config):
                     streak_embed.set_footer(text=f"Wandering Bot Alpha — Multi-Kill Window {RAMPAGE_WINDOW_SECONDS}s")
                     streak_embed.timestamp = event_time or datetime.now(UTC)
                     try:
-                        streak_msg = await killfeed_channel.send(embed=style_embed(streak_embed))
+                        streak_msg = await send_feed_embed(guild_id, "killfeed", killfeed_channel, streak_embed, style=True, context="multi-kill")
                         # Auto-thread on serious rampages so survivors can
                         # talk it out without spamming killfeed.
                         if (
@@ -19386,9 +19414,7 @@ async def parse_adm(guild_id, config):
 
                 if is_longshot or is_new_record:
 
-                    longshot_channel = bot.get_channel(
-                        channels.get("longshots")
-                    )
+                    longshot_channel = resolve_feed_channel(guild_id, config, "longshots", required=False)
 
                     if longshot_channel:
 
@@ -19439,9 +19465,7 @@ async def parse_adm(guild_id, config):
 
                         longshot_embed.timestamp = event_time
 
-                        ls_msg = await longshot_channel.send(
-                            embed=style_embed(longshot_embed)
-                        )
+                        ls_msg = await send_feed_embed(guild_id, "longshots", longshot_channel, longshot_embed, style=True, context="longshot")
                         # Thread on epic 500m+ shots
                         if (
                             distance >= THREAD_ON_LONGSHOT_METERS
