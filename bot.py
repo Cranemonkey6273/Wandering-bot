@@ -14622,11 +14622,6 @@ def generate_real_map_heatmap_image(guild_id, mode, map_key, width=512, height=3
             source_path = source
 
         base = Image.open(source_path).convert("RGBA").resize((width, height))
-        try:
-            label_font = ImageFont.truetype("arial.ttf", 12)
-        except Exception:
-            label_font = ImageFont.load_default()
-        draw_map_location_labels(ImageDraw.Draw(base), map_key, width, height, label_font)
         overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
 
@@ -14964,8 +14959,6 @@ def generate_live_player_map_image(guild_id: str):
         )
         if source_status_note:
             draw.text((760, 42), source_status_note[:52], fill=(255, 210, 120, 255), font=small_font)
-
-        draw_map_location_labels(draw, map_key, width, height, small_font)
 
         for idx, (player, coords, point) in enumerate(plotted_players, start=1):
             px, py = point
@@ -29957,8 +29950,7 @@ def build_heatmap_dashboard_embed(guild_id, config, *, pve=False):
         inline=False,
     )
     embed.set_thumbnail(url=BOT_IMAGE)
-    footer = "Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour" if pve else "Wandering Bot Alpha - Heatmap Refresh Every 1 Hour"
-    embed.set_footer(text=footer)
+    embed.set_footer(text="Powered By Wandering Bot")
     embed.timestamp = datetime.now(UTC)
     return embed, mode
 
@@ -30109,9 +30101,7 @@ async def heatmap_loop():
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
-            embed.set_footer(
-                text="Wandering Bot Alpha - Heatmap Refresh Every 1 Hour"
-            )
+            embed.set_footer(text="Powered By Wandering Bot")
 
             embed.timestamp = datetime.now(UTC)
 
@@ -30145,7 +30135,7 @@ async def heatmap_loop():
                 pve_file = discord.File(pve_heatmap_path, filename="pve_heatmap.png")
                 pve_embed.set_image(url="attachment://pve_heatmap.png")
                 pve_embed.set_thumbnail(url=BOT_IMAGE)
-                pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour")
+                pve_embed.set_footer(text="Powered By Wandering Bot")
 
                 # Purge stale PVE heatmaps before posting the fresh one.
                 await purge_self_dashboard_messages(pve_heatmap_channel, limit=10)
